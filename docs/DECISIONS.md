@@ -117,6 +117,20 @@ Architecture decision records, in the style of DownFetch's `docs/DECISIONS.md`. 
 
 **Why:** Reproducible installs matter more than avoiding lockfile churn for a desktop app with a signed release pipeline ahead.
 
+## ADR-016 — Build the gateway first
+
+**Decision:** The multi-provider gateway is built before the task orchestrator (2026-11-11, owner's choice). It works in the spirit of tools like 9router:
+- Clients the user already has (Codex, Cursor, OpenCode, scripts) point at one local base URL.
+- Each connection is an OpenAI-compatible provider account. Its key is kept in the OS credential store.
+- A **combo** is a named, ordered list of models. The gateway falls back down the list on hard errors, but only before any output has reached the client (ADR-003).
+- Every request is written to the usage ledger, and each cost carries its provenance.
+
+The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the gateway, and the Phase 0 benchmark is deferred until that layer is built.
+
+**Why:** Clients that already exist can use the gateway on day one, and the orchestrator needs the gateway anyway. The benchmark only tests the orchestrator's premise, so it can wait for it.
+
+**Cost:** For now, routing happens per request and is chosen by the client through the model name. Routing by task comes back with the orchestrator.
+
 ## Open
 
 - **License.** Not chosen yet; this is a decision for the owner.
