@@ -39,7 +39,7 @@ Browser preview (`pnpm dev`) runs on an in-memory demo that is labeled on screen
 
 `db.rs` (migrations, now at schema v2), `vault.rs`, `redact.rs`, `process.rs`, `isolation.rs` and `checks.rs` are unchanged. `bench.rs` now reads agent cost events and enforces a hard `--budget-usd` cap.
 
-`cargo test`: 49 passed, 1 ignored (the OS credential store test, which passes with `--ignored`).
+`cargo test`: 51 passed, 1 ignored (the OS credential store test, which passes with `--ignored`).
 
 ## Live verification, 2026-11-11
 
