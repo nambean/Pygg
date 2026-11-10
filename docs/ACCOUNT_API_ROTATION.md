@@ -205,3 +205,7 @@ Client permission boundary applies to every retry/fallback, including direct acc
 A route is **reliable** when it respects limits and privacy, preserves conversation continuity, reports why an account was chosen, handles transient failures safely and records all actual costs. A higher request success count achieved by defeating quota policy is **not a valid optimization**.
 
 This is a specification, not an implementation report. All strategies require version-specific integration tests before claiming 9Router-equivalent behavior.
+
+## OmniRoute-informed integration (scope decision)
+
+[OmniRoute research](OMNIROUTE_FEATURE_RESEARCH.md) adds verified shared quota-group accounting, dynamic candidate construction, circuit-breaker layering and conservative pre-stream failover to the account pool roadmap. Keep pool selection distinct from model selection. Do **not** extrapolate free quotas across distinct model entries using the same pool, or rotate credentials to bypass shared provider limits. Cost-aware affinity and quota-weighted selection remain subject to empirical eligibility and concurrency tests.
