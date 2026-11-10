@@ -183,3 +183,13 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 **Safety:** do not use account/key/IP rotation to circumvent bans, quotas, subscription terms, shared tenant limits or user authorization. Do not silently change an active agent attempt, tool call or stream. 401 and 403 are not normal transient errors.
 
 **Status:** specified, not implemented. See [ACCOUNT_API_ROTATION.md](ACCOUNT_API_ROTATION.md).
+
+## ADR-024 — OmniRoute feature shortlist and validation gates (2026-11-11)
+
+**Decision:** Adapt OmniRoute-style dynamic Auto-Combo candidate construction, verified Free Tier Intelligence with quota-group deduplication, explainable hard filters, bounded pre-stream failover/circuit breakers and conservative tool-output compression. Build on existing Account Pool and Universal Shared Memory designs rather than copying the upstream gateway. Later evaluate cache-aware affinity, quality-calibrated scoring, and opt-in semantic caching.
+
+**Rejected for default product:** multi-model fusion/chaos, dozens of surfaced strategies, unsafe credential or TLS/browser impersonation, aggressive lossy context compression without independent benchmarks, and marketing claims derived solely from upstream benchmarks.
+
+**Evidence:** documentation and public source references inspected; no local OmniRoute benchmark executed. No production savings or completed integration claimed.
+
+**Implementation gate:** provider-verified entitlements, no privacy or budget bypass, safe rollback and controlled quality/cost-per-success evaluation. See [research and detailed adoption matrix](OMNIROUTE_FEATURE_RESEARCH.md).
