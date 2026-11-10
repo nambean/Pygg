@@ -240,3 +240,7 @@ Don't insert memory extraction in the critical path of every message; use bounde
 - Accounted cost includes compaction and cache misses, and reports unknown values honestly.
 - Auto chat does not ask user to choose a model on normal turns.
 - User can disable/delete extracted memory and the data is excluded from subsequent context builds.
+
+## OmniRoute-informed context/cost interactions
+
+The [OmniRoute adoption decision](OMNIROUTE_FEATURE_RESEARCH.md) reinforces **safe session deduplication, prompt-cache affinity and bounded context relay**. Implement deterministic repeated-event dedup separately from semantic memory compaction. Avoid lossy rewriting of system/tool schemas, recent turns, active tool calls or code edits. Model switching must compare cache miss, summary and rehydration costs; there is no portable KV cache across providers. A memory handoff is never assumed to reproduce hidden reasoning.
