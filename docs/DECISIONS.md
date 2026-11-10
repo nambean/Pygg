@@ -135,3 +135,25 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 - **License.** Not chosen yet; this is a decision for the owner.
 - **Phase 0/1 agent CLI.** The proposal is OpenCode, because it is built for many providers. Version 1.18.4 is installed on the development machine, and its `run` command takes `-m provider/model`, `-f`, `--dir`, `--format json` and `--auto`, which is everything the harness needs. Still to verify against a real model: that it edits files reliably, and that its JSON events report token usage.
+
+## ADR-017 — Universal, provider-independent conversation memory (proposed)
+
+**Decision:** Plan a canonical local conversation event log, versioned summaries, scoped long-term facts, retrieval and task checkpoints so GPT, Claude, Gemini and local models can share **visible, authorized context**. The event log is source of truth; summary and retrieval indexes are derived. Provider KV caches, hidden reasoning and proprietary tool handles cannot be transferred.
+
+**Why:** switching models inside long conversations otherwise loses context or requires expensive replay; memories must belong to the user, not one provider.
+
+**Status:** proposed design, not implemented. Detailed specification: [UNIVERSAL_SHARED_MEMORY.md](UNIVERSAL_SHARED_MEMORY.md).
+
+## ADR-018 — Cache-aware model affinity with no per-turn model picker (proposed)
+
+**Decision:** In everyday Auto Chat, select from connected eligible models without asking user to pick a model every turn. Choose **Stay / Switch / Compact & Switch / Escalate** by expected full cost (including cache misses, context rebuild, memory operations, retries) and minimum quality/privacy constraints. Switch at clean turn boundaries only. Explicit spending and sensitive tool actions still require approval.
+
+**Why:** a cheaper output-token price may be overwhelmed by cache loss and rehydration cost; uninterrupted user experience is central to an AI Cost Optimizer.
+
+**Status:** proposed and requires cross-provider evaluation. Reference: [UNIVERSAL_SHARED_MEMORY.md](UNIVERSAL_SHARED_MEMORY.md).
+
+## ADR-019 — Gateway-first is current, benchmark-first order superseded
+
+**Decision:** ADR-016's gateway-first sequence is current. ADR-013's benchmark-first order is retained as historical rationale but is superseded **for implementation order**. Validate model selection, conversation handoff and coding cascades in reproducible experiments before public savings claims.
+
+**Status:** roadmap clarification only; does not imply gateway or memory engine implementation.
