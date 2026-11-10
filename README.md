@@ -27,6 +27,10 @@ SmartTaskRouter will also offer a **headless terminal CLI and npm/npx launcher**
 
 See [CLI / IDE Integrations, npm & Provider Tiers](docs/CLI_IDE_NPM_PROVIDER_TIERS.md). No npm publication or integration compatibility is claimed yet.
 
+## Multi-account / API key rotation (planned)
+
+Authorized accounts and API connections can be grouped into **Account Pools** with Fill First, Round Robin, Sticky Round Robin, Cost-Aware and bounded failover policies. Session affinity preserves provider prompt caches and Shared Memory continuity; quota resets, provider policy, per-client allowlists and spend caps are hard constraints. See [Account/API Rotation specification](docs/ACCOUNT_API_ROTATION.md). This feature is designed, **not implemented**.
+
 ## Navigation
 
 The app is list-first like DownFetch: the task list is home, filtered from the sidebar (All Tasks, Running, Needs Approval, Completed, Failed, Stopped) and scoped by workspace.
