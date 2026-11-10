@@ -6,6 +6,8 @@
 
 ## Product vision
 
+**Market entry versus long-term vision:** initial validation prioritizes users with metered API/agent workloads where cost-per-success is measurable; SmartTaskRouter's broader goal remains automatic model optimization for everyday users too. Saving tokens is not equivalent to saving subscription money.
+
 SmartTaskRouter is a desktop-first AI Cost Optimizer for everyday AI users and developers who connect multiple providers. The goal is to let people ask normally without choosing a model on every message. Provider, quota and endpoint management are inspired by 9Router. The difference is that SmartTaskRouter routes whole tasks and stages, not single requests: it tries cheaper models first where the result can be verified automatically, and escalates with an explanation.
 
 - **Orchestrator first:** routing happens at task/stage boundaries. The local gateway enforces policy and records usage, and never switches models silently within an agent session.
@@ -112,6 +114,10 @@ cargo run --bin gateway -- serve
 Without `--label`, a preset's connection is named after the provider, so the Gemini connection's id is `google-gemini`.
 
 The design review skill is pinned in `skills-lock.json` and installed under `.agents/skills/`, which is git-ignored. Decisions are recorded in [docs/DECISIONS.md](docs/DECISIONS.md).
+
+## Architecture review reconciliation (2026-11-11)
+
+Claude's [architecture review](docs/reviews/2026-11-11-architecture-review.md) and the [independent response](docs/reviews/2026-11-11-review-response.md) identified cache, fallback, budget, session identity and roadmap risks. **The [single authoritative roadmap](docs/ROADMAP.md) now puts cost-safe gateway parity ahead of new optimizer features.** The gateway and desktop screens already exist; read [Implementation Status](docs/IMPLEMENTATION-STATUS.md) before treating a proposed capability as shipped. The `gateway serve` binary and port `8741` are implemented; proposed `str start` / npm distribution are not.
 
 ## Roadmap
 
