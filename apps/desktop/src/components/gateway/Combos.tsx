@@ -99,7 +99,8 @@ function ComboSheet({combo, connections, models, existing, onClose}: {
     const connection = connections.find(c => c.id === m.providerId);
     if (!connection) return t('Connection removed');
     if (!connection.enabled) return t('Connection disabled · skipped');
-    return model ? billingLabel(model.billing) + (model.price ? ` · ${t('priced')}` : '') : t('Not in the model list');
+    const wire = connection.wire === 'anthropic' ? ` · ${t('Anthropic clients only')}` : '';
+    return (model ? billingLabel(model.billing) + (model.price ? ` · ${t('priced')}` : '') : t('Not in the model list')) + wire;
   };
 
   return <Sheet title={combo ? t('Edit {name}', {name: combo.name}) : t('New Combo')}

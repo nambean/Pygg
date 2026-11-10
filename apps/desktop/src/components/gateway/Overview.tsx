@@ -182,9 +182,9 @@ function ClientSetup({baseUrl, routes, hasToken, onCreateToken}: {
   const model = picked && routes.some(r => r.value === picked) ? picked : routes[0]?.value ?? 'coding';
   const snippet = snippetFor(kind, shell, baseUrl, model);
   const notes: Record<ClientKind, string> = {
-    claude: t('Claude Code talks the Anthropic Messages API; the gateway translates it for every connection. All three default models point at the route you pick.'),
-    opencode: t('Add this provider to opencode.json in your project or ~/.config/opencode/.'),
-    sdk: t('Any OpenAI-compatible SDK works the same way: base URL, token, and a route as the model.'),
+    claude: t('Claude Code talks the Anthropic Messages API. To an Anthropic connection it passes through unchanged, prompt cache included; other connections get a translation. The session header keeps each terminal on one model.'),
+    opencode: t('Add this provider to opencode.json in your project or ~/.config/opencode/. The fixed session header keeps OpenCode on one model of a combo.'),
+    sdk: t('Any OpenAI-compatible SDK works the same way: base URL, token, and a route as the model. Send one session header per conversation to keep it on one model.'),
     curl: t('A quick check from a terminal.'),
   };
   return <section className="group">
@@ -223,15 +223,19 @@ export function snippetFor(kind: ClientKind, shell: Shell, baseUrl: string, mode
     const vars: [string, string][] = [['ANTHROPIC_BASE_URL', baseUrl], ['ANTHROPIC_AUTH_TOKEN', '%TOKEN%'],
       ['ANTHROPIC_MODEL', model], ['ANTHROPIC_DEFAULT_OPUS_MODEL', model], ['ANTHROPIC_DEFAULT_SONNET_MODEL', model],
       ['ANTHROPIC_DEFAULT_HAIKU_MODEL', model]];
+    // A fresh session id per terminal keeps each Claude Code session on one model, and so on one prompt cache.
     return shell === 'powershell'
-      ? vars.map(([k, v]) => `$env:${k} = ${v === '%TOKEN%' ? '$env:SMARTTASKROUTER_TOKEN' : `"${v}"`}`).join('\n') + '\nclaude'
-      : vars.map(([k, v]) => `export ${k}=${v === '%TOKEN%' ? '"$SMARTTASKROUTER_TOKEN"' : `"${v}"`}`).join('\n') + '\nclaude';
+      ? vars.map(([k, v]) => `$env:${k} = ${v === '%TOKEN%' ? '$env:SMARTTASKROUTER_TOKEN' : `"${v}"`}`).join('\n')
+        + '\n$env:ANTHROPIC_CUSTOM_HEADERS = "x-smarttaskrouter-session: $([guid]::NewGuid())"\nclaude'
+      : vars.map(([k, v]) => `export ${k}=${v === '%TOKEN%' ? '"$SMARTTASKROUTER_TOKEN"' : `"${v}"`}`).join('\n')
+        + '\nexport ANTHROPIC_CUSTOM_HEADERS="x-smarttaskrouter-session: $(uuidgen)"\nclaude';
   }
   if (kind === 'opencode') {
     return JSON.stringify({
       $schema: 'https://opencode.ai/config.json',
       provider: {smarttaskrouter: {npm: '@ai-sdk/openai-compatible', name: 'SmartTaskRouter',
-        options: {baseURL: v1, apiKey: '{env:SMARTTASKROUTER_TOKEN}'}, models: {[model]: {name: model}}}},
+        options: {baseURL: v1, apiKey: '{env:SMARTTASKROUTER_TOKEN}', headers: {'x-smarttaskrouter-session': 'opencode'}},
+        models: {[model]: {name: model}}}},
       model: `smarttaskrouter/${model}`,
     }, null, 2);
   }
@@ -240,7 +244,8 @@ export function snippetFor(kind: ClientKind, shell: Shell, baseUrl: string, mode
       'import os',
       'from openai import OpenAI',
       '',
-      `client = OpenAI(base_url="${v1}", api_key=os.environ["SMARTTASKROUTER_TOKEN"])`,
+      `client = OpenAI(base_url="${v1}", api_key=os.environ["SMARTTASKROUTER_TOKEN"],`,
+      '                default_headers={"x-smarttaskrouter-session": "my-conversation"})',
       `reply = client.chat.completions.create(model="${model}", messages=[{"role": "user", "content": "Hello"}])`,
       'print(reply.choices[0].message.content)',
     ].join('\n');

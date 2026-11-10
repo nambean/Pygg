@@ -344,4 +344,79 @@ export const gateway: Record<string, string> = {
   'Cut short before usage was reported': 'Bị cắt ngang trước khi mức dùng được báo',
   'Not sent': 'Chưa gửi',
   'Could not connect; not sent': 'Không kết nối được; chưa gửi',
+
+  // Cost-safe gateway (ROADMAP P0-1..P0-4)
+  'API': 'API',
+  'Anthropic': 'Anthropic',
+  'Anthropic Messages': 'Anthropic Messages',
+  'OpenAI Chat Completions': 'OpenAI Chat Completions',
+  'Anthropic requests (Claude Code) pass through unchanged, prompt cache included. OpenAI-format clients can’t use it yet.':
+    'Request Anthropic (Claude Code) được chuyển tiếp nguyên vẹn, giữ cả prompt cache. Client định dạng OpenAI chưa dùng được kết nối này.',
+  'OpenAI-format requests pass through unchanged. Anthropic requests are translated, and prompt-cache hints survive only where the provider accepts them.':
+    'Request định dạng OpenAI được chuyển tiếp nguyên vẹn. Request Anthropic được dịch, và đánh dấu prompt cache chỉ được giữ ở nhà cung cấp chấp nhận nó.',
+  'Anthropic clients only': 'chỉ client Anthropic',
+  'Custom (OpenAI)': 'Tùy chỉnh (OpenAI)',
+  'Custom (Anthropic)': 'Tùy chỉnh (Anthropic)',
+  'The base URL before /messages, e.g. https://api.example.com/v1': 'Base URL đứng trước /messages, ví dụ https://api.example.com/v1',
+  'Key rejected': 'Key bị từ chối',
+  'Not allowed': 'Không được phép',
+  'Payment required': 'Cần thanh toán',
+  'Rate-limited': 'Bị giới hạn tốc độ',
+  'Model unavailable': 'Model không khả dụng',
+  'Provider error': 'Lỗi từ nhà cung cấp',
+  'Unreachable': 'Không kết nối được',
+  'whole connection': 'cả kết nối',
+  'skipped {when}': 'bỏ qua {when}',
+  'for {n} s': 'trong {n} giây',
+  'for {n} min': 'trong {n} phút',
+  'until you replace the key': 'cho tới khi bạn thay key',
+  'until you clear it': 'cho tới khi bạn xoá trạng thái này',
+  '{n} model cooling down': '{n} model đang tạm nghỉ',
+  '{n} models cooling down': '{n} model đang tạm nghỉ',
+  'Skipped targets are not called, so they cost nothing and don’t make the limit worse.':
+    'Model bị bỏ qua sẽ không được gọi, nên không tốn tiền và không làm giới hạn tệ thêm.',
+  'Try Again Now': 'Thử lại ngay',
+  'See below': 'Xem bên dưới',
+  'No problems seen': 'Chưa thấy vấn đề',
+  'Own organization': 'Tổ chức riêng',
+  'Has its own limits. When another connection is rate-limited or refused, this one may still answer.':
+    'Có giới hạn riêng. Khi kết nối khác bị giới hạn hoặc từ chối, kết nối này vẫn có thể trả lời.',
+  'Shares limits with {names}. After a rate limit or refusal on one, the others aren’t tried for that request; using a second key to get around a limit can break the provider’s terms.':
+    'Dùng chung giới hạn với {names}. Khi một kết nối bị giới hạn hoặc từ chối, các kết nối kia không được thử cho request đó; dùng key thứ hai để lách giới hạn có thể vi phạm điều khoản của nhà cung cấp.',
+  'Assumed to share limits with other {provider} connections you add. Turn on only if it belongs to a different organization or account.':
+    'Được coi là dùng chung giới hạn với các kết nối {provider} khác bạn thêm. Chỉ bật nếu nó thuộc một tổ chức hoặc tài khoản khác.',
+  'Cache write': 'Ghi cache',
+  'Optional. Anthropic charges extra to write the cache; without it, writes are priced as input and the ledger says so.':
+    'Không bắt buộc. Anthropic tính thêm phí khi ghi cache; nếu bỏ trống, phần ghi được tính như đầu vào và sổ chi phí ghi rõ điều đó.',
+  'Limits…': 'Giới hạn…',
+  'Limits for {name}': 'Giới hạn cho {name}',
+  'Save Limits': 'Lưu giới hạn',
+  'Unknown price': 'Giá chưa rõ',
+  'Block': 'Chặn',
+  'Allow': 'Cho phép',
+  'Applies once the client has a limit.': 'Có hiệu lực khi client có hạn mức.',
+  'Models without a price are skipped, so the limit can’t be passed unseen.':
+    'Model chưa có giá sẽ bị bỏ qua, để hạn mức không bị vượt mà không ai thấy.',
+  'Models without a price may answer; their cost isn’t counted against the limit.':
+    'Model chưa có giá vẫn được trả lời; chi phí của chúng không được tính vào hạn mức.',
+  'At once': 'Cùng lúc',
+  'Requests this client may have in flight. More are refused with 429 until one finishes.':
+    'Số request client này được chạy cùng lúc. Request vượt quá bị từ chối với mã 429 cho tới khi có request xong.',
+  'up to {n} request at once': 'tối đa {n} request cùng lúc',
+  'up to {n} requests at once': 'tối đa {n} request cùng lúc',
+  'unknown prices blocked': 'chặn giá chưa rõ',
+  'unknown prices allowed': 'cho phép giá chưa rõ',
+  '{amount} held for requests in flight': '{amount} đang giữ cho request đang chạy',
+  'Prompt cache': 'Prompt cache',
+  '{read} read · {write} written': '{read} đọc · {write} ghi',
+  'Route': 'Đường đi',
+  'Passed through in the same format': 'Chuyển tiếp nguyên định dạng',
+  'Translated ({mode})': 'Đã dịch ({mode})',
+  'Session': 'Phiên',
+  'Claude Code talks the Anthropic Messages API. To an Anthropic connection it passes through unchanged, prompt cache included; other connections get a translation. The session header keeps each terminal on one model.':
+    'Claude Code dùng Anthropic Messages API. Tới kết nối Anthropic, request được chuyển tiếp nguyên vẹn, giữ cả prompt cache; các kết nối khác nhận bản dịch. Header session giữ mỗi terminal trên một model.',
+  'Add this provider to opencode.json in your project or ~/.config/opencode/. The fixed session header keeps OpenCode on one model of a combo.':
+    'Thêm nhà cung cấp này vào opencode.json trong dự án hoặc trong ~/.config/opencode/. Header session cố định giữ OpenCode trên một model của combo.',
+  'Any OpenAI-compatible SDK works the same way: base URL, token, and a route as the model. Send one session header per conversation to keep it on one model.':
+    'Mọi SDK tương thích OpenAI đều dùng như nhau: base URL, token, và một tuyến ở chỗ tên model. Gửi một header session cho mỗi hội thoại để giữ nó trên một model.',
 };

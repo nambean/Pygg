@@ -37,12 +37,13 @@ export function Clients({intent, onIntentDone}: {intent?: 'create'; onIntentDone
             </tr></thead>
             <tbody>
               {[...active, ...revoked].map(c => <tr key={c.id} className={c.revokedAt ? 'disabled-row' : ''}>
-                <td>{c.name}{c.revokedAt && <> <Badge tone="off">{t('Revoked')}</Badge></>}</td>
+                <td><span className="client-name">{c.name}{c.revokedAt && <> <Badge tone="off">{t('Revoked')}</Badge></>}</span>
+                  {!c.revokedAt && <small className="secondary">{policySummary(c)}</small>}</td>
                 <td className="mono secondary">{c.tokenPrefix}…</td>
                 <td className="secondary">{c.lastUsedAt ? ago(c.lastUsedAt) : t('Never')}</td>
                 <td><Spend client={c}/></td>
                 <td className="narrow row-buttons">{!c.revokedAt && <>
-                  <button type="button" className="button small" onClick={() => setLimit(c)}>{t('Limit…')}</button>
+                  <button type="button" className="button small" onClick={() => setLimit(c)}>{t('Limits…')}</button>
                   <button type="button" className="button small" onClick={() => setRevoking(c)}>{t('Revoke…')}</button>
                 </>}</td>
               </tr>)}
@@ -69,8 +70,15 @@ function Spend({client: c}: {client: Client}) {
     {limit ? <span className={share >= 1 ? 'meter full' : share >= 0.8 ? 'meter high' : 'meter'} role="meter"
       aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)} aria-label={t('Share of the monthly limit')}>
       <span style={{width: `${share * 100}%`}}/></span> : null}
+    {c.reservedMicroUsd > 0 && <small className="secondary">{t('{amount} held for requests in flight', {amount: microUsd(c.reservedMicroUsd)})}</small>}
     {c.monthUnknownRequests > 0 && <small className="secondary">{plural(c.monthUnknownRequests, '+ {n} request with unknown cost', '+ {n} requests with unknown cost')}</small>}
   </span>;
+}
+
+function policySummary(c: Client): string {
+  const unknown = c.monthlyBudgetMicroUsd === null ? '' : c.unknownCostPolicy === 'block'
+    ? ` · ${t('unknown prices blocked')}` : ` · ${t('unknown prices allowed')}`;
+  return plural(c.maxConcurrency, 'up to {n} request at once', 'up to {n} requests at once') + unknown;
 }
 
 function CreateSheet({onClose}: {onClose: () => void}) {
@@ -132,20 +140,27 @@ function CreateSheet({onClose}: {onClose: () => void}) {
 
 function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void}) {
   const [limit, setLimit] = useState(c.monthlyBudgetMicroUsd ? String(c.monthlyBudgetMicroUsd / 1_000_000) : '');
+  const [unknown, setUnknown] = useState(c.unknownCostPolicy);
+  const [concurrency, setConcurrency] = useState(String(c.maxConcurrency));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const amount = parseUsd(limit);
-  const valid = amount === null || (Number.isFinite(amount) && amount > 0);
+  const inFlight = Number(concurrency);
+  const valid = (amount === null || (Number.isFinite(amount) && amount > 0))
+    && /^\d+$/.test(concurrency) && inFlight >= 1 && inFlight <= 256;
   const save = () => {
     setBusy(true);
-    call(api => api.setClientBudget(c.id, amount)).then(() => { gatewayChanged(); onClose(); }, e => { setError(errorText(e)); setBusy(false); });
+    call(async api => {
+      await api.setClientBudget(c.id, amount);
+      await api.setClientPolicy(c.id, {maxConcurrency: inFlight, unknownCostPolicy: unknown});
+    }).then(() => { gatewayChanged(); onClose(); }, e => { setError(errorText(e)); setBusy(false); });
   };
-  return <Sheet title={t('Monthly Limit for {name}', {name: c.name})}
+  return <Sheet title={t('Limits for {name}', {name: c.name})}
     subtitle={t('Spent so far this month: {amount} known.', {amount: microUsd(c.monthSpendMicroUsd)})} onClose={onClose} busy={busy} className="narrow"
     footer={<>
       <span className="spacer"/>
       <button type="button" className="button" onClick={onClose} disabled={busy}>{t('Cancel')}</button>
-      <button type="button" className="button prominent" onClick={save} disabled={busy || !valid}>{t('Save Limit')}</button>
+      <button type="button" className="button prominent" onClick={save} disabled={busy || !valid}>{t('Save Limits')}</button>
     </>}>
     <div className="form">
       <FormRow label={t('Monthly limit')} htmlFor="limit" hint={t('Leave empty for no limit. Resets on the 1st (UTC).')}>
@@ -153,6 +168,19 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
           <span aria-hidden>$</span>
           <input id="limit" inputMode="decimal" value={limit} onChange={e => setLimit(e.target.value)} placeholder={t('No limit')} autoFocus/>
         </span>
+      </FormRow>
+      <FormRow label={t('Unknown price')} htmlFor="unknown-policy"
+        hint={amount === null ? t('Applies once the client has a limit.')
+          : unknown === 'block' ? t('Models without a price are skipped, so the limit can’t be passed unseen.')
+          : t('Models without a price may answer; their cost isn’t counted against the limit.')}>
+        <select id="unknown-policy" className="popup-button" value={unknown} onChange={e => setUnknown(e.target.value as 'block' | 'allow')}>
+          <option value="block">{t('Block')}</option>
+          <option value="allow">{t('Allow')}</option>
+        </select>
+      </FormRow>
+      <FormRow label={t('At once')} htmlFor="concurrency" hint={t('Requests this client may have in flight. More are refused with 429 until one finishes.')}>
+        <input id="concurrency" className="text-input narrow-input" inputMode="numeric" value={concurrency}
+          onChange={e => setConcurrency(e.target.value)} aria-invalid={!/^\d+$/.test(concurrency) || inFlight < 1 || inFlight > 256}/>
       </FormRow>
     </div>
     {c.monthUnknownRequests > 0 && <p className="sheet-text secondary">

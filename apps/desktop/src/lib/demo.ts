@@ -4,20 +4,24 @@
  * data" banner whenever this is in use (ADR-014). It follows the core's rules (slugs, validation, honest
  * costs) closely enough for design review, not as a test of them.
  */
-import type { Billing, Client, Combo, Connection, GatewayApi, GatewayStatus, Model, Preset, Target, UsageEvent,
-  UsageGroup, UsageSummary } from './api';
+import type { Billing, Client, Combo, Connection, GatewayApi, GatewayStatus, Health, Model, Preset, Target, UsageEvent,
+  UsageGroup, UsageSummary, Wire } from './api';
 
 const PRESETS: Preset[] = [
-  {id: 'gemini', name: 'Google Gemini', endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai', needsKey: true, defaultBilling: 'unknown'},
-  {id: 'openrouter', name: 'OpenRouter', endpoint: 'https://openrouter.ai/api/v1', needsKey: true, defaultBilling: 'paid'},
-  {id: 'openai', name: 'OpenAI', endpoint: 'https://api.openai.com/v1', needsKey: true, defaultBilling: 'paid'},
-  {id: 'groq', name: 'Groq', endpoint: 'https://api.groq.com/openai/v1', needsKey: true, defaultBilling: 'unknown'},
-  {id: 'deepseek', name: 'DeepSeek', endpoint: 'https://api.deepseek.com/v1', needsKey: true, defaultBilling: 'paid'},
-  {id: 'ollama', name: 'Ollama', endpoint: 'http://127.0.0.1:11434/v1', needsKey: false, defaultBilling: 'local'},
-  {id: 'custom', name: 'Custom (OpenAI-compatible)', endpoint: null, needsKey: false, defaultBilling: 'unknown'},
+  {id: 'gemini', name: 'Google Gemini', endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai', needsKey: true, defaultBilling: 'unknown', wire: 'openai'},
+  {id: 'anthropic', name: 'Anthropic', endpoint: 'https://api.anthropic.com/v1', needsKey: true, defaultBilling: 'paid', wire: 'anthropic'},
+  {id: 'openrouter', name: 'OpenRouter', endpoint: 'https://openrouter.ai/api/v1', needsKey: true, defaultBilling: 'paid', wire: 'openai'},
+  {id: 'openai', name: 'OpenAI', endpoint: 'https://api.openai.com/v1', needsKey: true, defaultBilling: 'paid', wire: 'openai'},
+  {id: 'groq', name: 'Groq', endpoint: 'https://api.groq.com/openai/v1', needsKey: true, defaultBilling: 'unknown', wire: 'openai'},
+  {id: 'deepseek', name: 'DeepSeek', endpoint: 'https://api.deepseek.com/v1', needsKey: true, defaultBilling: 'paid', wire: 'openai'},
+  {id: 'ollama', name: 'Ollama', endpoint: 'http://127.0.0.1:11434/v1', needsKey: false, defaultBilling: 'local', wire: 'openai'},
+  {id: 'custom', name: 'Custom (OpenAI-compatible)', endpoint: null, needsKey: false, defaultBilling: 'unknown', wire: 'openai'},
+  {id: 'custom-anthropic', name: 'Custom (Anthropic-compatible)', endpoint: null, needsKey: false, defaultBilling: 'unknown', wire: 'anthropic'},
 ];
 
 const DEMO_MODELS: Record<string, string[]> = {
+  anthropic: ['claude-haiku-4-5', 'claude-sonnet-4-5'],
+  'custom-anthropic': [],
   gemini: ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview', 'gemini-3.5-flash'],
   openrouter: ['anthropic/claude-sonnet-4.5', 'deepseek/deepseek-chat', 'openai/gpt-4.1-mini', 'qwen/qwen3-coder'],
   openai: ['gpt-4.1', 'gpt-4.1-mini', 'gpt-5-mini'],
@@ -36,18 +40,21 @@ function slug(label: string): string {
   return out || 'connection';
 }
 
-type Stored = Omit<Connection, 'presetName' | 'hasKey' | 'needsKey' | 'models'> & {key: boolean};
+type Stored = Omit<Connection, 'presetName' | 'hasKey' | 'needsKey' | 'models' | 'health' | 'sharesQuotaWith' | 'quotaGroup'>
+  & {key: boolean};
 
 export function demoApi(): GatewayApi {
   const now = Date.now();
   let status: GatewayStatus = {state: 'running', port: 8741, baseUrl: 'http://127.0.0.1:8741', error: null, autostart: true};
   const connections: Stored[] = [
     {id: 'gemini', kind: 'gemini', label: 'Gemini', endpoint: PRESETS[0].endpoint!, enabled: true, credentialRef: 'provider-demo1',
-      defaultBilling: 'unknown', dataUseTerms: 'unknown', createdAt: now - 6 * 86_400_000, key: true},
+      defaultBilling: 'unknown', dataUseTerms: 'unknown', createdAt: now - 6 * 86_400_000, key: true, wire: 'openai', separateQuota: false},
+    {id: 'anthropic', kind: 'anthropic', label: 'Anthropic', endpoint: PRESETS[1].endpoint!, enabled: true, credentialRef: 'provider-demo3',
+      defaultBilling: 'paid', dataUseTerms: 'unknown', createdAt: now - 6 * 86_400_000, key: true, wire: 'anthropic', separateQuota: false},
     {id: 'openrouter', kind: 'openrouter', label: 'OpenRouter', endpoint: PRESETS[1].endpoint!, enabled: true, credentialRef: 'provider-demo2',
-      defaultBilling: 'paid', dataUseTerms: 'unknown', createdAt: now - 5 * 86_400_000, key: true},
+      defaultBilling: 'paid', dataUseTerms: 'unknown', createdAt: now - 5 * 86_400_000, key: true, wire: 'openai', separateQuota: false},
     {id: 'ollama', kind: 'ollama', label: 'Ollama', endpoint: PRESETS[5].endpoint!, enabled: true, credentialRef: null,
-      defaultBilling: 'local', dataUseTerms: 'unknown', createdAt: now - 4 * 86_400_000, key: false},
+      defaultBilling: 'local', dataUseTerms: 'unknown', createdAt: now - 4 * 86_400_000, key: false, wire: 'openai', separateQuota: false},
   ];
   const models: Model[] = [];
   const addModels = (providerId: string, ids: string[]) => {
@@ -59,22 +66,34 @@ export function demoApi(): GatewayApi {
     }
   };
   addModels('gemini', DEMO_MODELS.gemini);
+  addModels('anthropic', DEMO_MODELS.anthropic);
   addModels('openrouter', DEMO_MODELS.openrouter);
   addModels('ollama', DEMO_MODELS.ollama);
   const priced = models.find(m => m.modelId === 'gemini-3.1-flash-lite')!;
   priced.price = {inputMicroPerMtok: 100_000, outputMicroPerMtok: 400_000, cachedInputMicroPerMtok: 25_000, source: 'user', observedAt: now - 86_400_000};
+  const sonnet = models.find(m => m.modelId === 'claude-sonnet-4-5')!;
+  sonnet.price = {inputMicroPerMtok: 3_000_000, outputMicroPerMtok: 15_000_000, cachedInputMicroPerMtok: 300_000,
+    cacheWriteMicroPerMtok: 3_750_000, source: 'user', observedAt: now - 86_400_000};
+  // A cooldown to show what a 429 looks like.
+  const health: Health[] = [{providerId: 'gemini', modelId: 'gemini-3.1-pro-preview', state: 'rate_limited',
+    reason: 'Gemini answered HTTP 429: Resource has been exhausted (e.g. check quota).', httpStatus: 429,
+    untilMs: now + 95_000, updatedAt: now - 25_000}];
 
   const combos: Combo[] = [
     {id: 'c1', name: 'coding', members: [{providerId: 'gemini', modelId: 'gemini-3.1-flash-lite'},
       {providerId: 'openrouter', modelId: 'qwen/qwen3-coder'}, {providerId: 'gemini', modelId: 'gemini-3.1-pro-preview'}]},
+    {id: 'c3', name: 'claude', members: [{providerId: 'anthropic', modelId: 'claude-sonnet-4-5'},
+      {providerId: 'anthropic', modelId: 'claude-haiku-4-5'}]},
     {id: 'c2', name: 'local-first', members: [{providerId: 'ollama', modelId: 'qwen2.5-coder:7b'},
       {providerId: 'gemini', modelId: 'gemini-3.1-flash-lite'}]},
   ];
   const clients: (Client & {spend: number})[] = [
     {id: 'k1', name: 'Claude Code', tokenPrefix: 'str-3f9a1c0b', monthlyBudgetMicroUsd: 20_000_000, createdAt: now - 5 * 86_400_000,
-      lastUsedAt: now - 4 * 60_000, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0},
+      lastUsedAt: now - 4 * 60_000, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0,
+      maxConcurrency: 8, unknownCostPolicy: 'block', reservedMicroUsd: 412_000},
     {id: 'k2', name: 'Scripts', tokenPrefix: 'str-81d2e7aa', monthlyBudgetMicroUsd: null, createdAt: now - 3 * 86_400_000,
-      lastUsedAt: now - 3 * 3_600_000, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0},
+      lastUsedAt: now - 3 * 3_600_000, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0,
+      maxConcurrency: 4, unknownCostPolicy: 'allow', reservedMicroUsd: 0},
   ];
 
   // A day and a half of plausible traffic: mostly priced Flash-Lite, some fallbacks, some unknown costs.
@@ -87,8 +106,16 @@ export function demoApi(): GatewayApi {
     const input = Math.round(2_000 + random() * 30_000);
     const output = Math.round(100 + random() * 2_000);
     const roll = random();
-    const base = {createdAt: at, client, requestedModel: 'coding', latencyMs: Math.round(400 + random() * 5_000), error: null};
-    if (roll < 0.1) {
+    const base = {createdAt: at, client, requestedModel: 'coding', latencyMs: Math.round(400 + random() * 5_000), error: null,
+      cacheTokens: null, cacheWriteTokens: null, sessionKey: client === 'Claude Code' ? 'shell-7f3a' : null, routeMode: 'native'};
+    if (roll < 0.05) {
+      // Claude Code on Anthropic, passed through unchanged: most of the prompt is read from the cache.
+      const read = Math.round(input * 0.9), write = Math.round(input * 0.08);
+      events.push({...base, id: `e${i}`, requestedModel: 'claude', provider: 'anthropic', model: 'claude-sonnet-4-5',
+        inputTokens: input, outputTokens: output, cacheTokens: read, cacheWriteTokens: write,
+        costMicroUsd: Math.round((input - read - write) * 3 + read * 0.3 + write * 3.75 + output * 15), costStatus: 'estimated',
+        costSource: 'price: user', outcome: 'ok', httpStatus: 200});
+    } else if (roll < 0.1) {
       events.push({...base, id: `e${i}a`, provider: 'gemini', model: 'gemini-3.1-flash-lite', inputTokens: null, outputTokens: null,
         costMicroUsd: 0, costStatus: 'estimated', costSource: 'rejected by the provider (HTTP 429)', outcome: 'fallback',
         httpStatus: 429, error: 'Gemini answered HTTP 429: Resource has been exhausted (e.g. check quota).'});
@@ -126,11 +153,14 @@ export function demoApi(): GatewayApi {
     return {...c, monthSpendMicroUsd: mine.reduce((s, e) => s + (e.costMicroUsd ?? 0), 0),
       monthUnknownRequests: mine.filter(e => e.costStatus === 'unknown').length};
   }
+  const quotaGroup = (c: Stored) => c.separateQuota ? c.id : c.kind;
   function view(c: Stored): Connection {
     const preset = PRESETS.find(p => p.id === c.kind);
     const {key, ...rest} = c;
-    return {...rest, presetName: preset?.name ?? c.kind, hasKey: key, needsKey: preset?.needsKey ?? false,
-      models: models.filter(m => m.providerId === c.id).length};
+    return {...rest, quotaGroup: quotaGroup(c), presetName: preset?.name ?? c.kind, hasKey: key, needsKey: preset?.needsKey ?? false,
+      models: models.filter(m => m.providerId === c.id).length,
+      health: health.filter(h => h.providerId === c.id && (h.untilMs === null || h.untilMs > Date.now())),
+      sharesQuotaWith: connections.filter(o => o.id !== c.id && quotaGroup(o) === quotaGroup(c)).map(o => o.label)};
   }
   function find(id: string): Stored {
     const c = connections.find(x => x.id === id);
@@ -177,7 +207,8 @@ export function demoApi(): GatewayApi {
       let id = slug(label), n = 2;
       while (connections.some(c => c.id === id)) id = `${slug(label)}-${n++}`;
       const stored: Stored = {id, kind: preset.id, label, endpoint, enabled: true, credentialRef: connection.apiKey ? `provider-${hex(8)}` : null,
-        defaultBilling: connection.billing, dataUseTerms: 'unknown', createdAt: Date.now(), key: !!connection.apiKey?.trim()};
+        defaultBilling: connection.billing, dataUseTerms: 'unknown', createdAt: Date.now(), key: !!connection.apiKey?.trim(),
+        wire: preset.wire as Wire, separateQuota: false};
       connections.push(stored);
       return view(stored);
     },
@@ -185,9 +216,19 @@ export function demoApi(): GatewayApi {
       const c = find(id);
       if (change.enabled !== undefined) c.enabled = change.enabled;
       if (change.billing) c.defaultBilling = change.billing;
+      if (change.separateQuota !== undefined) c.separateQuota = change.separateQuota;
       return touch(view(c));
     },
-    setConnectionKey: async id => { const c = find(id); c.key = true; return touch(view(c)); },
+    setConnectionKey: async id => {
+      const c = find(id);
+      c.key = true;
+      for (let i = health.length - 1; i >= 0; i--) if (health[i].providerId === id) health.splice(i, 1);
+      return touch(view(c));
+    },
+    clearConnectionHealth: async id => {
+      for (let i = health.length - 1; i >= 0; i--) if (health[i].providerId === id) health.splice(i, 1);
+      return touch(view(find(id)));
+    },
     removeConnection: async id => {
       find(id);
       connections.splice(connections.findIndex(c => c.id === id), 1);
@@ -221,6 +262,7 @@ export function demoApi(): GatewayApi {
         const micro = (usd: number) => Math.round(usd * 1_000_000);
         m.price = {inputMicroPerMtok: micro(change.price.inputUsdPerMtok), outputMicroPerMtok: micro(change.price.outputUsdPerMtok),
           cachedInputMicroPerMtok: change.price.cachedInputUsdPerMtok == null ? null : micro(change.price.cachedInputUsdPerMtok),
+          cacheWriteMicroPerMtok: change.price.cacheWriteUsdPerMtok == null ? null : micro(change.price.cacheWriteUsdPerMtok),
           source: 'user', observedAt: Date.now()};
       }
       await sleep(80);
@@ -248,7 +290,8 @@ export function demoApi(): GatewayApi {
       const token = `str-${hex(32)}`;
       const client = {id: hex(6), name: name.trim(), tokenPrefix: token.slice(0, 12),
         monthlyBudgetMicroUsd: monthlyBudgetUsd == null ? null : Math.round(monthlyBudgetUsd * 1_000_000), createdAt: Date.now(),
-        lastUsedAt: null, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0};
+        lastUsedAt: null, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0,
+        maxConcurrency: 8, unknownCostPolicy: 'block' as const, reservedMicroUsd: 0};
       clients.push(client);
       return touch({client: clientView(client), token});
     },
@@ -256,6 +299,15 @@ export function demoApi(): GatewayApi {
     setClientBudget: async (id, usd) => {
       const c = clients.find(x => x.id === id);
       if (c) c.monthlyBudgetMicroUsd = usd == null ? null : Math.round(usd * 1_000_000);
+      await sleep(80);
+    },
+    setClientPolicy: async (id, policy) => {
+      const c = clients.find(x => x.id === id);
+      if (policy.maxConcurrency !== undefined && (policy.maxConcurrency < 1 || policy.maxConcurrency > 256)) {
+        throw 'Allow from 1 to 256 requests at once';
+      }
+      if (c && policy.maxConcurrency !== undefined) c.maxConcurrency = policy.maxConcurrency;
+      if (c && policy.unknownCostPolicy) c.unknownCostPolicy = policy.unknownCostPolicy;
       await sleep(80);
     },
     usage: async days => {

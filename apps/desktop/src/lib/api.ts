@@ -17,17 +17,27 @@ export type GatewayStatus = {
   autostart: boolean;
 };
 
-export type Preset = { id: string; name: string; endpoint: string | null; needsKey: boolean; defaultBilling: Billing };
+export type Wire = 'openai' | 'anthropic';
+export type Preset = { id: string; name: string; endpoint: string | null; needsKey: boolean; defaultBilling: Billing; wire: Wire };
+
+export type HealthState = 'invalid_credentials' | 'forbidden' | 'payment_required' | 'rate_limited' | 'model_unavailable'
+  | 'server_error' | 'unreachable';
+/** A cooldown or block on a connection (modelId '') or one of its models. untilMs null: until fixed. */
+export type Health = {
+  providerId: string; modelId: string; state: HealthState; reason: string; httpStatus: number | null;
+  untilMs: number | null; updatedAt: number;
+};
 
 export type Connection = {
   id: string; kind: string; label: string; endpoint: string; enabled: boolean; credentialRef: string | null;
   defaultBilling: Billing; dataUseTerms: string; createdAt: number;
-  presetName: string; hasKey: boolean; needsKey: boolean; models: number;
+  wire: Wire; quotaGroup: string; separateQuota: boolean;
+  presetName: string; hasKey: boolean; needsKey: boolean; models: number; health: Health[]; sharesQuotaWith: string[];
 };
 
 export type Price = {
   inputMicroPerMtok: number; outputMicroPerMtok: number; cachedInputMicroPerMtok: number | null;
-  source: string; observedAt: number;
+  cacheWriteMicroPerMtok?: number | null; source: string; observedAt: number;
 };
 
 export type Model = {
@@ -40,6 +50,7 @@ export type Combo = { id: string; name: string; members: Target[] };
 export type Client = {
   id: string; name: string; tokenPrefix: string; monthlyBudgetMicroUsd: number | null; createdAt: number;
   lastUsedAt: number | null; revokedAt: number | null; monthSpendMicroUsd: number; monthUnknownRequests: number;
+  maxConcurrency: number; unknownCostPolicy: 'block' | 'allow'; reservedMicroUsd: number;
 };
 
 export type UsageGroup = {
@@ -54,6 +65,7 @@ export type UsageEvent = {
   id: string; createdAt: number; client: string | null; provider: string; model: string; requestedModel: string | null;
   inputTokens: number | null; outputTokens: number | null; costMicroUsd: number | null; costStatus: CostStatus;
   costSource: string; outcome: Outcome; httpStatus: number | null; latencyMs: number | null; error: string | null;
+  cacheTokens: number | null; cacheWriteTokens: number | null; sessionKey: string | null; routeMode: string | null;
 };
 
 export type UsageSummary = {
@@ -61,7 +73,9 @@ export type UsageSummary = {
 };
 
 export type NewConnection = { preset: string; label: string; endpoint?: string; apiKey?: string; billing: Billing };
-export type PriceInput = { inputUsdPerMtok: number; outputUsdPerMtok: number; cachedInputUsdPerMtok?: number | null };
+export type PriceInput = {
+  inputUsdPerMtok: number; outputUsdPerMtok: number; cachedInputUsdPerMtok?: number | null; cacheWriteUsdPerMtok?: number | null;
+};
 
 export interface GatewayApi {
   gatewayStatus(): Promise<GatewayStatus>;
@@ -71,7 +85,8 @@ export interface GatewayApi {
   presets(): Promise<Preset[]>;
   connections(): Promise<Connection[]>;
   addConnection(connection: NewConnection): Promise<Connection>;
-  updateConnection(id: string, change: {enabled?: boolean; billing?: Billing}): Promise<Connection>;
+  updateConnection(id: string, change: {enabled?: boolean; billing?: Billing; separateQuota?: boolean}): Promise<Connection>;
+  clearConnectionHealth(id: string): Promise<Connection>;
   setConnectionKey(id: string, apiKey: string): Promise<Connection>;
   removeConnection(id: string): Promise<void>;
   refreshModels(id: string): Promise<{listed: number; added: number}>;
@@ -87,6 +102,7 @@ export interface GatewayApi {
   createClient(name: string, monthlyBudgetUsd: number | null): Promise<{client: Client; token: string}>;
   revokeClient(id: string): Promise<void>;
   setClientBudget(id: string, monthlyBudgetUsd: number | null): Promise<void>;
+  setClientPolicy(id: string, policy: {maxConcurrency?: number; unknownCostPolicy?: 'block' | 'allow'}): Promise<void>;
   usage(days: number): Promise<UsageSummary>;
 }
 
@@ -100,6 +116,7 @@ const native: GatewayApi = {
   addConnection: connection => invoke('connection_add', {connection}),
   updateConnection: (id, change) => invoke('connection_update', {id, ...change}),
   setConnectionKey: (id, apiKey) => invoke('connection_set_key', {id, apiKey}),
+  clearConnectionHealth: id => invoke('connection_clear_health', {id}),
   removeConnection: id => invoke('connection_remove', {id}),
   refreshModels: id => invoke('connection_refresh_models', {id}),
   models: providerId => invoke('models_list', {providerId: providerId ?? null}),
@@ -113,6 +130,7 @@ const native: GatewayApi = {
   createClient: (name, monthlyBudgetUsd) => invoke('client_create', {name, monthlyBudgetUsd}),
   revokeClient: id => invoke('client_revoke', {id}),
   setClientBudget: (id, monthlyBudgetUsd) => invoke('client_set_budget', {id, monthlyBudgetUsd}),
+  setClientPolicy: (id, policy) => invoke('client_set_policy', {id, ...policy}),
   usage: days => invoke('usage_summary', {days}),
 };
 

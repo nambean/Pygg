@@ -134,6 +134,11 @@ function LedgerRow({event: e, open, onToggle}: {event: UsageEvent; open: boolean
         <dt>{t('Asked for')}</dt><dd className="mono">{e.requestedModel ?? '—'}</dd>
         <dt>{t('Answered by')}</dt><dd className="mono">{e.provider}/{e.model}</dd>
         <dt>{t('Cost source')}</dt><dd>{statusLabel(e.costStatus)} · {sourceText(e.costSource)}</dd>
+        {(e.cacheTokens || e.cacheWriteTokens) ? <><dt>{t('Prompt cache')}</dt>
+          <dd>{t('{read} read · {write} written', {read: tokens(e.cacheTokens ?? 0), write: tokens(e.cacheWriteTokens ?? 0)})}</dd></> : null}
+        {e.routeMode && <><dt>{t('Route')}</dt><dd>{e.routeMode === 'native' ? t('Passed through in the same format')
+          : t('Translated ({mode})', {mode: e.routeMode.replace('translated:', '')})}</dd></>}
+        {e.sessionKey && <><dt>{t('Session')}</dt><dd className="mono">{e.sessionKey}</dd></>}
         <dt>{t('Time taken')}</dt><dd>{e.latencyMs != null ? `${(e.latencyMs / 1000).toFixed(1)} s` : '—'}</dd>
         {e.error && <><dt>{t('Error')}</dt><dd className="selectable">{e.error}</dd></>}
       </dl>

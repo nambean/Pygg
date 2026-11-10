@@ -24,8 +24,10 @@ SmartTaskRouter is a desktop-first AI Cost Optimizer for everyday AI users and d
   - Streams responses and passes tool calls in both directions.
   - Refuses requests addressed to anything but loopback.
 - **Connections:** presets for Gemini, OpenRouter, OpenAI, Groq, DeepSeek, Ollama and any OpenAI-compatible endpoint. Keys are kept in the OS credential store.
-- **Combos:** a model name such as `coding` stands for an ordered list of models. The next model is tried on a rejected key, an exhausted quota, an unavailable model or a server error, and only before any of the answer has reached the client.
-- **Client tokens:** one per app, stored only as a hash, each with an optional monthly limit on known spend.
+- **Same-format passthrough:** an Anthropic request (Claude Code) to an Anthropic connection goes through unchanged, so its prompt cache keeps working; other pairs are translated and report what they drop.
+- **Combos:** a model name such as `coding` stands for an ordered list of models, tried only before any of the answer has reached the client. Rate limits and refusals cool a model down (honouring `Retry-After`) and never move to another key of the same organization; an ambiguous timeout is not retried elsewhere.
+- **Sessions:** a client that sends `x-smarttaskrouter-session` stays on the model that answered it, so its cache survives.
+- **Client tokens:** one per app, stored only as a hash, each with an optional monthly limit (reserved atomically, so concurrent requests cannot pass it), a cap on requests in flight, and a policy for models without a price.
 - **Usage ledger:** every attempt is recorded with its cost and that cost's source.
   - **Actual:** the provider reported the charge.
   - **Estimated:** computed from a price you entered, or the connection is free or local.

@@ -548,3 +548,13 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
   .form-row { grid-template-columns: 1fr; gap: 4px; }
   .form-label { text-align: start; padding-top: 0; }
 }
+
+/* Connection health (ROADMAP P0-2) */
+.group-row.stacked { display: block; padding: 8px 12px 10px; }
+.health-list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.health-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12px; }
+.health-scope { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.health-reason { flex-basis: 100%; min-width: 0; color: var(--secondary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.health-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 11px; }
+.client-name { display: block; }
+.data-table td small.secondary { display: block; }

@@ -203,7 +203,7 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **User scope:** initial benchmark/market wedge is developers with metered API workloads because financial outcomes are measurable; **long-term product vision remains cost optimization for everyday users as well**. This does not authorize claiming cash savings for fixed subscription chat plans.
 
-**Evidence:** code-backed findings were reviewed; synthetic multiplier examples are not real provider measurements. No code implementation is claimed by this ADR. Other proposed ADRs remain proposals until accepted as architecture and implemented/tested separately.
+**Evidence:** code-backed findings were reviewed; synthetic multiplier examples are not real provider measurements. No code implementation is claimed by this ADR. **Update 2026-11-11:** P0-1 to P0-4 are implemented and tested against fake providers, with a live Gemini check; see [Implementation Status](IMPLEMENTATION-STATUS.md) and [architect decisions](reviews/2026-11-11-architect-decisions.md). Native Anthropic parity against a real endpoint is still open. Other proposed ADRs remain proposals until accepted as architecture and implemented/tested separately.
 
 ## Open decisions (not yet finalized)
 

@@ -355,7 +355,7 @@ pub struct Forwarded {
     pub billing: String,
     pub price: Option<Price>,
     pub started: Instant,
-    /// How many targets were tried, this one included.
+    /// How many upstream calls this request made, this one included. Skipped targets are not counted.
     pub attempt: usize,
     pub mode: Mode,
     /// Cache hints the translation could not carry (empty for native).
@@ -416,6 +416,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
     }
 
     let count = targets.len();
+    let mut sent = 0;
     let mut last: Option<Refusal> = None;
     let mut skipped: Vec<String> = Vec::new();
     // Quota group → the connection that refused. Its own other models may still answer (quotas are often per
@@ -425,8 +426,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
     let has_limit = client.monthly_budget_micro_usd.is_some();
 
     for (index, (provider, model_id)) in targets.into_iter().enumerate() {
-        let attempt = index + 1;
-        let outcome_if_failed = if attempt < count { "fallback" } else { "error" };
+        let outcome_if_failed = if index + 1 < count { "fallback" } else { "error" };
         let name = format!("{}/{model_id}", provider.id);
 
         // Which mode would carry this request to this target, if any.
@@ -535,6 +535,8 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             }
         }
 
+        sent += 1;
+        let attempt = sent;
         match request.send().await {
             Err(e) => {
                 let secrets: Vec<&str> = key.as_deref().into_iter().collect();

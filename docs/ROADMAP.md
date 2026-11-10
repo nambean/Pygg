@@ -18,6 +18,18 @@ A local Rust gateway at `127.0.0.1:8741`, OpenAI Chat Completions and Anthropic 
 | **P0-4** | **Explicit session affinity** | Static combos reset route per request and lose cache/agent continuity | Scoped session ID, pin eligible provider/model/account for active session; fallback only at safe boundary; clients without session IDs never silently guessed |
 | **P0-5** | **Explainable rule-based Auto routing** | Existing combos are static and not yet intelligent | Verified model catalog/provenance, hard capability/privacy/spend filters, dynamic eligible candidate selection, `auto` + `auto/cheap` alias, reason in response/usage, no LLM classifier |
 
+### Status of P0 (2026-11-11)
+
+| Item | State | What is still open |
+| --- | --- | --- |
+| P0-1 | **Built.** Native Anthropic passthrough, cache-preserving translation for OpenRouter, dropped hints reported | Parity measured against a real Anthropic endpoint (no key here); OpenRouter cache behaviour measured |
+| P0-2 | **Built.** Error-scoped fallback, cooldowns with `Retry-After`, quota groups (default: provider kind), no replay after an ambiguous timeout | Fixtures per real provider; GW-7 (fallback before the first token rather than before headers) held, as the response advised |
+| P0-3 | **Built.** Atomic reservations, per-client in-flight cap, unknown-price policy, detached handlers | Reservation estimate is pessimistic and may refuse a request near the limit; tuning after real use |
+| P0-4 | **Built.** Explicit `x-smarttaskrouter-session` only; snippets set it | Whether Claude Code sends its own session id over HTTP (not assumed) |
+| P0-5 | Not started | Next |
+
+Details and verification: [Implementation Status](IMPLEMENTATION-STATUS.md). Decisions taken while building: [architect decisions](reviews/2026-11-11-architect-decisions.md).
+
 ### P0 release proof: benchmark, not a sixth feature
 
 - **Parity baseline:** exact same model/provider direct vs proxy with at least two turns that exercise prompt caching, tools and streaming; cache savings and total billed amount cannot regress materially without explicit explanation.

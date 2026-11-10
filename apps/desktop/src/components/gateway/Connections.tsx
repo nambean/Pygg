@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Cpu, KeyRound, Plug, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
-import { BILLINGS, call, errorText, gatewayChanged, type Billing, type Connection, type Model, type Preset } from '../../lib/api';
+import { BILLINGS, call, errorText, gatewayChanged, type Billing, type Connection, type Health, type Model, type Preset } from '../../lib/api';
 import { plural, t } from '../../lib/i18n';
 import { billingLabel, parseUsd, priceText } from '../../lib/money';
 import { isMac } from '../../lib/platform';
@@ -57,10 +57,53 @@ export function Connections({intent, onIntentDone}: {intent?: 'connect'; onInten
 export function connectionState(c: Connection): {tone: 'ok' | 'warn' | 'off' | 'error'; text: string} {
   if (!c.enabled) return {tone: 'off', text: t('Disabled')};
   if (c.needsKey && !c.hasKey) return {tone: 'error', text: t('Key missing')};
+  const whole = c.health.find(h => h.modelId === '');
+  if (whole?.state === 'invalid_credentials') return {tone: 'error', text: t('Key rejected')};
+  if (whole) return {tone: 'warn', text: healthLabel(whole)};
   const check = checks.get(c.id);
   if (check && !check.ok) return {tone: 'error', text: t('Check failed')};
   if (c.models === 0) return {tone: 'warn', text: t('No models yet')};
+  if (c.health.length) return {tone: 'warn', text: plural(c.health.length, '{n} model cooling down', '{n} models cooling down')};
   return {tone: 'ok', text: t('Ready')};
+}
+
+export function healthLabel(h: Health): string {
+  return {
+    invalid_credentials: t('Key rejected'), forbidden: t('Not allowed'), payment_required: t('Payment required'),
+    rate_limited: t('Rate-limited'), model_unavailable: t('Model unavailable'), server_error: t('Provider error'),
+    unreachable: t('Unreachable'),
+  }[h.state];
+}
+
+/** "for 1 min 35 s", "until you replace the key". */
+function healthWhen(h: Health, now = Date.now()): string {
+  if (h.untilMs === null) return h.state === 'invalid_credentials' ? t('until you replace the key') : t('until you clear it');
+  const seconds = Math.max(1, Math.round((h.untilMs - now) / 1000));
+  return seconds < 90 ? t('for {n} s', {n: seconds}) : t('for {n} min', {n: Math.round(seconds / 60)});
+}
+
+/** The connection's cooldowns and blocks, with what each means for routing. */
+function HealthList({connection: c}: {connection: Connection}) {
+  const [busy, setBusy] = useState(false);
+  if (!c.health.length) return null;
+  const clear = () => {
+    setBusy(true);
+    call(api => api.clearConnectionHealth(c.id)).then(gatewayChanged).finally(() => setBusy(false));
+  };
+  return <div className="health-list" role="status">
+    <ul>
+      {c.health.map(h => <li key={`${h.modelId}-${h.state}`}>
+        <Badge tone={h.state === 'invalid_credentials' || h.state === 'forbidden' ? 'error' : 'warn'}>{healthLabel(h)}</Badge>
+        <span className="health-scope mono">{h.modelId || t('whole connection')}</span>
+        <span className="secondary">{t('skipped {when}', {when: healthWhen(h)})}</span>
+        <small className="health-reason selectable" title={h.reason}>{h.reason}</small>
+      </li>)}
+    </ul>
+    <div className="health-actions">
+      <span className="secondary">{t('Skipped targets are not called, so they cost nothing and don’t make the limit worse.')}</span>
+      <button type="button" className="button small" onClick={clear} disabled={busy}>{t('Try Again Now')}</button>
+    </div>
+  </div>;
 }
 
 function ConnectionRow({connection: c, selected, onSelect}: {connection: Connection; selected: boolean; onSelect: () => void}) {
@@ -132,10 +175,27 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
         <span className="group-control value mono selectable">{c.endpoint}</span>
       </div>
       <div className="group-row">
+        <span className="group-label">{t('API')}<small>{c.wire === 'anthropic'
+          ? t('Anthropic requests (Claude Code) pass through unchanged, prompt cache included. OpenAI-format clients can’t use it yet.')
+          : t('OpenAI-format requests pass through unchanged. Anthropic requests are translated, and prompt-cache hints survive only where the provider accepts them.')}</small></span>
+        <span className="group-control value">{c.wire === 'anthropic' ? t('Anthropic Messages') : t('OpenAI Chat Completions')}</span>
+      </div>
+      <div className="group-row">
         <span className="group-label">{t('Health')}</span>
         <span className="group-control value">{check
           ? <span title={check.text}>{check.ok ? check.text : <Badge tone="error">{check.text}</Badge>} · {t('checked {time}', {time: new Date(check.at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})})}</span>
-          : t('Not checked since the app started')}</span>
+          : c.health.length ? t('See below') : t('No problems seen')}</span>
+      </div>
+      {c.health.length > 0 && <div className="group-row stacked"><HealthList connection={c}/></div>}
+      <div className="group-row">
+        <span className="group-label"><label htmlFor={`quota-${c.id}`}>{t('Own organization')}</label>
+          <small>{c.separateQuota
+            ? t('Has its own limits. When another connection is rate-limited or refused, this one may still answer.')
+            : c.sharesQuotaWith.length
+              ? t('Shares limits with {names}. After a rate limit or refusal on one, the others aren’t tried for that request; using a second key to get around a limit can break the provider’s terms.', {names: c.sharesQuotaWith.join(', ')})
+              : t('Assumed to share limits with other {provider} connections you add. Turn on only if it belongs to a different organization or account.', {provider: c.presetName})}</small></span>
+        <span className="group-control"><Switch checked={c.separateQuota} label={t('Own organization')}
+          onChange={separateQuota => call(api => api.updateConnection(c.id, {separateQuota})).then(gatewayChanged)}/></span>
       </div>
       <div className="group-row">
         <span className="group-label"><label htmlFor={`billing-${c.id}`}>{t('Billing')}</label><small>{billingHint(c.defaultBilling)}</small></span>
@@ -182,6 +242,7 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
           </tr></thead>
           <tbody>
             {shown.map(m => <ModelRow key={m.modelId} model={m} onPrice={() => setSheet({price: m})}
+              health={c.health.find(h => h.modelId === m.modelId)}
               onChange={() => { models.reload(); gatewayChanged(); }}/>)}
             {shown.length === 0 && <tr><td colSpan={5} className="table-empty">{t('No models match.')}</td></tr>}
           </tbody>
@@ -202,12 +263,13 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
   </section>;
 }
 
-function ModelRow({model: m, onPrice, onChange}: {model: Model; onPrice: () => void; onChange: () => void}) {
+function ModelRow({model: m, health, onPrice, onChange}: {model: Model; health?: Health; onPrice: () => void; onChange: () => void}) {
   const needsPrice = m.billing === 'paid' || m.billing === 'unknown';
   const price = m.price ? priceText(m.price)
     : needsPrice ? t('No price · cost Unknown') : m.billing === 'subscription' ? t('Quota, not money') : t('Not needed');
   return <tr className={m.enabled ? '' : 'disabled-row'}>
-    <td className="mono selectable" title={m.modelId}>{m.modelId}</td>
+    <td className="mono selectable" title={health ? `${m.modelId} · ${health.reason}` : m.modelId}>
+      {m.modelId}{health && <> <Badge tone="warn">{healthLabel(health)}</Badge></>}</td>
     <td>{billingLabel(m.billing)}</td>
     <td className={m.price ? '' : 'secondary'}>{price}{m.price && <small className="source"> · {t('your price')}</small>}</td>
     <td className="narrow"><Switch checked={m.enabled} label={t('Use {model}', {model: m.modelId})}
@@ -231,7 +293,7 @@ function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected:
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const effectiveBilling = billing ?? preset?.defaultBilling ?? 'unknown';
-  const custom = presetId === 'custom';
+  const custom = presetId === 'custom' || presetId === 'custom-anthropic';
   const keyRequired = preset?.needsKey ?? false;
   const canConnect = !!preset && (!keyRequired || apiKey.trim().length > 0) && (!custom || endpoint.trim().length > 0);
 
@@ -268,8 +330,8 @@ function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected:
       {(presets.data ?? []).map(p => <button key={p.id} type="button" role="radio" aria-checked={p.id === presetId}
         className={p.id === presetId ? 'preset selected' : 'preset'}
         onClick={() => { setPresetId(p.id); setBilling(null); setEndpoint(''); }}>
-        <span className="avatar" aria-hidden>{p.id === 'ollama' ? <Cpu size={15}/> : p.id === 'custom' ? '…' : p.name.slice(0, 1)}</span>
-        <span>{p.id === 'custom' ? t('Custom') : p.name}</span>
+        <span className="avatar" aria-hidden>{p.id === 'ollama' ? <Cpu size={15}/> : p.id.startsWith('custom') ? '…' : p.name.slice(0, 1)}</span>
+        <span>{p.id === 'custom' ? t('Custom (OpenAI)') : p.id === 'custom-anthropic' ? t('Custom (Anthropic)') : p.name}</span>
       </button>)}
     </div>
     {preset && <div className="form">
@@ -279,7 +341,8 @@ function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected:
           onChange={e => setLabel(e.target.value)}/>
       </FormRow>
       {(custom || preset.id === 'ollama') && <FormRow label={t('Endpoint')} htmlFor="connection-endpoint"
-        hint={custom ? t('The base URL before /chat/completions, e.g. https://api.example.com/v1') : t('Change it if Ollama runs elsewhere.')}>
+        hint={presetId === 'custom-anthropic' ? t('The base URL before /messages, e.g. https://api.example.com/v1')
+          : custom ? t('The base URL before /chat/completions, e.g. https://api.example.com/v1') : t('Change it if Ollama runs elsewhere.')}>
         <input id="connection-endpoint" className="text-input mono" value={endpoint} placeholder={preset.endpoint ?? 'https://…/v1'}
           onChange={e => setEndpoint(e.target.value)} spellCheck={false}/>
       </FormRow>}
@@ -354,14 +417,16 @@ function PriceSheet({model: m, onClose, onSaved}: {model: Model; onClose: () => 
   const [input, setInput] = useState(dollars(m.price?.inputMicroPerMtok));
   const [output, setOutput] = useState(dollars(m.price?.outputMicroPerMtok));
   const [cached, setCached] = useState(dollars(m.price?.cachedInputMicroPerMtok));
+  const [written, setWritten] = useState(dollars(m.price?.cacheWriteMicroPerMtok));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const values = [parseUsd(input), parseUsd(output), parseUsd(cached)];
+  const values = [parseUsd(input), parseUsd(output), parseUsd(cached), parseUsd(written)];
   const valid = values[0] !== null && values[1] !== null && values.every(v => v === null || Number.isFinite(v));
   const save = (clear: boolean) => {
     setBusy(true);
     const change = clear ? {clearPrice: true}
-      : {price: {inputUsdPerMtok: values[0]!, outputUsdPerMtok: values[1]!, cachedInputUsdPerMtok: values[2]}};
+      : {price: {inputUsdPerMtok: values[0]!, outputUsdPerMtok: values[1]!, cachedInputUsdPerMtok: values[2],
+          cacheWriteUsdPerMtok: values[3]}};
     call(api => api.updateModel(m.providerId, m.modelId, change)).then(() => { onSaved(); onClose(); },
       e => { setError(errorText(e)); setBusy(false); });
   };
@@ -378,6 +443,9 @@ function PriceSheet({model: m, onClose, onSaved}: {model: Model; onClose: () => 
       <FormRow label={t('Output')} htmlFor="price-out"><MoneyInput id="price-out" value={output} onChange={setOutput}/></FormRow>
       <FormRow label={t('Cached input')} htmlFor="price-cached" hint={t('Optional. Without it, cached tokens are priced as input.')}>
         <MoneyInput id="price-cached" value={cached} onChange={setCached}/>
+      </FormRow>
+      <FormRow label={t('Cache write')} htmlFor="price-write" hint={t('Optional. Anthropic charges extra to write the cache; without it, writes are priced as input and the ledger says so.')}>
+        <MoneyInput id="price-write" value={written} onChange={setWritten}/>
       </FormRow>
     </div>
     <p className="sheet-text secondary">{t('Providers that report the charge themselves, such as OpenRouter, are recorded as Actual and don’t need a price.')}</p>
