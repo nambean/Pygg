@@ -4,6 +4,7 @@
 pub mod bench;
 pub mod checks;
 pub mod db;
+pub mod gateway;
 pub mod isolation;
 pub mod process;
 pub mod redact;

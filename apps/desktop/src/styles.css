@@ -1,4 +1,4 @@
-/* SmartTaskRouter — macOS-native look, same token set as DownFetch; only the accent differs
+/* SmartTaskRouter — macOS-native look, same token set and green accent as DownFetch
    (docs/design/SCREENS.md §4). Semantic tokens follow the system appearance; there is no in-app theme switch. */
 :root {
   color-scheme: light dark;
@@ -16,16 +16,16 @@
   --hover: rgba(0, 0, 0, .04);
   --selection: rgba(0, 0, 0, .085);
   --track: rgba(0, 0, 0, .08);
-  --accent: #C2410C;           /* fills; white semibold text on it is 5.2:1 */
-  --accent-text: #B93A0A;      /* 5.7:1 on surface */
-  --accent-icon: #C2410C;      /* 4.4:1 on the sidebar */
+  --accent: #0B7A4B;           /* fills; white semibold text on it is 5.4:1 (DownFetch) */
+  --accent-text: #0A6B42;      /* 6.6:1 on surface */
+  --accent-icon: #0B7A4B;      /* 4.6:1 on the sidebar */
   --green: #1F7A35;
-  --orange: #B45309;
+  --orange: #C93400;
   --red: #D70015;
   --paused: #8E8E93;
   --shadow: 0 0 0 .5px rgba(0, 0, 0, .12), 0 1px 2px rgba(0, 0, 0, .08);
   --popover-shadow: 0 0 0 .5px rgba(0, 0, 0, .14), 0 10px 30px rgba(0, 0, 0, .16);
-  --focus: 0 0 0 3px rgba(194, 65, 12, .45);
+  --focus: 0 0 0 3px rgba(11, 122, 75, .45);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -40,16 +40,16 @@
     --hover: rgba(255, 255, 255, .05);
     --selection: rgba(255, 255, 255, .1);
     --track: rgba(255, 255, 255, .12);
-    --accent: #C2410C;         /* white text on it 5.2:1 */
-    --accent-text: #FB923C;    /* 6.2:1 on surface */
-    --accent-icon: #FB923C;    /* 6.7:1 on the sidebar */
+    --accent: #0D8551;         /* white semibold text on it 4.7:1 (DownFetch) */
+    --accent-text: #3DDC97;    /* 9.6:1 on surface */
+    --accent-icon: #3DDC97;    /* 10:1 on the sidebar */
     --green: #30D158;
     --orange: #FF9F0A;
     --red: #FF6961;
     --paused: #8E8E93;
     --shadow: 0 0 0 .5px rgba(255, 255, 255, .1), 0 1px 2px rgba(0, 0, 0, .3);
     --popover-shadow: 0 0 0 .5px rgba(255, 255, 255, .14), 0 10px 30px rgba(0, 0, 0, .5);
-    --focus: 0 0 0 3px rgba(251, 146, 60, .6);
+    --focus: 0 0 0 3px rgba(61, 220, 151, .6);
   }
 }
 @media (prefers-contrast: more) {

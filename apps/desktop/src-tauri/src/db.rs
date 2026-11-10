@@ -5,7 +5,10 @@ use rusqlite::Connection;
 use std::path::Path;
 
 /// Migrations in order; the database's `user_version` is the number applied.
-const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/0001_init.sql"),
+    include_str!("../migrations/0002_gateway.sql"),
+];
 
 pub const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;
 
