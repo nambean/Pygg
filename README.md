@@ -1,53 +1,44 @@
 # SmartTaskRouter
 
-**AI Model & Agent Orchestrator** — intelligent, cost-aware routing for connected AI providers and coding agents.
+**AI Model & Agent Orchestrator**: routes each stage of a coding task to the cheapest connected model and agent that can pass that stage's checks.
 
 > Status: product planning and UI/UX design; implementation has not started.
 
 ## Product vision
 
-SmartTaskRouter is a desktop-first AI gateway inspired by 9Router. Its differentiator is understanding a user's task and recommending the **appropriate connected model, agent, prompt and GitHub skill**, prioritizing free or local models when they can meet the quality requirements.
+SmartTaskRouter is a desktop app for developers who already use several AI providers and coding agents. Provider, quota and endpoint management are inspired by 9Router. The difference is that SmartTaskRouter routes whole tasks and stages, not single requests: it tries cheaper models first where the result can be verified automatically, and escalates with an explanation.
 
-- **Connected-model-first:** route only to providers/models explicitly connected by the user.
-- **Free-first:** prefer capable free/local models; never silently charge the user.
-- **Task-aware:** analyze complexity, risk, tool requirements and expected context.
-- **Transparent:** show the route, reasoning, estimated range of cost and fallback policy.
-- **Measurable:** measure successful task completion cost, not only price per token.
-- **Secure:** user-owned credentials, minimal context and reviewed third-party skills.
+- **Orchestrator first:** routing happens at task/stage boundaries. The local gateway enforces policy and records usage, and never switches models silently within an agent session.
+- **Connected-model-first:** routes only to providers, models and agents the user connected.
+- **Free-first only with verification:** a cheaper tier is tried first only when the stage has a deterministic check (typecheck, tests, build). Each attempt runs in an isolated worktree.
+- **Honest costs:** billing is `Free`, `Local`, `Subscription`, `Paid` or `Unknown`. Every quota figure shows its source, and unknown is never treated as free.
+- **Privacy-aware:** records whether a provider may train on submitted data and enforces it for sensitive workspaces.
+- **Measurable:** cost is measured per successful task, against a reproducible benchmark baseline.
 
-## UI screens
+## Navigation
 
 | Screen | Purpose |
 | --- | --- |
-| Overview | Gateway health, connected providers, recent tasks and savings |
-| Smart Routing | Task input, analysis, suggested route, selected skills and approval |
-| Providers | Connections, credentials, quota and provider health |
-| Models | Searchable catalog: free/local/paid, capability, context, price |
-| Model Combos | Free First, Balanced, Quality and user-defined routing chains |
-| Agents | Connected CLI/IDE agents and multistep execution |
-| Skills & Prompts | Curated GitHub skill discovery, review and optional install |
-| Task History | Reproducible task traces, retries, model changes and results |
-| Usage & Analytics | Token and monetary usage, latency, budget and success rate |
-| Routing Rules | Per-workspace limits, fallback policy and approval gates |
-| CLI & Endpoints | OpenAI/Anthropic-compatible endpoint and client setup |
-| Settings | App theme, diagnostics, security, storage and local runtime |
+| Overview | Health, onboarding, recent tasks, warnings |
+| Route | Task input, explained route plan, live run, history |
+| Connections | Providers, model catalog, agents |
+| Policies | Strategies, tier table, rules, budgets, simulator |
+| Usage | Ledger analytics, budgets, cost per success |
+| Endpoints | Gateway addresses, client tokens, client setup |
+| Settings | Language, startup, storage, retention, diagnostics |
 
-## Main experience
+Skills & Prompts is planned for Phase 4.
 
-1. Connect providers (OpenRouter, Gemini, OpenAI, Anthropic, Ollama and others).
-2. Choose Free First, Balanced or Quality; enter a task.
-3. Analyze task complexity using heuristics/local classification before paid inference.
-4. Filter models by capability, quota, privacy, budget and tool support.
-5. Recommend specific models, execution agent and relevant verified GitHub skills.
-6. Show an execution plan and ask permission before paid escalation or sensitive actions.
-7. Execute, validate, retry selectively and display actual usage.
+## Tech stack
 
-## Implementation notes
+Same stack as DownFetch: Tauri 2 with a Rust core (gateway, router, agent runner, SQLite, OS keychain), a React 19 + Vite + TypeScript interface styled with semantic CSS tokens after Apple's HIG, a pnpm workspace, and design reviews with the `apple-design` skill.
 
-- Concept UI follows 9Router's information architecture with an orange-accented light desktop dashboard and optional dark theme.
-- Quotas and displayed cost must come from provider APIs or be explicitly labeled as unknown/estimated.
-- Support gateway-only mode independently from agent execution.
-- Never execute unreviewed GitHub scripts or silently install community skills.
-- Do not promise any specific cost saving until measured against a reproducible baseline.
+## Roadmap
 
-See [full implementation plan](docs/SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md).
+0. **Benchmark:** test whether a check-driven cascade beats always using one model on cost per success.
+1. **MVP:** providers, gateway, rule-based router, Route screen, single-stage tasks with one agent.
+2. **Multi-stage and multiple agents.**
+3. **Measured routing and context optimization.**
+4. **Distribution and Skills Hub.**
+
+See the [full implementation plan](docs/SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md).

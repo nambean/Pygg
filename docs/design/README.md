@@ -1,13 +1,13 @@
 # SmartTaskRouter UI/UX concepts
 
-These are **editable SVG wireframes** illustrating the product's 9Router-inspired information architecture:
+These **editable SVG wireframes** are early concepts:
 
-- [Smart Routing](smart-routing.svg) — request classification, stage model recommendation, skill suggestions, and approval.
-- [Providers](providers.svg) — connected providers and model status.
-- [Model Combos & Policies](model-combos.svg) — Free First, Balanced, Deep Architecture configuration.
+- [Smart Routing](smart-routing.svg): task entry, stage recommendation and approval.
+- [Providers](providers.svg): connected providers and model status.
+- [Model Combos & Policies](model-combos.svg): Free First, Balanced, Deep Architecture configuration.
 
-The original high-resolution PNG concept mockups were generated in the design session but **are not included in this GitHub commit**. SVG wireframes are an independently viewable substitute, not a pixel-for-pixel conversion of those mockups.
+**They are out of date with plan v1.1.** They still show the 12-item navigation (now 7 items), separate "Task Breakdown" and "Routing Recommendation" panels (now one route list with reasons and exclusions), and a web-dashboard style. The app now uses DownFetch's macOS-native token style. See §1 and §2.2 of the [functional plan](../SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md).
 
-All UI data shown is synthetic; model prices, quotas, health and latency must be populated from actual provider or local measurements at runtime.
+The plan is to replace them with working screens in the app that use mock data, reviewed with the `apple-design` skill.
 
-See [functional plan](../SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md) for screen specifications, data contracts, architecture and roadmap.
+All UI data shown is synthetic. Model prices, quotas, health and latency must come from real provider data or local measurements at runtime.
