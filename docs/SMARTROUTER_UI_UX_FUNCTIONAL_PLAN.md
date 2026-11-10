@@ -1,8 +1,20 @@
 # SmartTaskRouter — UI/UX & Functional Implementation Plan
 
-> Version: 1.1 | Date: 2026-11-10 | Status: product/design specification, no production code
+> Version: 1.2 addendum | Date: 2026-11-11 | Status: design plus early implementation; shared memory is proposed, not built
 >
 > Reference direction: 9Router-style provider/quota/endpoint management, extended with task-level routing that is checked by deterministic verification.
+
+## Update — AI Cost Optimizer + Universal Shared Memory (2026-11-11)
+
+**Product north star:** SmartTaskRouter serves everyday AI users **and** developers. Its primary value is automatically choosing a capable model from connected providers to reduce **total cost per quality-preserving answer or completed task**, not merely providing gateway routing or a coding agent runner. For normal chat, user sends a message in Auto mode without selecting a model or answering a complexity questionnaire.
+
+**Universal Shared Memory** is a new core design: preserve a portable raw conversation record; use compact summaries, recent turns, retrieval of relevant facts, explicit work checkpoints and model-specific context packages. Model Affinity compares keeping the current model (including cache advantage) to switching (rehydration/compaction/validation costs), and only switches when it is beneficial and policy-allowed. Never assume cross-provider reuse of hidden reasoning, KV cache, tool state or provider-specific session artifacts.
+
+**Open-source references:** Mem0 (fact extraction/retrieval), OpenCode (compaction/continuity), Letta (persistent shared memory), LangGraph (checkpoints/store), Aider (token-budgeted repo context), Graphiti (temporal facts, later). External benchmark claims are not SmartTaskRouter measurements.
+
+**Source of truth:** [Universal Shared Memory technical proposal](UNIVERSAL_SHARED_MEMORY.md) covers architecture, scopes, schema, cache-aware handoff, privacy, UI and A/B/C/D/E benchmarks. Existing Git-worktree verification remains mandatory for automatic coding cascades; consumer chat has its own quality and consent rules.
+
+**Roadmap synchronization:** ADR-016 overrides the earlier benchmark-first delivery order in ADR-013. Build the gateway and ledger first, then portable conversation history/context handoff and model affinity, followed by Auto Chat and long-term memory; benchmark both switching/continuity and coding cascade before claiming savings. Current screens remain task-list-first until the new consumer chat flow is designed and reviewed.
 
 ## Changes in 1.1
 
@@ -20,11 +32,11 @@
 
 **Goal:** route each stage of a user's task to the cheapest *connected* model and agent that can pass that stage's checks. Cheaper models are tried first only where the result can be verified automatically. Escalation is explained and, when paid, approved by the user.
 
-**Target users (MVP):** individual developers who already use two or more coding agents or providers. They typically mix subscriptions, free tiers, pay-per-token APIs and local models, and want to spend less without losing quality or control. Small teams and hosted multi-user mode are out of scope until after Phase 4.
+**Initial developer MVP users:** individual developers who already use two or more coding agents or providers. They typically mix subscriptions, free tiers, pay-per-token APIs and local models, and want to spend less without losing quality or control. Small teams and hosted multi-user mode are out of scope until after Phase 4.
 
 **Principles:** connected-model-first; free-first only when the output can be verified; user confirmation on paid escalation; transparent routing; minimum necessary context; security-first handling of third-party content; usage-based optimization; reversible settings.
 
-**Non-goals for MVP:** full IDE replacement; arbitrary website agent browsing; GitHub skill marketplace; learned/ML router; cloud orchestration at scale; guaranteed free execution or guaranteed savings.
+**Non-goals for initial developer MVP:** full IDE replacement; arbitrary website agent browsing; GitHub skill marketplace; learned/ML router; cloud orchestration at scale; guaranteed free execution or guaranteed savings. Everyday Auto Chat and shared conversation continuity are a planned expansion, not a claim of current implementation.
 
 ### 0.1 Product shape: orchestrator first, gateway underneath
 
@@ -570,3 +582,7 @@ package.json, pnpm-workspace.yaml, skills-lock.json
 | Non-git workspaces cannot be isolated cheaply | Snapshot copy for small workspaces; otherwise read-only or explicit warning |
 
 **Current project state:** UI concept and implementation planning only. Values in the wireframes are illustrative, not product telemetry.
+
+## 13. Universal Memory integration dependency
+
+The authoritative specification is [UNIVERSAL_SHARED_MEMORY.md](UNIVERSAL_SHARED_MEMORY.md). Add `conversation`, `memory`, `context`, `handoff`, `affinity` and `checkpoint` modules only according to the staged roadmap and passing adapter contract tests. Extend the SQLite schema and UI with user-consented memory review/delete/export and per-provider context disclosure. Never count provider cache savings unless confirmed by usage observations, and separately report token savings and monetary savings.
