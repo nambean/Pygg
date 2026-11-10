@@ -2,7 +2,7 @@
 
 **AI Model & Agent Orchestrator**: routes each stage of a coding task to the cheapest connected model and agent that can pass that stage's checks.
 
-> Status: product planning and UI/UX design; implementation has not started.
+> Status: early implementation. The desktop shell and task list run on labeled sample data; the task engine, gateway and router are not built yet. See [implementation status](docs/IMPLEMENTATION-STATUS.md).
 
 ## Product vision
 
@@ -33,6 +33,22 @@ Skills & Prompts is planned for Phase 4. See the [screen design](docs/design/SCR
 ## Tech stack
 
 Same stack as DownFetch: Tauri 2 with a Rust core (gateway, router, agent runner, SQLite, OS keychain), a React 19 + Vite + TypeScript interface styled with semantic CSS tokens after Apple's HIG, a pnpm workspace, and design reviews with the `apple-design` skill.
+
+## Development
+
+Requirements: Node.js LTS, pnpm 9 (`corepack enable`), and stable Rust through rustup. On Windows you also need the Visual Studio C++ Build Tools and WebView2, which is built into Windows 11.
+
+Run these from the repo root:
+
+```powershell
+pnpm install
+pnpm dev                                              # interface in a browser at http://127.0.0.1:1431, sample data
+pnpm --filter @smarttaskrouter/desktop tauri:dev     # the desktop app with hot reload
+pnpm typecheck
+pnpm build
+```
+
+The design review skill is pinned in `skills-lock.json` and installed under `.agents/skills/`, which is git-ignored. Decisions are recorded in [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Roadmap
 

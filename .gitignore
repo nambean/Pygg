@@ -1,0 +1,20 @@
+node_modules/
+dist/
+target/
+.vite/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+# Skills are installed locally from skills-lock.json, not committed.
+.agents/
+# IDE settings
+/.idea/
+# Tauri-generated schemas
+/apps/desktop/src-tauri/gen/
+# Benchmark run output (reports are committed under benchmark/reports/)
+/benchmark/runs/

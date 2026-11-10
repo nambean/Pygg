@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "SmartTaskRouter",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "visible": false,
+        "decorations": false,
+        "shadow": true,
+        "dragDropEnabled": false
+      }
+    ]
+  }
+}

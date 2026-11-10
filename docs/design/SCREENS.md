@@ -199,10 +199,11 @@ Reuse DownFetch's semantic tokens (`--window`, `--sidebar`, `--surface`, `--labe
 | Surface | `#FFFFFF` | `#2C2C2E` |
 | Label | `#1D1D1F` | `#F5F5F7` |
 | Secondary | `#636366` | `#A1A1A6` |
-| Accent fill (`--accent`) | `#C2410C` | `#9A3412` |
+| Accent fill (`--accent`) | `#C2410C` | `#C2410C` |
+| Accent icon (`--accent-icon`, sidebar icons) | `#C2410C` | `#FB923C` |
 | Accent text (`--accent-text`) | `#B93A0A` | `#FB923C` |
 
-Codex calculated these contrast ratios: white on the light accent 5.18:1, white on the dark accent 7.31:1, light accent text on white 5.72:1, and dark accent text on the dark surface 6.16:1. Re-check them with a contrast tool when the tokens go into `styles.css`.
+Codex calculated these contrast ratios: white on `#C2410C` 5.18:1, light accent text on white 5.72:1, and dark accent text on the dark surface 6.16:1. Codex first proposed `#9A3412` as the dark fill. It was dropped in implementation: as an icon color on the dark sidebar it reaches only about 2:1, so the dark theme keeps `#C2410C` for fills and uses `--accent-icon: #FB923C` (about 6.7:1 on the sidebar) for icons. Re-check these ratios with a contrast tool before release.
 
 - Type: 13px body, 11–12px supporting text, 15px toolbar title, 17px section emphasis; 12px monospace for IDs, checks, paths and output. Use tabular figures for money and tokens.
 - Controls are 26–32px high; grouped boxes have 8–10px corners; content margins are 20–24px.

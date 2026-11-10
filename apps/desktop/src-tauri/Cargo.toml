@@ -1,0 +1,20 @@
+[package]
+name = "smarttaskrouter-desktop"
+version = "0.1.0"
+description = "SmartTaskRouter desktop app: task routing core, local gateway and interface shell"
+edition = "2021"
+publish = false
+
+[lib]
+name = "smarttaskrouter_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+# A second launch focuses the running window instead of starting another core (and another gateway).
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
