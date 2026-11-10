@@ -31,6 +31,10 @@ See [CLI / IDE Integrations, npm & Provider Tiers](docs/CLI_IDE_NPM_PROVIDER_TIE
 
 Authorized accounts and API connections can be grouped into **Account Pools** with Fill First, Round Robin, Sticky Round Robin, Cost-Aware and bounded failover policies. Session affinity preserves provider prompt caches and Shared Memory continuity; quota resets, provider policy, per-client allowlists and spend caps are hard constraints. See [Account/API Rotation specification](docs/ACCOUNT_API_ROTATION.md). This feature is designed, **not implemented**.
 
+## OmniRoute-inspired feature decisions (planned)
+
+Adopt/adapt a focused subset of OmniRoute: **dynamic Auto candidate discovery, accurate Free Tier catalog and shared quota groups, safe account-aware failover, minimal prompt/tool-output deduplication, then cache-aware affinity and quality-adjusted scoring**. Reject default model fusion, broad 20-strategy UI, credential/session impersonation and misleading token-saving claims. [Research, adoption matrix and acceptance gates](docs/OMNIROUTE_FEATURE_RESEARCH.md). These are scope decisions, not implemented features.
+
 ## Navigation
 
 The app is list-first like DownFetch: the task list is home, filtered from the sidebar (All Tasks, Running, Needs Approval, Completed, Failed, Stopped) and scoped by workspace.
