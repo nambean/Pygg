@@ -76,7 +76,7 @@ async fn main() {
                 reference
             });
             let provider = shared.with_db(|db| store::add_provider(db, &store::NewProvider {
-                kind: preset.id, label: &label, endpoint: &endpoint, credential_ref: reference.as_deref(), default_billing: &billing,
+                kind: preset.id, label: &label, endpoint: &endpoint, credential_ref: reference.as_deref(), default_billing: &billing, wire: preset.wire,
             })).unwrap_or_else(|e| fail(e));
             println!("Added connection {} ({})", provider.id, provider.endpoint);
         }

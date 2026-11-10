@@ -1,12 +1,16 @@
 //! The Anthropic Messages surface (`POST /v1/messages`), so Claude Code and other Anthropic clients can use
-//! any connection. Requests are translated to OpenAI chat completions, sent through the same routing,
-//! fallback and ledger as `/v1/chat/completions`, and the answers translated back, streamed or not.
+//! any connection, through the same routing, fallback, budgets and ledger as `/v1/chat/completions`.
 //!
-//! What does not cross: thinking blocks (no provider here can accept a signed Anthropic thought), prompt
-//! cache markers, and citations. Text, images, tool definitions, tool calls and tool results do.
+//! - **To an Anthropic connection** the request goes through unchanged (ROADMAP P0-1): cache markers,
+//!   thinking, citations and every other field reach the provider, and its answer comes back byte for byte.
+//! - **To an OpenAI-compatible connection** it is translated to Chat Completions and back, streamed or not.
+//!   Text, images, tool definitions, tool calls and tool results cross. Thinking does not. Cache markers cross
+//!   only to providers that document accepting them on content parts (OpenRouter); otherwise they are dropped,
+//!   and the response says so in `x-smarttaskrouter-dropped`.
 
 use super::pricing::Usage;
-use super::{authenticate, forward, parse_body, record_success, route_headers, status_only, Refusal, Shared};
+use super::{authenticate, forward, parse_body, pump, record_success, route_headers, session_key, status_only,
+    stream_response, Incoming, Mode, Refusal, Shared, Surface};
 use axum::body::{Body, Bytes};
 use axum::extract::State;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
@@ -33,14 +37,43 @@ fn error_kind(status: StatusCode) -> &'static str {
 }
 
 fn refusal_response(refusal: Refusal) -> Response {
-    // Upstream bodies are in the provider's format; Anthropic clients need theirs, so only the message crosses.
-    let status = refusal.upstream.as_ref().map(|(s, _, _)| *s).unwrap_or(refusal.status);
+    // An Anthropic provider's own error body is already in this format and goes back as it is.
+    if let Some((status, content_type, body)) = refusal.upstream {
+        let mut response = Response::new(Body::from(body));
+        *response.status_mut() = status;
+        if let Some(content_type) = content_type {
+            response.headers_mut().insert(header::CONTENT_TYPE, content_type);
+        }
+        if let Some(seconds) = refusal.retry_after {
+            response.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(seconds));
+        }
+        return response;
+    }
     let kind = match refusal.kind {
-        "budget_exceeded" => "rate_limit_error",
+        "budget_exceeded" | "rate_limit_error" => "rate_limit_error",
         "model_not_found" => "not_found_error",
-        _ => error_kind(status),
+        _ => error_kind(refusal.status),
     };
-    anthropic_error(status, kind, &refusal.message)
+    let mut response = anthropic_error(refusal.status, kind, &refusal.message);
+    if let Some(seconds) = refusal.retry_after {
+        response.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(seconds));
+    }
+    response
+}
+
+/// Whether the request asks for extended thinking or carries earlier thinking blocks.
+pub fn has_thinking(request: &Value) -> bool {
+    !request["thinking"].is_null()
+        || request["messages"].as_array().is_some_and(|m| m.iter().any(|m| m["content"].as_array()
+            .is_some_and(|blocks| blocks.iter().any(|b| matches!(b["type"].as_str(), Some("thinking" | "redacted_thinking"))))))
+}
+
+/// Whether any system, message or tool block carries a prompt-cache marker.
+pub fn has_cache_control(request: &Value) -> bool {
+    let blocks = |v: &Value| v.as_array().is_some_and(|a| a.iter().any(|b| b.get("cache_control").is_some()));
+    blocks(&request["system"])
+        || request["messages"].as_array().is_some_and(|m| m.iter().any(|m| blocks(&m["content"])))
+        || blocks(&request["tools"])
 }
 
 // ---------- Request: Anthropic → OpenAI ----------
@@ -88,11 +121,33 @@ fn clean_schema(schema: &Value) -> Value {
     }
 }
 
-pub fn to_openai(request: &Value) -> Value {
+/// A text part, keeping its cache marker when the target accepts one.
+fn text_part(block: &Value, keep_cache: bool) -> Value {
+    let mut part = json!({ "type": "text", "text": block["text"] });
+    if keep_cache {
+        if let Some(marker) = block.get("cache_control") {
+            part["cache_control"] = marker.clone();
+        }
+    }
+    part
+}
+
+/// Translates a Messages request to Chat Completions. With `keep_cache`, prompt-cache markers stay on the
+/// system and user text parts (for providers that accept them there), and those parts are not merged into
+/// one string, which would lose the markers.
+pub fn to_openai(request: &Value, keep_cache: bool) -> Value {
     let mut messages = Vec::new();
-    let system = text_of(&request["system"]);
-    if !system.is_empty() {
-        messages.push(json!({ "role": "system", "content": system }));
+    let system_marked = keep_cache
+        && request["system"].as_array().is_some_and(|a| a.iter().any(|b| b.get("cache_control").is_some()));
+    if system_marked {
+        let parts: Vec<Value> = request["system"].as_array().into_iter().flatten()
+            .filter(|b| b["type"] == "text").map(|b| text_part(b, true)).collect();
+        messages.push(json!({ "role": "system", "content": parts }));
+    } else {
+        let system = text_of(&request["system"]);
+        if !system.is_empty() {
+            messages.push(json!({ "role": "system", "content": system }));
+        }
     }
     for message in request["messages"].as_array().into_iter().flatten() {
         let role = message["role"].as_str().unwrap_or("user");
@@ -128,13 +183,13 @@ pub fn to_openai(request: &Value) -> Value {
                     }
                     messages.push(json!({ "role": "tool", "tool_call_id": block["tool_use_id"], "content": text }));
                 }
-                Some("text") => parts.push(json!({ "type": "text", "text": block["text"] })),
+                Some("text") => parts.push(text_part(block, keep_cache)),
                 Some("image") => parts.extend(image_part(block)),
                 _ => {}
             }
         }
         if !parts.is_empty() {
-            let only_text = parts.iter().all(|p| p["type"] == "text");
+            let only_text = parts.iter().all(|p| p["type"] == "text" && p.get("cache_control").is_none());
             let content = if only_text {
                 json!(parts.iter().filter_map(|p| p["text"].as_str()).collect::<Vec<_>>().join("\n"))
             } else {
@@ -350,12 +405,63 @@ pub async fn messages(State(shared): State<Shared>, headers: HeaderMap, body: By
         Err(refusal) => return refusal_response(refusal),
     };
     let stream = request["stream"] == true;
-    let forwarded = match forward(&shared, &client, &requested, to_openai(&request)).await {
+    let session = session_key(&headers);
+    let incoming = Incoming { surface: Surface::Anthropic, body: &request, headers: &headers, requested: &requested,
+        session: session.as_deref(), stream };
+    let forwarded = match forward(&shared, &client, &incoming).await {
         Ok(forwarded) => forwarded,
         Err(refusal) => return refusal_response(refusal),
     };
+    match forwarded.mode {
+        Mode::Native => native(shared, forwarded, stream).await,
+        Mode::AnthropicToOpenAi => translated(shared, forwarded, stream, requested).await,
+    }
+}
+
+/// Same format: the provider's answer goes back unchanged; only its usage is read on the way.
+async fn native(shared: Shared, mut forwarded: super::Forwarded, stream: bool) -> Response {
     let status = forwarded.response.status();
-    let mut forwarded = forwarded;
+    let content_type = forwarded.response.headers().get(header::CONTENT_TYPE).cloned();
+    let upstream = std::mem::replace(&mut forwarded.response, status_only(status));
+    if !stream {
+        return match upstream.bytes().await {
+            Ok(bytes) => {
+                let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+                let usage = Usage::from_anthropic(&parsed["usage"]);
+                let mut out = Response::new(Body::from(bytes));
+                *out.status_mut() = status;
+                if let Some(content_type) = content_type {
+                    out.headers_mut().insert(header::CONTENT_TYPE, content_type);
+                }
+                route_headers(&mut out, &forwarded);
+                record_success(&shared, forwarded, usage.as_ref(), "ok", None);
+                out
+            }
+            Err(e) => {
+                let message = crate::redact::redact(&e.to_string(), &[]);
+                record_success(&shared, forwarded, None, "stream_error", Some(&message));
+                anthropic_error(StatusCode::BAD_GATEWAY, "api_error", &format!("The provider's response broke off: {message}"))
+            }
+        };
+    }
+    let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(64);
+    let mut out = stream_response(rx, status, content_type);
+    route_headers(&mut out, &forwarded);
+    tokio::spawn(async move {
+        let mut scanner = super::sse::UsageScanner::anthropic();
+        let (mut outcome, error) = pump(upstream, &tx, |chunk| scanner.feed(chunk)).await;
+        if outcome == "ok" && scanner.error.is_some() {
+            outcome = "stream_error";
+        }
+        let error = error.or(scanner.error.clone());
+        record_success(&shared, forwarded, scanner.usage.as_ref(), outcome, error.as_deref());
+    });
+    out
+}
+
+/// Translated to Chat Completions: the answer is translated back, streamed or not.
+async fn translated(shared: Shared, mut forwarded: super::Forwarded, stream: bool, requested: String) -> Response {
+    let status = forwarded.response.status();
     let upstream = std::mem::replace(&mut forwarded.response, status_only(status));
 
     if !stream {
@@ -364,25 +470,21 @@ pub async fn messages(State(shared): State<Shared>, headers: HeaderMap, body: By
                 let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
                 shared.capture_signatures(&parsed);
                 let usage = Usage::from_json(&parsed["usage"]);
-                record_success(&shared, &client, &requested, &forwarded, usage.as_ref(), "ok", None);
                 let mut out = Json(from_openai(&parsed, &requested)).into_response();
                 route_headers(&mut out, &forwarded);
+                record_success(&shared, forwarded, usage.as_ref(), "ok", None);
                 out
             }
             Err(e) => {
                 let message = crate::redact::redact(&e.to_string(), &[]);
-                record_success(&shared, &client, &requested, &forwarded, None, "stream_error", Some(&message));
+                record_success(&shared, forwarded, None, "stream_error", Some(&message));
                 anthropic_error(StatusCode::BAD_GATEWAY, "api_error", &format!("The provider's response broke off: {message}"))
             }
         };
     }
 
     let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(64);
-    let mut out = Response::new(Body::from_stream(futures_util::stream::unfold(rx, |mut rx| async move {
-        rx.recv().await.map(|item| (item, rx))
-    })));
-    out.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
-    out.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    let mut out = stream_response(rx, StatusCode::OK, Some(HeaderValue::from_static("text/event-stream")));
     route_headers(&mut out, &forwarded);
     tokio::spawn(async move {
         let mut translator = StreamTranslator::new(&requested);
@@ -390,7 +492,6 @@ pub async fn messages(State(shared): State<Shared>, headers: HeaderMap, body: By
         let mut line = Vec::<u8>::new();
         let mut outcome = "ok";
         let mut error = None;
-        let mut done = false;
         'read: while let Some(chunk) = bytes.next().await {
             let chunk = match chunk {
                 Ok(chunk) => chunk,
@@ -411,7 +512,6 @@ pub async fn messages(State(shared): State<Shared>, headers: HeaderMap, body: By
                 line.clear();
                 let Some(data) = text.strip_prefix("data:").map(str::trim) else { continue };
                 if data == "[DONE]" {
-                    done = true;
                     break 'read;
                 }
                 let Ok(value) = serde_json::from_str::<Value>(data) else { continue };
@@ -425,7 +525,6 @@ pub async fn messages(State(shared): State<Shared>, headers: HeaderMap, body: By
             }
         }
         // A stream that ends without [DONE] is still finished cleanly if the provider closed it normally.
-        let _ = done;
         if outcome != "client_disconnected" {
             if outcome == "stream_error" {
                 let event = format!("event: error\ndata: {}\n\n",
@@ -437,21 +536,48 @@ pub async fn messages(State(shared): State<Shared>, headers: HeaderMap, body: By
                 }
             }
         }
-        record_success(&shared, &client, &requested, &forwarded, translator.usage.as_ref(), outcome, error.as_deref());
+        let usage = translator.usage.clone();
+        record_success(&shared, forwarded, usage.as_ref(), outcome, error.as_deref());
     });
     out
 }
 
-/// An estimate only (about four characters a token); no provider here offers an exact count for this format.
+/// Token counting for Claude Code's context management. An Anthropic connection answers exactly; for
+/// anything else the count is an estimate (about four characters a token), labeled in
+/// `x-smarttaskrouter-estimate`.
 pub async fn count_tokens(State(shared): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
     if let Err(refusal) = authenticate(&shared, &headers) {
         return refusal_response(refusal);
     }
-    let Ok(request) = serde_json::from_slice::<Value>(&body) else {
+    let Ok(mut request) = serde_json::from_slice::<Value>(&body) else {
         return anthropic_error(StatusCode::BAD_REQUEST, "invalid_request_error", "The body is not JSON");
     };
+    let requested = request["model"].as_str().unwrap_or("").to_string();
+    let target = shared.with_db(|db| super::store::resolve(db, &requested)).ok().into_iter().flatten()
+        .find(|(provider, _)| provider.wire == "anthropic");
+    if let Some((provider, model_id)) = target {
+        let key = provider.credential_ref.as_deref().and_then(|r| shared.secrets.read(r).ok().flatten());
+        request["model"] = json!(model_id);
+        let mut call = shared.http.post(format!("{}/messages/count_tokens", provider.endpoint)).json(&request)
+            .header("anthropic-version", headers.get("anthropic-version").cloned()
+                .unwrap_or_else(|| HeaderValue::from_static(super::ANTHROPIC_VERSION)));
+        if let Some(key) = &key {
+            call = call.header("x-api-key", key);
+        }
+        if let Ok(response) = call.send().await {
+            if response.status().is_success() {
+                if let Ok(bytes) = response.bytes().await {
+                    let mut out = Response::new(Body::from(bytes));
+                    out.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+                    return out;
+                }
+            }
+        }
+    }
     let chars = request["system"].to_string().len() + request["messages"].to_string().len() + request["tools"].to_string().len();
-    Json(json!({ "input_tokens": chars.div_ceil(4) })).into_response()
+    let mut out = Json(json!({ "input_tokens": chars.div_ceil(4) })).into_response();
+    out.headers_mut().insert("x-smarttaskrouter-estimate", HeaderValue::from_static("characters/4"));
+    out
 }
 
 #[cfg(test)]
@@ -477,7 +603,7 @@ mod tests {
                     { "type": "text", "text": "Now summarize." }] }
             ]
         });
-        let out = to_openai(&request);
+        let out = to_openai(&request, false);
         let messages = out["messages"].as_array().unwrap();
         assert_eq!(messages[0], json!({ "role": "system", "content": "Be brief." }));
         assert_eq!(messages[2]["content"], "Reading.");

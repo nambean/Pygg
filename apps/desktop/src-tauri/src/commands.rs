@@ -139,17 +139,26 @@ pub struct ConnectionView {
     pub has_key: bool,
     pub needs_key: bool,
     pub models: usize,
+    /// Current cooldowns and blocks on the connection or its models (ROADMAP P0-2).
+    pub health: Vec<store::Health>,
+    /// Other connections that share this one's quota group.
+    pub shares_quota_with: Vec<String>,
 }
 
 fn view(state: &AppState, provider: Provider) -> ConnectionView {
     let preset = presets::find(&provider.kind);
     let has_key = provider.credential_ref.as_deref().map(|r| matches!(vault::read(r), Ok(Some(_)))).unwrap_or(false);
     let models = state.shared.with_db(|db| store::list_models(db, Some(&provider.id))).map(|m| m.len()).unwrap_or(0);
+    let health = state.shared.with_db(|db| store::list_health(db, Some(&provider.id))).unwrap_or_default();
+    let shares_quota_with = state.shared.with_db(store::list_providers).unwrap_or_default().into_iter()
+        .filter(|p| p.id != provider.id && p.quota_group == provider.quota_group).map(|p| p.label).collect();
     ConnectionView {
         preset_name: preset.map(|p| p.name.to_string()).unwrap_or_else(|| provider.kind.clone()),
         needs_key: preset.map(|p| p.needs_key).unwrap_or(false),
         has_key,
         models,
+        health,
+        shares_quota_with,
         provider,
     }
 }
@@ -190,7 +199,7 @@ pub fn connection_add(state: State<'_, AppState>, connection: NewConnection) -> 
     };
     let added = state.shared.with_db(|db| store::add_provider(db, &NewProvider {
         kind: preset.id, label, endpoint: &endpoint, credential_ref: reference.as_deref(),
-        default_billing: &connection.billing,
+        default_billing: &connection.billing, wire: preset.wire,
     }));
     match added {
         Ok(provider) => Ok(view(&state, provider)),
@@ -204,9 +213,9 @@ pub fn connection_add(state: State<'_, AppState>, connection: NewConnection) -> 
 }
 
 #[tauri::command]
-pub fn connection_update(state: State<'_, AppState>, id: String, enabled: Option<bool>, billing: Option<String>)
-    -> Res<ConnectionView> {
-    state.shared.with_db(|db| store::update_provider(db, &id, enabled, billing.as_deref()))?;
+pub fn connection_update(state: State<'_, AppState>, id: String, enabled: Option<bool>, billing: Option<String>,
+    separate_quota: Option<bool>) -> Res<ConnectionView> {
+    state.shared.with_db(|db| store::update_provider(db, &id, enabled, billing.as_deref(), separate_quota))?;
     let provider = state.shared.with_db(|db| store::get_provider(db, &id))?.ok_or("Connection not found")?;
     Ok(view(&state, provider))
 }
@@ -227,6 +236,16 @@ pub fn connection_set_key(state: State<'_, AppState>, id: String, api_key: Strin
                 rusqlite::params![id, reference]).map_err(|e| e.to_string()))?;
         }
     }
+    // A new key deserves a fresh start: earlier rejections were about the old one.
+    state.shared.with_db(|db| store::clear_health(db, &id))?;
+    let provider = state.shared.with_db(|db| store::get_provider(db, &id))?.ok_or("Connection not found")?;
+    Ok(view(&state, provider))
+}
+
+/// Clears cooldowns and blocks so the connection is tried again on the next request.
+#[tauri::command]
+pub fn connection_clear_health(state: State<'_, AppState>, id: String) -> Res<ConnectionView> {
+    state.shared.with_db(|db| store::clear_health(db, &id))?;
     let provider = state.shared.with_db(|db| store::get_provider(db, &id))?.ok_or("Connection not found")?;
     Ok(view(&state, provider))
 }
@@ -274,6 +293,7 @@ pub struct PriceInput {
     pub input_usd_per_mtok: f64,
     pub output_usd_per_mtok: f64,
     pub cached_input_usd_per_mtok: Option<f64>,
+    pub cache_write_usd_per_mtok: Option<f64>,
 }
 
 fn micro(usd: f64) -> Res<u64> {
@@ -293,6 +313,7 @@ pub fn model_update(state: State<'_, AppState>, provider_id: String, model_id: S
             input_micro_per_mtok: micro(p.input_usd_per_mtok)?,
             output_micro_per_mtok: micro(p.output_usd_per_mtok)?,
             cached_input_micro_per_mtok: p.cached_input_usd_per_mtok.map(micro).transpose()?,
+            cache_write_micro_per_mtok: p.cache_write_usd_per_mtok.map(micro).transpose()?,
             source: "user".into(),
             observed_at: crate::db::now_ms(),
         })),
@@ -362,6 +383,14 @@ pub fn client_revoke(state: State<'_, AppState>, id: String) -> Res<()> {
 pub fn client_set_budget(state: State<'_, AppState>, id: String, monthly_budget_usd: Option<f64>) -> Res<()> {
     let limit = budget(monthly_budget_usd)?;
     state.shared.with_db(|db| store::set_client_budget(db, &id, limit))
+}
+
+/// Requests allowed in flight at once, and whether a target with an unknown price may be used while the
+/// client has a limit (`block` or `allow`).
+#[tauri::command]
+pub fn client_set_policy(state: State<'_, AppState>, id: String, max_concurrency: Option<u32>,
+    unknown_cost_policy: Option<String>) -> Res<()> {
+    state.shared.with_db(|db| store::set_client_policy(db, &id, max_concurrency, unknown_cost_policy.as_deref()))
 }
 
 // ---------- Usage ----------

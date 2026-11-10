@@ -8,6 +8,7 @@ use std::path::Path;
 const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0001_init.sql"),
     include_str!("../migrations/0002_gateway.sql"),
+    include_str!("../migrations/0003_cost_safe_gateway.sql"),
 ];
 
 pub const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;
@@ -38,7 +39,13 @@ pub fn version(conn: &Connection) -> rusqlite::Result<u32> {
 }
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
-    let current = version(conn)?;
+    if version(conn)? == SCHEMA_VERSION {
+        return Ok(());
+    }
+    // IMMEDIATE takes the write lock first, and the version is read again inside it: the app and the CLI
+    // opening a fresh store at the same moment cannot both run the same migration.
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let current: u32 = tx.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if current > SCHEMA_VERSION {
         // Opened by a newer build: refuse rather than write with an older understanding of the schema.
         return Err(rusqlite::Error::InvalidQuery);
@@ -46,7 +53,6 @@ fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
     if current == SCHEMA_VERSION {
         return Ok(());
     }
-    let tx = conn.transaction()?;
     for sql in &MIGRATIONS[current as usize..] {
         tx.execute_batch(sql)?;
     }

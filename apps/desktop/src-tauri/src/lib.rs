@@ -99,6 +99,8 @@ pub fn run() {
             commands::client_create,
             commands::client_revoke,
             commands::client_set_budget,
+            commands::client_set_policy,
+            commands::connection_clear_health,
             commands::usage_summary,
         ])
         .run(tauri::generate_context!())

@@ -30,10 +30,18 @@ pub struct Provider {
     pub default_billing: String,
     pub data_use_terms: String,
     pub created_at: i64,
+    /// `openai` or `anthropic`: the API this connection speaks.
+    pub wire: String,
+    /// Connections in the same group share rate limits and terms: after a 401, 402, 403 or 429 on one, the
+    /// others are not tried for that request. Defaults to the provider kind.
+    pub quota_group: String,
+    /// The user marked this connection as its own organization, with its own limits.
+    pub separate_quota: bool,
 }
 
 const PROVIDER_COLUMNS: &str =
-    "id, kind, account_label, COALESCE(endpoint, ''), enabled, credential_ref, default_billing, data_use_terms, created_at";
+    "id, kind, account_label, COALESCE(endpoint, ''), enabled, credential_ref, default_billing, data_use_terms, created_at, \
+     wire, COALESCE(quota_group, kind), quota_group IS NOT NULL";
 
 fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
     Ok(Provider {
@@ -46,6 +54,9 @@ fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
         default_billing: row.get(6)?,
         data_use_terms: row.get(7)?,
         created_at: row.get(8)?,
+        wire: row.get(9)?,
+        quota_group: row.get(10)?,
+        separate_quota: row.get::<_, i64>(11)? == 1,
     })
 }
 
@@ -81,11 +92,15 @@ pub struct NewProvider<'a> {
     pub endpoint: &'a str,
     pub credential_ref: Option<&'a str>,
     pub default_billing: &'a str,
+    pub wire: &'a str,
 }
 
 pub fn add_provider(conn: &Connection, new: &NewProvider) -> Result<Provider> {
     if !BILLING.contains(&new.default_billing) {
         return Err(format!("unknown billing type {}", new.default_billing));
+    }
+    if !matches!(new.wire, "openai" | "anthropic") {
+        return Err(format!("unknown wire format {}", new.wire));
     }
     let endpoint = new.endpoint.trim().trim_end_matches('/');
     if !(endpoint.starts_with("https://") || endpoint.starts_with("http://")) {
@@ -99,9 +114,9 @@ pub fn add_provider(conn: &Connection, new: &NewProvider) -> Result<Provider> {
         n += 1;
     }
     conn.execute(
-        "INSERT INTO providers (id, kind, account_label, endpoint, credential_ref, default_billing, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![id, new.kind, new.label.trim(), endpoint, new.credential_ref, new.default_billing, now_ms()],
+        "INSERT INTO providers (id, kind, account_label, endpoint, credential_ref, default_billing, wire, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![id, new.kind, new.label.trim(), endpoint, new.credential_ref, new.default_billing, new.wire, now_ms()],
     )
     .map_err(err)?;
     get_provider(conn, &id)?.ok_or_else(|| "connection was not saved".into())
@@ -115,7 +130,12 @@ pub fn remove_provider(conn: &Connection, id: &str) -> Result<Option<String>> {
     Ok(reference)
 }
 
-pub fn update_provider(conn: &Connection, id: &str, enabled: Option<bool>, billing: Option<&str>) -> Result<()> {
+pub fn update_provider(conn: &Connection, id: &str, enabled: Option<bool>, billing: Option<&str>,
+    separate_quota: Option<bool>) -> Result<()> {
+    if let Some(separate) = separate_quota {
+        conn.execute("UPDATE providers SET quota_group = CASE WHEN ?2 THEN id END WHERE id = ?1", params![id, separate])
+            .map_err(err)?;
+    }
     if let Some(enabled) = enabled {
         conn.execute("UPDATE providers SET enabled = ?2 WHERE id = ?1", params![id, enabled as i64]).map_err(err)?;
     }
@@ -251,6 +271,12 @@ pub struct Client {
     pub month_spend_micro_usd: u64,
     /// Requests this month whose cost is unknown, so the limit could not count them.
     pub month_unknown_requests: u64,
+    /// Requests allowed in flight at once.
+    pub max_concurrency: u32,
+    /// `block` or `allow`: whether a target with an unknown price may be used while this client has a limit.
+    pub unknown_cost_policy: String,
+    /// Spend held for requests still in flight.
+    pub reserved_micro_usd: u64,
 }
 
 pub fn hash_token(token: &str) -> String {
@@ -280,6 +306,8 @@ fn client_row(conn: &Connection, row: &rusqlite::Row) -> rusqlite::Result<Client
         params![id, since],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
+    let reserved: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(reserved_micro), 0) FROM budget_reservations WHERE client_id = ?1", [&id], |r| r.get(0))?;
     Ok(Client {
         id,
         name: row.get(1)?,
@@ -290,10 +318,14 @@ fn client_row(conn: &Connection, row: &rusqlite::Row) -> rusqlite::Result<Client
         revoked_at: row.get(6)?,
         month_spend_micro_usd: spend.max(0) as u64,
         month_unknown_requests: unknown.max(0) as u64,
+        max_concurrency: row.get::<_, i64>(7)?.max(1) as u32,
+        unknown_cost_policy: row.get(8)?,
+        reserved_micro_usd: reserved.max(0) as u64,
     })
 }
 
-const CLIENT_COLUMNS: &str = "id, name, token_prefix, monthly_budget_micro_usd, created_at, last_used_at, revoked_at";
+const CLIENT_COLUMNS: &str =
+    "id, name, token_prefix, monthly_budget_micro_usd, created_at, last_used_at, revoked_at, max_concurrency, unknown_cost_policy";
 
 pub fn list_clients(conn: &Connection) -> Result<Vec<Client>> {
     let mut stmt = conn
@@ -332,6 +364,185 @@ pub fn revoke_client(conn: &Connection, id: &str) -> Result<()> {
 pub fn set_client_budget(conn: &Connection, id: &str, monthly_budget_micro_usd: Option<u64>) -> Result<()> {
     conn.execute("UPDATE gateway_clients SET monthly_budget_micro_usd = ?2 WHERE id = ?1",
         params![id, monthly_budget_micro_usd.map(|v| v as i64)]).map(|_| ()).map_err(err)
+}
+
+pub fn set_client_policy(conn: &Connection, id: &str, max_concurrency: Option<u32>, unknown_cost_policy: Option<&str>)
+    -> Result<()> {
+    if let Some(n) = max_concurrency {
+        if !(1..=256).contains(&n) {
+            return Err("Allow from 1 to 256 requests at once".into());
+        }
+        conn.execute("UPDATE gateway_clients SET max_concurrency = ?2 WHERE id = ?1", params![id, n]).map_err(err)?;
+    }
+    if let Some(policy) = unknown_cost_policy {
+        if !matches!(policy, "block" | "allow") {
+            return Err(format!("unknown policy {policy}"));
+        }
+        conn.execute("UPDATE gateway_clients SET unknown_cost_policy = ?2 WHERE id = ?1", params![id, policy]).map_err(err)?;
+    }
+    Ok(())
+}
+
+// ---------- Budget reservations (ROADMAP P0-3) ----------
+
+/// Why a reservation was refused.
+#[derive(Debug, PartialEq)]
+pub struct OverBudget {
+    pub spent: u64,
+    pub reserved: u64,
+    pub budget: u64,
+    pub wanted: u64,
+}
+
+/// Holds `micro` of a client's monthly limit for a request in flight. Atomic across threads and processes:
+/// the check and the insert happen under one `BEGIN IMMEDIATE`, so two requests cannot both take the last
+/// dollar. A client without a limit always succeeds. Returns the reservation id.
+pub fn reserve(conn: &Connection, client_id: &str, micro: u64) -> Result<std::result::Result<String, OverBudget>> {
+    conn.execute_batch("BEGIN IMMEDIATE").map_err(err)?;
+    let outcome = (|| -> rusqlite::Result<std::result::Result<String, OverBudget>> {
+        let budget: Option<i64> = conn.query_row(
+            "SELECT monthly_budget_micro_usd FROM gateway_clients WHERE id = ?1", [client_id], |r| r.get(0))?;
+        if let Some(budget) = budget.map(|b| b.max(0) as u64) {
+            let spent: i64 = conn.query_row(
+                "SELECT COALESCE(SUM(cost_micro_usd), 0) FROM usage_events WHERE client_id = ?1 AND created_at >= ?2",
+                params![client_id, month_start(now_ms())], |r| r.get(0))?;
+            let reserved: i64 = conn.query_row(
+                "SELECT COALESCE(SUM(reserved_micro), 0) FROM budget_reservations WHERE client_id = ?1", [client_id], |r| r.get(0))?;
+            let (spent, reserved) = (spent.max(0) as u64, reserved.max(0) as u64);
+            if spent + reserved + micro > budget || spent >= budget {
+                return Ok(Err(OverBudget { spent, reserved, budget, wanted: micro }));
+            }
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute("INSERT INTO budget_reservations (id, client_id, reserved_micro, created_at) VALUES (?1, ?2, ?3, ?4)",
+            params![id, client_id, micro as i64, now_ms()])?;
+        Ok(Ok(id))
+    })();
+    match outcome {
+        Ok(result) => {
+            conn.execute_batch(if result.is_ok() { "COMMIT" } else { "ROLLBACK" }).map_err(err)?;
+            Ok(result)
+        }
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(err(e))
+        }
+    }
+}
+
+pub fn release(conn: &Connection, reservation_id: &str) -> Result<()> {
+    conn.execute("DELETE FROM budget_reservations WHERE id = ?1", [reservation_id]).map(|_| ()).map_err(err)
+}
+
+/// Reservations left behind by a crash or a killed process, older than `max_age_ms`.
+pub fn release_stale_reservations(conn: &Connection, max_age_ms: i64) -> Result<usize> {
+    conn.execute("DELETE FROM budget_reservations WHERE created_at < ?1", [now_ms() - max_age_ms]).map_err(err)
+}
+
+// ---------- Connection health (ROADMAP P0-2) ----------
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Health {
+    pub provider_id: String,
+    /// Empty for the whole connection.
+    pub model_id: String,
+    pub state: String,
+    pub reason: String,
+    pub http_status: Option<u16>,
+    /// When the connection may be tried again; `None` until the user fixes it.
+    pub until_ms: Option<i64>,
+    pub updated_at: i64,
+}
+
+pub fn mark_health(conn: &Connection, provider_id: &str, model_id: &str, state: &str, reason: &str,
+    http_status: Option<u16>, until_ms: Option<i64>) -> Result<()> {
+    conn.execute(
+        "INSERT INTO connection_health (provider_id, model_id, state, reason, http_status, until_ms, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) ON CONFLICT(provider_id, model_id) DO UPDATE SET state = ?3, reason = ?4, \
+         http_status = ?5, until_ms = ?6, updated_at = ?7",
+        params![provider_id, model_id, state, reason.chars().take(300).collect::<String>(), http_status, until_ms, now_ms()],
+    )
+    .map(|_| ())
+    .map_err(err)
+}
+
+/// Clears the model's entry, and the connection-wide one unless it needs the user (a rejected key).
+pub fn mark_healthy(conn: &Connection, provider_id: &str, model_id: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM connection_health WHERE provider_id = ?1 AND (model_id = ?2 OR (model_id = '' AND until_ms IS NOT NULL))",
+        params![provider_id, model_id],
+    )
+    .map(|_| ())
+    .map_err(err)
+}
+
+pub fn clear_health(conn: &Connection, provider_id: &str) -> Result<()> {
+    conn.execute("DELETE FROM connection_health WHERE provider_id = ?1", [provider_id]).map(|_| ()).map_err(err)
+}
+
+pub fn list_health(conn: &Connection, provider_id: Option<&str>) -> Result<Vec<Health>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT provider_id, model_id, state, reason, http_status, until_ms, updated_at FROM connection_health \
+             WHERE (?1 IS NULL OR provider_id = ?1) AND (until_ms IS NULL OR until_ms > ?2) ORDER BY updated_at DESC",
+        )
+        .map_err(err)?;
+    let rows = stmt
+        .query_map(params![provider_id, now_ms()], |r| {
+            Ok(Health {
+                provider_id: r.get(0)?,
+                model_id: r.get(1)?,
+                state: r.get(2)?,
+                reason: r.get(3)?,
+                http_status: r.get::<_, Option<i64>>(4)?.map(|v| v as u16),
+                until_ms: r.get(5)?,
+                updated_at: r.get(6)?,
+            })
+        })
+        .map_err(err)?;
+    rows.collect::<rusqlite::Result<_>>().map_err(err)
+}
+
+/// The entry that currently keeps this connection or model from being tried, if any.
+pub fn blocking_health(conn: &Connection, provider_id: &str, model_id: &str) -> Result<Option<Health>> {
+    Ok(list_health(conn, Some(provider_id))?.into_iter().find(|h| h.model_id.is_empty() || h.model_id == model_id))
+}
+
+// ---------- Session affinity (ROADMAP P0-4) ----------
+
+/// How long a session stays pinned after its last request.
+pub const AFFINITY_TTL_MS: i64 = 2 * 60 * 60 * 1000;
+
+pub fn pinned_target(conn: &Connection, client_id: &str, session_key: &str, requested: &str) -> Result<Option<Target>> {
+    conn.query_row(
+        "SELECT provider_id, model_id FROM session_affinity WHERE client_id = ?1 AND session_key = ?2 \
+         AND requested_model = ?3 AND last_used_at >= ?4",
+        params![client_id, session_key, requested, now_ms() - AFFINITY_TTL_MS],
+        |r| Ok(Target { provider_id: r.get(0)?, model_id: r.get(1)? }),
+    )
+    .optional()
+    .map_err(err)
+}
+
+pub fn pin(conn: &Connection, client_id: &str, session_key: &str, requested: &str, target: &Target) -> Result<()> {
+    let now = now_ms();
+    conn.execute(
+        "INSERT INTO session_affinity (client_id, session_key, requested_model, provider_id, model_id, created_at, last_used_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6) ON CONFLICT(client_id, session_key, requested_model) DO UPDATE SET \
+         provider_id = ?4, model_id = ?5, last_used_at = ?6, \
+         created_at = CASE WHEN provider_id = ?4 AND model_id = ?5 THEN created_at ELSE ?6 END",
+        params![client_id, session_key, requested, target.provider_id, target.model_id, now],
+    )
+    .map(|_| ())
+    .map_err(err)
+}
+
+pub fn active_sessions(conn: &Connection, client_id: &str) -> Result<usize> {
+    conn.query_row("SELECT COUNT(*) FROM session_affinity WHERE client_id = ?1 AND last_used_at >= ?2",
+        params![client_id, now_ms() - AFFINITY_TTL_MS], |r| r.get::<_, i64>(0))
+        .map(|n| n.max(0) as usize)
+        .map_err(err)
 }
 
 /// The active client a bearer token belongs to.
@@ -463,19 +674,36 @@ pub struct UsageRecord<'a> {
     pub http_status: Option<u16>,
     pub latency_ms: u64,
     pub error: Option<&'a str>,
+    /// Prompt tokens written to the provider's cache (Anthropic `cache_creation_input_tokens`).
+    pub cache_write_tokens: Option<u64>,
+    pub session_key: Option<&'a str>,
+    /// `native` or `translated:anthropic->openai`.
+    pub route_mode: Option<&'a str>,
+}
+
+impl<'a> UsageRecord<'a> {
+    /// An attempt that produced no usage: a rejection, a refused connection, a key that could not be read.
+    pub fn failed(client_id: &'a str, provider_id: &'a str, model_id: &'a str, requested_model: &'a str, cost: &'a Cost,
+        outcome: &'a str, http_status: Option<u16>, latency_ms: u64, error: &'a str) -> UsageRecord<'a> {
+        UsageRecord { client_id: Some(client_id), provider_id, model_id, requested_model, input_tokens: None,
+            output_tokens: None, cache_tokens: None, cost, outcome, http_status, latency_ms, error: Some(error),
+            cache_write_tokens: None, session_key: None, route_mode: None }
+    }
 }
 
 pub fn record_usage(conn: &Connection, r: &UsageRecord) -> Result<()> {
     let now = now_ms();
     conn.execute(
         "INSERT INTO usage_events (id, client_id, provider, model, input_tokens, output_tokens, cache_tokens, \
-         cost_micro_usd, cost_status, source, created_at, outcome, http_status, latency_ms, requested_model, error) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+         cost_micro_usd, cost_status, source, created_at, outcome, http_status, latency_ms, requested_model, error, \
+         cache_write_tokens, session_key, route_mode) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         params![
             uuid::Uuid::new_v4().to_string(), r.client_id, r.provider_id, r.model_id,
             r.input_tokens.map(|v| v as i64), r.output_tokens.map(|v| v as i64), r.cache_tokens.map(|v| v as i64),
             r.cost.micro_usd().map(|v| v as i64), r.cost.status(), r.cost.source(), now, r.outcome,
             r.http_status, r.latency_ms as i64, r.requested_model, r.error,
+            r.cache_write_tokens.map(|v| v as i64), r.session_key, r.route_mode,
         ],
     )
     .map_err(err)?;
@@ -503,6 +731,11 @@ pub struct UsageEvent {
     pub http_status: Option<u16>,
     pub latency_ms: Option<u64>,
     pub error: Option<String>,
+    /// Prompt tokens read from the provider's cache.
+    pub cache_tokens: Option<u64>,
+    pub cache_write_tokens: Option<u64>,
+    pub session_key: Option<String>,
+    pub route_mode: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -567,7 +800,8 @@ pub fn usage_summary(conn: &Connection, since: i64, recent_limit: usize) -> Resu
     let mut stmt = conn
         .prepare(
             "SELECT u.id, u.created_at, c.name, u.provider, u.model, u.requested_model, u.input_tokens, u.output_tokens, \
-             u.cost_micro_usd, u.cost_status, u.source, u.outcome, u.http_status, u.latency_ms, u.error \
+             u.cost_micro_usd, u.cost_status, u.source, u.outcome, u.http_status, u.latency_ms, u.error, \
+             u.cache_tokens, u.cache_write_tokens, u.session_key, u.route_mode \
              FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id \
              WHERE u.created_at >= ?1 ORDER BY u.created_at DESC LIMIT ?2",
         )
@@ -591,6 +825,10 @@ pub fn usage_summary(conn: &Connection, since: i64, recent_limit: usize) -> Resu
                 http_status: r.get::<_, Option<i64>>(12)?.map(|v| v as u16),
                 latency_ms: u(13)?,
                 error: r.get(14)?,
+                cache_tokens: u(15)?,
+                cache_write_tokens: u(16)?,
+                session_key: r.get(17)?,
+                route_mode: r.get(18)?,
             })
         })
         .map_err(err)?
@@ -617,7 +855,7 @@ mod tests {
 
     fn gemini(conn: &Connection) -> Provider {
         add_provider(conn, &NewProvider { kind: "gemini", label: "Google Gemini", endpoint: "https://example.test/v1/",
-            credential_ref: Some("provider-x"), default_billing: "unknown" }).unwrap()
+            credential_ref: Some("provider-x"), default_billing: "unknown", wire: "openai" }).unwrap()
     }
 
     #[test]
@@ -629,7 +867,7 @@ mod tests {
         assert_eq!(a.endpoint, "https://example.test/v1");
         assert_eq!(slug("  OpenRouter / Work "), "openrouter-work");
         assert!(add_provider(&conn, &NewProvider { kind: "custom", label: "x", endpoint: "ftp://x", credential_ref: None,
-            default_billing: "paid" }).is_err());
+            default_billing: "paid", wire: "openai" }).is_err());
     }
 
     #[test]
@@ -650,7 +888,7 @@ mod tests {
         let conn = db::open_in_memory().unwrap();
         let a = gemini(&conn);
         let b = add_provider(&conn, &NewProvider { kind: "openrouter", label: "OpenRouter", endpoint: "https://o.test",
-            credential_ref: None, default_billing: "paid" }).unwrap();
+            credential_ref: None, default_billing: "paid", wire: "openai" }).unwrap();
         let members = vec![
             Target { provider_id: a.id.clone(), model_id: "flash".into() },
             Target { provider_id: b.id.clone(), model_id: "vendor/big".into() },
@@ -661,7 +899,7 @@ mod tests {
 
         let routed: Vec<String> = resolve(&conn, "coding").unwrap().into_iter().map(|(p, m)| format!("{}/{m}", p.id)).collect();
         assert_eq!(routed, ["google-gemini/flash", "openrouter/vendor/big"]);
-        update_provider(&conn, &a.id, Some(false), None).unwrap();
+        update_provider(&conn, &a.id, Some(false), None, None).unwrap();
         assert_eq!(resolve(&conn, "coding").unwrap().len(), 1);
         assert_eq!(resolve(&conn, "openrouter/vendor/big").unwrap()[0].1, "vendor/big");
         assert!(resolve(&conn, "nothing").unwrap().is_empty());
@@ -677,7 +915,8 @@ mod tests {
         for (cost, outcome) in [(&known, "ok"), (&unknown, "ok"), (&known, "fallback")] {
             record_usage(&conn, &UsageRecord { client_id: Some(&client.id), provider_id: &p.id, model_id: "flash",
                 requested_model: "coding", input_tokens: Some(10), output_tokens: Some(5), cache_tokens: None, cost,
-                outcome, http_status: Some(200), latency_ms: 12, error: None }).unwrap();
+                outcome, http_status: Some(200), latency_ms: 12, error: None, cache_write_tokens: None, session_key: None,
+                route_mode: None }).unwrap();
         }
         let summary = usage_summary(&conn, 0, 10).unwrap();
         assert_eq!((summary.total.requests, summary.total.failed, summary.total.fallbacks), (3, 0, 1));
