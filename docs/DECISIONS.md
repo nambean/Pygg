@@ -175,3 +175,11 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 **Decision:** user-enabled, version-tested CLI/IDE setup with scoped gateway token, config backup/restore and feature-based tests. Do not claim compatibility for unsupported client APIs or route proprietary subscription credentials through unrelated clients.
 
 **Status:** proposed. See [CLI / IDE / npm / tiers](CLI_IDE_NPM_PROVIDER_TIERS.md).
+
+## ADR-023 — Authorized multi-account rotation with session affinity (proposed)
+
+**Decision:** Per-provider authorized Account Pools may use Fill First, Round Robin, Sticky Round Robin and later cost-aware/weighted selection. Persist account/model affinity across normal conversation turns for cache and context continuity, subject to hard eligibility and policy filters. Retry or fallback only safely before stream output, with per-account health, explicit quota groups and reset-aware cooldown. Enforce client-key allowlists and atomic reservations across concurrent requests.
+
+**Safety:** do not use account/key/IP rotation to circumvent bans, quotas, subscription terms, shared tenant limits or user authorization. Do not silently change an active agent attempt, tool call or stream. 401 and 403 are not normal transient errors.
+
+**Status:** specified, not implemented. See [ACCOUNT_API_ROTATION.md](ACCOUNT_API_ROTATION.md).
