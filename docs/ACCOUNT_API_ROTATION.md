@@ -4,6 +4,19 @@
 >
 > Product: AI Cost Optimizer. Account rotation is an **availability, entitlement usage and cost-control mechanism** for authorized connections, not a way to evade provider quotas, bans, account restrictions, subscriptions or terms.
 
+## Architecture review correction — failure scopes and current implementation (2026-11-11)
+
+The existing gateway can fallback for 401/403/429 and connection/read errors across any combo member; this is **not yet the safe account rotation design**. The [review triage](reviews/2026-11-11-review-response.md) and [ROADMAP.md](ROADMAP.md) put this in P0-2.
+
+- 401: authentication invalid on this credential; do not blindly retry through other identities.
+- 403: classify model permission, organization policy or account suspension by provider response; block at the **correct scope** (not all accounts sharing provider name indiscriminately).
+- 429: honor `Retry-After`, respect shared organization/quota group and terms; no cycling accounts to sidestep a shared cap.
+- Ambiguous read timeout: provider may have run/billed; **no automatic fallback**. Connection-not-established failures may have a safe bounded fallback.
+- No automatic switch after response start or an active tool call; no hidden context/model changes.
+- Client and account budget reservations must be transactionally protected. A concurrent semaphore alone is insufficient.
+
+Account affinity requires a **client-supplied, authenticated session key**. Do not guess persistent session identity from hash(system prompt + first message). Without a session ID, a gateway-only client owns its conversation context and the router cannot promise cross-turn continuity.
+
 ## 1. Sources and design inspiration
 
 9Router documentation and source architecture describe multi-account per provider, account fallback and combo fallback:
