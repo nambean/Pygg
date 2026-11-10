@@ -748,3 +748,17 @@ Connections gains **Accounts** with an aggregated view filtered by Free / Subscr
 The **Pool Editor** lists explicitly authorized accounts and models, priority/weight, quota group, budget and privacy requirements. A **Simulation** panel explains how a new session and a continuing conversation choose different accounts and why excluded accounts are not selected. Usage supports per-account metrics and switches; Active Sessions shows account affinity and allows releasing it at the next safe boundary.
 
 **Reference:** [Account/API Rotation design](../ACCOUNT_API_ROTATION.md). This is a planned screen, not currently built. Do not use fake account quotas as live data.
+
+## 13. Approved OmniRoute-inspired feature surfacing (planned)
+
+**Consumer Auto Chat:** preserve Auto as the default; user can optionally pick Save More, Balanced or Quality. Do not show 20 routing strategies, ask a model-selection question each turn, or imply estimated savings are actual.
+
+**Connections > Free Intelligence:** model and account entitlements, free vs promotional quotas, pooled limit/reset, terms, source and freshness; show potentially free catalog separately from personally usable free entitlement.
+
+**Policies > Advanced routing:** Auto aliases, account pool settings, privacy/budget hard filters and clear route reasons. In developer mode, expose Health/Circuit Breaker and pre-stream fallback status.
+
+**Usage > Optimization:** actual input/output/cache tokens, compression shadow-mode measurement, cache switches and true total cost per accepted result. Show an explicit `Unknown` for unmeasured costs.
+
+**Compression controls:** Off, Safe (conservative exact dedup), and Experimental (only after opt-in), with a before/after preview and protected spans. Never silently compress code/tool schemas or active tool calls.
+
+These are design decisions and not implemented screens. Full criteria: [OmniRoute feature research](../OMNIROUTE_FEATURE_RESEARCH.md).
