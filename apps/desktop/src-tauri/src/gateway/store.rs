@@ -510,7 +510,10 @@ pub struct UsageEvent {
 pub struct UsageGroup {
     pub key: String,
     pub requests: u64,
+    /// Requests that ended in an error for the client.
     pub failed: u64,
+    /// Attempts that failed but were followed by another model of the combo.
+    pub fallbacks: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
     /// Sum of actual and estimated costs.
@@ -532,7 +535,7 @@ pub struct UsageSummary {
 pub fn usage_summary(conn: &Connection, since: i64, recent_limit: usize) -> Result<UsageSummary> {
     let group = |key_sql: &str| -> Result<Vec<UsageGroup>> {
         let sql = format!(
-            "SELECT {key_sql} AS k, COUNT(*), SUM(outcome NOT IN ('ok')), COALESCE(SUM(input_tokens), 0), \
+            "SELECT {key_sql} AS k, COUNT(*), SUM(outcome NOT IN ('ok', 'fallback')), SUM(outcome = 'fallback'), COALESCE(SUM(input_tokens), 0), \
              COALESCE(SUM(output_tokens), 0), COALESCE(SUM(cost_micro_usd), 0), \
              COALESCE(SUM(CASE WHEN cost_status = 'actual' THEN cost_micro_usd END), 0), SUM(cost_status = 'unknown') \
              FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id \
@@ -546,11 +549,12 @@ pub fn usage_summary(conn: &Connection, since: i64, recent_limit: usize) -> Resu
                     key: r.get::<_, Option<String>>(0)?.unwrap_or_default(),
                     requests: n(1)?,
                     failed: n(2)?,
-                    input_tokens: n(3)?,
-                    output_tokens: n(4)?,
-                    known_micro_usd: n(5)?,
-                    actual_micro_usd: n(6)?,
-                    unknown_requests: n(7)?,
+                    fallbacks: n(3)?,
+                    input_tokens: n(4)?,
+                    output_tokens: n(5)?,
+                    known_micro_usd: n(6)?,
+                    actual_micro_usd: n(7)?,
+                    unknown_requests: n(8)?,
                 })
             })
             .map_err(err)?;
@@ -676,7 +680,7 @@ mod tests {
                 outcome, http_status: Some(200), latency_ms: 12, error: None }).unwrap();
         }
         let summary = usage_summary(&conn, 0, 10).unwrap();
-        assert_eq!((summary.total.requests, summary.total.failed), (3, 1));
+        assert_eq!((summary.total.requests, summary.total.failed, summary.total.fallbacks), (3, 0, 1));
         assert_eq!((summary.total.known_micro_usd, summary.total.unknown_requests), (3000, 1));
         assert_eq!(summary.by_client[0].key, "Codex");
         assert_eq!(summary.recent.len(), 3);

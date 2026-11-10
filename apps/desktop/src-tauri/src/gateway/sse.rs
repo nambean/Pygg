@@ -14,6 +14,7 @@ pub struct UsageScanner {
     pub usage: Option<Usage>,
     pub done: bool,
     pub chunks: usize,
+    tool_events: Vec<serde_json::Value>,
 }
 
 impl UsageScanner {
@@ -50,6 +51,14 @@ impl UsageScanner {
         if let Some(usage) = Usage::from_json(&event["usage"]) {
             self.usage = Some(usage);
         }
+        if event["choices"][0]["delta"]["tool_calls"].is_array() {
+            self.tool_events.push(event);
+        }
+    }
+
+    /// Chunks carrying tool calls since the last call, for the signature cache.
+    pub fn take_tool_events(&mut self) -> Vec<serde_json::Value> {
+        std::mem::take(&mut self.tool_events)
     }
 }
 

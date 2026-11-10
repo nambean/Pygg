@@ -9,8 +9,10 @@
 //! - Every upstream attempt is written to the usage ledger with its cost and that cost's provenance.
 
 pub mod anthropic;
+pub mod catalog;
 pub mod presets;
 pub mod pricing;
+pub mod signatures;
 pub mod sse;
 pub mod store;
 
@@ -51,6 +53,7 @@ pub struct Shared {
     pub db: Arc<Mutex<Connection>>,
     pub secrets: Arc<dyn Secrets>,
     pub http: reqwest::Client,
+    pub signatures: Arc<Mutex<signatures::SignatureCache>>,
 }
 
 impl Shared {
@@ -62,13 +65,18 @@ impl Shared {
             .user_agent(concat!("SmartTaskRouter/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("HTTP client");
-        Shared { db, secrets, http }
+        Shared { db, secrets, http, signatures: Arc::default() }
     }
 
     /// Runs `f` with the database. Never held across an await.
     pub fn with_db<T>(&self, f: impl FnOnce(&Connection) -> T) -> T {
         let conn = self.db.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         f(&conn)
+    }
+
+    /// Remembers Gemini tool-call signatures in a response or stream chunk.
+    pub fn capture_signatures(&self, value: &Value) {
+        self.signatures.lock().unwrap_or_else(|p| p.into_inner()).capture(value);
     }
 }
 
@@ -284,7 +292,9 @@ pub async fn forward(shared: &Shared, client: &Client, requested: &str, mut body
             None => None,
         };
 
+        let mut body = body.clone();
         body["model"] = json!(model_id);
+        shared.signatures.lock().unwrap_or_else(|p| p.into_inner()).apply(&mut body, provider.kind == "gemini");
         let mut request = shared.http.post(format!("{}/chat/completions", provider.endpoint)).json(&body);
         if let Some(key) = &key {
             request = request.bearer_auth(key);
@@ -345,7 +355,7 @@ async fn read_limited(response: reqwest::Response, limit: usize) -> Bytes {
 }
 
 /// The human part of a provider's error body.
-fn upstream_message(body: &[u8]) -> String {
+pub(crate) fn upstream_message(body: &[u8]) -> String {
     let text = String::from_utf8_lossy(body);
     let parsed: Option<Value> = serde_json::from_str(&text).ok();
     let message = parsed.as_ref().and_then(|v| {
@@ -415,7 +425,9 @@ async fn chat_completions(State(shared): State<Shared>, headers: HeaderMap, body
         let response = std::mem::replace(&mut forwarded.response, placeholder_response());
         return match response.bytes().await {
             Ok(bytes) => {
-                let usage = serde_json::from_slice::<Value>(&bytes).ok().and_then(|v| Usage::from_json(&v["usage"]));
+                let parsed = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
+                shared.capture_signatures(&parsed);
+                let usage = Usage::from_json(&parsed["usage"]);
                 forwarded.response = status_only(status);
                 record_success(&shared, &client, &requested, &forwarded, usage.as_ref(), "ok", None);
                 let mut out = passthrough(status, content_type, bytes);
@@ -452,6 +464,9 @@ async fn chat_completions(State(shared): State<Shared>, headers: HeaderMap, body
             match chunk {
                 Ok(chunk) => {
                     scanner.feed(&chunk);
+                    for event in scanner.take_tool_events() {
+                        shared.capture_signatures(&event);
+                    }
                     if tx.send(Ok(chunk)).await.is_err() {
                         outcome = "client_disconnected";
                         break;

@@ -362,6 +362,7 @@ pub async fn messages(State(shared): State<Shared>, headers: HeaderMap, body: By
         return match upstream.bytes().await {
             Ok(bytes) => {
                 let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+                shared.capture_signatures(&parsed);
                 let usage = Usage::from_json(&parsed["usage"]);
                 record_success(&shared, &client, &requested, &forwarded, usage.as_ref(), "ok", None);
                 let mut out = Json(from_openai(&parsed, &requested)).into_response();
@@ -414,6 +415,7 @@ pub async fn messages(State(shared): State<Shared>, headers: HeaderMap, body: By
                     break 'read;
                 }
                 let Ok(value) = serde_json::from_str::<Value>(data) else { continue };
+                shared.capture_signatures(&value);
                 for event in translator.push(&value) {
                     if tx.send(Ok(Bytes::from(event))).await.is_err() {
                         outcome = "client_disconnected";
