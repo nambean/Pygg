@@ -740,3 +740,11 @@ The existing Connections → Providers tab adds filters **All · Free · Subscri
 Settings / Endpoints gain CLI health, gateway port/token controls, setup commands and npm/npx onboarding documentation. The package name and distribution are not yet verified or released.
 
 See [full spec](../CLI_IDE_NPM_PROVIDER_TIERS.md). These are designs and do not change the implemented navigation until reviewed.
+
+## 12. Planned Account Pools & Rotation controls
+
+Connections gains **Accounts** with an aggregated view filtered by Free / Subscription / API Paid / Local / Unknown; each account shows source-proven quota, expiration/reset, health/cooldown and model entitlements. Policies gains **Account Selection & Failover**: Fill First, Round Robin, Sticky Round Robin, Cost Aware, pinning, per-client allowlist, maximum fallbacks and safe pre-stream retry.
+
+The **Pool Editor** lists explicitly authorized accounts and models, priority/weight, quota group, budget and privacy requirements. A **Simulation** panel explains how a new session and a continuing conversation choose different accounts and why excluded accounts are not selected. Usage supports per-account metrics and switches; Active Sessions shows account affinity and allows releasing it at the next safe boundary.
+
+**Reference:** [Account/API Rotation design](../ACCOUNT_API_ROTATION.md). This is a planned screen, not currently built. Do not use fake account quotas as live data.
