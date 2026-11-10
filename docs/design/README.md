@@ -1,13 +1,18 @@
-# SmartTaskRouter UI/UX concepts
+# SmartTaskRouter UI/UX design
 
-These **editable SVG wireframes** are early concepts:
+**[SCREENS.md](SCREENS.md) is the current screen design.** It covers the shell, value conventions, tokens, every screen and sheet as ASCII wireframes, the reuse map from DownFetch components, and Phase 1 scope. Claude and Codex each designed the screens independently, then settled their differences in a second round.
 
-- [Smart Routing](smart-routing.svg): task entry, stage recommendation and approval.
-- [Providers](providers.svg): connected providers and model status.
-- [Model Combos & Policies](model-combos.svg): Free First, Balanced, Deep Architecture configuration.
+## Old SVG wireframes (out of date)
 
-**They are out of date with plan v1.1.** They still show the 12-item navigation (now 7 items), separate "Task Breakdown" and "Routing Recommendation" panels (now one route list with reasons and exclusions), and a web-dashboard style. The app now uses DownFetch's macOS-native token style. See §1 and §2.2 of the [functional plan](../SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md).
+- [Smart Routing](smart-routing.svg)
+- [Providers](providers.svg)
+- [Model Combos & Policies](model-combos.svg)
 
-The plan is to replace them with working screens in the app that use mock data, reviewed with the `apple-design` skill.
+These predate plan v1.1 and SCREENS.md:
+- They show 12 navigation items; the design now has 6 destinations and no Overview.
+- They show separate "Task Breakdown" and "Routing Recommendation" panels; the design now uses one route list with reasons and exclusions.
+- They use a web-dashboard style; the design now follows DownFetch's macOS-native token style.
+
+They will be replaced by working screens in the app that use mock data, reviewed with the `apple-design` skill.
 
 All UI data shown is synthetic. Model prices, quotas, health and latency must come from real provider data or local measurements at runtime.

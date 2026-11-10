@@ -17,17 +17,18 @@ SmartTaskRouter is a desktop app for developers who already use several AI provi
 
 ## Navigation
 
-| Screen | Purpose |
+The app is list-first like DownFetch: the task list is home, filtered from the sidebar (All Tasks, Running, Needs Approval, Completed, Failed, Stopped) and scoped by workspace.
+
+| Destination | Purpose |
 | --- | --- |
-| Overview | Health, onboarding, recent tasks, warnings |
-| Route | Task input, explained route plan, live run, history |
+| Tasks | Task list; task detail (New Task → Plan → Run → Result); Workspace Settings |
 | Connections | Providers, model catalog, agents |
 | Policies | Strategies, tier table, rules, budgets, simulator |
 | Usage | Ledger analytics, budgets, cost per success |
 | Endpoints | Gateway addresses, client tokens, client setup |
 | Settings | Language, startup, storage, retention, diagnostics |
 
-Skills & Prompts is planned for Phase 4.
+Skills & Prompts is planned for Phase 4. See the [screen design](docs/design/SCREENS.md).
 
 ## Tech stack
 

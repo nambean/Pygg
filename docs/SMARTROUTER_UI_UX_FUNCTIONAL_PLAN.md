@@ -11,9 +11,10 @@
 - **Free-first only runs with deterministic checks.** A cascade from a cheaper tier needs a typecheck, test, build or schema check. An LLM reviewer can advise but cannot pass a stage on its own. Every attempt runs in an isolated worktree or checkpoint.
 - **Cost model corrected:** adds a `Subscription` billing type and records where each quota figure comes from. Records whether a provider's terms allow training on submitted data and treats that as a privacy constraint.
 - **Benchmark first:** a new Phase 0 tests the core idea (cascade vs. always using one model) before the UI is built.
-- **Scope cut:** navigation goes from 12 items to 7. The Skills Hub moves to Phase 4.
+- **Scope cut:** navigation goes from 12 items to 6 destinations. The Skills Hub moves to Phase 4.
 - **Stack and design aligned with DownFetch:** one Tauri 2 app with a Rust core (gateway, router, agent runner) and a React 19 + Vite interface styled with semantic CSS tokens after Apple's HIG. Design reviews use the `apple-design` skill. This replaces the earlier Node/Fastify + Tailwind/shadcn proposal and the 9Router-style web-dashboard look; orange stays as the accent color (§1, §4).
 - **Target users and competitive landscape added;** model tiers are now defined; broken mockup references are fixed.
+- **Screen design agreed** ([docs/design/SCREENS.md](design/SCREENS.md)). Navigation is list-first with six destinations and no Overview. Workspaces get their own settings. A passing result is handed off as a kept Git branch. Approvals are durable and cover exactly one attempt. MVP writes only to Git workspaces, and crash recovery moves into Phase 1.
 
 ## 0. Product scope and principles
 
@@ -56,7 +57,7 @@ In orchestration mode the agent CLI's base URL points at the local gateway where
 
 The interface follows the same approach as DownFetch (`F:\2026\DownFetch\apps\desktop\src\styles.css`): a native-looking desktop app styled after Apple's Human Interface Guidelines, rather than a web-dashboard template.
 
-- **Platform:** Tauri 2 window with custom window controls; Windows first, macOS next. Desktop-first at 1440×900, usable down to 1024px.
+- **Platform:** Tauri 2 window with DownFetch's traffic-light window controls on every platform (a deliberate departure on Windows; see SCREENS.md D12); Windows first, macOS next. Desktop-first at 1440×900, usable down to 1024px.
 - **Styling:** plain CSS with semantic tokens on `:root` (`--window`, `--sidebar`, `--surface`, `--control`, `--field`, `--label`, `--secondary`, `--separator`, `--hover`, `--selection`, `--accent`, `--accent-text`, `--green`, `--orange`, `--red`, `--focus`…). No Tailwind or shadcn.
 - **Appearance:** follows the system light/dark setting through `prefers-color-scheme`, with `prefers-contrast: more` overrides. There is no in-app theme switch, matching DownFetch.
 - **Accent:** SmartTaskRouter keeps orange as its brand color, tuned for contrast like DownFetch's tokens. Proposed values: fill `#C2410C` (white text on it about 5:1) and text `#B93A0A` in light mode; `--accent-text` `#FB923C` in dark mode. Verify every pair with a contrast checker before use.
@@ -76,18 +77,24 @@ Badges describe facts, not quality.
 | --- | --- | --- |
 | Billing | `Free`, `Local`, `Subscription`, `Paid`, `Unknown` | `Unknown` is never treated as `Free` |
 | Data use | `No training`, `May train`, `Terms unknown` | Comes from provider terms recorded with a source and check date |
-| Freshness | `Live`, `Stale (date)`, `Estimated` | Applies to price, quota and capability metadata |
+| Provenance | Source + time per fact, e.g. `Provider API · checked 14:32`, `Ledger estimate`, `Unknown`, `Stale · Nov 3` | Attached to each value, not to a whole row; no generic `Live` badge (SCREENS.md §3) |
 | Tier | `T0`–`T4` | See §2.4.1 |
 
 ### 1.2 Navigation
 
-Overview · Route · Connections · Policies · Usage · Endpoints · Settings. Skills is added in Phase 4.
+The navigation is list-first like DownFetch: the task list is home, and there is no Overview dashboard. The six destinations are Tasks, Connections, Policies, Usage, Endpoints and Settings. A Skills destination is added in Phase 4. Full screen design: [docs/design/SCREENS.md](design/SCREENS.md).
 
-| Item | Contains |
+| Sidebar group | Items |
 | --- | --- |
-| Overview | Health, onboarding, recent tasks, warnings |
-| Route | New task, live run, task history |
-| Connections | Tabs: Providers, Models, Agents (Phase 2) |
+| Tasks | All Tasks, Running, Needs Approval, Completed, Failed, Stopped (filters with counts; "Needs Attention" pinned on top of the list) |
+| Workspaces | Each registered workspace (scopes the list) and Add Workspace… |
+| Manage | Connections, Policies, Usage, Endpoints |
+| App | Settings |
+
+| Destination | Contains |
+| --- | --- |
+| Tasks | Task list and task detail (New Task → Plan → Run → Result); Workspace Settings |
+| Connections | Tabs: Providers, Models, Agents (one agent in Phase 1) |
 | Policies | Strategies/combos, tier table, rules hierarchy, budgets, simulator |
 | Usage | Ledger analytics, budgets, cost per success |
 | Endpoints | Gateway addresses, client tokens, client setup |
@@ -95,7 +102,9 @@ Overview · Route · Connections · Policies · Usage · Endpoints · Settings. 
 
 ### 1.3 Design mockups
 
-Editable SVG wireframes are in `docs/design/`:
+The agreed screen design, with ASCII wireframes for every screen and sheet, is [docs/design/SCREENS.md](design/SCREENS.md). Where it is more detailed than §2 below, SCREENS.md takes precedence.
+
+Older editable SVG wireframes are also in `docs/design/`:
 
 - `smart-routing.svg`: task entry and route recommendation.
 - `providers.svg`: provider connections and catalog state.
@@ -105,27 +114,23 @@ The wireframes predate v1.1. They still show the 12-item navigation, the duplica
 
 ## 2. Screen-by-screen UX specification
 
-### 2.1 Overview
+### 2.1 Task list (home)
 
-**Cards:** gateway health, active providers and agents, tasks this period, success rate, spend (actual vs. estimated vs. unknown), and the share of work done by free or local models.
+There is no Overview dashboard. The home screen is the task list, filtered from the sidebar. Waiting approvals, interrupted tasks and plans that need revalidation are pinned under **Needs Attention**. Each row shows the attempt sequence (tier, outcome, arrow to the next attempt) and cost so far. The toolbar subtitle shows running and waiting counts plus a qualified budget summary. Gateway status sits in the sidebar footer and tray. First launch shows an empty list with the Setup Assistant sheet. Warnings appear as banners under the toolbar.
 
-**Panels:** recent tasks, quota health (with the source of each figure), warnings (stale prices, expiring credentials, low budget), onboarding checklist.
+**Acceptance:** counts reconcile with task states; a failed load is never shown as an empty list; unknown cost is labeled, never shown as $0.
 
-**Empty state:** an onboarding wizard (connect a provider, then an agent, then run a sample task), not zeroed-out statistics. No fabricated savings numbers.
+### 2.2 Task detail (primary screen)
 
-**Acceptance:** KPIs reconcile with the usage ledger; unknown usage is labeled as unknown; refresh state and errors are visible.
+The task detail is the product's differentiator and must show *why* each model was chosen. It has four phases on one screen: New Task → Plan → Run → Result (SCREENS.md §5.2). The sections below describe its content.
 
-### 2.2 Route (primary screen)
-
-The Route screen is the product's differentiator and must show *why* each model was chosen.
-
-**Input panel:** multiline task, workspace, context permissions (files, shell, network), strategy `Free First | Balanced | Quality` or a custom policy.
+**Input panel:** multiline task and strategy `Free First | Balanced | Quality` or a custom policy. Workspace, privacy class, checks and permissions are inherited from the workspace (§2.8). A task can tighten them but cannot loosen them.
 
 **Analysis summary (one line, expandable):** category, complexity, required capabilities (tools, context size, vision), risk level, available deterministic checks detected in the workspace (e.g. `tsc`, `npm test`).
 
-**Route plan: a single list with one row per stage.** No separate "breakdown" panel.
+**Route plan: a single list with one expandable row per stage.** No separate "breakdown" panel. Each row always shows three lines: who runs it, the check, and the cost. The other fields below sit inside the expanded row.
 
-| Column | Content |
+| Field | Content |
 | --- | --- |
 | Stage | Name and goal (e.g. "Implement fix + tests") |
 | Agent | Agent CLI to run (or "direct model call") |
@@ -142,9 +147,13 @@ Each row has controls to change the model (chosen from eligible candidates only)
 
 **Live run (same page):** stage timeline, attempt number, streamed redacted output, check results, escalation events with reasons, approval prompts, cancel.
 
-**History tab:** table (title, time, workspace, policy, route, tokens, actual cost, duration, outcome); detail view (request, classifier output, route decision with exclusions, attempts, check results, estimate vs. actual); actions (rerun with confirmation, duplicate route, compare two runs, export redacted trace).
+**Result:** the diff of the passing attempt, the checks that ran, the base revision, and estimate vs. actual cost including failed attempts. The handoff in MVP is **Keep as Branch**: commit the passing result to a durable branch `str/<slug>-<id>` from the base revision, without switching the user's branch, and keep it out of automatic cleanup. The alternatives are **Export Patch…** and **Discard Result…**. **Apply to Workspace** with drift detection comes later. The result is labeled **Checks Passed**, never "correct".
 
-**Error states:** no provider, no agent, no eligible model for a stage, insufficient quota/budget, estimate unavailable, no deterministic check (so the cascade is disabled for that stage), timeout, policy denial.
+**History:** there is no separate tab. Completed, Failed and Stopped tasks stay in the list, with search. The detail shows the request, classifier output, route decision with exclusions, attempts, check results and estimate vs. actual. Actions: duplicate into a new reviewed plan, export redacted trace; compare two runs later.
+
+**Approvals:** a pending approval is durable and covers exactly one attempt and its spending cap. It is invalidated if the candidate, policy or budget changes, and it is recovered after a restart. It reaches the user through a panel on the task, a banner elsewhere, the tray, and a notification that omits task names and paths. Nothing is approved automatically (SCREENS.md §2.5, §6.3).
+
+**Error states:** no provider, no agent, no eligible model for a stage, insufficient quota/budget, estimate unavailable, no deterministic check (so the cascade is disabled for that stage), workspace not isolatable, timeout, policy denial, interrupted run.
 
 **Acceptance:** the route uses connected eligible models only; every chosen and excluded model has a reason; free-first never picks a model that fails a hard requirement; billing gates are honored; failed and canceled attempts appear in history and usage.
 
@@ -225,7 +234,11 @@ Default tier assignments ship as a curated, versioned table. Users can override 
 
 Language, updates, startup and tray behavior, data directory, telemetry opt-in, catalog/terms sync cadence, local runtime, data retention, log redaction, backup/export, diagnostics, API binding. Appearance follows the system (§1).
 
-### 2.8 Skills & Prompts (Phase 4)
+### 2.8 Workspaces
+
+A sidebar group lists registered workspaces, plus **Add Workspace…**. Selecting a workspace scopes the task list. **Workspace Settings** owns the folder path, Git and isolation readiness, privacy class and permitted context, approved checks, and the effective policy, with a link to workspace overrides in Policies. Changes apply to new plans; existing tasks keep their snapshots. In MVP, only Git workspaces that can be isolated accept write-capable tasks; other folders get read-only planning.
+
+### 2.9 Skills & Prompts (Phase 4)
 
 Curated GitHub skill discovery, preview, pinned installs and permission review. Until Phase 4 the router only reads skills already installed in the agent's own configuration and shows them as context. It never downloads or installs anything.
 
@@ -270,8 +283,10 @@ A model is excluded, and the reason recorded, if any of these hold:
 **v1 (MVP), rule-based:**
 
 1. Determine the minimum tier from the tier rules table (§2.4.1).
-2. Choose the starting tier. Free First and Balanced start at the minimum tier for stages with a deterministic check. For stages without one, start one tier above the minimum, or at the minimum with manual review. Quality starts at the strategy's preferred tier.
+2. Choose the starting tier. Free First and Balanced start at the minimum tier for stages with a deterministic check. A stage without a deterministic check gets **no automatic cheap-first cascade**: the user may review a direct run at the strategy's normal tier, and accepting its result is recorded as **Manually Accepted**, never as checks passed. Quality starts at the strategy's preferred tier.
 3. Within the tier, prefer billing in this order: Local → Free → Subscription with quota headroom → Paid. Then prefer better health, lower latency, then lower price.
+
+v1 picks the *lowest eligible tier under the user's policy*. It does not measure total cost, so the UI and docs must not call its choice "the cheapest".
 
 **v2 (Phase 3), measured:** rank by expected cost per successful result:
 
@@ -281,9 +296,9 @@ Success probabilities come from Phase 0/3 benchmarks and the ledger, per model a
 
 ### 3.5 Verification, isolation and escalation
 
-- **Deterministic checks gate the cascade.** A stage may start below the strategy's default tier only if it has a deterministic check (compile/typecheck, lint, tests, build, schema/contract). Checks are detected automatically or declared by the user.
+- **Deterministic checks gate the cascade.** A stage may cascade from a cheaper tier only if it has a deterministic check (compile/typecheck, lint, tests, build, schema/contract). Checks are detected automatically and approved per workspace, or declared by the user.
 - **LLM review is advisory.** It can flag problems or trigger escalation, but cannot pass a stage on its own. A reviewer model must be at least the tier of the model it reviews.
-- **Isolation per attempt:** each attempt runs in a separate git worktree (or a checkpoint/snapshot for non-git workspaces). A failed attempt's changes are discarded; only a passing attempt's diff is offered to the user. Workspaces that cannot be isolated run read-only or with an explicit warning.
+- **Isolation per attempt:** each attempt runs in a separate git worktree. A failed attempt's changes are discarded; only a passing attempt's diff is offered to the user. In MVP, workspaces that cannot be isolated (non-Git) are limited to read-only planning; snapshot isolation for non-Git folders is a later option.
 - **Bounded attempts:** maximum attempts per tier and per task; the same model is never retried with identical input. The next attempt receives a bounded summary of the previous failure.
 - **Escalation:** one tier at a time unless the stage's risk level allows skipping tiers. Paid escalation above the threshold waits for approval. The reason for every model switch is stored.
 - **Direct routing:** high-risk or hard-to-verify stages go straight to an appropriately capable tier rather than cascading.
@@ -456,12 +471,14 @@ Version the contracts; validate all request schemas; keep cancellation safe; sup
 
 ### Phase 1: Core MVP (P0)
 
-- Tauri 2 app: window shell, tray icon, single instance, CSS design tokens (§1), 7-item navigation, i18n (English, Vietnamese).
+- Tauri 2 app: window shell, tray icon, single instance, CSS design tokens (§1), six-destination navigation, i18n (English, Vietnamese).
 - Provider connections (at least OpenRouter or Gemini, one native paid API, and Ollama), secure secrets, catalog with billing/tier/terms/freshness, health checks.
 - Gateway with same-format pass-through, streaming, cancellation and ledger; policy-routed model alias.
 - Rule-based router (tier table + hard filters) with dry-run and explanations.
-- Route screen: single-stage tasks with one agent CLI, a worktree per attempt, deterministic check, cascade with approval gates.
-- Budgets, approvals, usage ledger, history.
+- Task screens (SCREENS.md): task list with sidebar filters, workspaces, single-stage tasks with one agent CLI, a worktree per attempt, deterministic check, cascade with approval gates, result handoff as **Keep as Branch** / Export Patch / Discard.
+- Budgets with reservations, durable approvals (tray + notification), usage ledger, history.
+- Crash recovery: restart reconciliation of tasks, approvals, attempt artifacts and usage.
+- Keyboard-complete core flows, focus management, screen-reader status, contrast and reduced motion.
 - Benchmark harness available from the app and as `/api/bench/run`.
 - Unsigned Windows installer for testing (signing deferred to Phase 4, as in DownFetch ADR-013).
 
@@ -488,9 +505,9 @@ Version the contracts; validate all request schemas; keep cancellation safe; sup
 
 ### Phase 4: Distribution and Skills (P2)
 
-- Code signing, signed update channel, macOS builds, crash recovery, diagnostics.
+- Code signing, signed update channel, macOS builds, extended diagnostics.
 - Accessibility audit with the `apple-design` skill, more locales, onboarding polish.
-- Skills & Prompts Hub (§2.8) with curated sources and pinned installs.
+- Skills & Prompts Hub (§2.9) with curated sources and pinned installs.
 - Template export/import, workspace portability.
 - Security audit; releases for Windows/macOS/Linux after verified packaging and CI.
 
@@ -535,8 +552,8 @@ package.json, pnpm-workspace.yaml, skills-lock.json
 4. Provider connections and catalog with billing/tier/terms/quota provenance.
 5. Gateway (`axum`) pass-through + ledger + budgets + client tokens.
 6. Rule-based router with dry-run explanations.
-7. UI shell with design tokens and the 7-item navigation, reviewed with `apple-design`.
-8. Route screen end to end with one agent CLI.
+7. UI shell with design tokens and the six-destination navigation, with all screens from SCREENS.md first built on mock data and reviewed with `apple-design`.
+8. Task screens end to end with one agent CLI.
 
 ## 12. Open questions and risks
 
