@@ -4,6 +4,19 @@
 >
 > Product goal: **SmartTaskRouter is an AI Cost Optimizer for everyday users**, not merely a coding agent runner. People should ask a question normally; SmartTaskRouter chooses a connected model automatically and preserves continuity across providers without asking users to select a model each turn.
 
+## Review correction — ownership boundary and cache-stable epochs (2026-11-11)
+
+**Authoritative boundary:** two modes have different ownership contracts, as agreed in [Claude review reconciliation](reviews/2026-11-11-review-response.md):
+
+1. **App-owned Auto Chat:** SmartTaskRouter owns raw conversation events and is permitted, under user privacy controls, to build scoped memory/context packages and hand off at **clean turn boundaries**. Keep already-sent cache-eligible prefix byte/token-stable within a pinned model/account epoch; append new messages. Versioned compaction may occur **at explicit checkpoints** only, with cache reset/rehydration cost measured. Never silently regenerate/reorder stable prefix each turn.
+2. **Opaque external CLI/IDE gateway:** client owns its own history/compaction/tool IDs. Gateway **does not automatically inject memory, rewrite history, compact existing client prompts or synthesize a conversation**. It can record route metadata/usage, pass compatible messages transparently and maintain affinity only when there is an **explicit authenticated session identifier**. If no supported session ID is present, avoid inventing one from system-prompt hashes and do not claim cross-turn continuity.
+
+**Selective memory extraction budgets:** no LLM call after every turn by default; batch incremental new events only with user consent, configurable input/token/spend cap and a separate ledger category `memory_extraction`. Any model classifier is absent from P0; later classifier input <=2k tokens per decision, run at meaningful classification boundaries (start, explicit topic change, failure), not full context per turn.
+
+**Cache test gate:** native same-format Anthropic passthrough and real provider cache read/write observations come **before** claiming compression or handoff savings. Unknown costs remain unknown.
+
+Read the current [Roadmap](ROADMAP.md) for priority; this entire memory design remains **planned**.
+
 ## 1. Problem and invariants
 
 - Switching GPT ↔ Claude ↔ Gemini ↔ Ollama often forces the next model to consume the entire history or lose important context.
