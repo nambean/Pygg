@@ -217,6 +217,10 @@ GET /api/cli/doctor
 
 Dependencies with memory: first deliver G1–G2; Universal Shared Memory M1–M3 can then consume unified gateway events and consistent model IDs. The consumer Auto Chat UI and Skills Hub can follow without being coupled to the CLI setup.
 
+## Account Pool Rotation dependency
+
+Multiple authorized accounts and keys within provider tiers can be selected by Fill First, Round Robin, Sticky Round Robin, Cost Aware or bounded Failover, with client allowlists, cooldown, quota groups and persistent conversation affinity. **See [ACCOUNT_API_ROTATION.md](ACCOUNT_API_ROTATION.md)** for routing, concurrency, UI, schema and safety; do not conflate rotating a client token with switching upstream credentials. Rotation never bypasses limits or suspensions.
+
 ## 8. Test and acceptance criteria
 
 1. Connected provider with free **and** paid models appears correctly in both tiers, without duplicating account secrets.
