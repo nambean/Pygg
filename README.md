@@ -21,6 +21,12 @@ Cross-provider conversations will share a **local, canonical conversation histor
 
 Read the [detailed design, OSS references and benchmark plan](docs/UNIVERSAL_SHARED_MEMORY.md). This is a design proposal, not implemented functionality. Consumer Auto Chat is planned alongside the existing developer Tasks mode; the present task-list UI remains the implemented shell.
 
+## CLI, IDE and provider tiers (planned)
+
+SmartTaskRouter will also offer a **headless terminal CLI and npm/npx launcher** for the same Rust gateway, alongside guided integration with compatible Claude Code, Codex, OpenCode, Aider, Cline, Roo, Continue and selected IDEs. Provider/model access will be grouped as **Free, Subscription, API Paid, Local, Unknown**; account connection method is separate from billing eligibility. Supported integration combinations require contract tests and official permitted interfaces.
+
+See [CLI / IDE Integrations, npm & Provider Tiers](docs/CLI_IDE_NPM_PROVIDER_TIERS.md). No npm publication or integration compatibility is claimed yet.
+
 ## Navigation
 
 The app is list-first like DownFetch: the task list is home, filtered from the sidebar (All Tasks, Running, Needs Approval, Completed, Failed, Stopped) and scoped by workspace.
