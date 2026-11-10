@@ -718,3 +718,15 @@ Do not copy DownFetch's blank `Suspense` fallbacks for important screens, and ne
 ## 9. Next step
 
 Build these screens in `apps/desktop` with mock data, following DownFetch's `desktop-mock` approach, so they can be reviewed in the real window rather than as static drawings. Review each screen with the `apple-design` skill, then replace the old SVG wireframes.
+
+## 10. Proposed consumer Auto Chat and Memory & Context (not yet agreed or built)
+
+The six-destination, list-first **developer task UI remains the current implemented design**. A consumer-first Auto Chat flow is an additional product direction and needs a separate review rather than silently replacing the shell.
+
+**Auto Chat:** chat history/sidebar, message composer with attachments, an `Auto` strategy default; no per-turn model selection. A quiet expandable "Why this model?" inspector shows provider, routed model, usage, rationale, cache and optional switch history. Only privacy, cost-over-limit and sensitive tool actions interrupt normal chat.
+
+**Memory & Context (Settings):** scope selector (account/workspace/conversation), list of remembered facts with source and validity, edit/delete/disable controls, conversation context usage, compaction snapshots, cross-provider disclosure, export and privacy options. Deleted memory cannot be included in newly built context packages.
+
+**Handoff transparency:** after a provider switch, an inspector can show exactly which recent messages, summaries, approved facts and tool checkpoints were included; unsupported provider payloads are rejected rather than silently omitted.
+
+**Source:** [Universal Shared Memory proposal](../UNIVERSAL_SHARED_MEMORY.md). No UI is implemented by this documentation update; current SVG previews predate the updated UX.
