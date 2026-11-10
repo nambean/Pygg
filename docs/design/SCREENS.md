@@ -190,7 +190,7 @@ Status always pairs an icon with a word; color is never the only signal. Outcome
 
 ## 4. Visual tokens
 
-Reuse DownFetch's semantic tokens (`--window`, `--sidebar`, `--surface`, `--label`, `--secondary`, `--separator`, …) unchanged. Only the accent changes.
+Reuse DownFetch's semantic tokens (`--window`, `--sidebar`, `--surface`, `--label`, `--secondary`, `--separator`, …) unchanged, **including its green accent**. The owner chose this on 2026-11-11; it replaces the orange accent first proposed here.
 
 | Role | Light | Dark |
 | --- | --- | --- |
@@ -199,15 +199,17 @@ Reuse DownFetch's semantic tokens (`--window`, `--sidebar`, `--surface`, `--labe
 | Surface | `#FFFFFF` | `#2C2C2E` |
 | Label | `#1D1D1F` | `#F5F5F7` |
 | Secondary | `#636366` | `#A1A1A6` |
-| Accent fill (`--accent`) | `#C2410C` | `#C2410C` |
-| Accent icon (`--accent-icon`, sidebar icons) | `#C2410C` | `#FB923C` |
-| Accent text (`--accent-text`) | `#B93A0A` | `#FB923C` |
+| Accent fill (`--accent`) | `#0B7A4B` | `#0D8551` |
+| Accent icon (`--accent-icon`, sidebar icons) | `#0B7A4B` | `#3DDC97` |
+| Accent text (`--accent-text`) | `#0A6B42` | `#3DDC97` |
 
-Codex calculated these contrast ratios: white on `#C2410C` 5.18:1, light accent text on white 5.72:1, and dark accent text on the dark surface 6.16:1. Codex first proposed `#9A3412` as the dark fill. It was dropped in implementation: as an icon color on the dark sidebar it reaches only about 2:1, so the dark theme keeps `#C2410C` for fills and uses `--accent-icon: #FB923C` (about 6.7:1 on the sidebar) for icons. Re-check these ratios with a contrast tool before release.
+These are DownFetch's own values and contrast notes: white semibold text on `#0B7A4B` 5.4:1 (light) and on `#0D8551` 4.7:1 (dark), light accent text 6.6:1 on the surface, dark accent text 9.6:1 on the surface. `--accent-icon` is the one token DownFetch doesn't have; it reuses the accent text color in dark mode so sidebar icons stay legible. Re-check these ratios with a contrast tool before release.
+
+**Gateway first (ADR-016):** the sidebar now leads with **Gateway** (Overview, Connections, Combos, Clients, Usage); the task screens sit under **Smart Tasks · Preview**. Endpoints (§5.7) became Overview plus Clients, and Connections (§5.4) has the Providers part with models and prices inline. Agents and Models-as-a-tab wait for the orchestrator.
 
 - Type: 13px body, 11–12px supporting text, 15px toolbar title, 17px section emphasis; 12px monospace for IDs, checks, paths and output. Use tabular figures for money and tokens.
 - Controls are 26–32px high; grouped boxes have 8–10px corners; content margins are 20–24px.
-- Orange marks the primary action. Warnings always have an icon and text.
+- The green accent marks the primary action. Warnings use orange, always with an icon and text.
 - Follows the system's light, dark and increased-contrast settings, with no theme switch. Reduced motion removes animated activity effects but keeps the status text.
 
 ## 5. Screens

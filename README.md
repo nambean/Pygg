@@ -2,7 +2,7 @@
 
 **AI Cost Optimizer**: automatically selects a suitable connected AI model for each everyday chat turn or developer task, minimizing total cost while preserving context, privacy and answer quality.
 
-> Status: early implementation. The desktop shell and task list run on labeled sample data; the task engine, gateway and router are not built yet. See [implementation status](docs/IMPLEMENTATION-STATUS.md).
+> Status: the local multi-provider gateway works and the desktop app manages it (gateway first, [ADR-016](docs/DECISIONS.md)). Smart task routing, Universal Shared Memory, account pools and the CLI/npm launcher are designed, not built; task screens run on labeled sample data. See [implementation status](docs/IMPLEMENTATION-STATUS.md).
 
 ## Product vision
 
@@ -15,17 +15,31 @@ SmartTaskRouter is a desktop-first AI Cost Optimizer for everyday AI users and d
 - **Privacy-aware:** records whether a provider may train on submitted data and enforces it for sensitive workspaces.
 - **Measurable:** cost is measured per successful task, against a reproducible benchmark baseline.
 
+## What works today
+
+- **Gateway on `127.0.0.1:8741`:**
+  - Serves the OpenAI Chat Completions API and the Anthropic Messages API.
+  - Streams responses and passes tool calls in both directions.
+  - Refuses requests addressed to anything but loopback.
+- **Connections:** presets for Gemini, OpenRouter, OpenAI, Groq, DeepSeek, Ollama and any OpenAI-compatible endpoint. Keys are kept in the OS credential store.
+- **Combos:** a model name such as `coding` stands for an ordered list of models. The next model is tried on a rejected key, an exhausted quota, an unavailable model or a server error, and only before any of the answer has reached the client.
+- **Client tokens:** one per app, stored only as a hash, each with an optional monthly limit on known spend.
+- **Usage ledger:** every attempt is recorded with its cost and that cost's source.
+  - **Actual:** the provider reported the charge.
+  - **Estimated:** computed from a price you entered, or the connection is free or local.
+  - **Unknown:** no source; never shown as $0.
+
 ## Universal Shared Memory (planned)
 
-Cross-provider conversations will share a **local, canonical conversation history** with versioned compact summaries, scoped long-term facts and tool/task checkpoints. A **memory-aware cost router** will decide whether to stay on the current model or switch, accounting for cache loss, context rebuilding, quality, privacy and actual usage. No automatic switch during an active agent attempt or unresolved tool call.
+Cross-provider conversations will share a **local, canonical conversation history** with versioned compact summaries, scoped long-term facts and tool/task checkpoints. A **memory-aware cost router** will decide whether to stay on the current model or switch, accounting for cache loss, context rebuilding, quality, privacy and actual usage. It will never switch automatically during an active agent attempt or an unresolved tool call.
 
-Read the [detailed design, OSS references and benchmark plan](docs/UNIVERSAL_SHARED_MEMORY.md). This is a design proposal, not implemented functionality. Consumer Auto Chat is planned alongside the existing developer Tasks mode; the present task-list UI remains the implemented shell.
+Read the [detailed design, OSS references and benchmark plan](docs/UNIVERSAL_SHARED_MEMORY.md). This is a design proposal, not implemented functionality. Consumer Auto Chat is planned alongside the existing developer Tasks mode.
 
 ## CLI, IDE and provider tiers (planned)
 
 SmartTaskRouter will also offer a **headless terminal CLI and npm/npx launcher** for the same Rust gateway, alongside guided integration with compatible Claude Code, Codex, OpenCode, Aider, Cline, Roo, Continue and selected IDEs. Provider/model access will be grouped as **Free, Subscription, API Paid, Local, Unknown**; account connection method is separate from billing eligibility. Supported integration combinations require contract tests and official permitted interfaces.
 
-See [CLI / IDE Integrations, npm & Provider Tiers](docs/CLI_IDE_NPM_PROVIDER_TIERS.md). No npm publication or integration compatibility is claimed yet.
+See [CLI / IDE Integrations, npm & Provider Tiers](docs/CLI_IDE_NPM_PROVIDER_TIERS.md). A first headless `gateway` binary exists (below); no npm publication or integration compatibility is claimed yet.
 
 ## Multi-account / API key rotation (planned)
 
@@ -33,50 +47,81 @@ Authorized accounts and API connections can be grouped into **Account Pools** wi
 
 ## OmniRoute-inspired feature decisions (planned)
 
-Adopt/adapt a focused subset of OmniRoute: **dynamic Auto candidate discovery, accurate Free Tier catalog and shared quota groups, safe account-aware failover, minimal prompt/tool-output deduplication, then cache-aware affinity and quality-adjusted scoring**. Reject default model fusion, broad 20-strategy UI, credential/session impersonation and misleading token-saving claims. [Research, adoption matrix and acceptance gates](docs/OMNIROUTE_FEATURE_RESEARCH.md). These are scope decisions, not implemented features.
+Adopt or adapt a focused subset of OmniRoute, in this order:
+1. Dynamic Auto candidate discovery.
+2. An accurate Free Tier catalog and shared quota groups.
+3. Safe account-aware failover.
+4. Minimal prompt and tool-output deduplication.
+5. Cache-aware affinity and quality-adjusted scoring.
+
+Reject default model fusion, a broad 20-strategy UI, credential/session impersonation and misleading token-saving claims. See the [research, adoption matrix and acceptance gates](docs/OMNIROUTE_FEATURE_RESEARCH.md). These are scope decisions, not implemented features.
 
 ## Navigation
 
-The app is list-first like DownFetch: the task list is home, filtered from the sidebar (All Tasks, Running, Needs Approval, Completed, Failed, Stopped) and scoped by workspace.
+| Group | Screen | Purpose |
+| --- | --- | --- |
+| Gateway | Overview | Gateway state and port, first-run checklist, client setup snippets, the last 24 hours |
+| | Connections | Providers, keys, models and their prices |
+| | Combos | Ordered model lists with fallback |
+| | Clients | Client tokens and monthly limits |
+| | Usage | Costs (actual, estimated, unknown) by model, by client, and per request |
+| Smart Tasks · Preview | Tasks, Policies | The task orchestrator's design, on sample data |
+| App | Settings | Language |
 
-| Destination | Purpose |
-| --- | --- |
-| Tasks | Task list; task detail (New Task → Plan → Run → Result); Workspace Settings |
-| Connections | Providers, model catalog, agents |
-| Policies | Strategies, tier table, rules, budgets, simulator |
-| Usage | Ledger analytics, budgets, cost per success |
-| Endpoints | Gateway addresses, client tokens, client setup |
-| Settings | Language, startup, storage, retention, diagnostics |
-
-Skills & Prompts is planned for Phase 4. See the [screen design](docs/design/SCREENS.md).
+See the [screen design](docs/design/SCREENS.md).
 
 ## Tech stack
 
-Same stack as DownFetch: Tauri 2 with a Rust core (gateway, router, agent runner, SQLite, OS keychain), a React 19 + Vite + TypeScript interface styled with semantic CSS tokens after Apple's HIG, a pnpm workspace, and design reviews with the `apple-design` skill.
+The stack is the same as DownFetch's:
+- Tauri 2 with a Rust core: gateway, SQLite store, OS keychain and process supervision.
+- A React 19 + Vite + TypeScript interface, styled with semantic CSS tokens after Apple's HIG, with DownFetch's green accent.
+- A pnpm workspace.
+- Design reviews with the `apple-design` skill.
 
 ## Development
 
-Requirements: Node.js LTS, pnpm 9 (`corepack enable`), and stable Rust through rustup. On Windows you also need the Visual Studio C++ Build Tools and WebView2, which is built into Windows 11.
+Requirements:
+- Node.js LTS and pnpm 9 (`corepack enable`).
+- Stable Rust, installed through rustup.
+- On Windows, the Visual Studio C++ Build Tools and WebView2. WebView2 is built into Windows 11.
 
 Run these from the repo root:
 
 ```powershell
 pnpm install
-pnpm dev                                              # interface in a browser at http://127.0.0.1:1431, sample data
-pnpm --filter @smarttaskrouter/desktop tauri:dev     # the desktop app with hot reload
+pnpm dev                                              # interface in a browser at http://127.0.0.1:1431 with demo data (?empty for first run)
+pnpm --filter @smarttaskrouter/desktop tauri:dev     # the desktop app with the real gateway
 pnpm typecheck
 pnpm build
+cd apps/desktop/src-tauri; cargo test                 # core and gateway tests
 ```
+
+### Headless gateway
+
+The `gateway` binary uses the same store as the app. Without `--db`, that is the app's own store. API keys are read from an environment variable, so they never appear on a command line.
+
+```powershell
+cd apps/desktop/src-tauri
+cargo run --bin gateway -- add-connection --preset gemini --key-env GEMINI_API_KEY
+cargo run --bin gateway -- refresh-models --id google-gemini
+cargo run --bin gateway -- combo --name coding --member google-gemini/gemini-3.1-flash-lite --member google-gemini/gemini-2.5-flash
+cargo run --bin gateway -- create-client --name "Claude Code"
+cargo run --bin gateway -- serve
+```
+
+Without `--label`, a preset's connection is named after the provider, so the Gemini connection's id is `google-gemini`.
 
 The design review skill is pinned in `skills-lock.json` and installed under `.agents/skills/`, which is git-ignored. Decisions are recorded in [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Roadmap
 
-0. **Gateway first (ADR-016):** implement provider adapters, compatible endpoints, quotas and the usage ledger; then benchmark task routing as the orchestrator is built.
+0. **Gateway first (ADR-016), in progress:**
+   - Done: provider adapters, compatible endpoints, client tokens and the usage ledger.
+   - Next: quotas, then a benchmark of task routing as the orchestrator is built.
 1. **MVP:** providers, gateway, rule-based router, Route screen, single-stage tasks with one agent.
 2. **Multi-stage and multiple agents.**
 3. **Measured routing and context optimization.**
 4. **Distribution and Skills Hub.**
-5. **Universal Memory & Auto Chat:** canonical history → compaction/context handoff → cache-aware model affinity → optional long-term facts and memory settings; see linked design and revised release priorities.
+5. **Universal Memory & Auto Chat:** canonical history → compaction/context handoff → cache-aware model affinity → optional long-term facts and memory settings; see the linked design and the revised release priorities.
 
 See the [full implementation plan](docs/SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md).

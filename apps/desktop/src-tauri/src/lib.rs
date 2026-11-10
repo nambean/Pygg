@@ -31,6 +31,19 @@ async fn health_check(state: tauri::State<'_, AppState>) -> Result<HealthStatus,
     Ok(HealthStatus { app: "SmartTaskRouter", version: env!("CARGO_PKG_VERSION"), gateway })
 }
 
+/// The configured 1440×900 is a preference, not a requirement: on a smaller or scaled screen the window
+/// shrinks to fit the monitor's work area (never below the 1024×640 minimum) and is centered.
+fn fit_to_screen(app: &tauri::App) {
+    let Some(window) = app.get_webview_window("main") else { return };
+    let Ok(Some(monitor)) = window.current_monitor() else { return };
+    let scale = monitor.scale_factor();
+    let area = monitor.work_area().size.to_logical::<f64>(scale);
+    let width = (area.width - 48.0).min(1440.0).max(1024.0);
+    let height = (area.height - 48.0).min(900.0).max(640.0);
+    let _ = window.set_size(tauri::LogicalSize::new(width, height));
+    let _ = window.center();
+}
+
 pub fn run() {
     tauri::Builder::default()
         // First: a second launch only brings the running window forward.
@@ -52,6 +65,7 @@ pub fn run() {
                 let _ = tauri::async_runtime::block_on(state.start());
             }
             app.manage(state);
+            fit_to_screen(app);
             Ok(())
         })
         // The window starts hidden (tauri.conf.json) and appears once the page with its start-up screen has
