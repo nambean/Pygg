@@ -472,16 +472,16 @@ Version the contracts; validate all request schemas; keep cancellation safe; sup
 
 ## 9. Roadmap and deliverables
 
-### Phase 0: Test the idea with a benchmark (before any UI)
+### Benchmark track: Validate the idea after gateway foundation (ADR-016)
 
-- Build a benchmark suite of 20–40 reproducible coding tasks on small fixture repos. Each task has a deterministic pass check (typecheck/tests/build), across categories such as bug fix, small feature, refactor, test writing and docs.
+- After the gateway foundation is available, build a benchmark suite of 20–40 reproducible coding tasks on small fixture repos. Each task has a deterministic pass check (typecheck/tests/build), across categories such as bug fix, small feature, refactor, test writing and docs.
 - Write the harness as a CLI binary in the Rust crate (`src-tauri/src/bin/bench.rs`). It runs each task with an agent CLI and a chosen model in a worktree, and records pass/fail, tokens, cost/quota and latency. The worktree, process-supervision and ledger code it needs is the same code the app uses later.
 - Compare three baselines: always-T4, always-T2, and a T0/T1 → T2 → T3 cascade driven by checks.
 - Seed the default tier table and minimum tier rules from the results.
 
 **Exit:** a written report of pass rate and cost per success for each baseline. If the cascade does not reach comparable pass rates at lower cost per success, revisit the product's core idea before Phase 1.
 
-### Phase 1: Core MVP (P0)
+### Phase 1: Gateway foundation, then task-routing MVP (P0)
 
 - Tauri 2 app: window shell, tray icon, single instance, CSS design tokens (§1), six-destination navigation, i18n (English, Vietnamese).
 - Provider connections (at least OpenRouter or Gemini, one native paid API, and Ollama), secure secrets, catalog with billing/tier/terms/freshness, health checks.
