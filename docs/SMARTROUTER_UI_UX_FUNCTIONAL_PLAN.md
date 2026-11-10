@@ -16,6 +16,10 @@
 
 **Roadmap synchronization:** ADR-016 overrides the earlier benchmark-first delivery order in ADR-013. Build the gateway and ledger first, then portable conversation history/context handoff and model affinity, followed by Auto Chat and long-term memory; benchmark both switching/continuity and coding cascade before claiming savings. Current screens remain task-list-first until the new consumer chat flow is designed and reviewed.
 
+## Update — CLI / IDE, npm and provider tiers (2026-11-11)
+
+The gateway-first release will support terminal CLI and IDE integrations through individually verified compatible endpoints, along with an optional **headless Rust CLI** distributed by a thin npm/npx launcher (package availability and release not yet verified). Providers are shown by **Free, Subscription, API Paid, Local, Unknown** entitlements, with billing tier **per account-model**, not only per provider. OAuth/API key/local endpoint are authentication methods, not billing groups. Subscription-backed integrations must use provider-permitted official interfaces. **Detailed contracts, UX, data model and release gates:** [CLI_IDE_NPM_PROVIDER_TIERS.md](CLI_IDE_NPM_PROVIDER_TIERS.md).
+
 ## Changes in 1.1
 
 - **Product shape decided:** the product is an orchestrator first. Routing happens at task and stage boundaries, and the gateway is the transport and enforcement layer. Within one agent session the model is never switched silently.
