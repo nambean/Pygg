@@ -4,6 +4,8 @@
 >
 > Reference direction: 9Router-style provider/quota/endpoint management, extended with task-level routing that is checked by deterministic verification.
 
+> **CURRENT DELIVERY PRIORITIES (2026-11-11):** [ROADMAP.md](ROADMAP.md) is authoritative; [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) is authoritative for implemented code. The gateway, headless `gateway serve` CLI and gateway-first desktop screens have been built; older Phase 0–4 ordering, six-destination/task-first descriptions and mock-up colors below are retained as historical design. [Review response](reviews/2026-11-11-review-response.md) addresses the Claude findings. No Smart Memory, Auto Router or cost savings are claimed as implemented.
+
 ## Update — AI Cost Optimizer + Universal Shared Memory (2026-11-11)
 
 **Product north star:** SmartTaskRouter serves everyday AI users **and** developers. Its primary value is automatically choosing a capable model from connected providers to reduce **total cost per quality-preserving answer or completed task**, not merely providing gateway routing or a coding agent runner. For normal chat, user sends a message in Auto mode without selecting a model or answering a complexity questionnaire.
@@ -42,7 +44,7 @@ Add Account Pools with Fill First, Round Robin, Sticky Round Robin, Weighted and
 
 ## 0. Product scope and principles
 
-**Goal:** route each stage of a user's task to the cheapest *connected* model and agent that can pass that stage's checks. Cheaper models are tried first only where the result can be verified automatically. Escalation is explained and, when paid, approved by the user.
+**Goal:** optimize quality-adjusted total cost per accepted AI answer or completed task across connected and authorized providers, without requiring the user to choose a model every turn. Initial measurable release targets developer/API agent workflows; consumer Auto Chat remains in the product vision. Developer task-stage routing is one mode, not the entire product. Cheaper models are tried first only where the result can be verified automatically. Escalation is explained and, when paid, approved by the user.
 
 **Initial developer MVP users:** individual developers who already use two or more coding agents or providers. They typically mix subscriptions, free tiers, pay-per-token APIs and local models, and want to spend less without losing quality or control. Small teams and hosted multi-user mode are out of scope until after Phase 4.
 
@@ -50,7 +52,7 @@ Add Account Pools with Fill First, Round Robin, Sticky Round Robin, Weighted and
 
 **Non-goals for initial developer MVP:** full IDE replacement; arbitrary website agent browsing; GitHub skill marketplace; learned/ML router; cloud orchestration at scale; guaranteed free execution or guaranteed savings. Everyday Auto Chat and shared conversation continuity are a planned expansion, not a claim of current implementation.
 
-### 0.1 Product shape: orchestrator first, gateway underneath
+### 0.1 Gateway implemented first; orchestrator and app-owned Auto Chat follow (ADR-016, ROADMAP)
 
 The plan supports two modes with distinct semantics:
 
@@ -493,7 +495,7 @@ Version the contracts; validate all request schemas; keep cancellation safe; sup
 
 **Exit:** a written report of pass rate and cost per success for each baseline. If the cascade does not reach comparable pass rates at lower cost per success, revisit the product's core idea before Phase 1.
 
-### Phase 1: Gateway foundation, then task-routing MVP (P0)
+### Historical Phase 1: gateway and task-routing proposal (see ROADMAP.md for current P0)
 
 - Tauri 2 app: window shell, tray icon, single instance, CSS design tokens (§1), six-destination navigation, i18n (English, Vietnamese).
 - Provider connections (at least OpenRouter or Gemini, one native paid API, and Ollama), secure secrets, catalog with billing/tier/terms/freshness, health checks.
@@ -568,7 +570,7 @@ docs/
 package.json, pnpm-workspace.yaml, skills-lock.json
 ```
 
-## 11. Next implementation order
+## 11. Historical bootstrap checklist — superseded by ROADMAP.md
 
 1. Bootstrap the pnpm workspace and Tauri 2 app following DownFetch's layout; install the `apple-design` skill; add `launch.json`; start `docs/DECISIONS.md` with the decisions in this plan.
 2. Rust core skeleton: SQLite with migrations, vault (keyring + AES-GCM), worktree isolation, process supervisor.
@@ -593,7 +595,7 @@ package.json, pnpm-workspace.yaml, skills-lock.json
 | Benchmark not representative of real tasks | Add opt-in, redacted local task outcomes to measured stats (Phase 3) |
 | Non-git workspaces cannot be isolated cheaply | Snapshot copy for small workspaces; otherwise read-only or explicit warning |
 
-**Current project state:** UI concept and implementation planning only. Values in the wireframes are illustrative, not product telemetry.
+**Current project state:** The gateway, basic combo routing, headless CLI and gateway-first desktop screens exist per [Implementation Status](IMPLEMENTATION-STATUS.md). Auto routing, shared memory and optimization have **not** been implemented. Historical wireframe values are illustrative, not product telemetry.
 
 ## 13. Universal Memory integration dependency
 
