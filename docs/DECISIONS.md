@@ -194,10 +194,6 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Implementation gate:** provider-verified entitlements, no privacy or budget bypass, safe rollback and controlled quality/cost-per-success evaluation. See [research and detailed adoption matrix](OMNIROUTE_FEATURE_RESEARCH.md).
 
-## Open decisions (not yet finalized)
-
-- **License.** Not chosen yet; this is a decision for the owner.
-- **First agent benchmark client and paid test budget.** OpenCode is a candidate, but version, CLI flags, compatibility and measurable usage must be tested against the exact installed version; external provider calls need explicit user approval.
 
 ## ADR-025 — Cost-safe gateway parity and owned vs external memory boundary (accepted design, code pending)
 
@@ -208,3 +204,8 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 **User scope:** initial benchmark/market wedge is developers with metered API workloads because financial outcomes are measurable; **long-term product vision remains cost optimization for everyday users as well**. This does not authorize claiming cash savings for fixed subscription chat plans.
 
 **Evidence:** code-backed findings were reviewed; synthetic multiplier examples are not real provider measurements. No code implementation is claimed by this ADR. Other proposed ADRs remain proposals until accepted as architecture and implemented/tested separately.
+
+## Open decisions (not yet finalized)
+
+- **License.** Not chosen yet; this is a decision for the owner.
+- **First agent benchmark client and paid test budget.** OpenCode is a candidate, but version, CLI flags, compatibility and measurable usage must be tested against the exact installed version; external provider calls need explicit user approval.
