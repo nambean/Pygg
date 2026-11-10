@@ -46,5 +46,5 @@ Gateway, provider adapters, router, agent adapters, the Tauri commands that conn
 
 ## Not verified yet
 
-- The native window on Windows: `cargo check` passes, but `tauri dev` has not been run in this environment.
+- The native window on Windows: a debug build started, showed its "SmartTaskRouter" window and kept running for 8 seconds, but nobody looked at it. The traffic-light controls, dragging and the hidden-until-loaded start have only been checked in the browser preview.
 - The D12 checks for traffic-light controls (snap layouts, scaling, screen readers).
