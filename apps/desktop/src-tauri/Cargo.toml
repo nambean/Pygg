@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "SmartTaskRouter desktop app: task routing core, local gateway and interface shell"
 edition = "2021"
 publish = false
+# The crate also builds the benchmark CLI (src/bin/bench.rs); the app is the default binary.
+default-run = "smarttaskrouter-desktop"
 
 [lib]
 name = "smarttaskrouter_desktop_lib"
@@ -18,3 +20,17 @@ tauri = { version = "2", features = [] }
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Local store: tasks, attempts, ledger, approvals (src/db.rs). Bundled so every platform has the same SQLite.
+rusqlite = { version = "0.32", features = ["bundled"] }
+# Provider credentials live in the OS credential store, never in the database (src/vault.rs, ADR-002).
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
+# Agent and check processes with timeouts and cancellation (src/process.rs).
+tokio = { version = "1", features = ["process", "time", "rt", "rt-multi-thread", "macros", "io-util", "sync"] }
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(unix)'.dependencies]
+# Ending a whole process group on timeout or cancel.
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

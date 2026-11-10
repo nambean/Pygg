@@ -1,6 +1,14 @@
 //! SmartTaskRouter desktop core. One crate with modules (docs/DECISIONS.md, ADR-005): the interface
 //! talks to it through Tauri commands; the local gateway (not built yet) will run in the same process.
 
+pub mod bench;
+pub mod checks;
+pub mod db;
+pub mod isolation;
+pub mod process;
+pub mod redact;
+pub mod vault;
+
 use serde::Serialize;
 
 #[derive(Serialize)]

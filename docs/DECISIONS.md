@@ -120,4 +120,4 @@ Architecture decision records, in the style of DownFetch's `docs/DECISIONS.md`. 
 ## Open
 
 - **License.** Not chosen yet; this is a decision for the owner.
-- **Phase 0/1 agent CLI.** The proposal is OpenCode, because it is built for many providers. Its base-URL and format support must be verified in the benchmark harness before it is fixed.
+- **Phase 0/1 agent CLI.** The proposal is OpenCode, because it is built for many providers. Version 1.18.4 is installed on the development machine, and its `run` command takes `-m provider/model`, `-f`, `--dir`, `--format json` and `--auto`, which is everything the harness needs. Still to verify against a real model: that it edits files reliably, and that its JSON events report token usage.

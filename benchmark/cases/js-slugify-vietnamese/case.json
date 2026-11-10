@@ -1,0 +1,8 @@
+{
+  "id": "js-slugify-vietnamese",
+  "title": "Implement slugify with Vietnamese diacritics",
+  "category": "feature",
+  "complexity": "medium",
+  "prompt": "Implement slugify(text) in slugify.js. It must lowercase the text, remove Vietnamese and other Latin diacritics (đ becomes d), turn every run of characters that are not a-z or 0-9 into a single dash, and trim dashes from both ends. An input with no letters or digits returns an empty string. The tests in test.js describe the expected behaviour; do not change test.js.",
+  "checks": ["node test.js"]
+}
