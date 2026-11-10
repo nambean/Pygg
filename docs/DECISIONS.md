@@ -14,7 +14,9 @@ Architecture decision records, in the style of DownFetch's `docs/DECISIONS.md`. 
 
 **Why:** The app holds API keys and source code. Keeping it local keeps the trust boundary small.
 
-## ADR-003 — Orchestrator first, gateway underneath
+## ADR-003 — Orchestrator first, gateway underneath (sequencing superseded by ADR-016)
+
+**Status:** Historical task architecture; **gateway-first delivery** is the current implementation order. Preserve the no-mid-agent-attempt-switch rule; it does not mean an agent orchestrator has shipped.
 
 **Decision:** Routing decisions happen at task and stage boundaries. The local gateway is the transport and enforcement layer, and it never switches models silently within an agent session. Gateway-only mode pins the model per conversation and falls back only on hard errors before any output is streamed.
 
@@ -97,7 +99,9 @@ Architecture decision records, in the style of DownFetch's `docs/DECISIONS.md`. 
 
 **Cost:** It is a departure from Windows conventions. SCREENS.md D12 lists the checks that must pass before release: snap layouts, scaling, keyboard use and screen readers.
 
-## ADR-013 — Benchmark before building the router
+## ADR-013 — Benchmark before building the router (delivery order superseded)
+
+**Status:** This benchmark remains a mandatory evidence gate before advertising savings, but **ADR-016 supersedes the old benchmark-before-gateway sequence**. See [ROADMAP.md](ROADMAP.md).
 
 **Decision:** Phase 0 runs a benchmark of reproducible coding tasks with deterministic checks. It compares three baselines: always-T4, always-T2, and a check-driven cascade. The router and the full UI are built only if the cascade reaches a comparable pass rate at lower cost per success.
 
@@ -131,10 +135,6 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Cost:** For now, routing happens per request and is chosen by the client through the model name. Routing by task comes back with the orchestrator.
 
-## Open
-
-- **License.** Not chosen yet; this is a decision for the owner.
-- **Phase 0/1 agent CLI.** The proposal is OpenCode, because it is built for many providers. Version 1.18.4 is installed on the development machine, and its `run` command takes `-m provider/model`, `-f`, `--dir`, `--format json` and `--auto`, which is everything the harness needs. Still to verify against a real model: that it edits files reliably, and that its JSON events report token usage.
 
 ## ADR-017 — Universal, provider-independent conversation memory (proposed)
 
@@ -156,7 +156,7 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Decision:** ADR-016's gateway-first sequence is current. ADR-013's benchmark-first order is retained as historical rationale but is superseded **for implementation order**. Validate model selection, conversation handoff and coding cascades in reproducible experiments before public savings claims.
 
-**Status:** roadmap clarification only; does not imply gateway or memory engine implementation.
+**Status:** ADR-016 roadmap clarification. The gateway is now **implemented**, but the memory engine/auto cost optimizer remain proposed. Refer to [Implementation Status](IMPLEMENTATION-STATUS.md).
 
 ## ADR-020 — Five entitlement tiers per account-model (proposed)
 
@@ -193,3 +193,18 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 **Evidence:** documentation and public source references inspected; no local OmniRoute benchmark executed. No production savings or completed integration claimed.
 
 **Implementation gate:** provider-verified entitlements, no privacy or budget bypass, safe rollback and controlled quality/cost-per-success evaluation. See [research and detailed adoption matrix](OMNIROUTE_FEATURE_RESEARCH.md).
+
+## Open decisions (not yet finalized)
+
+- **License.** Not chosen yet; this is a decision for the owner.
+- **First agent benchmark client and paid test budget.** OpenCode is a candidate, but version, CLI flags, compatibility and measurable usage must be tested against the exact installed version; external provider calls need explicit user approval.
+
+## ADR-025 — Cost-safe gateway parity and owned vs external memory boundary (accepted design, code pending)
+
+**Decision:** Review reconciliation ([Claude review](reviews/2026-11-11-architecture-review.md), [response](reviews/2026-11-11-review-response.md)) sets **[ROADMAP.md](ROADMAP.md)** as the single delivery-order authority. First priority is not adding new router features; it is preventing the gateway from increasing cost or violating provider rules: native same-format Anthropic passthrough/cache parity, safe error-scoped fallback, atomic budget/usage accounting, explicit session affinity, then explainable rule-based Auto aliases.
+
+**Memory ownership:** app-owned Auto Chat may build scoped context/summary/memory packages at controlled cache-stable checkpoints. External CLI/IDE clients own their own prompts, history and compaction: gateway **never silently inserts memory or rewrites those prompts**. Only explicitly supplied authenticated session IDs may support persistent affinity; do not derive them from a hash of prompt content.
+
+**User scope:** initial benchmark/market wedge is developers with metered API workloads because financial outcomes are measurable; **long-term product vision remains cost optimization for everyday users as well**. This does not authorize claiming cash savings for fixed subscription chat plans.
+
+**Evidence:** code-backed findings were reviewed; synthetic multiplier examples are not real provider measurements. No code implementation is claimed by this ADR. Other proposed ADRs remain proposals until accepted as architecture and implemented/tested separately.
