@@ -1,12 +1,12 @@
 # SmartTaskRouter
 
-**AI Model & Agent Orchestrator**: routes each stage of a coding task to the cheapest connected model and agent that can pass that stage's checks.
+**AI Cost Optimizer**: automatically selects a suitable connected AI model for each everyday chat turn or developer task, minimizing total cost while preserving context, privacy and answer quality.
 
 > Status: early implementation. The desktop shell and task list run on labeled sample data; the task engine, gateway and router are not built yet. See [implementation status](docs/IMPLEMENTATION-STATUS.md).
 
 ## Product vision
 
-SmartTaskRouter is a desktop app for developers who already use several AI providers and coding agents. Provider, quota and endpoint management are inspired by 9Router. The difference is that SmartTaskRouter routes whole tasks and stages, not single requests: it tries cheaper models first where the result can be verified automatically, and escalates with an explanation.
+SmartTaskRouter is a desktop-first AI Cost Optimizer for everyday AI users and developers who connect multiple providers. The goal is to let people ask normally without choosing a model on every message. Provider, quota and endpoint management are inspired by 9Router. The difference is that SmartTaskRouter routes whole tasks and stages, not single requests: it tries cheaper models first where the result can be verified automatically, and escalates with an explanation.
 
 - **Orchestrator first:** routing happens at task/stage boundaries. The local gateway enforces policy and records usage, and never switches models silently within an agent session.
 - **Connected-model-first:** routes only to providers, models and agents the user connected.
@@ -14,6 +14,12 @@ SmartTaskRouter is a desktop app for developers who already use several AI provi
 - **Honest costs:** billing is `Free`, `Local`, `Subscription`, `Paid` or `Unknown`. Every quota figure shows its source, and unknown is never treated as free.
 - **Privacy-aware:** records whether a provider may train on submitted data and enforces it for sensitive workspaces.
 - **Measurable:** cost is measured per successful task, against a reproducible benchmark baseline.
+
+## Universal Shared Memory (planned)
+
+Cross-provider conversations will share a **local, canonical conversation history** with versioned compact summaries, scoped long-term facts and tool/task checkpoints. A **memory-aware cost router** will decide whether to stay on the current model or switch, accounting for cache loss, context rebuilding, quality, privacy and actual usage. No automatic switch during an active agent attempt or unresolved tool call.
+
+Read the [detailed design, OSS references and benchmark plan](docs/UNIVERSAL_SHARED_MEMORY.md). This is a design proposal, not implemented functionality. Consumer Auto Chat is planned alongside the existing developer Tasks mode; the present task-list UI remains the implemented shell.
 
 ## Navigation
 
@@ -52,10 +58,11 @@ The design review skill is pinned in `skills-lock.json` and installed under `.ag
 
 ## Roadmap
 
-0. **Benchmark:** test whether a check-driven cascade beats always using one model on cost per success.
+0. **Gateway first (ADR-016):** implement provider adapters, compatible endpoints, quotas and the usage ledger; then benchmark task routing as the orchestrator is built.
 1. **MVP:** providers, gateway, rule-based router, Route screen, single-stage tasks with one agent.
 2. **Multi-stage and multiple agents.**
 3. **Measured routing and context optimization.**
 4. **Distribution and Skills Hub.**
+5. **Universal Memory & Auto Chat:** canonical history → compaction/context handoff → cache-aware model affinity → optional long-term facts and memory settings; see linked design and revised release priorities.
 
 See the [full implementation plan](docs/SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md).
