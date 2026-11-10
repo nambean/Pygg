@@ -4,6 +4,12 @@
 >
 > Design inspiration: https://docs.9router.com/ and https://github.com/decolua/9router/tree/master/cli . Their installation and provider tier approaches are references, not code or credentials to replicate blindly.
 
+## Current gateway versus future CLI package (review reconciliation)
+
+**Implemented (per [Implementation Status](IMPLEMENTATION-STATUS.md)):** Rust headless binary `gateway serve` and local base URL `http://127.0.0.1:8741`, plus gateway-first desktop client/connection/usage views. **Not implemented:** `str start`, verified npm/npx publication, broad IDE compatibility, tier-aware rotation, Universal Memory and intelligent Auto Router. The command examples below are **design targets only** and any `4318` value below is historical, not the live default.
+
+All client integrations need version-specific base URL, tool, streaming, cache and session-ID tests. Transparent same-format passthrough is preferred; a subscription/CLI login must not be treated as fungible API access.
+
 ## 1. Product intent and relationship to AI Cost Optimizer
 
 SmartTaskRouter should work in two complementary ways:
