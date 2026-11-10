@@ -4,6 +4,17 @@
 >
 > Primary project objective: **AI Cost Optimizer** for everyday conversations and developer workflows. Default UX: user asks normally and the system selects an authorized, capable model with the best expected total cost, preserving continuity across providers.
 
+## Review-driven scope and safety correction (2026-11-11)
+
+Claude's [review](reviews/2026-11-11-architecture-review.md) was triaged in the [response](reviews/2026-11-11-review-response.md). [ROADMAP.md](ROADMAP.md) **overrides all P0/P1/P2 labels and sprint order below**. Before any model/candidate compression optimization, deliver:
+
+- Same-format native provider passthrough with preserved cache hints and verified parity.
+- Safe 401/403/429/timeout handling, quota group policy and cost accounting.
+- Atomic budget reservation, accurate ledger and explicit session affinity.
+- An explainable Auto alias using a verified catalog, initially **without LLM classifier**.
+
+**Compression guardrail:** tool output dedup/compression is **shadow-mode or explicit opt-in** until prompt-prefix/cache-read parity and task quality are measured. It may reduce noisy **new** tool output before first submission, never rewrite previously cached prefixes or alter external CLI-owned conversation. The previous P0 label means a research/experiment track, **not** default-on shipping. Claims about upstream savings are not ours.
+
 ## 1. Source provenance and verification level
 
 Primary source: [cheaper-inference/OmniRoute](https://github.com/cheaper-inference/OmniRoute), referenced on branch [release/v3.8.54](https://github.com/cheaper-inference/OmniRoute/tree/release/v3.8.54), reviewed on 2026-11-11.
