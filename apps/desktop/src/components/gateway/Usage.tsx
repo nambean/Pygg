@@ -1,0 +1,142 @@
+import { useMemo, useState } from 'react';
+import { ChartColumn } from 'lucide-react';
+import type { CostStatus, Outcome, UsageEvent, UsageGroup } from '../../lib/api';
+import { locale, plural, t } from '../../lib/i18n';
+import { costText, microUsd, sourceText, tokens } from '../../lib/money';
+import { useGateway } from '../../hooks/useGateway';
+import { Badge, Empty, ErrorNote, Segmented, Spinner } from '../ui';
+
+type Range = '1' | '7' | '30';
+
+export function OutcomeBadge({outcome, status}: {outcome: Outcome; status: number | null}) {
+  const code = status && status !== 200 ? ` · ${status}` : '';
+  switch (outcome) {
+    case 'ok': return <Badge tone="ok">{t('OK')}</Badge>;
+    case 'fallback': return <Badge tone="warn" title={t('Failed; the next model of the combo was tried')}>{t('Fell back')}{code}</Badge>;
+    case 'client_disconnected': return <Badge tone="off">{t('Client left')}</Badge>;
+    case 'stream_error': return <Badge tone="error">{t('Cut off')}</Badge>;
+    default: return <Badge tone="error">{t('Failed')}{code}</Badge>;
+  }
+}
+
+const statusLabel = (s: CostStatus) => ({actual: t('Actual'), estimated: t('Estimated'), unknown: t('Unknown')}[s]);
+
+/** Usage (SCREENS.md §5.6): what went through the gateway, with actual, estimated and unknown costs kept apart. */
+export function Usage() {
+  const [range, setRange] = useState<Range>('7');
+  const usage = useGateway(api => api.usage(Number(range)), [range], 15_000);
+  const [show, setShow] = useState<'all' | 'problems' | 'unknown'>('all');
+  const [openId, setOpenId] = useState<string | null>(null);
+  const rows = useMemo(() => (usage.data?.recent ?? []).filter(e =>
+    show === 'all' || (show === 'unknown' ? e.costStatus === 'unknown' : e.outcome !== 'ok')), [usage.data, show]);
+
+  const bar = <div className="page-bar">
+    <Segmented label={t('Period')} value={range} onChange={setRange} options={[
+      {value: '1', label: t('24 Hours')}, {value: '7', label: t('7 Days')}, {value: '30', label: t('30 Days')}]}/>
+  </div>;
+  if (usage.loading && !usage.data) return <div className="page">{bar}<Spinner label={t('Loading usage…')}/></div>;
+  const data = usage.data;
+  return <div className="page">
+    {bar}
+    {usage.error && <ErrorNote>{usage.error}</ErrorNote>}
+    {data && data.total.requests === 0 && <Empty icon={<ChartColumn size={40} strokeWidth={1.4}/>} title={t('No Usage Recorded Yet')}>
+      {t('Point a client at the gateway and its requests appear here, each with its cost and where that figure comes from.')}
+    </Empty>}
+    {data && data.total.requests > 0 && <>
+      <section className="group">
+        <h2>{t('API Costs')}</h2>
+        <div className="group-box totals">
+          <div className="totals-main">
+            <span className="totals-figure">{microUsd(data.total.knownMicroUsd)}</span>
+            <span className="secondary">{t('known')}</span>
+          </div>
+          <div className="totals-parts">
+            <span>{t('{amount} actual', {amount: microUsd(data.total.actualMicroUsd)})}</span>
+            <span>{t('≈{amount} estimated', {amount: microUsd(data.total.knownMicroUsd - data.total.actualMicroUsd)})}</span>
+            <span className={data.total.unknownRequests ? 'warn-text' : ''}>
+              {plural(data.total.unknownRequests, '{n} request with unknown cost', '{n} requests with unknown cost')}</span>
+          </div>
+          <p className="group-footnote">{t('Unknown costs are not in the total. Give a model a price in Connections to estimate them.')}</p>
+        </div>
+      </section>
+
+      <div className="two-columns">
+        <GroupTable title={t('By Model')} column={t('Model')} groups={data.byModel} mono/>
+        <GroupTable title={t('By Client')} column={t('Client')} groups={data.byClient}/>
+      </div>
+
+      <section className="group">
+        <div className="group-heading">
+          <h2>{t('Requests')}</h2>
+          <select className="popup-button" value={show} onChange={e => setShow(e.target.value as typeof show)} aria-label={t('Show')}>
+            <option value="all">{t('All requests')}</option>
+            <option value="problems">{t('Fallbacks and failures')}</option>
+            <option value="unknown">{t('Unknown cost')}</option>
+          </select>
+        </div>
+        <div className="group-box table-box">
+          <table className="data-table ledger">
+            <thead><tr>
+              <th scope="col">{t('Time')}</th><th scope="col">{t('Client')}</th><th scope="col">{t('Model')}</th>
+              <th scope="col" className="num">{t('Tokens in → out')}</th><th scope="col" className="num">{t('Cost')}</th>
+              <th scope="col">{t('Source')}</th><th scope="col">{t('Result')}</th>
+            </tr></thead>
+            <tbody>
+              {rows.map(e => <LedgerRow key={e.id} event={e} open={openId === e.id} onToggle={() => setOpenId(openId === e.id ? null : e.id)}/>)}
+              {rows.length === 0 && <tr><td colSpan={7} className="table-empty">{t('Nothing to show for this filter.')}</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <p className="group-footnote">{t('Shows up to 200 of the most recent requests in this period. Failed attempts before a fallback are listed too; providers don’t bill rejected requests.')}</p>
+      </section>
+    </>}
+  </div>;
+}
+
+function GroupTable({title, column, groups, mono}: {title: string; column: string; groups: UsageGroup[]; mono?: boolean}) {
+  return <section className="group">
+    <h2>{title}</h2>
+    <div className="group-box table-box">
+      <table className="data-table">
+        <thead><tr>
+          <th scope="col">{column}</th><th scope="col" className="num">{t('Requests')}</th>
+          <th scope="col" className="num">{t('Tokens')}</th><th scope="col" className="num">{t('Known cost')}</th>
+        </tr></thead>
+        <tbody>
+          {groups.slice(0, 8).map(g => <tr key={g.key}>
+            <td className={mono ? 'mono' : ''} title={g.key}>{g.key || t('No client')}</td>
+            <td className="num">{g.requests}{g.fallbacks + g.failed > 0 && <small className="secondary"> · {t('{n} not OK', {n: g.fallbacks + g.failed})}</small>}</td>
+            <td className="num">{tokens(g.inputTokens + g.outputTokens)}</td>
+            <td className="num">{microUsd(g.knownMicroUsd)}{g.unknownRequests > 0 && <small className="warn-text"> + {t('{n} unknown', {n: g.unknownRequests})}</small>}</td>
+          </tr>)}
+        </tbody>
+      </table>
+    </div>
+  </section>;
+}
+
+function LedgerRow({event: e, open, onToggle}: {event: UsageEvent; open: boolean; onToggle: () => void}) {
+  const time = new Date(e.createdAt).toLocaleString(locale(), {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
+  return <>
+    <tr className={open ? 'ledger-row open' : 'ledger-row'} onClick={onToggle}>
+      <td className="secondary nowrap">
+        <button type="button" className="row-toggle" aria-expanded={open} onClick={ev => { ev.stopPropagation(); onToggle(); }}>{time}</button>
+      </td>
+      <td>{e.client ?? t('No client')}</td>
+      <td className="mono" title={`${e.provider}/${e.model}`}>{e.provider}/{e.model}</td>
+      <td className="num">{e.inputTokens != null ? `${tokens(e.inputTokens)} → ${tokens(e.outputTokens ?? 0)}` : '—'}</td>
+      <td className={`num cost ${e.costStatus}`}>{costText(e.costMicroUsd, e.costStatus)}</td>
+      <td className="secondary">{statusLabel(e.costStatus)}</td>
+      <td><OutcomeBadge outcome={e.outcome} status={e.httpStatus}/></td>
+    </tr>
+    {open && <tr className="ledger-detail"><td colSpan={7}>
+      <dl>
+        <dt>{t('Asked for')}</dt><dd className="mono">{e.requestedModel ?? '—'}</dd>
+        <dt>{t('Answered by')}</dt><dd className="mono">{e.provider}/{e.model}</dd>
+        <dt>{t('Cost source')}</dt><dd>{statusLabel(e.costStatus)} · {sourceText(e.costSource)}</dd>
+        <dt>{t('Time taken')}</dt><dd>{e.latencyMs != null ? `${(e.latencyMs / 1000).toFixed(1)} s` : '—'}</dd>
+        {e.error && <><dt>{t('Error')}</dt><dd className="selectable">{e.error}</dd></>}
+      </dl>
+    </td></tr>}
+  </>;
+}
