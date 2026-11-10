@@ -730,3 +730,13 @@ The six-destination, list-first **developer task UI remains the current implemen
 **Handoff transparency:** after a provider switch, an inspector can show exactly which recent messages, summaries, approved facts and tool checkpoints were included; unsupported provider payloads are rejected rather than silently omitted.
 
 **Source:** [Universal Shared Memory proposal](../UNIVERSAL_SHARED_MEMORY.md). No UI is implemented by this documentation update; current SVG previews predate the updated UX.
+
+## 11. Planned CLI / IDE Integrations and provider tier UI
+
+The design for developer mode adds **Connections → Integrations** with tabs for Terminal CLIs and IDEs/extensions, client status, setup walkthrough, generated scoped gateway token, exact local endpoint, model alias/route, connection test and approved config backup/restore. Candidate clients include Claude Code, Codex, OpenCode, Aider, Cline/Roo and Continue; actual compatibility must be verified by version and supported format. An unknown client can use manual OpenAI/Anthropic-compatible templates when appropriate.
+
+The existing Connections → Providers tab adds filters **All · Free · Subscription · API · Local · Unknown**, showing source/date/limit for each account-model entitlement, independent of key/OAuth/CLI auth methods. One provider can legitimately appear in more than one tier. No unsupported quota estimates or promised free access.
+
+Settings / Endpoints gain CLI health, gateway port/token controls, setup commands and npm/npx onboarding documentation. The package name and distribution are not yet verified or released.
+
+See [full spec](../CLI_IDE_NPM_PROVIDER_TIERS.md). These are designs and do not change the implemented navigation until reviewed.
