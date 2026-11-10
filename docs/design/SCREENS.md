@@ -1,10 +1,12 @@
 # SmartTaskRouter — Screen Design
 
-> Version: 0.1 | Date: 2026-11-10 | Status: agreed screen design, not yet built
+> Version: 0.1 | Date: 2026-11-10 | Status: historical task-first design; gateway-first screens now implemented (see Implementation Status)
 >
 > Inputs: [plan v1.1](../SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md), the DownFetch desktop UI (`F:\2026\DownFetch\apps\desktop\src`), and the `apple-design` skill (Apple HIG). Claude and Codex each designed the screens independently, then settled their differences in a second round. All model names, prices, quotas and results below are illustrative.
 
 The app should feel like a task runner with an auditable route, not a provider dashboard. Its signature element is the **attempt sequence**: chosen model → check → outcome → next decision.
+
+> **Design status note (2026-11-11):** Gateway-first Overview, Connections, Combos, Clients, Usage and Smart Tasks Preview screens are implemented per [Implementation Status](../IMPLEMENTATION-STATUS.md). The task-first/six-destination design in this file is a historical concept, **not current implementation**. Future priority follows [ROADMAP.md](../ROADMAP.md) and the [review reconciliation](../reviews/2026-11-11-review-response.md). Current local gateway port is **8741**; older `4318` examples below are superseded.
 
 ## 1. Decisions
 
