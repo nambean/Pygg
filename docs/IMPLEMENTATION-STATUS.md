@@ -12,7 +12,7 @@ The levels are cumulative. **Fake-tested** means end-to-end tests against the fa
 | P0-2 error-scoped fallback | Yes | Yes | 404 cooldown and skip (Gemini) | Not applicable | No |
 | P0-3 budgets and complete ledger | Yes | Yes | Ledger and prices (Gemini); reservations not live | Not applicable | No |
 | P0-4 explicit sessions | Yes | Yes | Pinning (Gemini, direct requests); Claude Code headless session carried the header on 12 of 12 requests | Not applicable | No |
-| P0-5 Auto routing | Yes | Yes | No | Not applicable | No |
+| P0-5 Auto routing | Yes | Yes | Yes: Gemini and Anthropic, seven scenarios and a headless Claude Code session | Not applicable | No |
 
 ## Built
 
@@ -32,8 +32,8 @@ The levels are cumulative. **Fake-tested** means end-to-end tests against the fa
 | Gemini signatures (`signatures.rs`) | Gemini 3 needs `thought_signature` on earlier tool calls. Signatures are remembered by call id and put back on requests to Gemini. Calls made by another model get Google's placeholder. The field is stripped for every other provider. | Unit tests; live round trip that failed with HTTP 400 before this fix and passes now |
 | Ledger and pricing (`pricing.rs`, `store.rs`) | Every upstream attempt is recorded, including failed ones. **Actual** means the provider reported the charge (OpenRouter's `usage.cost`). **Estimated** means it was computed from a price the user entered, or the billing type is Free or Local; rejected 4xx requests are recorded as $0, not billed. **Unknown** covers everything else and is never stored as $0. | Unit tests; live ledger checked in the app |
 | Client tokens | Stored as SHA-256 hashes and shown once. Each has an optional monthly limit (with reservations, above), a cap on requests in flight and an unknown-price policy. Tokens can be revoked. | Tests |
-| Connections and models | Presets for Gemini, OpenRouter, OpenAI, Groq, DeepSeek and Ollama, plus custom endpoints. Keys go to the OS credential store. The model list comes from `GET {endpoint}/models`. Models can be added by hand. Prices, billing and enabled state are set per model. | Tests; live: 62 Gemini models listed |
-| Headless CLI (`bin/gateway.rs`) | `serve`, `add-connection`, `remove-connection`, `refresh-models`, `create-client`, `combo`, `list`, `usage`. It uses the app's store unless `--db` is given. | Used for the live tests |
+| Connections and models | Presets for Gemini, Anthropic, OpenRouter, OpenAI, Groq, DeepSeek, Qwen (Alibaba Model Studio) and Ollama, plus custom OpenAI- and Anthropic-compatible endpoints. Keys go to the OS credential store. The model list comes from `GET {endpoint}/models`. Models can be added by hand. Prices, billing and enabled state are set per model. | Tests; live: 62 Gemini models listed |
+| Headless CLI (`bin/gateway.rs`) | `serve`, `add-connection`, `remove-connection`, `refresh-models`, `create-client`, `combo`, `model` (tier, facts, price), `client` (auto minimum tier, retries), `auto` (simulate a route), `list`, `usage`. It uses the app's store unless `--db` is given. | Used for the live tests |
 
 ### Desktop app
 
@@ -56,7 +56,7 @@ Browser preview (`pnpm dev`) runs on an in-memory demo that is labeled on screen
 
 `db.rs` (migrations, now at schema v7), `vault.rs`, `redact.rs`, `process.rs`, `isolation.rs` and `checks.rs` are unchanged. `bench.rs` now reads agent cost events and enforces a hard `--budget-usd` cap.
 
-`cargo test`: 106 passed, 1 ignored (including five lifecycle tests: stop with a request or a stream in flight, a settlement waiting at stop, quick restarts with an orphan, a failed start-up recovery), plus `tests/two_gateways.rs`, which runs two real `gateway serve` processes on one store (the second is refused; after the first is killed a new one starts and records the attempt the dead one left as interrupted) (the OS credential store test, which passes with `--ignored`).
+`cargo test`: 107 passed, 1 ignored (including five lifecycle tests: stop with a request or a stream in flight, a settlement waiting at stop, quick restarts with an orphan, a failed start-up recovery), plus `tests/two_gateways.rs`, which runs two real `gateway serve` processes on one store (the second is refused; after the first is killed a new one starts and records the attempt the dead one left as interrupted) (the OS credential store test, which passes with `--ignored`).
 
 ## Live verification, 2026-11-11
 
@@ -101,6 +101,24 @@ With the owner's key and go-ahead, `scripts/anthropic-parity.ps1` sent the same 
 The token counts are identical, so at the same price the billed amount is identical: on this endpoint the gateway adds no cache cost. The ledger recorded each gateway request with the whole prompt (9020 tokens, cache included) and route `native`. About $0.06 in all. The key was put in the credential store for the run and removed afterwards.
 
 Not covered: the 1-hour cache TTL, a multi-turn tool-result round trip, other Claude models, and an Anthropic-compatible endpoint other than Anthropic's own.
+
+## Live verification: Auto routing, 2026-11-11
+
+With the owner's go-ahead, the headless gateway on a scratch store with the Gemini and Anthropic keys. Refreshing Anthropic's model list worked: 14 models, now with `x-api-key`. Their input limit, output limit and image support were read from the list (`max_input_tokens`, `max_tokens`, `capabilities.image_input`). Tool use has no field there and stayed unknown. Facts set as the user would (`gateway model …`): Gemini 3.1 Flash-Lite T1, tools and images, a 128k context (deliberately low), 8192 output, test price $0.10/$0.40. Claude Haiku 4.5 T2, tools, $1/$5.
+
+| Scenario | Result |
+| --- | --- |
+| OpenAI-format `auto`, client minimum T2 | 422, with a reason for each of 76 models (Flash-Lite below T2, Claude models not reachable from the OpenAI format, the rest without a tier) |
+| OpenAI-format `auto`, minimum T1 | Flash-Lite, native: "ranked 1 of 1 … tier T1 (minimum T1)" |
+| Anthropic-format `auto`, minimum T2 | Haiku, native passthrough |
+| Anthropic-format `auto/cheap` with a tool | Flash-Lite, translated; a real `tool_use` came back |
+| Same session after the minimum dropped to T1 | Stayed on Haiku: "ranked 2 of 2 … kept for this session" |
+| No session, minimum T1 | Flash-Lite |
+| An image, `auto/cheap` | Flash-Lite, the cheapest model known to take images |
+
+Ledger: six entries, each with its route reason, $0.0002 in all at the test prices.
+
+**Claude Code 2.1.317 with `ANTHROPIC_MODEL=auto/cheap`** (headless, file tools and a sub-agent, as in the earlier run): both turns completed, and all 14 requests carried the session header. Auto chose Haiku, not Flash-Lite, because Claude Code asks for more output tokens than the 8192 set for Flash-Lite: the "known to fit" rule at work. **Finding:** 6 of the 14 requests were refused by Anthropic with HTTP 400 ($0): "adaptive thinking is not supported", "does not support the effort parameter" and "role 'system' is not supported". Given a model name it does not know, Claude Code assumes the newest features. It then retried without them, so the session went on. Auto does not yet use request features beyond tools, images and size as filters. Anthropic's model list reports `thinking.types.adaptive` and `effort`, which can become hard filters. Until then, for Claude Code, a named model or combo avoids the wasted refusals. Afterwards both connections were removed with their keys, and the scratch store deleted.
 
 ## Live verification: Claude Code through the gateway, 2026-11-11
 

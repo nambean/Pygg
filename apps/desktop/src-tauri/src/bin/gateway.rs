@@ -6,6 +6,10 @@
 //!   gateway [--db PATH] refresh-models --id ID
 //!   gateway [--db PATH] create-client --name NAME [--monthly-usd N]
 //!   gateway [--db PATH] combo --name NAME --member CONNECTION/MODEL [--member …]
+//!   gateway [--db PATH] model --model CONNECTION/MODEL [--tier T0-T4] [--context N] [--max-output N]
+//!                             [--tools yes|no] [--vision yes|no] [--price-in USD] [--price-out USD] [--billing TYPE]
+//!   gateway [--db PATH] client --name NAME [--auto-min-tier T0-T4] [--paid-retries N]
+//!   gateway [--db PATH] auto --alias auto|auto/cheap [--client NAME] [--anthropic yes] [--tools yes] [--prompt N] [--max-tokens N]
 //!   gateway [--db PATH] list
 //!   gateway [--db PATH] usage
 //!
@@ -126,6 +130,71 @@ async fn main() {
                 .unwrap_or_else(|e| fail(e));
             println!("Combo {} → {}", combo.name,
                 combo.members.iter().map(|m| format!("{}/{}", m.provider_id, m.model_id)).collect::<Vec<_>>().join(" → "));
+        }
+        "model" => {
+            // The user's statement about a model, for auto routing and pricing (ROADMAP P0-5).
+            let target = one("model").unwrap_or_else(|| fail("--model is required"));
+            let (provider, model) = target.split_once('/').unwrap_or_else(|| fail("use --model CONNECTION/MODEL"));
+            let yes = |name: &str| one(name).map(|v| match v.as_str() {
+                "yes" => true, "no" => false, _ => fail(format!("--{name} takes yes or no")) });
+            let count = |name: &str| one(name).map(|v| v.parse::<u64>().unwrap_or_else(|_| fail(format!("bad --{name}"))));
+            let usd = |name: &str| one(name).map(|v| (v.parse::<f64>().unwrap_or_else(|_| fail(format!("bad --{name}"))) * 1e6).round() as u64);
+            shared.with_db(|db| -> store::Result<()> {
+                let _ = store::add_model(db, provider, model);
+                let current = store::list_models(db, Some(provider))?.into_iter().find(|m| m.model_id == model)
+                    .ok_or("model not found")?;
+                let caps = current.capabilities;
+                store::set_capabilities(db, provider, model, &store::Capabilities {
+                    tier: one("tier").or(caps.tier), context_tokens: count("context").or(caps.context_tokens),
+                    max_output_tokens: count("max-output").or(caps.max_output_tokens),
+                    supports_tools: yes("tools").or(caps.supports_tools), supports_vision: yes("vision").or(caps.supports_vision),
+                    ..store::Capabilities::default() })?;
+                if let (Some(input), Some(output)) = (usd("price-in"), usd("price-out")) {
+                    store::update_model(db, provider, model, None, None, Some(Some(gateway::pricing::Price {
+                        input_micro_per_mtok: input, output_micro_per_mtok: output, cached_input_micro_per_mtok: None,
+                        cache_write_micro_per_mtok: None, source: "user".into(), observed_at: db::now_ms() })))?;
+                }
+                if let Some(billing) = one("billing") {
+                    store::update_model(db, provider, model, None, Some(&billing), None)?;
+                }
+                Ok(())
+            }).unwrap_or_else(|e| fail(e));
+            println!("Updated {target}");
+        }
+        "client" => {
+            let name = one("name").unwrap_or_else(|| fail("--name is required"));
+            let client = shared.with_db(store::list_clients).unwrap_or_else(|e| fail(e)).into_iter()
+                .find(|c| c.name == name && c.revoked_at.is_none()).unwrap_or_else(|| fail("no such client"));
+            shared.with_db(|db| -> store::Result<()> {
+                if let Some(tier) = one("auto-min-tier") { store::set_client_auto_min_tier(db, &client.id, &tier)?; }
+                if let Some(n) = one("paid-retries") {
+                    store::set_client_paid_retries(db, &client.id, n.parse().map_err(|_| "bad --paid-retries".to_string())?)?;
+                }
+                Ok(())
+            }).unwrap_or_else(|e| fail(e));
+            println!("Updated client {name}");
+        }
+        "auto" => {
+            // What an auto alias would choose; sends nothing.
+            let alias = one("alias").unwrap_or_else(|| "auto".into());
+            let strategy = gateway::auto::strategy(&alias).unwrap_or_else(|| fail("not an auto alias")).unwrap_or_else(|e| fail(e));
+            let clients = shared.with_db(store::list_clients).unwrap_or_else(|e| fail(e));
+            let client = match one("client") {
+                Some(name) => clients.into_iter().find(|c| c.name == name).unwrap_or_else(|| fail("no such client")),
+                None => clients.into_iter().next().unwrap_or_else(|| fail("create a client first")),
+            };
+            let needs = gateway::auto::Needs { surface_anthropic: one("anthropic").as_deref() == Some("yes"),
+                tools: one("tools").as_deref() == Some("yes"), vision: one("vision").as_deref() == Some("yes"),
+                input_tokens: one("prompt").and_then(|v| v.parse().ok()).unwrap_or(1000),
+                max_tokens: one("max-tokens").and_then(|v| v.parse().ok()) };
+            let plan = shared.with_db(|db| gateway::auto::plan(db, &client, &alias, strategy, &needs)).unwrap_or_else(|e| fail(e));
+            for (i, r) in plan.ranked.iter().enumerate() {
+                println!("{:>2}. {}/{}  {}", i + 1, r.provider_id, r.model_id, r.reason);
+            }
+            println!("{} excluded", plan.excluded.len());
+            for e in plan.excluded.iter().take(one("show").and_then(|v| v.parse().ok()).unwrap_or(10)) {
+                println!("    {}/{}: {}", e.provider_id, e.model_id, e.reason);
+            }
         }
         "list" => {
             for p in shared.with_db(store::list_providers).unwrap_or_else(|e| fail(e)) {

@@ -77,14 +77,20 @@ fn per_token_usd(v: &Value) -> Option<u64> {
 }
 
 fn listed(id: &str, m: &Value) -> Listed {
-    let context_tokens = positive(&m["context_length"]).or_else(|| positive(&m["context_window"]));
+    // Anthropic reports the input limit (`max_input_tokens`) apart from the output limit; taking the input limit
+    // as the context is the stricter reading, since auto checks prompt plus output against it.
+    let context_tokens = positive(&m["context_length"]).or_else(|| positive(&m["context_window"]))
+        .or_else(|| positive(&m["max_input_tokens"]));
     let max_output_tokens = positive(&m["top_provider"]["max_completion_tokens"])
         .or_else(|| positive(&m["max_completion_tokens"]))
-        .or_else(|| positive(&m["max_output_tokens"]));
+        .or_else(|| positive(&m["max_output_tokens"]))
+        .or_else(|| positive(&m["max_tokens"]));
+    // Only an explicit field counts: Anthropic's list has none for tool use, so that stays unknown there.
     let supports_tools = m["supported_parameters"].as_array()
         .map(|p| p.iter().any(|v| v.as_str() == Some("tools")));
     let supports_vision = m["architecture"]["input_modalities"].as_array()
-        .map(|p| p.iter().any(|v| v.as_str() == Some("image")));
+        .map(|p| p.iter().any(|v| v.as_str() == Some("image")))
+        .or_else(|| m["capabilities"]["image_input"]["supported"].as_bool());
     let pricing = &m["pricing"];
     let price = match (per_token_usd(&pricing["prompt"]), per_token_usd(&pricing["completion"])) {
         (Some(input), Some(output)) => Some(Price {
@@ -123,6 +129,15 @@ mod tests {
             (3_000_000, 15_000_000, Some(300_000)));
         assert!(out.iter().find(|m| m.id == "openrouter/auto").unwrap().price.is_none(), "router models have no price");
         assert_eq!(out.iter().find(|m| m.id == "plain").unwrap(), &Listed { id: "plain".into(), ..Listed::default() });
+    }
+
+    #[test]
+    fn reads_anthropics_limits_and_image_support_but_not_tools() {
+        let list = json!({ "data": [{ "type": "model", "id": "claude-x", "max_input_tokens": 1000000, "max_tokens": 128000,
+            "capabilities": { "image_input": { "supported": true }, "structured_outputs": { "supported": true } } }] });
+        let m = &parse_list(&list, None)[0];
+        assert_eq!((m.context_tokens, m.max_output_tokens, m.supports_vision, m.supports_tools),
+            (Some(1_000_000), Some(128_000), Some(true), None));
     }
 
     #[test]

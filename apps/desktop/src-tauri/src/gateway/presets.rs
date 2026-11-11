@@ -40,6 +40,9 @@ pub const PRESETS: &[Preset] = &[
     preset("openai", "OpenAI", Some("https://api.openai.com/v1"), true, "paid", "openai"),
     preset("groq", "Groq", Some("https://api.groq.com/openai/v1"), true, "unknown", "openai"),
     preset("deepseek", "DeepSeek", Some("https://api.deepseek.com/v1"), true, "paid", "openai"),
+    // Alibaba Cloud Model Studio's OpenAI-compatible mode (international). Plans with their own endpoint, such
+    // as a token plan, set it when connecting.
+    preset("qwen", "Qwen (Alibaba Model Studio)", Some("https://dashscope-intl.aliyuncs.com/compatible-mode/v1"), true, "unknown", "openai"),
     preset("ollama", "Ollama", Some("http://127.0.0.1:11434/v1"), false, "local", "openai"),
     preset("custom", "Custom (OpenAI-compatible)", None, false, "unknown", "openai"),
     preset("custom-anthropic", "Custom (Anthropic-compatible)", None, false, "unknown", "anthropic"),

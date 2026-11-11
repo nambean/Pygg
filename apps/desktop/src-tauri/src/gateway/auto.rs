@@ -148,7 +148,8 @@ fn tier_rank(tier: &str) -> u8 {
 }
 
 fn money(micro: u64) -> String {
-    format!("${:.4}", micro as f64 / 1e6)
+    // Under a hundredth of a cent, four decimals would read as $0.0000, which is not what it costs.
+    if micro > 0 && micro < 100 { "under $0.0001".into() } else { format!("${:.4}", micro as f64 / 1e6) }
 }
 
 /// Builds the plan for a request. Nothing is sent; the same function serves the simulator in the app.

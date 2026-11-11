@@ -15,6 +15,8 @@ const PRESETS: Preset[] = [
   {id: 'openai', name: 'OpenAI', endpoint: 'https://api.openai.com/v1', needsKey: true, defaultBilling: 'paid', wire: 'openai'},
   {id: 'groq', name: 'Groq', endpoint: 'https://api.groq.com/openai/v1', needsKey: true, defaultBilling: 'unknown', wire: 'openai'},
   {id: 'deepseek', name: 'DeepSeek', endpoint: 'https://api.deepseek.com/v1', needsKey: true, defaultBilling: 'paid', wire: 'openai'},
+  {id: 'qwen', name: 'Qwen (Alibaba Model Studio)', endpoint: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', needsKey: true,
+    defaultBilling: 'unknown', wire: 'openai'},
   {id: 'ollama', name: 'Ollama', endpoint: 'http://127.0.0.1:11434/v1', needsKey: false, defaultBilling: 'local', wire: 'openai'},
   {id: 'custom', name: 'Custom (OpenAI-compatible)', endpoint: null, needsKey: false, defaultBilling: 'unknown', wire: 'openai'},
   {id: 'custom-anthropic', name: 'Custom (Anthropic-compatible)', endpoint: null, needsKey: false, defaultBilling: 'unknown', wire: 'anthropic'},
