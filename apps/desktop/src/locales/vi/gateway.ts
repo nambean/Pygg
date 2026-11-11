@@ -437,6 +437,9 @@ export const gateway: Record<string, string> = {
   'Requests that were running are still finishing, so their cost is recorded. Until they do, no other gateway can use this store.':
     'Các request đang chạy vẫn đang hoàn tất để chi phí được ghi sổ. Trong lúc đó, không gateway nào khác dùng được store này.',
   'Interrupted': 'Bị gián đoạn',
+  'Change it if the server runs on another address or port.': 'Đổi nếu server chạy ở địa chỉ hoặc cổng khác.',
+  'Leave empty for the provider’s standard endpoint. Change it if your plan has its own, such as a token plan or a regional endpoint.':
+    'Để trống để dùng endpoint chuẩn của nhà cung cấp. Đổi nếu gói của bạn có endpoint riêng, ví dụ token plan hoặc endpoint theo vùng.',
   // Auto routing (ROADMAP P0-5)
   'Auto routing': 'Định tuyến auto',
   'list price': 'giá niêm yết',

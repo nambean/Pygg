@@ -1313,3 +1313,17 @@ fn a_listed_model_keeps_what_the_user_set() {
     assert_eq!(auto.id, "auto-connection");
     assert!(store::save_combo(&conn, None, "auto", &[Target { provider_id: p.id.clone(), model_id: "vendor/m".into() }]).is_err());
 }
+
+#[test]
+fn one_providers_two_api_formats_share_a_quota_group() {
+    let conn = crate::db::open_in_memory().unwrap();
+    let add = |kind: &str, wire: &str| store::add_provider(&conn, &NewProvider { kind, label: kind, endpoint: "https://x.test",
+        credential_ref: None, default_billing: "paid", wire }).unwrap();
+    let openai = add("deepseek", "openai");
+    let anthropic = add("deepseek-anthropic", "anthropic");
+    let other = add("mistral", "openai");
+    assert_eq!((openai.quota_group.as_str(), anthropic.quota_group.as_str(), other.quota_group.as_str()),
+        ("deepseek", "deepseek", "mistral"));
+    store::update_provider(&conn, &anthropic.id, None, None, Some(true)).unwrap();
+    assert_eq!(store::get_provider(&conn, &anthropic.id).unwrap().unwrap().quota_group, anthropic.id);
+}

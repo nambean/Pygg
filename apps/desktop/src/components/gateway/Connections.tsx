@@ -358,12 +358,14 @@ function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected:
         <input id="connection-label" className="text-input" value={label} placeholder={preset.id === 'custom' ? t('My Provider') : preset.name}
           onChange={e => setLabel(e.target.value)}/>
       </FormRow>
-      {(custom || preset.id === 'ollama') && <FormRow label={t('Endpoint')} htmlFor="connection-endpoint"
+      <FormRow label={t('Endpoint')} htmlFor="connection-endpoint"
         hint={presetId === 'custom-anthropic' ? t('The base URL before /messages, e.g. https://api.example.com/v1')
-          : custom ? t('The base URL before /chat/completions, e.g. https://api.example.com/v1') : t('Change it if Ollama runs elsewhere.')}>
+          : custom ? t('The base URL before /chat/completions, e.g. https://api.example.com/v1')
+          : preset.defaultBilling === 'local' ? t('Change it if the server runs on another address or port.')
+          : t('Leave empty for the provider’s standard endpoint. Change it if your plan has its own, such as a token plan or a regional endpoint.')}>
         <input id="connection-endpoint" className="text-input mono" value={endpoint} placeholder={preset.endpoint ?? 'https://…/v1'}
           onChange={e => setEndpoint(e.target.value)} spellCheck={false}/>
-      </FormRow>}
+      </FormRow>
       {preset.id !== 'ollama' && <FormRow label={t('API Key')} htmlFor="connection-key"
         hint={t('Stored in {store}. SmartTaskRouter never shows it again.', {store: STORE})}>
         <input id="connection-key" className="text-input mono" type="password" value={apiKey} autoComplete="off" spellCheck={false}

@@ -47,9 +47,14 @@ const PROVIDER_COLUMNS: &str =
      wire, COALESCE(quota_group, kind), quota_group IS NOT NULL, quota_confirmed_at";
 
 fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
+    let kind: String = row.get(1)?;
+    let separate = row.get::<_, i64>(11)? == 1;
+    // Without the user's own group, connections of one provider family share limits (DeepSeek's OpenAI and
+    // Anthropic endpoints take the same key).
+    let quota_group = if separate { row.get(10)? } else { super::presets::quota_family(&kind).to_string() };
     Ok(Provider {
         id: row.get(0)?,
-        kind: row.get(1)?,
+        kind,
         label: row.get(2)?,
         endpoint: row.get(3)?,
         enabled: row.get::<_, i64>(4)? == 1,
@@ -58,8 +63,8 @@ fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
         data_use_terms: row.get(7)?,
         created_at: row.get(8)?,
         wire: row.get(9)?,
-        quota_group: row.get(10)?,
-        separate_quota: row.get::<_, i64>(11)? == 1,
+        quota_group,
+        separate_quota: separate,
         quota_confirmed_at: row.get(12)?,
     })
 }

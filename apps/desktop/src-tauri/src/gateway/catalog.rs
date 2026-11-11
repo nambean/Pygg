@@ -79,7 +79,9 @@ fn per_token_usd(v: &Value) -> Option<u64> {
 fn listed(id: &str, m: &Value) -> Listed {
     // Anthropic reports the input limit (`max_input_tokens`) apart from the output limit; taking the input limit
     // as the context is the stricter reading, since auto checks prompt plus output against it.
+    // Mistral writes `max_context_length`; Moonshot and xAI `context_length`; DeepSeek and Groq `context_window`.
     let context_tokens = positive(&m["context_length"]).or_else(|| positive(&m["context_window"]))
+        .or_else(|| positive(&m["max_context_length"]))
         .or_else(|| positive(&m["max_input_tokens"]));
     let max_output_tokens = positive(&m["top_provider"]["max_completion_tokens"])
         .or_else(|| positive(&m["max_completion_tokens"]))
@@ -87,10 +89,15 @@ fn listed(id: &str, m: &Value) -> Listed {
         .or_else(|| positive(&m["max_tokens"]));
     // Only an explicit field counts: Anthropic's list has none for tool use, so that stays unknown there.
     let supports_tools = m["supported_parameters"].as_array()
-        .map(|p| p.iter().any(|v| v.as_str() == Some("tools")));
+        .map(|p| p.iter().any(|v| v.as_str() == Some("tools")))
+        // Mistral: `capabilities.function_calling`.
+        .or_else(|| m["capabilities"]["function_calling"].as_bool());
     let supports_vision = m["architecture"]["input_modalities"].as_array()
         .map(|p| p.iter().any(|v| v.as_str() == Some("image")))
-        .or_else(|| m["capabilities"]["image_input"]["supported"].as_bool());
+        .or_else(|| m["capabilities"]["image_input"]["supported"].as_bool())
+        // Mistral: `capabilities.vision`; Moonshot: `supports_image_in`.
+        .or_else(|| m["capabilities"]["vision"].as_bool())
+        .or_else(|| m["supports_image_in"].as_bool());
     let pricing = &m["pricing"];
     let price = match (per_token_usd(&pricing["prompt"]), per_token_usd(&pricing["completion"])) {
         (Some(input), Some(output)) => Some(Price {
@@ -138,6 +145,16 @@ mod tests {
         let m = &parse_list(&list, None)[0];
         assert_eq!((m.context_tokens, m.max_output_tokens, m.supports_vision, m.supports_tools),
             (Some(1_000_000), Some(128_000), Some(true), None));
+    }
+
+    #[test]
+    fn reads_mistral_and_moonshot_fields() {
+        let list = json!({ "data": [
+            { "id": "mistral-small", "max_context_length": 32768, "capabilities": { "function_calling": true, "vision": false } },
+            { "id": "kimi-k2", "context_length": 262144, "supports_image_in": true } ] });
+        let out = parse_list(&list, None);
+        assert_eq!((out[1].context_tokens, out[1].supports_tools, out[1].supports_vision), (Some(32_768), Some(true), Some(false)));
+        assert_eq!((out[0].context_tokens, out[0].supports_tools, out[0].supports_vision), (Some(262_144), None, Some(true)));
     }
 
     #[test]

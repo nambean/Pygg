@@ -65,6 +65,15 @@ Reference documentation:
 
 **Important distinction:** Free/Subscription/API Paid/Local/Unknown = billing/entitlement; T0–T4 = approximate capability; client auth type and quota group are separate dimensions.
 
+### Provider reference review (2026-11-11)
+
+Owner request: use OmniRoute's [provider reference](https://github.com/cheaper-inference/OmniRoute/blob/release/v3.8.54/docs/reference/PROVIDER_REFERENCE.md) to decide which providers SmartTaskRouter should offer. The reference lists over 300 entries in these groups: no-auth, OAuth, web cookie, API key, local, search, audio and proxies. It states no license, and gives no base URL for most entries. Decisions:
+
+- **Used as a list of names only.** Every preset's endpoint, auth and free-tier note is taken from that provider's own documentation, with the source URL recorded. Nothing is copied from OmniRoute's data.
+- **Rejected categories (OR-16):** web cookie or session bridges (ChatGPT Web, Claude Web, Gemini Web, Copilot Web and the like); OAuth bridges into other products' subscriptions (Cursor, Copilot, Kiro, Antigravity, Codex and the like); "no-auth" scrapers; upstream proxies. These use accounts in ways the providers do not offer as an API, or evade their limits.
+- **Candidates:** providers with an official API-key, OpenAI-compatible endpoint, preferring those with a free tier or credits, and local OpenAI-compatible runtimes (LM Studio, llama.cpp, vLLM and others).
+- **Out of scope for now:** search, audio and image providers. The gateway routes chat completions and messages.
+
 ## 3. Committed core product UX
 
 ### Consumer Auto Chat
