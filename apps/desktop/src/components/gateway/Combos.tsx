@@ -68,6 +68,17 @@ export function Combos({intent, onIntentDone}: {intent?: 'create'; onIntentDone:
   </div>;
 }
 
+/** Connections in a combo that share a quota group (review GW-1), one list of labels per group. */
+function sharedGroups(members: Target[], connections: Connection[]): string[][] {
+  const groups = new Map<string, Set<string>>();
+  for (const m of members) {
+    const c = connections.find(x => x.id === m.providerId);
+    if (!c || c.separateQuota) continue;
+    groups.set(c.quotaGroup, (groups.get(c.quotaGroup) ?? new Set()).add(c.label));
+  }
+  return [...groups.values()].filter(s => s.size > 1).map(s => [...s]);
+}
+
 function ComboSheet({combo, connections, models, existing, onClose}: {
   combo: Combo | null; connections: Connection[]; models: Model[]; existing: Combo[]; onClose: () => void;
 }) {
@@ -133,6 +144,9 @@ function ComboSheet({combo, connections, models, existing, onClose}: {
       </li>)}
       {members.length === 0 && <li className="member empty secondary">{t('Add at least one model.')}</li>}
     </ol>
+    {sharedGroups(members, connections).map(labels => <p key={labels.join()} className="group-footnote warn-text" role="note">
+      {t('{connections} share one quota: when one is refused for its quota or rate limit, the gateway does not try the others for that model, since they would be refused too. If they are separate accounts, confirm that in Connections.',
+        {connections: labels.join(', ')})}</p>)}
     <div className="form">
       <FormRow label={t('Add model')} htmlFor="combo-add">
         <select id="combo-add" className="popup-button wide" value={adding} onChange={e => add(e.target.value)} disabled={!options.length}>

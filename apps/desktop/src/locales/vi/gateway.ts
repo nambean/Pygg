@@ -234,6 +234,8 @@ export const gateway: Record<string, string> = {
   'Move up': 'Lên trên',
   'Move down': 'Xuống dưới',
   'Add at least one model.': 'Thêm ít nhất một model.',
+  '{connections} share one quota: when one is refused for its quota or rate limit, the gateway does not try the others for that model, since they would be refused too. If they are separate accounts, confirm that in Connections.':
+    '{connections} dùng chung một quota: khi một kết nối bị từ chối vì hết quota hoặc giới hạn tốc độ, gateway không thử các kết nối kia cho model đó, vì chúng cũng sẽ bị từ chối. Nếu đó là các tài khoản riêng, hãy xác nhận trong Kết nối.',
   'Add model': 'Thêm model',
   'Choose a model…': 'Chọn một model…',
   'Connect a provider first': 'Hãy kết nối nhà cung cấp trước',
