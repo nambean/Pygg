@@ -594,4 +594,24 @@ export const gateway: Record<string, string> = {
     'Gateway dừng trước khi request này được ghi sổ; chưa rõ có tính phí không',
   'The last usage entry couldn’t be written: {error}. The request stays in the journal and is recorded with an unknown cost when the gateway next starts. Requests are refused while nothing can be written.':
     'Không ghi được mục chi phí gần nhất: {error}. Request vẫn nằm trong nhật ký và sẽ được ghi với chi phí chưa rõ khi gateway khởi động lại. Khi không ghi được gì, request sẽ bị từ chối.',
+  // Smart tasks from IDE agents (pygg-mcp)
+  'may start smart tasks': 'được tạo task thông minh',
+  'Smart tasks': 'Task thông minh',
+  'This client may start tasks through pygg-mcp or the task API. They run here with your agents’ sign-in, in a separate worktree; paid steps still wait for your approval in the app.':
+    'Client này được tạo task qua pygg-mcp hoặc task API. Task chạy trên máy này bằng đăng nhập của các agent, trong worktree riêng; bước trả phí vẫn chờ bạn duyệt trong ứng dụng.',
+  'Off: this client may only send model requests.': 'Tắt: client này chỉ được gửi request tới model.',
+  'May start tasks': 'Được tạo task',
+  'from {client}': 'từ {client}',
+  'From Your IDE': 'Từ IDE của bạn',
+  'Your coding agent (Claude Code, Codex, Cursor…) can hand a subtask to Pygg with the pygg_run_task tool. It runs here, on the agents below, in a separate worktree and against your approved checks; your agent reviews the result and keeps or discards it. Tasks appear in Tasks, where paid steps wait for your approval.':
+    'Agent lập trình của bạn (Claude Code, Codex, Cursor…) có thể giao một việc con cho Pygg bằng tool pygg_run_task. Việc đó chạy trên máy này, bằng các agent bên dưới, trong worktree riêng và được kiểm bằng các check bạn đã duyệt; agent của bạn xem kết quả rồi giữ hoặc bỏ. Task hiện trong mục Tasks, nơi bước trả phí chờ bạn duyệt.',
+  'In Clients, create a token for your IDE, then open Limits… and turn on “May start tasks”.':
+    'Trong Clients, tạo token cho IDE, rồi mở Limits… và bật “Được tạo task”.',
+  'Register pygg-mcp with your agent, with that token in place of <token>:': 'Đăng ký pygg-mcp với agent của bạn, thay <token> bằng token đó:',
+  'Cursor and others (JSON)': 'Cursor và các IDE khác (JSON)',
+  'Setup': 'Cài đặt',
+  'pygg-mcp was not found next to the app. Build it with “cargo build --bin pygg-mcp”.':
+    'Không thấy pygg-mcp cạnh ứng dụng. Hãy build bằng “cargo build --bin pygg-mcp”.',
+  'The token ends up in your agent’s configuration file. It can only reach this computer’s gateway, and you can revoke it in Clients.':
+    'Token sẽ nằm trong file cấu hình của agent. Nó chỉ dùng được với gateway trên máy này, và bạn có thể thu hồi trong Clients.',
 };

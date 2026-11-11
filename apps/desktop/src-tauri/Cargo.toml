@@ -27,7 +27,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 # Provider credentials live in the OS credential store, never in the database (src/vault.rs, ADR-002).
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 # Agent and check processes with timeouts and cancellation (src/process.rs).
-tokio = { version = "1", features = ["process", "time", "rt", "rt-multi-thread", "macros", "io-util", "sync", "net", "signal"] }
+tokio = { version = "1", features = ["process", "time", "rt", "rt-multi-thread", "macros", "io-util", "io-std", "sync", "net", "signal"] }
 uuid = { version = "1", features = ["v4"] }
 # Local gateway (src/gateway): loopback HTTP server, and the upstream client with rustls like DownFetch.
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }

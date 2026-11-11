@@ -401,6 +401,8 @@ pub struct Client {
     pub paid_retries: u32,
     /// The lowest tier `auto` may choose for this client (ROADMAP P0-5).
     pub auto_min_tier: String,
+    /// Whether it may start smart tasks through the gateway's task API (off until the user allows it).
+    pub may_run_tasks: bool,
 }
 
 impl Client {
@@ -468,11 +470,12 @@ fn client_row(conn: &Connection, row: &rusqlite::Row) -> rusqlite::Result<Client
             .map(|json| serde_json::from_str::<Vec<String>>(&json).unwrap_or_default()),
         paid_retries: row.get::<_, i64>(10)?.clamp(0, 5) as u32,
         auto_min_tier: row.get(11)?,
+        may_run_tasks: row.get(12)?,
     })
 }
 
 const CLIENT_COLUMNS: &str = "id, name, token_prefix, monthly_budget_micro_usd, created_at, last_used_at, revoked_at, \
-    max_concurrency, unknown_cost_policy, allowed_connections, paid_retries, auto_min_tier";
+    max_concurrency, unknown_cost_policy, allowed_connections, paid_retries, auto_min_tier, may_run_tasks";
 
 pub fn list_clients(conn: &Connection) -> Result<Vec<Client>> {
     let mut stmt = conn
@@ -550,6 +553,10 @@ pub fn set_client_paid_retries(conn: &Connection, id: &str, retries: u32) -> Res
     }
     conn.execute("UPDATE gateway_clients SET paid_retries = ?2 WHERE id = ?1", params![id, retries])
         .map(|_| ()).map_err(err)
+}
+
+pub fn set_client_may_run_tasks(conn: &Connection, id: &str, allowed: bool) -> Result<()> {
+    conn.execute("UPDATE gateway_clients SET may_run_tasks = ?2 WHERE id = ?1", params![id, allowed]).map(|_| ()).map_err(err)
 }
 
 // ---------- Budget reservations (ROADMAP P0-3) ----------

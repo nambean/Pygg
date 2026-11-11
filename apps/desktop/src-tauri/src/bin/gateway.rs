@@ -1,6 +1,8 @@
 //! Headless gateway: the same store, routing and ledger as the app, without the window.
 //!
-//!   gateway [--db PATH] serve [--port N]
+//!   gateway [--db PATH] serve [--port N] [--tasks yes]
+//!       --tasks yes: also run smart tasks from clients allowed to start them (pygg-mcp), with worktrees next to
+//!       the store. For a computer where the app is not open on this store: the app runs tasks itself.
 //!   gateway [--db PATH] add-connection --preset gemini [--label NAME] [--key-env VAR] [--billing TYPE] [--endpoint URL]
 //!   gateway [--db PATH] remove-connection --id ID
 //!   gateway [--db PATH] refresh-models --id ID
@@ -8,7 +10,7 @@
 //!   gateway [--db PATH] combo --name NAME --member CONNECTION/MODEL [--member …]
 //!   gateway [--db PATH] model --model CONNECTION/MODEL [--tier T0-T4] [--context N] [--max-output N]
 //!                             [--tools yes|no] [--vision yes|no] [--price-in USD] [--price-out USD] [--billing TYPE]
-//!   gateway [--db PATH] client --name NAME [--auto-min-tier T0-T4] [--paid-retries N]
+//!   gateway [--db PATH] client --name NAME [--auto-min-tier T0-T4] [--paid-retries N] [--tasks yes|no]
 //!   gateway [--db PATH] auto --alias auto|auto/cheap [--client NAME] [--anthropic yes] [--tools yes] [--prompt N] [--max-tokens N]
 //!   gateway [--db PATH] list
 //!   gateway [--db PATH] usage
@@ -17,7 +19,7 @@
 //! Without --db the app's own store is used (%APPDATA%\app.smarttaskrouter.desktop on Windows).
 
 use smarttaskrouter_desktop_lib::gateway::{self, catalog, presets, store, OsSecrets, Shared};
-use smarttaskrouter_desktop_lib::{db, vault};
+use smarttaskrouter_desktop_lib::{db, tasks, vault};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -58,7 +60,19 @@ async fn main() {
     let one = |name: &str| flags.get(name).and_then(|v| v.first()).cloned();
 
     let conn = db::open(&db_path).unwrap_or_else(|e| fail(format!("{}: {e}", db_path.display())));
-    let shared = Shared::for_store(Arc::new(Mutex::new(conn)), Arc::new(OsSecrets), &db_path);
+    let db = Arc::new(Mutex::new(conn));
+    let mut shared = Shared::for_store(db.clone(), Arc::new(OsSecrets), &db_path);
+    if command == "serve" && one("tasks").as_deref() == Some("yes") {
+        if gateway::store_in_use(&db_path) {
+            fail("Another gateway is already serving this store");
+        }
+        let worktrees = db_path.with_file_name("worktrees");
+        let interrupted = tasks::recover(&db.lock().unwrap(), &worktrees).unwrap_or_else(|e| fail(e));
+        if interrupted > 0 {
+            eprintln!("{interrupted} task(s) were cut off when this store was last served; they are interrupted");
+        }
+        shared = shared.with_tasks(tasks::Runner::new(db, worktrees, tasks::agent_executor()));
+    }
 
     match command.as_str() {
         "serve" => {
@@ -170,6 +184,7 @@ async fn main() {
                 if let Some(n) = one("paid-retries") {
                     store::set_client_paid_retries(db, &client.id, n.parse().map_err(|_| "bad --paid-retries".to_string())?)?;
                 }
+                if let Some(tasks) = one("tasks") { store::set_client_may_run_tasks(db, &client.id, tasks == "yes")?; }
                 Ok(())
             }).unwrap_or_else(|e| fail(e));
             println!("Updated client {name}");

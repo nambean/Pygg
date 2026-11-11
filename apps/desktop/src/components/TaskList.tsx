@@ -72,6 +72,7 @@ function TaskRow({task, attention, workspace, onOpen}: {
       <div className="row-title">
         <span className="name">{task.title}</span>
         {workspace && <span className="host">{workspace}</span>}
+        {task.source && <span className="host">{t('from {client}', {client: task.source})}</span>}
       </div>
       <div className="row-status">{statusLine(task)}</div>
       <div className="row-meta">

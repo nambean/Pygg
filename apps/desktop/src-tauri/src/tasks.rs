@@ -232,6 +232,11 @@ fn title_of(prompt: &str) -> String {
 
 /// Records a task in state `running`; the runner then takes it (`Runner::start`).
 pub fn create_task(conn: &Connection, new: &NewTask) -> Result<String> {
+    create_task_for(conn, new, None)
+}
+
+/// `create_task` for a gateway client (the task API): the task remembers the client, which sees only its own.
+pub fn create_task_for(conn: &Connection, new: &NewTask, client_id: Option<&str>) -> Result<String> {
     let prompt = new.prompt.trim();
     if prompt.is_empty() {
         return Err("Describe the task".into());
@@ -271,8 +276,8 @@ pub fn create_task(conn: &Connection, new: &NewTask) -> Result<String> {
     let now = now_ms();
     let tx = conn.unchecked_transaction().map_err(err)?;
     tx.execute("INSERT INTO tasks (id, workspace_id, title, prompt, strategy, state, base_revision, policy_snapshot_json, \
-                created_at, updated_at, phase) VALUES (?1, ?2, ?3, ?4, ?5, 'running', ?6, ?7, ?8, ?8, 'preparing')",
-        params![id, ws.id, title, prompt, new.strategy, base, serde_json::to_string(&policy).map_err(|e| e.to_string())?, now])
+                created_at, updated_at, phase, client_id) VALUES (?1, ?2, ?3, ?4, ?5, 'running', ?6, ?7, ?8, ?8, 'preparing', ?9)",
+        params![id, ws.id, title, prompt, new.strategy, base, serde_json::to_string(&policy).map_err(|e| e.to_string())?, now, client_id])
         .map_err(err)?;
     tx.execute("INSERT INTO task_stages (id, task_id, position, name, check_spec, state) VALUES (?1, ?2, 0, 'change', ?3, 'running')",
         params![new_id(), id, serde_json::to_string(&policy.checks).map_err(|e| e.to_string())?]).map_err(err)?;
@@ -314,6 +319,8 @@ pub struct TaskSummary {
     pub cost: TaskCost,
     pub started_at: i64,
     pub updated_at: i64,
+    /// The gateway client that started it (an IDE agent through the MCP server); `None`: the app.
+    pub source: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -386,20 +393,22 @@ struct TaskRow {
     stage_id: String,
     created_at: i64,
     updated_at: i64,
+    client_id: Option<String>,
+    client_name: Option<String>,
 }
 
 fn task_row(conn: &Connection, id: &str) -> Result<TaskRow> {
     let row = conn.query_row(
         "SELECT t.title, t.workspace_id, w.name, w.path, t.prompt, t.strategy, t.state, t.phase, t.reason, t.result, \
-                t.result_branch, t.base_revision, t.policy_snapshot_json, s.id, t.created_at, t.updated_at \
+                t.result_branch, t.base_revision, t.policy_snapshot_json, s.id, t.created_at, t.updated_at, t.client_id, c.name \
          FROM tasks t JOIN workspaces w ON w.id = t.workspace_id JOIN task_stages s ON s.task_id = t.id AND s.position = 0 \
-         WHERE t.id = ?1", [id],
+         LEFT JOIN gateway_clients c ON c.id = t.client_id WHERE t.id = ?1", [id],
         |r| Ok((TaskRow {
             title: r.get(0)?, workspace_id: r.get(1)?, workspace_name: r.get(2)?, workspace_path: r.get(3)?, prompt: r.get(4)?,
             strategy: r.get(5)?, state: r.get(6)?, phase: r.get(7)?, reason: r.get(8)?, result: r.get(9)?,
             result_branch: r.get(10)?, base_revision: r.get(11)?,
             policy: Policy { steps: vec![], checks: vec![], allow_shell: false, timeout_secs: DEFAULT_TIMEOUT_SECS },
-            stage_id: r.get(13)?, created_at: r.get(14)?, updated_at: r.get(15)?,
+            stage_id: r.get(13)?, created_at: r.get(14)?, updated_at: r.get(15)?, client_id: r.get(16)?, client_name: r.get(17)?,
         }, r.get::<_, String>(12)?)),
     ).optional().map_err(err)?;
     let (mut row, policy) = row.ok_or("That task no longer exists")?;
@@ -459,7 +468,7 @@ fn summary_of(conn: &Connection, id: &str, row: &TaskRow, attempts: &[AttemptVie
         attempts: attempts.iter().map(|a| AttemptChip { tier: a.tier, billing: a.billing.clone(), model: a.label.clone(),
             outcome: a.outcome.clone() }).collect(),
         cost: cost_of(conn, id, attempts)?,
-        started_at: row.created_at, updated_at: row.updated_at,
+        started_at: row.created_at, updated_at: row.updated_at, source: row.client_name.clone(),
     })
 }
 
@@ -474,7 +483,15 @@ pub fn list_tasks(conn: &Connection) -> Result<Vec<TaskSummary>> {
 }
 
 pub fn task_detail(conn: &Connection, id: &str) -> Result<TaskDetail> {
+    task_detail_for(conn, id, None)
+}
+
+/// A client sees only the tasks it started; `None`: the app, which sees every task.
+pub fn task_detail_for(conn: &Connection, id: &str, client_id: Option<&str>) -> Result<TaskDetail> {
     let row = task_row(conn, id)?;
+    if client_id.is_some() && row.client_id.as_deref() != client_id {
+        return Err("That task no longer exists".into());
+    }
     let attempts = attempts_of(conn, id)?;
     let summary = summary_of(conn, id, &row, &attempts)?;
     Ok(TaskDetail {
@@ -948,6 +965,71 @@ pub fn discard(conn: &Connection, id: &str) -> Result<()> {
         params![id, now_ms()]).map_err(err)?;
     audit(&tx, "task.discarded", id, serde_json::json!({})).map_err(err)?;
     tx.commit().map_err(err)
+}
+
+// ---------- Tasks from gateway clients (the task API, the MCP server) ----------
+
+/// Refuses a client access to a task it did not start, in the same words as a task that does not exist.
+pub fn check_owner(conn: &Connection, id: &str, client_id: &str) -> Result<()> {
+    let owner: Option<Option<String>> = conn.query_row("SELECT client_id FROM tasks WHERE id = ?1", [id], |r| r.get(0))
+        .optional().map_err(err)?;
+    match owner {
+        Some(Some(owner)) if owner == client_id => Ok(()),
+        _ => Err("That task no longer exists".into()),
+    }
+}
+
+/// The workspace for a folder an IDE agent works in: the repository it belongs to, added as a workspace if it is
+/// not one yet. Checks found there arrive as suggestions; until the user approves them in the app, results wait
+/// for review.
+pub fn workspace_for_folder(conn: &Connection, folder: &str) -> Result<WorkspaceView> {
+    let folder = folder.trim().trim_matches('"').trim();
+    let root = isolation::toplevel(Path::new(folder)).map_err(|e| e.to_string())?;
+    let found = list_workspaces(conn)?.into_iter().find(|w| same_path(Path::new(&w.path), &root));
+    match found {
+        Some(w) => Ok(w),
+        None => add_workspace(conn, &root.to_string_lossy(), None),
+    }
+}
+
+/// The order each strategy tries the agents in (the same as New Task in the app).
+fn strategy_order(strategy: &str) -> [&'static str; 4] {
+    match strategy {
+        "balanced" => ["codex", "opencode", "claude-code", "gemini-cli"],
+        "quality" => ["claude-code", "codex", "gemini-cli", "opencode"],
+        _ => ["opencode", "gemini-cli", "codex", "claude-code"],
+    }
+}
+
+/// A starting guess for how capable an agent's default model is.
+pub fn tier_guess(agent: &str) -> u8 {
+    match agent {
+        "opencode" => 1,
+        "gemini-cli" => 2,
+        _ => 3,
+    }
+}
+
+/// Up to three installed agents in the strategy's order, with billing unknown: Pygg cannot see how each is
+/// signed in.
+pub fn default_steps(strategy: &str, installed: &[&str]) -> Vec<Step> {
+    strategy_order(strategy).into_iter().filter(|id| installed.contains(id)).take(3)
+        .map(|id| Step { agent: id.into(), model: None, tier: tier_guess(id), billing: "unknown".into() }).collect()
+}
+
+/// The agents on this computer's PATH (no programs started).
+pub fn installed_agents() -> Vec<&'static str> {
+    agents::AGENTS.iter().filter(|a| a.programs.iter().any(|p| agents::locate(p).is_some())).map(|a| a.id).collect()
+}
+
+pub fn list_tasks_for(conn: &Connection, client_id: &str) -> Result<Vec<TaskSummary>> {
+    let ids: Vec<String> = conn.prepare("SELECT id FROM tasks WHERE client_id = ?1 ORDER BY updated_at DESC LIMIT 50").map_err(err)?
+        .query_map([client_id], |r| r.get(0)).map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
+    ids.iter().map(|id| {
+        let row = task_row(conn, id)?;
+        let attempts = attempts_of(conn, id)?;
+        summary_of(conn, id, &row, &attempts)
+    }).collect()
 }
 
 // ---------- Start-up ----------

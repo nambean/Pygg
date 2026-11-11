@@ -87,7 +87,8 @@ function policySummary(c: Client): string {
     : ` · ${plural(c.allowedConnections.length, 'only {n} connection', 'only {n} connections')}`;
   const retries = c.paidRetries > 0
     ? ` · ${plural(c.paidRetries, 'retries {n} model after a server error', 'retries up to {n} models after a server error')}` : '';
-  return plural(c.maxConcurrency, 'up to {n} request at once', 'up to {n} requests at once') + unknown + scope + retries;
+  const tasks = c.mayRunTasks ? ` · ${t('may start smart tasks')}` : '';
+  return plural(c.maxConcurrency, 'up to {n} request at once', 'up to {n} requests at once') + unknown + scope + retries + tasks;
 }
 
 function CreateSheet({onClose}: {onClose: () => void}) {
@@ -156,6 +157,7 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
   const [allowed, setAllowed] = useState<string[]>(c.allowedConnections ?? []);
   const [paidRetries, setPaidRetries] = useState(c.paidRetries);
   const [autoMinTier, setAutoMinTier] = useState<Tier>(c.autoMinTier);
+  const [mayRunTasks, setMayRunTasks] = useState(c.mayRunTasks);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const amount = parseUsd(limit);
@@ -167,7 +169,7 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
     call(async api => {
       await api.setClientBudget(c.id, amount);
       await api.setClientPolicy(c.id, {maxConcurrency: inFlight, unknownCostPolicy: unknown,
-        restrictConnections: restricted, allowedConnections: allowed, paidRetries, autoMinTier});
+        restrictConnections: restricted, allowedConnections: allowed, paidRetries, autoMinTier, mayRunTasks});
     }).then(() => { gatewayChanged(); onClose(); }, e => { setError(errorText(e)); setBusy(false); });
   };
   return <Sheet title={t('Limits for {name}', {name: c.name})}
@@ -213,6 +215,13 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
         <select id="auto-tier" className="popup-button" value={autoMinTier} onChange={e => setAutoMinTier(e.target.value as Tier)}>
           {TIERS.map(x => <option key={x} value={x}>{x}</option>)}
         </select>
+      </FormRow>
+      <FormRow label={t('Smart tasks')} htmlFor="may-run-tasks"
+        hint={mayRunTasks
+          ? t('This client may start tasks through pygg-mcp or the task API. They run here with your agents’ sign-in, in a separate worktree; paid steps still wait for your approval in the app.')
+          : t('Off: this client may only send model requests.')}>
+        <label className="check-row"><input id="may-run-tasks" type="checkbox" checked={mayRunTasks}
+          onChange={e => setMayRunTasks(e.target.checked)}/>{t('May start tasks')}</label>
       </FormRow>
       <FormRow label={t('Connections')} htmlFor="scope"
         hint={restricted

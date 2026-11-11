@@ -319,7 +319,7 @@ pub fn auto_simulate(state: State<'_, AppState>, client_id: Option<String>, alia
             None => Client { id: String::new(), name: String::new(), token_prefix: String::new(), monthly_budget_micro_usd: None,
                 created_at: 0, last_used_at: None, revoked_at: None, month_spend_micro_usd: 0, month_unknown_requests: 0,
                 max_concurrency: 8, unknown_cost_policy: "block".into(), reserved_micro_usd: 0, month_at_risk_micro_usd: 0,
-                allowed_connections: None, paid_retries: 0, auto_min_tier: "T2".into() },
+                allowed_connections: None, paid_retries: 0, auto_min_tier: "T2".into(), may_run_tasks: false },
         };
         gateway::auto::plan(db, &client, &alias, strategy, &needs)
     })
@@ -433,7 +433,7 @@ pub fn client_set_budget(state: State<'_, AppState>, id: String, monthly_budget_
 #[tauri::command]
 pub fn client_set_policy(state: State<'_, AppState>, id: String, max_concurrency: Option<u32>,
     unknown_cost_policy: Option<String>, restrict_connections: Option<bool>, allowed_connections: Option<Vec<String>>,
-    paid_retries: Option<u32>, auto_min_tier: Option<String>) -> Res<()> {
+    paid_retries: Option<u32>, auto_min_tier: Option<String>, may_run_tasks: Option<bool>) -> Res<()> {
     state.shared.with_db(|db| -> store::Result<()> {
         store::set_client_policy(db, &id, max_concurrency, unknown_cost_policy.as_deref())?;
         if let Some(tier) = &auto_min_tier {
@@ -445,6 +445,9 @@ pub fn client_set_policy(state: State<'_, AppState>, id: String, max_concurrency
         }
         if let Some(retries) = paid_retries {
             store::set_client_paid_retries(db, &id, retries)?;
+        }
+        if let Some(allowed) = may_run_tasks {
+            store::set_client_may_run_tasks(db, &id, allowed)?;
         }
         Ok(())
     })?;
@@ -544,6 +547,23 @@ pub fn tasks_list(state: State<'_, AppState>) -> Res<Vec<TaskSummary>> {
 #[tauri::command]
 pub fn task_get(state: State<'_, AppState>, id: String) -> Res<TaskDetail> {
     state.shared.with_db(|db| tasks::task_detail(db, &id))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpSetup {
+    /// `pygg-mcp` next to the app's own program.
+    pub path: String,
+    pub exists: bool,
+    pub url: String,
+}
+
+/// Where the MCP server for IDE agents is, for the setup instructions.
+#[tauri::command]
+pub fn mcp_setup(state: State<'_, AppState>) -> Res<McpSetup> {
+    let name = if cfg!(windows) { "pygg-mcp.exe" } else { "pygg-mcp" };
+    let path = std::env::current_exe().map_err(|e| e.to_string())?.with_file_name(name);
+    Ok(McpSetup { exists: path.is_file(), path: path.to_string_lossy().into_owned(), url: format!("http://127.0.0.1:{}", state.port()) })
 }
 
 /// Creates a task and starts it in the background. Returns its id.

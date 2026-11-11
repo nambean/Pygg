@@ -62,15 +62,20 @@ pub fn run() {
             let path = dir.join("store.sqlite3");
             let conn = db::open(&path)?;
             let worktrees = dir.join("worktrees");
-            // Nothing runs yet: a task left running was cut off when the app last closed.
-            if let Err(e) = tasks::recover(&conn, &worktrees) {
+            // Nothing runs here yet: a task left running was cut off when the app last closed, unless another process
+            // (`gateway serve --tasks`) holds the store and may be running it.
+            if gateway::store_in_use(&path) {
+                eprintln!("another gateway holds the store; tasks are not recovered");
+            } else if let Err(e) = tasks::recover(&conn, &worktrees) {
                 eprintln!("could not recover tasks: {e}");
             }
             let db = Arc::new(Mutex::new(conn));
-            let shared = gateway::Shared::for_store(db.clone(), Arc::new(gateway::OsSecrets), &path);
+            let runner = tasks::Runner::new(db.clone(), worktrees, tasks::agent_executor());
+            // IDE agents start tasks through the gateway's task API (gateway/task_api.rs); they run here.
+            let shared = gateway::Shared::for_store(db, Arc::new(gateway::OsSecrets), &path).with_tasks(runner.clone());
             let state = AppState { shared, server: tokio::sync::Mutex::new(None), last_error: Mutex::new(None),
                 data_dir: dir.clone(), runs: Mutex::new(Default::default()),
-                tasks: tasks::Runner::new(db, worktrees, tasks::agent_executor()) };
+                tasks: runner };
             if state.autostart() {
                 // A busy port is reported in Endpoints rather than stopping the app from opening.
                 let _ = tauri::async_runtime::block_on(state.start());
@@ -119,6 +124,7 @@ pub fn run() {
             commands::task_retry,
             commands::task_diff,
             commands::task_finish,
+            commands::mcp_setup,
             commands::model_add,
             commands::model_update,
             commands::model_remove,

@@ -4,7 +4,7 @@ import { call, errorText, gatewayChanged, type AgentInfo, type AgentRun } from '
 import { t } from '../../lib/i18n';
 import { tokens } from '../../lib/money';
 import { useGateway } from '../../hooks/useGateway';
-import { Badge, CopyButton, ErrorNote, FormRow, Spinner } from '../ui';
+import { Badge, CodeBlock, CopyButton, ErrorNote, FormRow, Segmented, Spinner } from '../ui';
 
 /**
  * Agents: the official agent CLIs the user already has (Claude Code, Codex CLI, Gemini CLI, OpenCode), each with
@@ -25,6 +25,7 @@ export function Agents() {
         {(agents.data ?? []).map(a => <AgentRow key={a.id} agent={a}/>)}
       </ul>
     </section>
+    <IdeSetup/>
     {agents.data && <RunTask agents={installed}/>}
   </div>;
 }
@@ -157,4 +158,32 @@ function RunResult({run, onDone}: {run: AgentRun; onDone: () => void}) {
     </>}
     {error && <ErrorNote>{error}</ErrorNote>}
   </div>;
+}
+
+/** Setting up pygg-mcp, so an IDE agent can hand tasks to Pygg; they run here and show up in Tasks. */
+function IdeSetup() {
+  const setup = useGateway(api => api.mcpSetup());
+  const [target, setTarget] = useState<'claude' | 'codex' | 'json'>('claude');
+  const path = setup.data?.path ?? 'pygg-mcp';
+  const url = setup.data && setup.data.url !== 'http://127.0.0.1:8741' ? setup.data.url : null;
+  const code = target === 'claude'
+    ? `claude mcp add pygg -e PYGG_TOKEN=<token>${url ? ` -e PYGG_URL=${url}` : ''} -- "${path}"`
+    : target === 'codex'
+    ? `# ~/.codex/config.toml\n[mcp_servers.pygg]\ncommand = '${path}'\nenv = { PYGG_TOKEN = "<token>"${url ? `, PYGG_URL = "${url}"` : ''} }`
+    : JSON.stringify({mcpServers: {pygg: {command: path, env: {PYGG_TOKEN: '<token>', ...(url ? {PYGG_URL: url} : {})}}}}, null, 2);
+  return <section className="group">
+    <h2>{t('From Your IDE')}</h2>
+    <div className="group-box ide-setup">
+      <p className="group-intro">{t('Your coding agent (Claude Code, Codex, Cursor…) can hand a subtask to Pygg with the pygg_run_task tool. It runs here, on the agents below, in a separate worktree and against your approved checks; your agent reviews the result and keeps or discards it. Tasks appear in Tasks, where paid steps wait for your approval.')}</p>
+      <ol className="setup-steps">
+        <li>{t('In Clients, create a token for your IDE, then open Limits… and turn on “May start tasks”.')}</li>
+        <li>{t('Register pygg-mcp with your agent, with that token in place of <token>:')}</li>
+      </ol>
+      <Segmented label={t('Agent')} value={target} onChange={setTarget}
+        options={[{value: 'claude', label: 'Claude Code'}, {value: 'codex', label: 'Codex CLI'}, {value: 'json', label: t('Cursor and others (JSON)')}]}/>
+      <CodeBlock code={code} label={t('Setup')}/>
+      {setup.data && !setup.data.exists && <p className="warning-note">{t('pygg-mcp was not found next to the app. Build it with “cargo build --bin pygg-mcp”.')}</p>}
+      <p className="secondary small">{t('The token ends up in your agent’s configuration file. It can only reach this computer’s gateway, and you can revoke it in Clients.')}</p>
+    </div>
+  </section>;
 }

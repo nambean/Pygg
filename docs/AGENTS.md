@@ -53,9 +53,24 @@ Headless: `cargo run --bin agent -- --db STORE task --workspace DIR --prompt TEX
 
 A scratch repository with `add()` returning `a - b`, the check `python test_calc.py`, and two steps: OpenCode with `opencode/deepseek-v4.1-flash-free`, then Codex. Step 1 fixed it (+1 −1, 9,781 input / 356 output tokens), the check passed in its worktree in 157 ms, and the task ended `checks_passed` without reaching Codex. The cascade itself (a failed check handing off to the next step, approvals, stop, interruption and retry) is covered by `tasks.rs` tests with a scripted agent in real worktrees, not live.
 
+## From the IDE: `pygg-mcp` and the task API
+
+**Decision (owner, 2026-11-11):** most people will not treat the router app as an IDE. Tasks are started where people already work, by their coding agent; the app runs them and is where they are watched, paid steps are approved, and history is kept. New Task in the app stays as a simple way to start one by hand.
+
+- **`pygg-mcp`** (`src/bin/pygg-mcp.rs`) is a stdio MCP server. Tools: `pygg_run_task` (prompt, optional title, steps or strategy, shell, wait), `pygg_task_status` (waits while running), `pygg_task_diff`, `pygg_keep_result`, `pygg_discard_result`, `pygg_stop_task`, `pygg_list_tasks`, `pygg_agents`. The workspace defaults to the folder the server runs in, which the IDE sets to the project. Configuration: `PYGG_TOKEN`, and optionally `PYGG_URL` (default `http://127.0.0.1:8741`). Example: `claude mcp add pygg -e PYGG_TOKEN=… -- C:\path\to\pygg-mcp.exe`. Agents → From Your IDE shows this for Claude Code, Codex CLI (`config.toml`) and JSON-configured IDEs.
+- **The task API** (`gateway/task_api.rs`) on the local gateway: `GET /pygg/v1/agents`, `GET|POST /pygg/v1/tasks`, `GET /pygg/v1/tasks/{id}?wait=S`, `GET …/diff`, `POST …/stop|keep|discard`. `pygg-mcp` holds no state; it forwards to this API.
+- **Permission:** a client token may start tasks only after the user turns on **May start tasks** (Clients → Limits…; `gateway client --name N --tasks yes`). A client sees and acts on only the tasks it started. **There is no API to approve a paid step**: that stays with the user in the app.
+- **Workspaces:** the folder is resolved to its repository root, which becomes a workspace if it is not one. Checks found there are suggestions until the user approves them, so until then a result is `needs_review`, never `checks_passed`.
+- **Where tasks run:** in the app. `gateway serve` answers the task API with 503 unless started with `--tasks yes`, for a computer where the app is not open on that store. The app does not mark tasks interrupted at start-up while another process holds the store.
+
+### Live verification, 2026-11-11
+
+`gateway serve --tasks yes` on a scratch store, a client allowed to start tasks, and `pygg-mcp` driven over stdio from inside a scratch repository (`add()` returning `a - b`, approved check `python test_calc.py`). `pygg_run_task` with OpenCode's free model, then Codex: step 1 fixed it and the check passed (`checks_passed`); `pygg_task_diff` returned the one-line change; `pygg_keep_result` created `str/fix-add-ae739de9` with the checkout unchanged. Not yet run from a real IDE agent's own MCP client.
+
 ## Not built yet
 
-- Starting a task from where the user already works (an IDE agent, a terminal), rather than from the app. The headless `agent task` is the first step.
+- Running `pygg_run_task` from a real IDE agent session (Claude Code, Codex) end to end; it was driven over stdio only.
+- Shipping `pygg-mcp` inside the app's installer (it is built with `cargo build --bin pygg-mcp` and looked for next to the app).
 - Cancelling a single run on the Agents screen (tasks can be stopped).
 - A folder picker for the repository (the path is typed or pasted).
 - A daily budget for tasks, and a cost estimate on the approval for a paid step.

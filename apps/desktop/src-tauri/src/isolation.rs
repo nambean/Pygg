@@ -60,6 +60,14 @@ pub fn is_repository(path: &Path) -> bool {
     git(path, &["rev-parse", "--is-inside-work-tree"]).map(|out| out == "true").unwrap_or(false)
 }
 
+/// The root of the working tree that contains `path`.
+pub fn toplevel(path: &Path) -> Result<PathBuf, IsolationError> {
+    require_repository(path)?;
+    // Git prints forward slashes on Windows too.
+    let root = git(path, &["rev-parse", "--show-toplevel"])?;
+    Ok(PathBuf::from(if cfg!(windows) { root.replace('/', "\\") } else { root }))
+}
+
 /// The commit `HEAD` points at.
 pub fn head(repo: &Path) -> Result<String, IsolationError> {
     require_repository(repo)?;

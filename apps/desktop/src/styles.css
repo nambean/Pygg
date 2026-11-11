@@ -644,4 +644,7 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .detail .detail-list { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; padding: 0 12px 12px; font-size: 12px; }
 .detail .detail-list dt { color: var(--secondary); }
 .detail .detail-list dd { margin: 0; overflow-wrap: anywhere; }
-.detail .agent-message { margin: 0; padding: 12px; white-space: pre-wrap; }
+.detail .agent-message { margin: 0; padding: 12px; white-space: pre-wrap; }.ide-setup { padding: 12px 14px; display: grid; gap: 10px; }
+.ide-setup .group-intro { margin: 0; }
+.setup-steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 13px; }
+.secondary.small { font-size: 11px; margin: 0; }

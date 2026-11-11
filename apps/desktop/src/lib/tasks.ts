@@ -51,6 +51,8 @@ export type TaskSummary = {
   /** Unix milliseconds. */
   startedAt: number;
   updatedAt: number;
+  /** The client that started it through the task API (an IDE agent via pygg-mcp); null: the app. */
+  source?: string | null;
 };
 
 export type Workspace = { id: string; name: string; path: string };

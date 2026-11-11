@@ -42,7 +42,7 @@ export function sampleTasks(now = Date.now()): TaskSummary[] {
     },
     {
       id: 't-104', title: 'Update parser for the new config format', workspaceId: 'ws-str',
-      state: 'running', phase: 'generating',
+      state: 'running', phase: 'generating', source: 'Claude Code',
       attempts: [{tier: 1, billing: 'paid', model: MINI, outcome: 'failed'},
         {tier: 2, billing: 'paid', model: MID, outcome: 'running'}],
       cost: {actualUsd: 0.02, estimatedUsd: 0.01, unknownCalls: 0, localOnly: false},

@@ -30,6 +30,7 @@ pub mod pricing;
 pub mod signatures;
 pub mod sse;
 pub mod store;
+pub mod task_api;
 
 use axum::body::{Body, Bytes};
 use axum::extract::{DefaultBodyLimit, Request, State};
@@ -87,6 +88,8 @@ pub struct Shared {
     /// attempt in flight and every pending settlement hold it strongly, and the store is released only when
     /// the last of them is gone.
     owner: Arc<Mutex<Weak<Owner>>>,
+    /// The app's task runner, for the task API (task_api.rs). `None` in `gateway serve`: tasks run in the app.
+    pub tasks: Option<crate::tasks::Runner>,
 }
 
 /// Ownership of the store by this process (reviews PR-01, LC-01, LC-02). Held by the running server, by every
@@ -124,6 +127,12 @@ fn claim_store(store: &std::path::Path) -> std::io::Result<std::fs::File> {
     }
 }
 
+/// Whether another process holds the store (a gateway serving it, which may also be running tasks). Takes and
+/// releases the lock to find out.
+pub fn store_in_use(store: &std::path::Path) -> bool {
+    matches!(claim_store(store), Err(e) if e.kind() == std::io::ErrorKind::ResourceBusy)
+}
+
 /// What the ledger is waiting for. While any settlement is pending, no paid request is admitted.
 #[derive(Default)]
 struct Accounting {
@@ -151,12 +160,17 @@ impl Shared {
             .build()
             .expect("HTTP client");
         Shared { db, secrets, http, signatures: Arc::default(), inflight: Arc::default(), accounting: Arc::default(),
-            store_path: None, owner: Arc::new(Mutex::new(Weak::new())) }
+            store_path: None, owner: Arc::new(Mutex::new(Weak::new())), tasks: None }
     }
 
     /// For a store on disk: `start` then takes the store's owner lock, so two processes never serve one store.
     pub fn for_store(db: Arc<Mutex<Connection>>, secrets: Arc<dyn Secrets>, path: &std::path::Path) -> Shared {
         Shared { store_path: Some(path.to_path_buf()), ..Shared::new(db, secrets) }
+    }
+
+    /// Lets gateway clients start smart tasks on this runner (the app's).
+    pub fn with_tasks(self, runner: crate::tasks::Runner) -> Shared {
+        Shared { tasks: Some(runner), ..self }
     }
 
     /// The current ownership, if this process still holds the store.
@@ -369,6 +383,7 @@ pub fn router(shared: Shared, port: u16) -> Router {
         .route("/v1/chat/completions", post(|s: State<Shared>, h: HeaderMap, b: Bytes| detached(chat_completions(s, h, b))))
         .route("/v1/messages", post(|s: State<Shared>, h: HeaderMap, b: Bytes| detached(anthropic::messages(s, h, b))))
         .route("/v1/messages/count_tokens", post(anthropic::count_tokens))
+        .merge(task_api::routes())
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .layer(middleware::from_fn(move |request: Request, next: Middleware| loopback_host_only(request, next, port)))
         .with_state(shared)

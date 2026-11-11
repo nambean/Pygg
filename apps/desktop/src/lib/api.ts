@@ -88,6 +88,8 @@ export type Client = {
   paidRetries: number;
   /** The lowest tier `auto` may choose for this client. */
   autoMinTier: Tier;
+  /** May start smart tasks through the task API (pygg-mcp). */
+  mayRunTasks: boolean;
 };
 
 export type UsageGroup = {
@@ -131,6 +133,8 @@ export type AgentRun = {
   filesChanged: number; insertions: number; deletions: number; usage: AgentUsage; logTail: string;
 };
 
+export type McpSetup = { path: string; exists: boolean; url: string };
+
 export type NewConnection ={ preset: string; label: string; endpoint?: string; apiKey?: string; billing: Billing };
 export type PriceInput = {
   inputUsdPerMtok: number; outputUsdPerMtok: number; cachedInputUsdPerMtok?: number | null; cacheWriteUsdPerMtok?: number | null;
@@ -163,7 +167,9 @@ export interface GatewayApi {
   setClientBudget(id: string, monthlyBudgetUsd: number | null): Promise<void>;
   setClientPolicy(id: string, policy: {maxConcurrency?: number; unknownCostPolicy?: 'block' | 'allow';
     /** true with allowedConnections restricts the client; false lets it use every connection. */
-    restrictConnections?: boolean; allowedConnections?: string[]; paidRetries?: number; autoMinTier?: Tier}): Promise<void>;
+    restrictConnections?: boolean; allowedConnections?: string[]; paidRetries?: number; autoMinTier?: Tier;
+    /** Lets the client start smart tasks through the task API (pygg-mcp). */
+    mayRunTasks?: boolean}): Promise<void>;
   setModelCapabilities(providerId: string, modelId: string, capabilities: Capabilities): Promise<void>;
   /** What an auto alias would choose, from a client's point of view (null: a new client's defaults). Sends nothing. */
   autoSimulate(clientId: string | null, alias: AutoAlias, needs: AutoNeeds): Promise<AutoPlan>;
@@ -191,6 +197,8 @@ export interface GatewayApi {
   taskDiff(id: string): Promise<string>;
   /** Keeps the result as a branch (returned) or discards it. */
   finishTask(id: string, keep: boolean, title: string | null): Promise<string | null>;
+  /** Where pygg-mcp is, for the IDE setup instructions. */
+  mcpSetup(): Promise<McpSetup>;
 }
 
 const native: GatewayApi = {
@@ -238,6 +246,7 @@ const native: GatewayApi = {
   retryTask: id => invoke('task_retry', {id}),
   taskDiff: id => invoke('task_diff', {id}),
   finishTask: (id, keep, title) => invoke('task_finish', {id, keep, title}),
+  mcpSetup: () => invoke('mcp_setup'),
 };
 
 let demo: Promise<GatewayApi> | null = null;
