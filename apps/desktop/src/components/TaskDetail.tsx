@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, ChevronLeft, FileDown, GitBranch, Play, RotateCcw, Square, Trash2, X } from 'lucide-react';
 import { call, errorText, gatewayChanged } from '../lib/api';
 import { taskCost } from '../lib/format';
@@ -7,6 +7,7 @@ import { tokens } from '../lib/money';
 import { AGENT_NAMES, type ApprovalView, type AttemptView, type TaskDetail as Detail } from '../lib/tasks';
 import { useGateway } from '../hooks/useGateway';
 import { billingLabel, outcomeLabel } from './AttemptSequence';
+import { DiffView } from './DiffView';
 import { StateIcon, statusLine } from './TaskList';
 import { Badge, ConfirmSheet, CopyButton, ErrorNote, FormRow, Spinner } from './ui';
 
@@ -74,6 +75,14 @@ function Actions({task, onChanged}: {task: Detail; onChanged: () => void}) {
   };
   const result = task.result === null && (task.state === 'checks_passed' || task.state === 'needs_review')
     ? task.attemptDetails.find(a => a.open) : undefined;
+  // A result waiting for a decision is reviewed first, so its changes load and show at once.
+  const resultId = result?.id;
+  useEffect(() => {
+    if (!resultId) return;
+    let live = true;
+    call(api => api.taskDiff(task.id)).then(d => { if (live) setDiff(d); }, x => { if (live) setError(errorText(x)); });
+    return () => { live = false; };
+  }, [task.id, resultId]);
 
   return <section className="group task-actions">
     {task.reason && <p className={task.state === 'checks_passed' || task.state === 'manually_accepted' ? 'group-footnote' : 'warning-note'}>{task.reason}</p>}
@@ -88,12 +97,14 @@ function Actions({task, onChanged}: {task: Detail; onChanged: () => void}) {
         <span className="secondary">{t('{files} files, +{ins} −{del}', {files: result.filesChanged ?? 0, ins: result.insertions ?? 0, del: result.deletions ?? 0})}</span>
       </div>
       {result.summary && <p className="agent-message">{result.summary}</p>}
-      <details onToggle={e => {
-        if ((e.target as HTMLDetailsElement).open && diff === null) call(api => api.taskDiff(task.id)).then(setDiff, x => setError(errorText(x)));
-      }}>
-        <summary>{t('Review Changes')}</summary>
-        {diff === null ? <Spinner/> : <div className="diff-box"><CopyButton text={diff}/><pre className="log-tail">{diff}</pre></div>}
-      </details>
+      <div className="diff-section">
+        <div className="diff-section-head">
+          <h3>{t('Review Changes')}</h3>
+          <span className="spacer"/>
+          {diff !== null && <CopyButton text={diff} label={t('Copy Diff')}/>}
+        </div>
+        {diff === null ? <Spinner label={t('Loading changes…')}/> : <DiffView diff={diff}/>}
+      </div>
       <div className="form-actions">
         <input className="text-input" value={title} onChange={e => setTitle(e.target.value)} placeholder={task.title}
           aria-label={t('Branch title')} disabled={busy}/>
@@ -204,7 +215,7 @@ function AttemptRow({attempt: a}: {attempt: AttemptView}) {
         </li>)}
       </ul>}
       {failedCheck?.outputTail && <details><summary>{t('Check output')}</summary><pre className="log-tail">{failedCheck.outputTail}</pre></details>}
-      {a.outcome !== 'passed' && a.outcome !== 'done' && a.logTail && <details><summary>{t('Agent output')}</summary><pre className="log-tail">{a.logTail}</pre></details>}
+      {a.logTail && <details><summary>{t('Agent output')}</summary><pre className="log-tail">{a.logTail}</pre></details>}
     </div>
   </li>;
 }

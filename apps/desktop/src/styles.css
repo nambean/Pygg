@@ -467,7 +467,18 @@ td.row-buttons .button + .button { margin-inline-start: 4px; }
 .table-empty { text-align: center; color: var(--secondary); padding: 18px 12px !important; }
 .ledger .cost.unknown { color: var(--secondary); }
 .ledger-row { cursor: default; }
-.row-toggle { padding: 0; border: 0; background: none; color: inherit; font: inherit; }
+.row-toggle { padding: 0; border: 0; background: none; color: inherit; font: inherit; display: inline-flex; align-items: center; gap: 4px; }
+.client-check { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: -8px 0 18px 4px; font-size: 12px; }
+.client-check.waiting { color: var(--secondary); }
+.client-check.ok svg { color: var(--green); }
+.client-check.failed svg { color: var(--orange); }
+.row-toggle .chevron { transition: transform .12s; }
+.row-toggle .chevron.open { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .row-toggle .chevron { transition: none; } }
+/* A summary row's name opens its requests: it reads as text until hovered. */
+.row-link { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: start; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-link:hover { color: var(--accent-text); text-decoration: underline; }
 .ledger-row.open td { border-bottom-color: transparent; background: var(--hover); }
 .ledger-detail td { background: var(--hover); padding-top: 0; }
 .ledger-detail dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; padding: 4px 0 6px; }
@@ -585,6 +596,23 @@ td.row-buttons .button + .button { margin-inline-start: 4px; }
 .log-tail { max-height: 280px; overflow: auto; margin: 6px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--field);
   font: 11px/1.45 var(--font-mono, ui-monospace, monospace); white-space: pre-wrap; }
 .diff-box { position: relative; }
+.diff-section { margin-top: 10px; }
+.diff-section-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.diff-section-head h3 { margin: 0; font-size: 12px; font-weight: 600; }
+.diff-files { display: flex; flex-direction: column; gap: 6px; }
+.diff-file { border: 1px solid var(--separator); border-radius: 6px; overflow: hidden; }
+.diff-file > summary { display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: var(--field); cursor: default; }
+.diff-path { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.diff-counts { font: 11px var(--mono); white-space: nowrap; }
+.diff-added { color: var(--green); }
+.diff-removed { color: var(--red); }
+.diff-lines { margin: 0; max-height: 420px; overflow: auto; padding: 4px 0; font: 11px/1.5 var(--mono); }
+.diff-lines > span { display: block; padding: 0 10px; white-space: pre; }
+.diff-add { background: color-mix(in srgb, var(--green) 14%, transparent); }
+.diff-del { background: color-mix(in srgb, var(--red) 13%, transparent); }
+.diff-hunk { color: var(--secondary); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.diff-meta { color: var(--secondary); }
+.diff-note { padding: 6px 10px; margin: 0; }
 .diff-box > .button, .diff-box > button { position: absolute; top: 12px; right: 8px; }
 .preset-picker { margin-bottom: 14px; }
 .preset-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }

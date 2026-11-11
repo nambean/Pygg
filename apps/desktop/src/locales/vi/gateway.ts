@@ -475,6 +475,16 @@ export const gateway: Record<string, string> = {
     'Pygg chạy chính chương trình của từng agent bằng đăng nhập sẵn có của nó: gói subscription, gói miễn phí hoặc key do agent tự quản lý. Pygg không đọc, không lưu, không chia sẻ thông tin đăng nhập đó, và không cho ứng dụng khác dùng.',
   'Looking for agents…': 'Đang tìm agent…',
   'Show all {n}': 'Hiện tất cả {n}',
+  'Requests ({n})': 'Yêu cầu ({n})',
+  'See it in Usage': 'Xem trong Mức dùng',
+  'No request yet. Start the client with these settings; its first request shows here within seconds.':
+    'Chưa có yêu cầu nào. Chạy client với cấu hình này; yêu cầu đầu tiên sẽ hiện ở đây sau vài giây.',
+  'Working: {client} sent a request {ago}, answered by {model}.': 'Đã chạy: {client} gửi yêu cầu {ago}, do {model} trả lời.',
+  'The last request, from {client} {ago}, did not succeed.': 'Yêu cầu gần nhất, từ {client} {ago}, không thành công.',
+  'Every client': 'Mọi client',
+  'Every model': 'Mọi model',
+  'Clear Filters': 'Bỏ lọc',
+  'Show the requests of {name}': 'Xem các yêu cầu của {name}',
   'Only want your IDE’s agent to hand tasks to Pygg, run by the agents you already sign in to? That needs no provider here.':
     'Chỉ muốn agent trong IDE giao tác vụ cho Pygg, chạy bằng các agent bạn đã đăng nhập sẵn? Việc đó không cần kết nối nhà cung cấp ở đây.',
   'Set Up From Your IDE': 'Cài đặt từ IDE',

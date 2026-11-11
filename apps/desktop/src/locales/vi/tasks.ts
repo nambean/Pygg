@@ -97,6 +97,11 @@ export const tasks: Record<string, string> = {
   'Tasks could not be loaded: {error}': 'Không tải được danh sách tác vụ: {error}',
   'Loading tasks…': 'Đang tải tác vụ…',
   'Review Changes': 'Xem thay đổi',
+  'Copy Diff': 'Sao chép diff',
+  'Loading changes…': 'Đang tải thay đổi…',
+  'No changes.': 'Không có thay đổi.',
+  'Binary file; not shown.': 'File nhị phân, không hiển thị.',
+  'Show all {n} lines': 'Hiện cả {n} dòng',
   'Keep as Branch saves the result as a new branch in the repository. The folder you have open, and its branch, are not changed.':
     'Giữ thành nhánh lưu kết quả thành một nhánh mới trong repository. Thư mục bạn đang mở và nhánh của nó không bị thay đổi.',
   'Discard this result?': 'Bỏ kết quả này?',

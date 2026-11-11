@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { ArrowRight, CircleCheck, Circle, KeyRound, ListOrdered, Plug, Power, Settings2, TerminalSquare } from 'lucide-react';
-import { call, errorText, gatewayChanged, type GatewayStatus } from '../../lib/api';
+import { ArrowRight, CircleAlert, CircleCheck, Circle, KeyRound, ListOrdered, Plug, Power, Settings2, TerminalSquare } from 'lucide-react';
+import { call, errorText, gatewayChanged, type GatewayStatus, type UsageEvent } from '../../lib/api';
 import { t } from '../../lib/i18n';
 import { isMac } from '../../lib/platform';
 import { costText, microUsd, sourceText, tokens } from '../../lib/money';
@@ -70,6 +70,7 @@ export function Overview({status, onStatus, navigate, onAgents}: {status: Gatewa
         ...(models.data ?? []).filter(m => m.enabled).map(m => ({value: `${m.providerId}/${m.modelId}`, label: `${m.providerId}/${m.modelId}`})),
       ], [combos.data, models.data])}
       hasToken={activeClients.length > 0} onCreateToken={() => navigate('clients', 'create')}/>
+    {usage.data && <ClientCheck last={usage.data.recent[0]} onOpen={() => navigate('usage')}/>}
 
     <section className="group">
       <div className="group-heading">
@@ -101,6 +102,21 @@ export function Overview({status, onStatus, navigate, onAgents}: {status: Gatewa
 
     {configuring && status && <ConfigureSheet status={status} onStatus={onStatus} onClose={() => setConfiguring(false)}/>}
   </div>;
+}
+
+/**
+ * The last step of setting up a client: seeing that it works. Other gateways leave this to the user; here the
+ * newest request says so, or says that none has arrived yet. Nothing is sent to check it, so nothing is spent.
+ */
+function ClientCheck({last, onOpen}: {last: UsageEvent | undefined; onOpen: () => void}) {
+  const open = <button type="button" className="link-button" onClick={onOpen}>{t('See it in Usage')}<ArrowRight size={12} aria-hidden/></button>;
+  if (!last) return <p className="client-check waiting" role="status">
+    <Circle size={14} aria-hidden/>{t('No request yet. Start the client with these settings; its first request shows here within seconds.')}</p>;
+  const who = last.client ?? t('No client');
+  if (last.outcome === 'ok') return <p className="client-check ok" role="status"><CircleCheck size={14} aria-hidden/>
+    {t('Working: {client} sent a request {ago}, answered by {model}.', {client: who, ago: ago(last.createdAt), model: `${last.provider}/${last.model}`})} {open}</p>;
+  return <p className="client-check failed" role="status"><CircleAlert size={14} aria-hidden/>
+    {t('The last request, from {client} {ago}, did not succeed.', {client: who, ago: ago(last.createdAt)})} {open}</p>;
 }
 
 function Stat({label, value, note}: {label: string; value: string; note?: string}) {

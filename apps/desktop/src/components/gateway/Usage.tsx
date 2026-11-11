@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { ChartColumn } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { ArrowDown, ChartColumn, ChevronRight } from 'lucide-react';
 import type { CostStatus, Outcome, TaskQuality, UsageEvent, UsageGroup } from '../../lib/api';
 import { locale, plural, t } from '../../lib/i18n';
 import { costText, microUsd, sourceText, tokens } from '../../lib/money';
@@ -28,13 +28,26 @@ export function Usage() {
   const usage = useGateway(api => api.usage(Number(range)), [range], 15_000);
   const quality = useGateway(api => api.taskQuality(Number(range)), [range], 15_000);
   const [show, setShow] = useState<'all' | 'problems' | 'unknown'>('all');
+  const [client, setClient] = useState('');
+  const [model, setModel] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
-  const rows = useMemo(() => (usage.data?.recent ?? []).filter(e =>
-    show === 'all' || (show === 'unknown' ? e.costStatus === 'unknown' : e.outcome !== 'ok')), [usage.data, show]);
+  const recent = usage.data?.recent ?? [];
+  const rows = useMemo(() => recent.filter(e =>
+    (show === 'all' || (show === 'unknown' ? e.costStatus === 'unknown' : e.outcome !== 'ok'))
+    && (!client || (e.client ?? '') === client) && (!model || `${e.provider}/${e.model}` === model)), [recent, show, client, model]);
+  const clients = useMemo(() => [...new Set(recent.map(e => e.client ?? ''))].sort(), [recent]);
+  const models = useMemo(() => [...new Set(recent.map(e => `${e.provider}/${e.model}`))].sort(), [recent]);
+  const requestsRef = useRef<HTMLElement>(null);
+  const toRequests = () => requestsRef.current?.scrollIntoView({behavior: 'smooth', block: 'start'});
+  // A row of the summaries opens the requests behind it, as request logs in other gateways do.
+  const pick = (set: (v: string) => void, value: string) => { set(value); setOpenId(null); setTimeout(toRequests, 0); };
 
   const bar = <div className="page-bar">
     <Segmented label={t('Period')} value={range} onChange={setRange} options={[
       {value: '1', label: t('24 Hours')}, {value: '7', label: t('7 Days')}, {value: '30', label: t('30 Days')}]}/>
+    <span className="spacer"/>
+    {recent.length > 0 && <button type="button" className="link-button" onClick={toRequests}>
+      {t('Requests ({n})', {n: recent.length})}<ArrowDown size={12} aria-hidden/></button>}
   </div>;
   if (usage.loading && !usage.data) return <div className="page">{bar}<Spinner label={t('Loading usage…')}/></div>;
   const data = usage.data;
@@ -64,29 +77,41 @@ export function Usage() {
       </section>
 
       <div className="two-columns">
-        <GroupTable title={t('By Model')} column={t('Model')} groups={data.byModel} mono/>
-        <GroupTable title={t('By Client')} column={t('Client')} groups={data.byClient}/>
+        <GroupTable title={t('By Model')} column={t('Model')} groups={data.byModel} mono onPick={key => pick(setModel, key)}/>
+        <GroupTable title={t('By Client')} column={t('Client')} groups={data.byClient} onPick={key => pick(setClient, key)}/>
       </div>
 
-      <section className="group">
+      <section className="group" ref={requestsRef}>
         <div className="group-heading">
           <h2>{t('Requests')}</h2>
-          <select className="popup-button" value={show} onChange={e => setShow(e.target.value as typeof show)} aria-label={t('Show')}>
-            <option value="all">{t('All requests')}</option>
-            <option value="problems">{t('Fallbacks and failures')}</option>
-            <option value="unknown">{t('Unknown cost')}</option>
-          </select>
+          <span className="heading-actions">
+            <select className="popup-button" value={client} onChange={e => setClient(e.target.value)} aria-label={t('Client')}>
+              <option value="">{t('Every client')}</option>
+              {clients.map(c => <option key={c} value={c}>{c || t('No client')}</option>)}
+            </select>
+            <select className="popup-button" value={model} onChange={e => setModel(e.target.value)} aria-label={t('Model')}>
+              <option value="">{t('Every model')}</option>
+              {models.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <select className="popup-button" value={show} onChange={e => setShow(e.target.value as typeof show)} aria-label={t('Show')}>
+              <option value="all">{t('All requests')}</option>
+              <option value="problems">{t('Fallbacks and failures')}</option>
+              <option value="unknown">{t('Unknown cost')}</option>
+            </select>
+            {(client || model || show !== 'all') && <button type="button" className="link-button"
+              onClick={() => { setClient(''); setModel(''); setShow('all'); }}>{t('Clear Filters')}</button>}
+          </span>
         </div>
         <div className="group-box table-box">
           <table className="data-table ledger">
             <thead><tr>
               <th scope="col">{t('Time')}</th><th scope="col">{t('Client')}</th><th scope="col">{t('Model')}</th>
               <th scope="col" className="num">{t('Tokens in → out')}</th><th scope="col" className="num">{t('Cost')}</th>
-              <th scope="col">{t('Source')}</th><th scope="col">{t('Result')}</th>
+              <th scope="col">{t('Source')}</th><th scope="col" className="num">{t('Time taken')}</th><th scope="col">{t('Result')}</th>
             </tr></thead>
             <tbody>
               {rows.map(e => <LedgerRow key={e.id} event={e} open={openId === e.id} onToggle={() => setOpenId(openId === e.id ? null : e.id)}/>)}
-              {rows.length === 0 && <tr><td colSpan={7} className="table-empty">{t('Nothing to show for this filter.')}</td></tr>}
+              {rows.length === 0 && <tr><td colSpan={8} className="table-empty">{t('Nothing to show for this filter.')}</td></tr>}
             </tbody>
           </table>
         </div>
@@ -118,7 +143,8 @@ function TaskResults({q}: {q: TaskQuality}) {
   </section>;
 }
 
-function GroupTable({title, column, groups, mono}: {title: string; column: string; groups: UsageGroup[]; mono?: boolean}) {
+function GroupTable({title, column, groups, mono, onPick}: {title: string; column: string; groups: UsageGroup[]; mono?: boolean;
+  onPick: (key: string) => void}) {
   const [all, setAll] = useState(false);
   const shown = all ? groups : groups.slice(0, 8);
   return <section className="group">
@@ -131,7 +157,9 @@ function GroupTable({title, column, groups, mono}: {title: string; column: strin
         </tr></thead>
         <tbody>
           {shown.map(g => <tr key={g.key}>
-            <td className={mono ? 'mono' : ''} title={g.key}>{g.key || t('No client')}</td>
+            <td className={mono ? 'mono' : ''} title={g.key}>
+              <button type="button" className="row-link" onClick={() => onPick(g.key)}
+                aria-label={t('Show the requests of {name}', {name: g.key || t('No client')})}>{g.key || t('No client')}</button></td>
             <td className="num">{g.requests}{g.fallbacks + g.failed > 0 && <small className="secondary"> · {t('{n} not OK', {n: g.fallbacks + g.failed})}</small>}</td>
             <td className="num">{tokens(g.inputTokens + g.outputTokens)}</td>
             <td className="num">{microUsd(g.knownMicroUsd)}{g.unknownRequests > 0 && <small className="warn-text"> + {t('{n} unknown', {n: g.unknownRequests})}</small>}</td>
@@ -149,16 +177,18 @@ function LedgerRow({event: e, open, onToggle}: {event: UsageEvent; open: boolean
   return <>
     <tr className={open ? 'ledger-row open' : 'ledger-row'} onClick={onToggle}>
       <td className="secondary nowrap">
-        <button type="button" className="row-toggle" aria-expanded={open} onClick={ev => { ev.stopPropagation(); onToggle(); }}>{time}</button>
+        <button type="button" className="row-toggle" aria-expanded={open} onClick={ev => { ev.stopPropagation(); onToggle(); }}>
+          <ChevronRight size={12} aria-hidden className={open ? 'chevron open' : 'chevron'}/>{time}</button>
       </td>
       <td>{e.client ?? t('No client')}</td>
       <td className="mono" title={`${e.provider}/${e.model}`}>{e.provider}/{e.model}</td>
       <td className="num">{e.inputTokens != null ? `${tokens(e.inputTokens)} → ${tokens(e.outputTokens ?? 0)}` : '—'}</td>
       <td className={`num cost ${e.costStatus}`}>{costText(e.costMicroUsd, e.costStatus)}</td>
       <td className="secondary">{statusLabel(e.costStatus)}</td>
+      <td className="num secondary">{e.latencyMs != null ? `${(e.latencyMs / 1000).toFixed(1)} s` : '—'}</td>
       <td><OutcomeBadge outcome={e.outcome} status={e.httpStatus}/></td>
     </tr>
-    {open && <tr className="ledger-detail"><td colSpan={7}>
+    {open && <tr className="ledger-detail"><td colSpan={8}>
       <dl>
         <dt>{t('Asked for')}</dt><dd className="mono">{e.requestedModel ?? '—'}</dd>
         <dt>{t('Answered by')}</dt><dd className="mono">{e.provider}/{e.model}</dd>
