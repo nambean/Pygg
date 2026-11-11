@@ -13,6 +13,15 @@ The counter-review and the study agree on the shape: no memory subsystem, a boun
 
 The reasons are below. What was agreed is being built now, in the order of ADR-030.
 
+> **Update, 2026-11-12 02:10.**
+> - **Done:**
+>   - PV-11, the completed N2 report and results bundle (`0e25c75`, `bb5b7db`).
+>   - H1, behind its flag; the evidence builder lives in `handoff.rs` rather than in `tasks.rs`.
+>   - The PV-06 slice (`e3629b1`).
+>   - PV-05, the integrations hub, built in a parallel session (`75233a3`). It writes **user-wide** entries through each agent's own command rather than workspace files, so that no token lands in a project file; see that commit and the note below. That supersedes "workspace files by default" in the PV-05 row.
+> - **Running:** the H1 A/B.
+> - **Next:** PV-04.
+
 ## Decisions, item by item
 
 | Item | Decision | What is built or done (2026-11-12) |
