@@ -1,6 +1,6 @@
 # Multi-Account and API Key Rotation — Account Pool Router
 
-> **Update 2026-11-11 (ADR-026):** account pools apply to API-key and token-plan connections only. Subscriptions are used through the vendors' agent CLIs with their own sign-in, which Pygg never reads, so subscription sessions are not pooled or rotated.
+> **Update 2026-11-11 (ADR-026):** account pools apply to API-key and token-plan connections only. Subscriptions are used through the vendors' agent CLIs with their own sign-in, which Pygg never reads, so subscription sessions are not pooled or rotated. References to consumer Auto Chat no longer apply (ADR-028); pools would serve gateway clients.
 
 
 > Specification v1.0 · 2026-11-11 · **Proposed, not implemented**.

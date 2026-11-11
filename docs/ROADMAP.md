@@ -2,7 +2,7 @@
 
 > v1.0 · 2026-11-11 · This file is the **single source of truth for global implementation priority**, superseding phase numbering in design/RFC documents. Always consult [Implementation Status](IMPLEMENTATION-STATUS.md) for what actually runs. Nothing marked Planned here is a code-delivery claim.
 >
-> **North star:** AI Cost Optimizer for everyday AI users *and* developers: automatically choose an eligible provider/model/account, preserve user experience and context, and minimize **quality-adjusted total cost per successful answer/task**, not nominal token price. **Initial measured market wedge:** API-heavy developers using multiple authorized providers/agent CLIs, because pay-per-use ROI and task verification can be benchmarked. Consumer Auto Chat remains part of the product goal; its spend-saving value must be validated by audience.
+> **North star:** AI Cost Optimizer for everyday AI users *and* developers: automatically choose an eligible provider/model/account, preserve user experience and context, and minimize **quality-adjusted total cost per successful answer/task**, not nominal token price. **Initial measured market wedge:** API-heavy developers using multiple authorized providers/agent CLIs, because pay-per-use ROI and task verification can be benchmarked. Everyday users are reached through the clients they already use, pointed at the gateway; the app hosts no chat of its own (ADR-028).
 
 ## Current built foundation (as reported by Implementation Status, not independently rerun here)
 
@@ -50,7 +50,7 @@ Details and verification: [Implementation Status](IMPLEMENTATION-STATUS.md). Dec
 
 1. **Agent CLIs as executors (started 2026-11-11, owner decision):** Claude Code, Codex CLI, Gemini CLI and OpenCode run with their own sign-in in a Git worktree per task; Pygg never reads or forwards that sign-in, and never bridges web sessions or other products' OAuth. Built: detection, a run with diff, keep as branch or discard, and ledger entries; task engine v1 with approved checks, a cascade across agent steps, approval before a paid step, stop and recovery after a restart. Owner decision (2026-11-11): tasks are started from where users already work, by their IDE agent through `pygg-mcp` and the gateway's task API; the app runs them and is where they are watched and paid steps approved. Built, and verified from a real Codex session; the app's own program serves MCP (`<app> mcp`), so the installer ships nothing extra. Next: Claude Code. See [AGENTS.md](AGENTS.md#from-the-ide-pygg-mcp-and-the-task-api).
 1. **Developer integrations:** verify Claude Code, OpenCode, Aider, Codex and IDE targets one by one with test fixtures; maintain exact version/capability matrix. Package a headless CLI installer/npm launcher after supported OS builds, without cloning the Rust gateway in Node. Current CLI binary is `gateway serve`; `str start` is a proposed future interface.
-2. **Owned Auto Chat:** app-controlled conversation store, versioned summary, user-scoped memory facts and transparent context handoff. **External client-managed chat is opaque** and must not have context injected or reconstructed without explicit supported opt-in.
+2. ~~**Owned Auto Chat**~~: withdrawn (ADR-028, no Auto Chat in the app). **External client-managed chat stays opaque**: no context injected or reconstructed.
 3. **Cache-aware route scoring:** account/model affinity, measured cache read/write, cost to rebuild and quality consequences. Prefer staying when switching adds cost.
 4. **Token reduction:** only deterministic, reversible dedup/noisy new tool-output filtering in **shadow and opt-in** first; verify prefix hash/cache parity before enabling defaults. Never silently rewrite external agent history.
 5. **Benchmarks and quality feedback:** measured cost per accepted result, failures, user revisions and manual time estimates. LLM classifiers only with a strict input/cost budget and only at explicit classification boundaries.
@@ -78,7 +78,7 @@ A review of every planning doc against the build ([DECISIONS](DECISIONS.md), the
 **C. Evidence before any savings claim**
 1. Verification debt, live: the parity cases still open (1-hour cache TTL, a multi-turn tool round trip, other Claude models, Anthropic-compatible endpoints other than Anthropic's own); OpenRouter `cache_control` on translated requests; an interactive Claude Code session through the gateway, with `count_tokens`; error fixtures per real provider (401, 403, 429, timeouts, quota groups); OpenRouter, OpenAI, Groq, DeepSeek, Ollama and the OpenCode snippet with its session header.
 2. A live cascade where a real failed check escalates to the next agent.
-3. The benchmark: 20–40 cases (2 exist) and a report, on the baselines of "P0 release proof" above (pinned premium, pinned inexpensive capable, static combo, Auto) plus the check-driven cascade for tasks. Needs the owner's paid-test budget.
+3. The benchmark: 20–40 cases (2 exist) and a report, on the baselines of "P0 release proof" above (pinned premium, pinned inexpensive capable, static combo, Auto) plus the check-driven cascade for tasks. Paid traffic under **$5 in total** (ADR-028), enforced with `bench --budget-usd`; free tiers, local models and subscription agents carry most cases.
 4. Quality signals from behaviour (a retry, "use a better model", a cancel) logged per result, and human rework in the cost per success (review RE-3); a one-day TensorZero evaluation before building more of this (review OSS-1).
 
 **D. Distribution**
@@ -89,12 +89,11 @@ A review of every planning doc against the build ([DECISIONS](DECISIONS.md), the
 **E. Later, after data or reconfirmation**
 - Account pools, for API-key and token-plan connections only: agents keep their own sign-in, so subscriptions cannot be pooled (ADR-026).
 - The Policies page with strategies and a simulator; multi-stage plans.
-- Auto Chat and shared memory (ADR-017, ADR-018): the app as a place to compose chats needs reconfirming against ADR-027.
 - Quota tracking for free tiers and subscriptions, where a provider or agent states it (OmniRoute OR-03 §6).
 - Compression, deduplication and cache-aware scoring (P1-3, P1-4; OmniRoute OR-06 to OR-08), shadow and opt-in first.
 - More `auto` aliases (`auto/fast`, `auto/coding`, `auto/local`, `auto/available`, `auto/quality`; OmniRoute OR-01, OR-20): **not planned** until the benchmark shows `auto` and `auto/cheap` are not enough.
 
-**Housekeeping:** a CONTRIBUTING file with the review's rules (RM-1); one schema reference generated from the migrations (RM-4); demo data replaying recorded snapshots instead of copying the core's rules (OSS-3); the licence, the owner's decision, before importing outside code or data (OSS-2).
+**Housekeeping:** a CONTRIBUTING file with the review's rules (RM-1); one schema reference generated from the migrations (RM-4); demo data replaying recorded snapshots instead of copying the core's rules (OSS-3). Licence decided: MIT (ADR-028); ported code keeps its notice in `THIRD_PARTY_NOTICES.md` (OSS-2).
 
 **Superseded by ADR-027:** the New Task → Analyze → Plan → Run flow as the main path, `POST /api/routes/analyze`, the tasks API in the functional plan §6 (the built one is `/pygg/v1/tasks`), "Needs Revalidation", and first-run screens that end in analyzing a task. **Superseded by ADR-026:** "Supported OAuth" connections and rotation of subscription sessions.
 
@@ -124,8 +123,8 @@ A review of every planning doc against the build ([DECISIONS](DECISIONS.md), the
 4. **How will a feature work?** Existing topic specifications [Universal Memory](UNIVERSAL_SHARED_MEMORY.md), [Account Rotation](ACCOUNT_API_ROTATION.md), [CLI/IDE/npm/Tiers](CLI_IDE_NPM_PROVIDER_TIERS.md), [OmniRoute feature shortlist](OMNIROUTE_FEATURE_RESEARCH.md).
 5. **Which objections remain?** [Claude review](reviews/2026-11-11-architecture-review.md) and [review reconciliation](reviews/2026-11-11-review-response.md).
 
-## Ownership decisions still open
+## Ownership decisions
 
-- Choose project license before importing upstream *code or datasets*; citations/links to research are not import approval.
-- Choose explicit initial model/client benchmark matrix and paid test budget; do not send paid traffic without owner approval.
-- Decide whether to expose Auto Chat in the initial commercial launch (product vision stays broad, engineering wedge measurable first).
+Decided 2026-11-11 ([ADR-028](DECISIONS.md)): **MIT licence**; a paid benchmark budget **under $5 in total**; **no Auto Chat in the app**.
+
+Still open: the benchmark's model and client matrix, within that budget. Paid traffic beyond it needs the owner's approval.

@@ -728,6 +728,8 @@ Build these screens in `apps/desktop` with mock data, following DownFetch's `des
 
 ## 10. Proposed consumer Auto Chat and Memory & Context (not yet agreed or built)
 
+> **Dropped 2026-11-11 (ADR-028):** the app hosts no chat of its own. This section is kept for reference only.
+
 The six-destination, list-first **developer task UI remains the current implemented design**. A consumer-first Auto Chat flow is an additional product direction and needs a separate review rather than silently replacing the shell.
 
 **Auto Chat:** chat history/sidebar, message composer with attachments, an `Auto` strategy default; no per-turn model selection. A quiet expandable "Why this model?" inspector shows provider, routed model, usage, rationale, cache and optional switch history. Only privacy, cost-over-limit and sensitive tool actions interrupt normal chat.

@@ -1,5 +1,8 @@
 # Universal Shared Memory & Memory-Aware Cost Routing
 
+> **Not pursued (owner, 2026-11-11, ADR-028):** the app hosts no chat of its own, so the app-owned conversation store, Memory & Context screen and per-turn model affinity below are not planned. Kept for reference. What tasks need is built: the bounded failure summary handed to the next step, and gateway session affinity (P0-4).
+
+
 > Design proposal v1.0 — 2026-11-11. **Not implemented.** Complements the current gateway-first decision (ADR-016), not a replacement for it.
 >
 > Product goal: **SmartTaskRouter is an AI Cost Optimizer for everyday users**, not merely a coding agent runner. People should ask a question normally; SmartTaskRouter chooses a connected model automatically and preserves continuity across providers without asking users to select a model each turn.

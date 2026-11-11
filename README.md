@@ -8,7 +8,7 @@
 
 ## Product vision
 
-**Market entry versus long-term vision:** initial validation prioritizes users with metered API/agent workloads where cost-per-success is measurable; the broader goal remains automatic model optimization for everyday users too. Saving tokens is not equivalent to saving subscription money.
+**Market entry versus long-term vision:** initial validation prioritizes users with metered API/agent workloads where cost-per-success is measurable; everyday users are reached through the clients they already use, pointed at the gateway. Saving tokens is not equivalent to saving subscription money.
 
 Pygg is a desktop-first AI Cost Optimizer for people who connect several providers and agents. Provider, quota and endpoint management are inspired by 9Router. The difference is that Pygg can also route whole tasks: it tries cheaper agents first where the result can be verified automatically, and escalates with an explanation.
 
@@ -40,9 +40,9 @@ Pygg is a desktop-first AI Cost Optimizer for people who connect several provide
 - **Smart tasks:** a task is a ladder of agent steps judged by the workspace's approved checks. A failed check hands what failed to the next step; a paid step waits for your approval; a passing result waits for you to keep it as a branch or discard it. Tasks survive a restart as interrupted, with Retry.
 - **From your IDE:** register `<app> mcp` as an MCP server in Claude Code, Codex or Cursor, and your agent gets `pygg_run_task` and friends. Verified from a real Codex session.
 
-## Universal Shared Memory (planned)
+## Universal Shared Memory (not pursued)
 
-Cross-provider conversations would share a **local, canonical conversation history** with versioned compact summaries, scoped long-term facts and tool/task checkpoints, and a **memory-aware cost router** would decide whether to stay on the current model or switch. Read the [detailed design](docs/UNIVERSAL_SHARED_MEMORY.md). This is a design proposal; whether the app hosts its own Auto Chat is to be reconfirmed against ADR-027.
+The app hosts no chat of its own ([ADR-028](docs/DECISIONS.md)), so the app-owned conversation store, Memory & Context screen and per-turn model affinity designed in [UNIVERSAL_SHARED_MEMORY.md](docs/UNIVERSAL_SHARED_MEMORY.md) are not planned. What tasks need of it is built: a failed attempt hands a bounded summary to the next step, and the gateway keeps a session on one model.
 
 ## CLI, IDE and provider tiers (partly built)
 
@@ -113,6 +113,10 @@ cargo run --bin gateway -- serve                      # add --tasks yes to run s
 Without `--label`, a preset's connection is named after the provider, so the Gemini connection's id is `google-gemini`. `cargo run --bin agent -- detect` lists the agent CLIs; `agent --db STORE task …` runs a smart task headless ([AGENTS.md](docs/AGENTS.md)).
 
 The design review skill is pinned in `skills-lock.json` and installed under `.agents/skills/`, which is git-ignored. Decisions are recorded in [docs/DECISIONS.md](docs/DECISIONS.md).
+
+## Licence
+
+MIT, see [LICENSE](LICENSE). Code ported from other MIT-licensed projects keeps its notice in `THIRD_PARTY_NOTICES.md`.
 
 ## Roadmap
 

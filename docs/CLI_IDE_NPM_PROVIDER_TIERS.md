@@ -1,6 +1,6 @@
 # CLI, IDE Integrations, npm Distribution & Provider Tiers
 
-> **Update 2026-11-11 (ADR-026, ADR-027):** no "Supported OAuth" connections or OAuth callbacks into other products; subscriptions are reached through the vendors' agent CLIs. IDE integration for tasks is the MCP server (`<app> mcp`, [AGENTS.md](AGENTS.md#from-the-ide-pygg-mcp-and-the-task-api)).
+> **Update 2026-11-11 (ADR-026, ADR-027):** no "Supported OAuth" connections or OAuth callbacks into other products; subscriptions are reached through the vendors' agent CLIs. IDE integration for tasks is the MCP server (`<app> mcp`, [AGENTS.md](AGENTS.md#from-the-ide-pygg-mcp-and-the-task-api)). Consumer Auto Chat is dropped (ADR-028).
 
 
 > Specification v1.0 — 2026-11-11. **Design only**. Do not advertise integrations or npm publication before contract tests and a released package are available.

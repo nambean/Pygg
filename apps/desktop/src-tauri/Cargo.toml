@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "SmartTaskRouter desktop app: task routing core, local gateway and interface shell"
 edition = "2021"
 publish = false
+license = "MIT"
 # The crate also builds the benchmark CLI (src/bin/bench.rs); the app is the default binary.
 default-run = "smarttaskrouter-desktop"
 

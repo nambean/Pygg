@@ -144,7 +144,7 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Why:** switching models inside long conversations otherwise loses context or requires expensive replay; memories must belong to the user, not one provider.
 
-**Status:** proposed design, not implemented. Detailed specification: [UNIVERSAL_SHARED_MEMORY.md](UNIVERSAL_SHARED_MEMORY.md).
+**Status:** withdrawn as an app feature by ADR-028 (no Auto Chat in the app); not implemented. Specification kept for reference: [UNIVERSAL_SHARED_MEMORY.md](UNIVERSAL_SHARED_MEMORY.md).
 
 ## ADR-018 — Cache-aware model affinity with no per-turn model picker (proposed)
 
@@ -152,7 +152,7 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Why:** a cheaper output-token price may be overwhelmed by cache loss and rehydration cost; uninterrupted user experience is central to an AI Cost Optimizer.
 
-**Status:** proposed and requires cross-provider evaluation. Reference: [UNIVERSAL_SHARED_MEMORY.md](UNIVERSAL_SHARED_MEMORY.md).
+**Status:** withdrawn by ADR-028 (no Auto Chat in the app). Cache-aware affinity for gateway clients remains as P1-3. Reference: [UNIVERSAL_SHARED_MEMORY.md](UNIVERSAL_SHARED_MEMORY.md).
 
 ## ADR-019 — Gateway-first is current, benchmark-first order superseded
 
@@ -221,7 +221,15 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Supersedes:** the parts of [SCREENS.md](design/SCREENS.md) and the [functional plan](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md) that assume the user composes and plans tasks in the app first (Analyze Task, Plan/Run/Result as the primary path). Status: built and verified from a real Codex session. See [AGENTS.md](AGENTS.md#from-the-ide-pygg-mcp-and-the-task-api).
 
+## ADR-028 — MIT licence, a $5 benchmark budget, and no Auto Chat in the app (2026-11-11)
+
+**Decisions (owner):**
+- **Licence:** Pygg is open source under the MIT licence ([LICENSE](../LICENSE)). MIT-licensed code from other projects (OmniRoute among them) may be ported with its copyright and licence notice kept, recorded in `THIRD_PARTY_NOTICES.md`. ADR-026 still applies: no session, cookie or OAuth bridges, whatever their licence.
+- **Paid benchmark budget:** under **$5 in total** for the benchmark (ROADMAP C3), enforced with `bench --budget-usd`. Free tiers, local models and agents on the owner's subscriptions do not count against it, but their runs are reported apart.
+- **No Auto Chat in the app.** The app is not a place to compose chats or tasks (ADR-027). ADR-017 and ADR-018 are withdrawn as app features: no app-owned conversation store, Memory & Context screen or per-turn model affinity for chats. What survives of that design is what tasks need: the bounded summary a failed attempt hands to the next step, and session affinity in the gateway (P0-4).
+
+**Why:** Open source fits a local tool that holds keys and code; a small budget keeps the benchmark honest about what it can claim; and Auto Chat would make the app a chat client, which ADR-027 rules out.
+
 ## Open decisions (not yet finalized)
 
-- **License.** Not chosen yet; this is a decision for the owner.
-- **First agent benchmark client and paid test budget.** OpenCode is a candidate, but version, CLI flags, compatibility and measurable usage must be tested against the exact installed version; external provider calls need explicit user approval.
+- **First agent benchmark client and model matrix**, within the $5 budget (ADR-028). OpenCode is a candidate; version, CLI flags and measurable usage are checked against the installed version.
