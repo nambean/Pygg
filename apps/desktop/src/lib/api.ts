@@ -133,7 +133,8 @@ export type AgentRun = {
   filesChanged: number; insertions: number; deletions: number; usage: AgentUsage; logTail: string;
 };
 
-export type McpSetup = { path: string; exists: boolean; url: string };
+/** How an IDE starts the MCP server: the app's program with `args` (`mcp`). */
+export type McpSetup = { path: string; args: string[]; exists: boolean; url: string };
 
 export type NewConnection ={ preset: string; label: string; endpoint?: string; apiKey?: string; billing: Billing };
 export type PriceInput = {

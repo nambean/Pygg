@@ -8,6 +8,7 @@ pub mod commands;
 pub mod db;
 pub mod gateway;
 pub mod isolation;
+pub mod mcp;
 pub mod process;
 pub mod redact;
 pub mod tasks;

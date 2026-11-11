@@ -487,7 +487,7 @@ export function demoApi(): GatewayApi {
     agentDiff: async () => touch('diff --git a/calc.py b/calc.py\n--- a/calc.py\n+++ b/calc.py\n@@ -1,2 +1,2 @@\n def add(a, b):\n-    return a - b\n+    return a + b\n'),
     finishAgentRun: async (runId, keep) => { await sleep(300); return keep ? `str/${keep.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${runId}` : null; },
     ...demoTasks(touch),
-    mcpSetup: () => touch({path: 'C:\\Program Files\\Pygg\\pygg-mcp.exe', exists: true, url: 'http://127.0.0.1:8741'}),
+    mcpSetup: () => touch({path: 'C:\\Users\\you\\AppData\\Local\\SmartTaskRouter\\smarttaskrouter-desktop.exe', args: ['mcp'], exists: true, url: 'http://127.0.0.1:8741'}),
     usage: async days => {
       const since = Date.now() - days * 86_400_000;
       const list = events.filter(e => e.createdAt >= since);

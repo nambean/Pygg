@@ -552,18 +552,20 @@ pub fn task_get(state: State<'_, AppState>, id: String) -> Res<TaskDetail> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpSetup {
-    /// `pygg-mcp` next to the app's own program.
+    /// The program an IDE starts: the app itself, with `args`.
     pub path: String,
+    pub args: Vec<String>,
     pub exists: bool,
     pub url: String,
 }
 
-/// Where the MCP server for IDE agents is, for the setup instructions.
+/// How an IDE starts the MCP server: this app's own program with `mcp` (src/mcp.rs), so the installer ships
+/// nothing extra.
 #[tauri::command]
 pub fn mcp_setup(state: State<'_, AppState>) -> Res<McpSetup> {
-    let name = if cfg!(windows) { "pygg-mcp.exe" } else { "pygg-mcp" };
-    let path = std::env::current_exe().map_err(|e| e.to_string())?.with_file_name(name);
-    Ok(McpSetup { exists: path.is_file(), path: path.to_string_lossy().into_owned(), url: format!("http://127.0.0.1:{}", state.port()) })
+    let path = std::env::current_exe().map_err(|e| e.to_string())?;
+    Ok(McpSetup { exists: path.is_file(), path: path.to_string_lossy().into_owned(), args: vec!["mcp".into()],
+        url: format!("http://127.0.0.1:{}", state.port()) })
 }
 
 /// Creates a task and starts it in the background. Returns its id.

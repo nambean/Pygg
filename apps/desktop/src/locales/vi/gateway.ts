@@ -607,11 +607,10 @@ export const gateway: Record<string, string> = {
     'Agent lập trình của bạn (Claude Code, Codex, Cursor…) có thể giao một việc con cho Pygg bằng tool pygg_run_task. Việc đó chạy trên máy này, bằng các agent bên dưới, trong worktree riêng và được kiểm bằng các check bạn đã duyệt; agent của bạn xem kết quả rồi giữ hoặc bỏ. Task hiện trong mục Tasks, nơi bước trả phí chờ bạn duyệt.',
   'In Clients, create a token for your IDE, then open Limits… and turn on “May start tasks”.':
     'Trong Clients, tạo token cho IDE, rồi mở Limits… và bật “Được tạo task”.',
-  'Register pygg-mcp with your agent, with that token in place of <token>:': 'Đăng ký pygg-mcp với agent của bạn, thay <token> bằng token đó:',
+  'Register Pygg as an MCP server with your agent, with that token in place of <token>. The app’s own program serves it:':
+    'Đăng ký Pygg làm MCP server với agent của bạn, thay <token> bằng token đó. Chính chương trình của ứng dụng phục vụ MCP:',
   'Cursor and others (JSON)': 'Cursor và các IDE khác (JSON)',
   'Setup': 'Cài đặt',
-  'pygg-mcp was not found next to the app. Build it with “cargo build --bin pygg-mcp”.':
-    'Không thấy pygg-mcp cạnh ứng dụng. Hãy build bằng “cargo build --bin pygg-mcp”.',
   'The token ends up in your agent’s configuration file. It can only reach this computer’s gateway, and you can revoke it in Clients.':
     'Token sẽ nằm trong file cấu hình của agent. Nó chỉ dùng được với gateway trên máy này, và bạn có thể thu hồi trong Clients.',
 };
