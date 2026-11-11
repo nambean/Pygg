@@ -19,7 +19,7 @@ export type TaskState =
   | 'interrupted';       // the app stopped while it ran; needs reconciliation
 
 /** done: the attempt finished and no check judged it. */
-export type AttemptOutcome = 'passed' | 'done' | 'failed' | 'running' | 'waiting' | 'canceled';
+export type AttemptOutcome = 'passed' | 'done' | 'failed' | 'running' | 'waiting' | 'canceled' | 'skipped';
 
 export type Attempt = {
   tier: Tier;

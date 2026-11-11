@@ -41,6 +41,7 @@ export const tasks: Record<string, string> = {
   'Unknown billing': 'Chưa rõ cách tính phí',
   'Passed': 'Đã qua',
   'Check failed': 'Check thất bại',
+  'Skipped: not answering': 'Bỏ qua: không phản hồi',
   'Waiting for approval': 'Chờ duyệt',
   'API {zero} · local': 'API {zero} · local',
   '{actual} + ≈{estimated} est.': '{actual} + ≈{estimated} ước tính',

@@ -1,4 +1,4 @@
-import { Check, Circle, Eye, Hourglass, LoaderCircle, X } from 'lucide-react';
+import { Check, Circle, Eye, Hourglass, LoaderCircle, SkipForward, X } from 'lucide-react';
 import { t } from '../lib/i18n';
 import type { Attempt, AttemptOutcome, Billing } from '../lib/tasks';
 
@@ -29,6 +29,7 @@ function OutcomeIcon({outcome}: {outcome: AttemptOutcome}) {
     case 'running': return <LoaderCircle {...props} className="spin"/>;
     case 'waiting': return <Hourglass {...props}/>;
     case 'canceled': return <Circle {...props}/>;
+    case 'skipped': return <SkipForward {...props}/>;
   }
 }
 
@@ -50,5 +51,6 @@ export function outcomeLabel(outcome: AttemptOutcome): string {
     case 'running': return t('Running');
     case 'waiting': return t('Waiting for approval');
     case 'canceled': return t('Stopped');
+    case 'skipped': return t('Skipped: not answering');
   }
 }

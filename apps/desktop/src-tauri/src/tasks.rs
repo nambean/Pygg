@@ -899,13 +899,45 @@ pub fn compose(prompt: &str, handoff: Option<&str>) -> String {
     }
 }
 
+/// How recently a step must have timed out, twice in a row without answering, to be skipped.
+const UNRESPONSIVE_WINDOW_MS: i64 = 30 * 60_000;
+
+/// Why a step should be skipped: its agent and model timed out on their last two runs, both within
+/// `UNRESPONSIVE_WINDOW_MS`, without a single output token, so the service is most likely not answering.
+/// Waiting out its time limit again would only delay the next step (found by the benchmark, ROADMAP N2).
+fn unresponsive(conn: &Connection, step: &Step) -> rusqlite::Result<Option<String>> {
+    let since = now_ms() - UNRESPONSIVE_WINDOW_MS;
+    let mut statement = conn.prepare(
+        "SELECT a.detail, a.finished_at, (SELECT SUM(output_tokens) FROM usage_events u WHERE u.attempt_id = a.id) \
+         FROM attempts a WHERE a.agent = ?1 AND a.model_ref = ?2 AND a.state IN ('failed', 'passed', 'done') \
+         ORDER BY a.finished_at DESC LIMIT 2")?;
+    let last: Vec<(Option<String>, Option<i64>, Option<i64>)> = statement
+        .query_map(params![step.agent, step_label(step)], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    let silent_timeout = |(detail, finished, output): &(Option<String>, Option<i64>, Option<i64>)|
+        detail.as_deref() == Some("timed out") && finished.is_some_and(|f| f >= since) && output.unwrap_or(0) == 0;
+    Ok((last.len() == 2 && last.iter().all(silent_timeout)).then(|| format!(
+        "Skipped: {} timed out on its last two runs in the past 30 minutes without answering, so Pygg did not wait for it again",
+        step_label(step))))
+}
+
+/// Records a step that was not run, so the task's history shows why the ladder moved on.
+fn skip_attempt(conn: &Connection, task_id: &str, stage_id: &str, index: usize, step: &Step, why: &str) -> rusqlite::Result<()> {
+    let now = now_ms();
+    let number: u32 = conn.query_row("SELECT COALESCE(MAX(number), 0) + 1 FROM attempts WHERE stage_id = ?1", [stage_id], |r| r.get(0))?;
+    conn.execute("INSERT INTO attempts (id, stage_id, number, agent, model_ref, tier, billing, state, started_at, finished_at, \
+                  escalation_reason, detail, rung) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'skipped', ?8, ?8, ?9, 'skipped', ?10)",
+        params![new_id(), stage_id, number, step.agent, step_label(step), step.tier, step.billing, now, why, index as i64])?;
+    audit(conn, "attempt.skipped", task_id, serde_json::json!({"step": index, "reason": why}))
+}
+
 /// Where a task continues: the step after the last failure, or the same step after a stop.
 fn resume_point(attempts: &[AttemptView]) -> Option<(usize, Option<String>)> {
     let last_failed = attempts.iter().rev().find(|a| a.outcome == "failed");
     let carried = last_failed.and_then(handoff_of);
     match attempts.last() {
         None => Some((0, None)),
-        Some(a) if a.outcome == "failed" => Some((a.step + 1, carried)),
+        Some(a) if a.outcome == "failed" || a.outcome == "skipped" => Some((a.step + 1, carried)),
         Some(a) if a.outcome == "passed" || a.outcome == "done" => None,
         Some(a) => Some((a.step, carried)),
     }
@@ -1153,6 +1185,15 @@ impl Runner {
                 let reason = format!("Every step failed. Last: {}", last_failure.as_deref().unwrap_or("no attempt ran"));
                 return self.with_db(|c| set_task(c, id, "check_failed", None, Some(&reason))).map_err(err);
             };
+            // A step whose service has stopped answering is skipped, unless it is the last one left to try.
+            if index + 1 < row.policy.steps.len() {
+                if let Some(why) = self.with_db(|c| unresponsive(c, step)).map_err(err)? {
+                    self.with_db(|c| skip_attempt(c, id, &row.stage_id, index, step, &why)).map_err(err)?;
+                    last_failure = Some(why);
+                    index += 1;
+                    continue;
+                }
+            }
             let attempt = match self.with_db(|c| open_attempt(c, id, &row.stage_id, index, step)).map_err(err)? {
                 Opened::Run(attempt) => attempt,
                 Opened::Waiting | Opened::Declined => return Ok(()),
@@ -1474,6 +1515,8 @@ mod tests {
 
     #[derive(Clone)]
     enum Act {
+        /// The agent hit its time limit without a single output token, as a service that does not answer.
+        TimeOut,
         Write(&'static str, &'static str),
         /// `Write`, and the agent reports this list-price estimate (USD) for the run.
         Costly(&'static str, &'static str, f64),
@@ -1515,7 +1558,12 @@ mod tests {
                 let worktree = isolation::create(&request.workspace, &request.base, &worktrees.join(&id[..12])).map_err(|e| e.to_string())?;
                 let mut outcome = "ok";
                 let mut estimate = None;
+                let mut output_tokens = Some(10);
                 match act {
+                    Act::TimeOut => {
+                        outcome = "timed_out";
+                        output_tokens = None;
+                    }
                     Act::Write(file, text) => std::fs::write(worktree.path.join(file), text).unwrap(),
                     Act::Costly(file, text, usd) => {
                         std::fs::write(worktree.path.join(file), text).unwrap();
@@ -1532,9 +1580,9 @@ mod tests {
                 Ok(TaskRun {
                     id, agent: request.agent, model: request.model, workspace: request.workspace.to_string_lossy().into_owned(),
                     worktree: worktree.path.to_string_lossy().into_owned(), base: worktree.base, outcome: outcome.into(),
-                    exit: if outcome == "ok" { "exit 0".into() } else { "exit 1".into() }, duration_ms: 5,
+                    exit: match outcome { "ok" => "exit 0".into(), "timed_out" => "timed out".into(), _ => "exit 1".into() }, duration_ms: 5,
                     files_changed: stat.files, insertions: stat.insertions, deletions: stat.deletions,
-                    usage: AgentUsage { input_tokens: Some(100), output_tokens: Some(10), estimate_usd: estimate, ..AgentUsage::default() },
+                    usage: AgentUsage { input_tokens: Some(100), output_tokens, estimate_usd: estimate, ..AgentUsage::default() },
                     // The attempt id the engine handed over, so a test can check it is the attempt's own.
                     log_tail: request.attempt_id.clone(),
                 })
@@ -1559,6 +1607,42 @@ mod tests {
 
     fn detail(rig: &Rig, id: &str) -> TaskDetail {
         task_detail(&lock(&rig.db), id).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_step_that_twice_timed_out_without_answering_is_skipped_unless_it_is_the_last() {
+        let rig = rig(&[good_check()]);
+        let good = || Act::Write("result.txt", "good\n");
+        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(), fake(vec![
+            Act::TimeOut, good(),   // task 1
+            Act::TimeOut, good(),   // task 2
+            good(),                 // task 3: its first step is skipped, so the next act is step 2's
+            Act::TimeOut,           // task 4: a one-step ladder still tries its only step
+        ], rig.prompts.clone()));
+        let ladder = || vec![step("opencode", "free", 0), step("codex", "subscription", 3)];
+        for expected in [["failed", "passed"], ["failed", "passed"]] {
+            let id = create(&rig, ladder());
+            runner.start(&id).unwrap().await.unwrap();
+            let outcomes: Vec<String> = detail(&rig, &id).attempt_details.iter().map(|a| a.outcome.clone()).collect();
+            assert_eq!(outcomes, expected);
+        }
+
+        let id = create(&rig, ladder());
+        runner.start(&id).unwrap().await.unwrap();
+        let task = detail(&rig, &id);
+        assert_eq!(task.summary.state, "checks_passed", "{:?}", task.reason);
+        let outcomes: Vec<&str> = task.attempt_details.iter().map(|a| a.outcome.as_str()).collect();
+        assert_eq!(outcomes, ["skipped", "passed"]);
+        let why = task.attempt_details[0].escalation_reason.as_deref().unwrap();
+        assert!(why.starts_with("Skipped: OpenCode") && why.contains("timed out on its last two runs"), "{why}");
+        assert_eq!(rig.prompts.lock().unwrap().len(), 5, "the skipped step never ran");
+
+        let only = create(&rig, vec![step("opencode", "free", 0)]);
+        runner.start(&only).unwrap().await.unwrap();
+        let task = detail(&rig, &only);
+        let outcomes: Vec<&str> = task.attempt_details.iter().map(|a| a.outcome.as_str()).collect();
+        assert_eq!(outcomes, ["failed"], "the last step left is run, not skipped");
+        assert_eq!(rig.prompts.lock().unwrap().len(), 6);
     }
 
     #[tokio::test]

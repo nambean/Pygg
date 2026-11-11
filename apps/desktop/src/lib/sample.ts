@@ -58,7 +58,8 @@ export function sampleTasks(now = Date.now()): TaskSummary[] {
     {
       id: 't-106', title: 'Split router module into eligibility and selection', workspaceId: 'ws-str',
       state: 'checks_passed',
-      attempts: [{tier: 1, billing: 'paid', model: MINI, outcome: 'failed'},
+      attempts: [{tier: 0, billing: 'free', model: 'OpenCode · opencode/deepseek-v4.1-flash-free', outcome: 'skipped'},
+        {tier: 1, billing: 'paid', model: MINI, outcome: 'failed'},
         {tier: 2, billing: 'paid', model: MID, outcome: 'passed'}],
       cost: {actualUsd: 0.08, estimatedUsd: 0, unknownCalls: 0, localOnly: false},
       startedAt: at(64), updatedAt: at(58),

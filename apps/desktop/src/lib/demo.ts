@@ -542,15 +542,17 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'worksp
     const attempts: AttemptView[] = s.attempts.map((a, i) => ({
       id: `${s.id}-${i}`, number: i + 1, step: i, agent: a.model.startsWith('Codex') ? 'codex' : a.model.startsWith('Claude') ? 'claude-code'
         : a.model.startsWith('Gemini') ? 'gemini-cli' : 'opencode', label: a.model, agentModel: null, tier: a.tier, billing: a.billing,
-      outcome: a.outcome, detail: a.outcome === 'running' || a.outcome === 'waiting' ? null : 'exit 0',
-      escalationReason: a.outcome === 'failed' ? '`pnpm test` exited 1' : null,
+      outcome: a.outcome, detail: a.outcome === 'running' || a.outcome === 'waiting' ? null : a.outcome === 'skipped' ? 'skipped' : 'exit 0',
+      escalationReason: a.outcome === 'failed' ? '`pnpm test` exited 1'
+        : a.outcome === 'skipped' ? `Skipped: ${a.model} timed out on its last two runs in the past 30 minutes without answering, so Pygg did not wait for it again` : null,
       checks: a.outcome === 'passed' || a.outcome === 'failed' ? checks.map((c, j) => ({command: c.command,
         passed: a.outcome === 'passed' || j < checks.length - 1, detail: a.outcome === 'passed' || j < checks.length - 1 ? 'exited 0' : 'exited 1',
         outputTail: a.outcome === 'failed' && j === checks.length - 1 ? 'FAIL src/timeout.test.ts\n  expected 50 ms, got 5000 ms' : '',
         durationMs: 2400 + j * 900})) : [],
-      filesChanged: a.outcome === 'waiting' ? null : 2, insertions: 6, deletions: 3,
+      filesChanged: a.outcome === 'waiting' || a.outcome === 'skipped' ? null : 2, insertions: 6, deletions: 3,
       summary: a.outcome === 'passed' ? 'Fixed the unit conversion in timeout handling and added a regression test.' : null,
-      logTail: null, inputTokens: a.outcome === 'waiting' ? null : 41_200, outputTokens: a.outcome === 'waiting' ? null : 1_830,
+      logTail: null, inputTokens: a.outcome === 'waiting' || a.outcome === 'skipped' ? null : 41_200,
+      outputTokens: a.outcome === 'waiting' || a.outcome === 'skipped' ? null : 1_830,
       startedAt: s.startedAt, finishedAt: a.outcome === 'running' || a.outcome === 'waiting' ? null : s.updatedAt,
       open: a.outcome === 'passed' && (s.state === 'checks_passed'),
       agentEstimateUsd: a.outcome === 'passed' || a.outcome === 'failed' ? (a.billing === 'paid' ? 0.04 : 0) : null,
