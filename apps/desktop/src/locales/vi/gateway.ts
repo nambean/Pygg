@@ -221,8 +221,8 @@ export const gateway: Record<string, string> = {
   'Order': 'Thứ tự',
   'Skipped: its connection is disabled or removed': 'Bỏ qua: kết nối của nó đã tắt hoặc bị gỡ',
   'Empty: its models’ connections were removed.': 'Trống: kết nối của các model trong đó đã bị gỡ.',
-  'The next model is tried on a rejected key, an exhausted quota, an unavailable model, a timeout or a server error, and only before any of the answer has reached the client. A malformed request is returned as it is.':
-    'Model kế tiếp được thử khi key bị từ chối, hết quota, model không khả dụng, quá thời gian hoặc lỗi máy chủ, và chỉ khi chưa có phần nào của câu trả lời tới client. Yêu cầu sai định dạng được trả về nguyên trạng.',
+  'The next model is tried on a rejected key, an exhausted quota or rate limit, or an unavailable model, and only before any of the answer has reached the client. After a timeout or a server error the provider may already have billed the request, so the gateway stops there unless the client allows retries (Clients → Limits). A malformed request is returned as it is.':
+    'Model kế tiếp được thử khi key bị từ chối, hết quota hoặc bị giới hạn tốc độ, hoặc model không khả dụng, và chỉ khi chưa có phần nào của câu trả lời tới client. Sau khi quá thời gian hoặc lỗi máy chủ, nhà cung cấp có thể đã tính phí request, nên gateway dừng ở đó trừ khi client cho phép thử lại (Clients → Giới hạn). Yêu cầu sai định dạng được trả về nguyên trạng.',
   'Clients that ask for “{name}” will get “model not found” until a combo with that name exists again.':
     'Client gọi “{name}” sẽ nhận lỗi “không tìm thấy model” cho tới khi lại có combo mang tên đó.',
   'Edit {name}': 'Sửa {name}',
@@ -435,6 +435,27 @@ export const gateway: Record<string, string> = {
   'Any OpenAI-compatible SDK works the same way: base URL, token, and a route as the model. Send one session header per conversation to keep it on one model.':
     'Mọi SDK tương thích OpenAI đều dùng như nhau: base URL, token, và một tuyến ở chỗ tên model. Gửi một header session cho mỗi hội thoại để giữ nó trên một model.',
   'Interrupted': 'Bị gián đoạn',
+  'only {n} connection': 'chỉ {n} kết nối',
+  'only {n} connections': 'chỉ {n} kết nối',
+  'retries {n} model after a server error': 'thử lại {n} model sau lỗi máy chủ',
+  'retries up to {n} models after a server error': 'thử lại tối đa {n} model sau lỗi máy chủ',
+  'After a server error': 'Sau lỗi máy chủ',
+  'Stop and return the error. The provider may have run and billed the request, so trying another model could charge twice.':
+    'Dừng và trả lỗi. Nhà cung cấp có thể đã chạy và tính phí request, nên thử model khác có thể bị tính tiền hai lần.',
+  'Try the next model of the combo. The first provider may still bill the failed request; each try holds its estimated cost against the limit.':
+    'Thử model kế tiếp của combo. Nhà cung cấp đầu vẫn có thể tính phí request lỗi; mỗi lần thử giữ chi phí ước tính của nó trong hạn mức.',
+  'Stop (no retry)': 'Dừng (không thử lại)',
+  'Retry {n} model': 'Thử lại {n} model',
+  'Retry up to {n} models': 'Thử lại tối đa {n} model',
+  'Connections': 'Kết nối',
+  'Requests from this client go only to the connections ticked here, whatever a combo or a fallback says. Use it to keep sensitive work with providers whose terms you have checked.':
+    'Request của client này chỉ tới các kết nối được đánh dấu ở đây, bất kể combo hay fallback. Dùng để giữ việc nhạy cảm ở các nhà cung cấp mà bạn đã kiểm tra điều khoản.',
+  'Any connection of a combo may answer, including fallbacks to other providers. The gateway doesn’t check providers’ data-use terms.':
+    'Mọi kết nối trong combo đều có thể trả lời, kể cả khi fallback sang nhà cung cấp khác. Gateway không kiểm tra điều khoản dùng dữ liệu của nhà cung cấp.',
+  'All connections': 'Mọi kết nối',
+  'Only selected': 'Chỉ kết nối đã chọn',
+  'Allowed connections': 'Kết nối được phép',
+  'With nothing ticked, every request from this client is refused.': 'Nếu không đánh dấu kết nối nào, mọi request của client này sẽ bị từ chối.',
   'Counted against the limit': 'Tính vào hạn mức',
   '{amount}, the amount held for it: the provider may have charged for it':
     '{amount}, phần tiền đã giữ cho nó: nhà cung cấp có thể đã tính phí',

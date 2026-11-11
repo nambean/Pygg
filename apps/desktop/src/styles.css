@@ -336,6 +336,10 @@ button { cursor: default; }
 .warning-note svg { color: var(--orange); flex-shrink: 0; margin-top: 1px; }
 .ok-note { color: var(--green); }
 .error-text { color: var(--red); font-weight: 500; }
+.check-list { display: flex; flex-direction: column; gap: 6px; margin: -4px 0 4px; padding: 8px 12px; border: 1px solid var(--separator);
+  border-radius: 8px; font-size: 13px; }
+.check-row { display: flex; align-items: center; gap: 8px; }
+.check-row .mono { margin-left: auto; font-size: 11px; }
 
 /* Gateway card on Overview */
 .gateway-card {

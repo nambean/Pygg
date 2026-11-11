@@ -83,7 +83,11 @@ function Spend({client: c}: {client: Client}) {
 function policySummary(c: Client): string {
   const unknown = c.monthlyBudgetMicroUsd === null ? '' : c.unknownCostPolicy === 'block'
     ? ` · ${t('unknown prices blocked')}` : ` · ${t('unknown prices allowed')}`;
-  return plural(c.maxConcurrency, 'up to {n} request at once', 'up to {n} requests at once') + unknown;
+  const scope = c.allowedConnections === null ? ''
+    : ` · ${plural(c.allowedConnections.length, 'only {n} connection', 'only {n} connections')}`;
+  const retries = c.paidRetries > 0
+    ? ` · ${plural(c.paidRetries, 'retries {n} model after a server error', 'retries up to {n} models after a server error')}` : '';
+  return plural(c.maxConcurrency, 'up to {n} request at once', 'up to {n} requests at once') + unknown + scope + retries;
 }
 
 function CreateSheet({onClose}: {onClose: () => void}) {
@@ -147,6 +151,10 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
   const [limit, setLimit] = useState(c.monthlyBudgetMicroUsd ? String(c.monthlyBudgetMicroUsd / 1_000_000) : '');
   const [unknown, setUnknown] = useState(c.unknownCostPolicy);
   const [concurrency, setConcurrency] = useState(String(c.maxConcurrency));
+  const connections = useGateway(api => api.connections());
+  const [restricted, setRestricted] = useState(c.allowedConnections !== null);
+  const [allowed, setAllowed] = useState<string[]>(c.allowedConnections ?? []);
+  const [paidRetries, setPaidRetries] = useState(c.paidRetries);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const amount = parseUsd(limit);
@@ -157,7 +165,8 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
     setBusy(true);
     call(async api => {
       await api.setClientBudget(c.id, amount);
-      await api.setClientPolicy(c.id, {maxConcurrency: inFlight, unknownCostPolicy: unknown});
+      await api.setClientPolicy(c.id, {maxConcurrency: inFlight, unknownCostPolicy: unknown,
+        restrictConnections: restricted, allowedConnections: allowed, paidRetries});
     }).then(() => { gatewayChanged(); onClose(); }, e => { setError(errorText(e)); setBusy(false); });
   };
   return <Sheet title={t('Limits for {name}', {name: c.name})}
@@ -189,6 +198,32 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
         <input id="concurrency" className="text-input narrow-input" inputMode="numeric" value={concurrency}
           onChange={e => setConcurrency(e.target.value)} aria-invalid={!/^\d+$/.test(concurrency) || inFlight < 1 || inFlight > 256}/>
       </FormRow>
+      <FormRow label={t('After a server error')} htmlFor="paid-retries"
+        hint={paidRetries === 0
+          ? t('Stop and return the error. The provider may have run and billed the request, so trying another model could charge twice.')
+          : t('Try the next model of the combo. The first provider may still bill the failed request; each try holds its estimated cost against the limit.')}>
+        <select id="paid-retries" className="popup-button" value={paidRetries} onChange={e => setPaidRetries(Number(e.target.value))}>
+          <option value={0}>{t('Stop (no retry)')}</option>
+          {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{plural(n, 'Retry {n} model', 'Retry up to {n} models')}</option>)}
+        </select>
+      </FormRow>
+      <FormRow label={t('Connections')} htmlFor="scope"
+        hint={restricted
+          ? t('Requests from this client go only to the connections ticked here, whatever a combo or a fallback says. Use it to keep sensitive work with providers whose terms you have checked.')
+          : t('Any connection of a combo may answer, including fallbacks to other providers. The gateway doesn’t check providers’ data-use terms.')}>
+        <select id="scope" className="popup-button" value={restricted ? 'only' : 'all'} onChange={e => setRestricted(e.target.value === 'only')}>
+          <option value="all">{t('All connections')}</option>
+          <option value="only">{t('Only selected')}</option>
+        </select>
+      </FormRow>
+      {restricted && <fieldset className="check-list" aria-label={t('Allowed connections')}>
+        {(connections.data ?? []).map(conn => <label key={conn.id} className="check-row">
+          <input type="checkbox" checked={allowed.includes(conn.id)}
+            onChange={e => setAllowed(list => e.target.checked ? [...list, conn.id] : list.filter(id => id !== conn.id))}/>
+          <span>{conn.label}</span><span className="secondary mono">{conn.id}/…</span>
+        </label>)}
+        {allowed.length === 0 && <small className="error-text">{t('With nothing ticked, every request from this client is refused.')}</small>}
+      </fieldset>}
     </div>
     {c.monthUnknownRequests > 0 && <p className="sheet-text secondary">
       {plural(c.monthUnknownRequests, '{n} request this month had an unknown cost. Only spend held for it counts against the limit.', '{n} requests this month had an unknown cost. Only spend held for them counts against the limit.')}

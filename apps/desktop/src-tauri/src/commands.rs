@@ -392,8 +392,20 @@ pub fn client_set_budget(state: State<'_, AppState>, id: String, monthly_budget_
 /// client has a limit (`block` or `allow`).
 #[tauri::command]
 pub fn client_set_policy(state: State<'_, AppState>, id: String, max_concurrency: Option<u32>,
-    unknown_cost_policy: Option<String>) -> Res<()> {
-    state.shared.with_db(|db| store::set_client_policy(db, &id, max_concurrency, unknown_cost_policy.as_deref()))
+    unknown_cost_policy: Option<String>, restrict_connections: Option<bool>, allowed_connections: Option<Vec<String>>,
+    paid_retries: Option<u32>) -> Res<()> {
+    state.shared.with_db(|db| -> store::Result<()> {
+        store::set_client_policy(db, &id, max_concurrency, unknown_cost_policy.as_deref())?;
+        if let Some(restrict) = restrict_connections {
+            let list = allowed_connections.unwrap_or_default();
+            store::set_client_connections(db, &id, restrict.then_some(list.as_slice()))?;
+        }
+        if let Some(retries) = paid_retries {
+            store::set_client_paid_retries(db, &id, retries)?;
+        }
+        Ok(())
+    })?;
+    Ok(())
 }
 
 // ---------- Usage ----------

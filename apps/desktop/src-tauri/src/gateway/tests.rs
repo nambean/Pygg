@@ -223,6 +223,11 @@ impl Rig {
         self.shared.with_db(store::list_clients).unwrap().into_iter().find(|c| c.id == self.client_id).unwrap()
     }
 
+    /// Opts the test client into trying further models after a server error (review FR-02; the default stops).
+    fn allow_paid_retries(&self, n: u32) {
+        self.shared.with_db(|db| store::set_client_paid_retries(db, &self.client_id, n)).unwrap();
+    }
+
     fn journal_len(&self) -> i64 {
         self.shared.with_db(|db| db.query_row("SELECT COUNT(*) FROM budget_reservations", [], |r| r.get(0))).unwrap()
     }
@@ -307,6 +312,7 @@ fn streams_through_unchanged_and_records_usage() {
 fn a_combo_falls_back_across_groups_and_cools_failing_targets_down() {
     rt().block_on(async {
         let rig = rig().await;
+        rig.allow_paid_retries(1);
         let response = rig.post("/v1/chat/completions", chat("coding")).await;
         assert_eq!(response.status(), 200);
         assert_eq!(response.headers()["x-smarttaskrouter-route"], "backup/steady");
@@ -452,6 +458,7 @@ fn a_client_that_leaves_early_still_leaves_a_ledger_entry() {
 fn an_explicit_session_stays_on_the_model_that_answered_it() {
     rt().block_on(async {
         let rig = rig().await;
+        rig.allow_paid_retries(1);
         // The first model is overloaded once (503 with Retry-After: 0), so the session lands on the backup.
         let first = rig.post_session("/v1/chat/completions", "s-1", chat("pinme")).await;
         assert_eq!(first.headers()["x-smarttaskrouter-route"], "backup/steady");
@@ -695,6 +702,7 @@ fn every_attempt_is_settled_and_leaves_no_journal_entry() {
         let rig = rig().await;
         rig.set_budget(Some(10_000_000));
         rig.shared.with_db(|db| store::set_client_policy(db, &rig.client_id, None, Some("allow"))).unwrap();
+        rig.allow_paid_retries(1);
         // Two refusals and an answer, a stream, and a native Anthropic answer: five attempts.
         rig.post("/v1/chat/completions", chat("coding")).await;
         rig.post("/v1/chat/completions", json!({ "model": "main/fast", "stream": true, "messages": [] })).await.text().await.unwrap();
@@ -750,6 +758,7 @@ fn an_attempt_never_settled_becomes_an_interrupted_entry() {
 fn a_session_id_is_scoped_to_its_client_and_validated() {
     rt().block_on(async {
         let rig = rig().await;
+        rig.allow_paid_retries(1);
         let first = rig.post_session("/v1/chat/completions", "shared-id", chat("pinme")).await;
         assert_eq!(first.headers()["x-smarttaskrouter-route"], "backup/steady");
         // Another client naming the same session is not sent to the first client's pin.
@@ -800,5 +809,119 @@ fn a_native_request_keeps_its_key_order_and_the_providers_limit_headers() {
         let claude = rig.post("/v1/messages", claude_request(false)).await;
         assert_eq!(claude.headers()["anthropic-ratelimit-requests-remaining"], "99");
         assert_eq!(claude.headers()["request-id"], "req_a1");
+    });
+}
+
+// ---------- Review FR-01: a client's connection list ----------
+
+#[test]
+fn a_restricted_client_never_reaches_a_connection_outside_its_list() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.allow_paid_retries(1);
+        rig.combo("private", &[("main", "limited"), ("backup", "steady")]);
+        // Client A may use Main only; client B may use Main and Backup.
+        rig.shared.with_db(|db| store::set_client_connections(db, &rig.client_id, Some(&["main".to_string()]))).unwrap();
+        let (b, b_token) = rig.shared.with_db(|db| store::create_client(db, "Vetted", None)).unwrap();
+        rig.shared.with_db(|db| store::set_client_connections(db, &b.id, Some(&["main".to_string(), "backup".to_string()])))
+            .unwrap();
+
+        let a = rig.post("/v1/chat/completions", json!({ "model": "private",
+            "messages": [{ "role": "user", "content": "secret-prompt-text" }] })).await;
+        assert_eq!(a.status(), 429, "Main's refusal is returned; Backup is never tried");
+        assert!(!a.text().await.unwrap().contains("secret-prompt-text"), "no prompt in the diagnostics");
+        assert_eq!(rig.fake.count("steady"), 0);
+
+        // A session pin cannot route A there either.
+        rig.shared.with_db(|db| store::pin(db, &rig.client_id, "s-a", "private",
+            &Target { provider_id: "backup".into(), model_id: "steady".into() })).unwrap();
+        rig.post_session("/v1/chat/completions", "s-a", chat("private")).await;
+        assert_eq!(rig.fake.count("steady"), 0);
+        // Nor a direct request, and the refusal says why.
+        let direct = rig.post("/v1/chat/completions", chat("backup/steady")).await;
+        assert_eq!(direct.status(), 502);
+        assert!(direct.text().await.unwrap().contains("not allowed to use Backup"));
+        assert_eq!(rig.fake.count("steady"), 0);
+
+        // B falls back as the combo says (Main is cooling down, so B goes straight to Backup).
+        let vetted = rig.http.post(format!("{}/v1/chat/completions", rig.base)).bearer_auth(&b_token).json(&chat("private"))
+            .send().await.unwrap();
+        assert_eq!(vetted.headers()["x-smarttaskrouter-route"], "backup/steady");
+
+        // The model list shows A only what it may use.
+        let models: Value = rig.http.get(format!("{}/v1/models", rig.base)).bearer_auth(&rig.token).send().await.unwrap()
+            .json().await.unwrap();
+        let ids: Vec<&str> = models["data"].as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).collect();
+        assert!(ids.iter().any(|id| id.starts_with("main/")) && !ids.iter().any(|id| id.starts_with("claude/")));
+
+        // An empty list allows nothing.
+        rig.shared.with_db(|db| store::set_client_connections(db, &rig.client_id, Some(&[]))).unwrap();
+        assert_eq!(rig.post("/v1/chat/completions", chat("main/fast")).await.status(), 502);
+        assert_eq!(rig.fake.count("fast"), 0);
+    });
+}
+
+// ---------- Review FR-02: no paid retry by default ----------
+
+#[test]
+fn a_server_error_stops_by_default_and_retries_only_when_the_client_allows_it() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.combo("overloaded", &[("main", "broke"), ("backup", "steady")]);
+        let stopped = rig.post("/v1/chat/completions", chat("overloaded")).await;
+        assert_eq!(stopped.status(), 500, "the provider's own error is returned");
+        assert_eq!(rig.fake.count("steady"), 0, "no second provider was charged");
+        let event = rig.ledger().pop().unwrap();
+        assert_eq!((event.outcome.as_str(), event.cost_status.as_str()), ("error", "unknown"));
+
+        // Opted in: one retry is allowed, and both attempts are in the ledger.
+        rig.shared.with_db(|db| store::clear_health(db, "main")).unwrap();
+        rig.allow_paid_retries(1);
+        let retried = rig.post("/v1/chat/completions", chat("overloaded")).await;
+        assert_eq!(retried.headers()["x-smarttaskrouter-route"], "backup/steady");
+        let outcomes: Vec<String> = rig.ledger().into_iter().rev().take(2).map(|e| e.outcome).collect();
+        assert_eq!(outcomes, ["ok", "fallback"]);
+
+        // A failure on a free connection may move on without the opt-in: nothing was billed.
+        rig.allow_paid_retries(0);
+        rig.combo("free-first", &[("router", "broke"), ("backup", "steady")]);
+        let free = rig.post("/v1/chat/completions", chat("free-first")).await;
+        assert_eq!(free.headers()["x-smarttaskrouter-route"], "backup/steady");
+    });
+}
+
+// ---------- Review FR-03: no paid admission while a settlement waits ----------
+
+#[test]
+fn a_settlement_that_cannot_be_written_holds_paid_requests_until_it_is() {
+    rt().block_on(async {
+        let rig = rig().await;
+        // The store turns read-only while the answer is on its way, so its ledger entry cannot be written.
+        let (answer, _) = tokio::join!(rig.post("/v1/chat/completions", chat("main/slow-ok")), async {
+            tokio::time::sleep(Duration::from_millis(120)).await;
+            rig.shared.with_db(|db| db.execute_batch("PRAGMA query_only = ON")).unwrap();
+        });
+        assert_eq!(answer.status(), 200, "the client still gets its answer");
+        assert_eq!(rig.shared.pending_settlements(), 1);
+        let health: Value = rig.http.get(format!("{}/health", rig.base)).send().await.unwrap().json().await.unwrap();
+        assert_eq!(health["accounting"], "degraded");
+
+        // No paid request is sent while it waits.
+        let held = rig.post("/v1/chat/completions", chat("main/fast")).await;
+        assert_eq!(held.status(), 503);
+        assert!(held.text().await.unwrap().contains("wait until the usage ledger"));
+        assert_eq!(rig.fake.count("fast"), 0);
+
+        // Once the store accepts writes, the entry is written exactly as it was, once, and requests flow again.
+        rig.shared.with_db(|db| db.execute_batch("PRAGMA query_only = OFF")).unwrap();
+        assert_eq!(rig.post("/v1/chat/completions", chat("main/fast")).await.status(), 200);
+        assert_eq!(rig.shared.pending_settlements(), 0);
+        let ledger = rig.ledger();
+        let slow: Vec<_> = ledger.iter().filter(|e| e.model == "slow-ok").collect();
+        assert_eq!(slow.len(), 1);
+        assert_eq!((slow[0].outcome.as_str(), slow[0].cost_micro_usd), ("ok", Some(300)));
+        assert_eq!(rig.journal_len(), 0);
+        let health: Value = rig.http.get(format!("{}/health", rig.base)).send().await.unwrap().json().await.unwrap();
+        assert_eq!(health["accounting"], "ok");
     });
 }

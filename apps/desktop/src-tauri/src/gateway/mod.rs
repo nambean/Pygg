@@ -78,8 +78,19 @@ pub struct Shared {
     pub signatures: Arc<Mutex<signatures::SignatureCache>>,
     /// Requests in flight per client id.
     inflight: Arc<Mutex<HashMap<String, u32>>>,
-    /// Why the last settlement could not be written, until one succeeds again (counter-review CR-06).
-    accounting: Arc<Mutex<Option<String>>>,
+    /// Ledger health (counter-review CR-06, review FR-03).
+    accounting: Arc<Mutex<Accounting>>,
+}
+
+/// What the ledger is waiting for. While any settlement is pending, no paid request is admitted.
+#[derive(Default)]
+struct Accounting {
+    /// Why the last journal entry could not be written; cleared by the next one that is.
+    journal_error: Option<String>,
+    /// Attempts whose ledger entry could not be written, by attempt id, with the entry and the error. Each one
+    /// still has its journal entry in the store, so a crash turns it into an interrupted entry; otherwise it is
+    /// settled exactly as it would have been once the store accepts it.
+    pending: HashMap<String, (store::PendingUsage, String)>,
 }
 
 impl Shared {
@@ -99,15 +110,43 @@ impl Shared {
         Shared { db, secrets, http, signatures: Arc::default(), inflight: Arc::default(), accounting: Arc::default() }
     }
 
-    /// Why the ledger could not be written last time, while that is still the latest outcome. Attempts are
-    /// journaled before they are sent and nothing is sent when the journal cannot be written, so this means
-    /// an entry is waiting to be settled, not that spend went unrecorded.
-    pub fn accounting_error(&self) -> Option<String> {
-        self.accounting.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    fn accounting(&self) -> std::sync::MutexGuard<'_, Accounting> {
+        self.accounting.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    fn set_accounting(&self, error: Option<String>) {
-        *self.accounting.lock().unwrap_or_else(|p| p.into_inner()) = error;
+    /// Why the ledger is degraded, if it is: settlements waiting for the store, or a journal entry that could
+    /// not be written. Attempts are journaled before they are sent, so this never means spend went unrecorded.
+    pub fn accounting_error(&self) -> Option<String> {
+        let a = self.accounting();
+        if let Some((_, error)) = a.pending.values().next() {
+            return Some(format!("{} usage {} waiting to be written: {error}", a.pending.len(),
+                if a.pending.len() == 1 { "entry is" } else { "entries are" }));
+        }
+        a.journal_error.clone()
+    }
+
+    fn set_journal_error(&self, error: Option<String>) {
+        self.accounting().journal_error = error;
+    }
+
+    /// Settlements still waiting for the store.
+    pub fn pending_settlements(&self) -> usize {
+        self.accounting().pending.len()
+    }
+
+    /// Tries the waiting settlements again, each exactly as it would have been written. A journal entry already
+    /// turned into an interrupted entry (by another process at start) is not written twice.
+    pub fn recover_accounting(&self) {
+        let waiting: Vec<(String, store::PendingUsage)> =
+            self.accounting().pending.iter().map(|(id, (usage, _))| (id.clone(), usage.clone())).collect();
+        for (id, usage) in waiting {
+            let settled = self.with_db(|db| store::settle(db, &id, &usage.record()));
+            let mut a = self.accounting();
+            match settled {
+                Ok(()) => { a.pending.remove(&id); }
+                Err(e) => { if let Some(entry) = a.pending.get_mut(&id) { entry.1 = e; } }
+            }
+        }
     }
 
     /// Runs `f` with the database. Never held across an await.
@@ -165,7 +204,6 @@ impl Attempt {
             match shared.with_db(|db| store::settle(db, &self.id, record)) {
                 Ok(()) => {
                     self.settled = true;
-                    shared.set_accounting(None);
                     return;
                 }
                 Err(e) => error = Some(e),
@@ -173,8 +211,9 @@ impl Attempt {
         }
         let error = error.unwrap_or_default();
         eprintln!("gateway: could not write the ledger entry for attempt {}: {error}", self.id);
-        shared.set_accounting(Some(error));
-        // Not settled: dropping it tries once more to record it as interrupted.
+        // Kept with its exact figures and retried before every request; paid requests wait until it is written.
+        shared.accounting().pending.insert(self.id.clone(), (store::PendingUsage::of(record), error));
+        self.settled = true;
     }
 }
 
@@ -348,9 +387,10 @@ pub fn session_key(headers: &HeaderMap) -> Option<String> {
 }
 
 async fn list_models(State(shared): State<Shared>, headers: HeaderMap) -> Response {
-    if let Err(refusal) = authenticate(&shared, &headers) {
-        return refusal.openai();
-    }
+    let client = match authenticate(&shared, &headers) {
+        Ok(client) => client,
+        Err(refusal) => return refusal.openai(),
+    };
     let listed = shared.with_db(|db| -> store::Result<Vec<Value>> {
         let mut data: Vec<Value> = store::list_combos(db)?
             .into_iter()
@@ -359,7 +399,7 @@ async fn list_models(State(shared): State<Shared>, headers: HeaderMap) -> Respon
         let providers = store::list_providers(db)?;
         for model in store::list_models(db, None)? {
             let enabled = providers.iter().any(|p| p.id == model.provider_id && p.enabled);
-            if model.enabled && enabled {
+            if model.enabled && enabled && client.may_use(&model.provider_id) {
                 data.push(json!({ "id": format!("{}/{}", model.provider_id, model.model_id), "object": "model",
                     "created": 0, "owned_by": model.provider_id }));
             }
@@ -467,6 +507,9 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         return Err(Refusal { retry_after: Some(1), ..Refusal::new(StatusCode::TOO_MANY_REQUESTS, "rate_limit_error",
             format!("Client \"{}\" already has {} requests in flight, its limit.", client.name, client.max_concurrency)) });
     };
+    if shared.pending_settlements() > 0 {
+        shared.recover_accounting();
+    }
     let requested = incoming.requested;
     let mut targets = shared.with_db(|db| store::resolve(db, requested))
         .map_err(|e| Refusal::new(StatusCode::INTERNAL_SERVER_ERROR, "api_error", e))?;
@@ -496,10 +539,20 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
     let mut blocked_groups: HashMap<String, String> = HashMap::new();
     let mut retry_at: Option<i64> = None;
     let has_limit = client.monthly_budget_micro_usd.is_some();
+    // Further targets this client allows after a failure the provider may have billed (review FR-02).
+    let mut paid_retries_left = client.paid_retries;
+    let mut accounting_held = false;
 
     for (index, (provider, model_id)) in targets.into_iter().enumerate() {
         let outcome_if_failed = if index + 1 < count { "fallback" } else { "error" };
         let name = format!("{}/{model_id}", provider.id);
+
+        // A client restricted to some connections never reaches another one, whatever the combo, the session
+        // pin or a fallback says (review FR-01).
+        if !client.may_use(&provider.id) {
+            skipped.push(format!("{name}: this client is not allowed to use {}", provider.label));
+            continue;
+        }
 
         // Which mode would carry this request to this target, if any.
         let mode = match (incoming.surface, provider.wire.as_str()) {
@@ -543,19 +596,29 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         } else {
             0
         };
+        // While a ledger entry waits to be written, nothing that costs money is sent (review FR-03).
+        if !is_free(&billing) && shared.pending_settlements() > 0 {
+            accounting_held = true;
+            skipped.push(format!("{name}: paid requests wait until the usage ledger can be written ({})",
+                shared.accounting_error().unwrap_or_default()));
+            continue;
+        }
         // Journaled before anything is sent (counter-review CR-06); nothing is sent that the ledger could not
         // account for.
         let start = store::AttemptStart { client_id: &client.id, provider_id: &provider.id, model_id: &model_id,
             requested_model: requested, session_key: incoming.session, route_mode: mode.label(), hold_micro: hold };
         let journal = match shared.with_db(|db| store::open_attempt(db, &start)) {
-            Ok(Ok(id)) => Attempt { db: shared.db.clone(), id, settled: false },
+            Ok(Ok(id)) => {
+                shared.set_journal_error(None);
+                Attempt { db: shared.db.clone(), id, settled: false }
+            }
             Ok(Err(over)) => {
                 skipped.push(format!("{name}: up to ${:.4} (estimated) would pass the monthly limit (${:.2} counted, ${:.2} held, ${:.2} limit)",
                     over.wanted as f64 / 1e6, over.spent as f64 / 1e6, over.reserved as f64 / 1e6, over.budget as f64 / 1e6));
                 continue;
             }
             Err(e) => {
-                shared.set_accounting(Some(e.clone()));
+                shared.set_journal_error(Some(e.clone()));
                 return Err(Refusal::new(StatusCode::SERVICE_UNAVAILABLE, "api_error",
                     format!("The usage ledger cannot be written ({e}), so nothing was sent.")));
             }
@@ -668,7 +731,19 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 let detail = crate::redact::redact(&upstream_message(&bytes), &secrets);
                 let message = format!("{} answered HTTP {}: {detail}", provider.label, status.as_u16());
                 let decision = apply(&Failure::Http(error), &message, &provider);
-                let next = decision.next;
+                let mut next = decision.next;
+                let mut message = message;
+                // A failure the provider may have billed (a 5xx) moves on to another target only if this client
+                // opted into paid retries; by default a possible double charge stops here (review FR-02).
+                if decision.maybe_billed && next != Next::Stop && !is_free(&billing) && index + 1 < count {
+                    if paid_retries_left == 0 {
+                        next = Next::Stop;
+                        message = format!("{message}. The provider may have billed this request, so no other model was \
+                            tried; this client allows no retry after a server error.");
+                    } else {
+                        paid_retries_left -= 1;
+                    }
+                }
                 let cost = if decision.maybe_billed {
                     Cost::Unknown { source: format!("HTTP {}: the provider may have run the request", status.as_u16()) }
                 } else {
@@ -698,7 +773,9 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
     }
     let wait = retry_at.map(|at| ((at - db_now()).max(1000) as u64).div_ceil(1000));
     let over_budget = skipped.iter().any(|s| s.contains("monthly limit") || s.contains("spending limit"));
-    let (status, kind) = if over_budget {
+    let (status, kind) = if accounting_held {
+        (StatusCode::SERVICE_UNAVAILABLE, "api_error")
+    } else if over_budget {
         (StatusCode::TOO_MANY_REQUESTS, "budget_exceeded")
     } else if wait.is_some() {
         (StatusCode::TOO_MANY_REQUESTS, "rate_limit_error")

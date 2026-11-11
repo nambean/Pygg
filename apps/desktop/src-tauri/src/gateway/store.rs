@@ -285,12 +285,22 @@ pub struct Client {
     /// Attempts this month that may have been charged but whose cost is unknown, counted at the amount held
     /// for them (counter-review CR-03). Part of what the limit is checked against.
     pub month_at_risk_micro_usd: u64,
+    /// The connections this client may send requests to; `None` for every connection (review FR-01).
+    pub allowed_connections: Option<Vec<String>>,
+    /// Further targets that may be tried after a failure the provider may have billed (review FR-02).
+    pub paid_retries: u32,
 }
 
 impl Client {
     /// What the monthly limit is checked against: known spend plus spend at risk.
     pub fn counted_micro_usd(&self) -> u64 {
         self.month_spend_micro_usd + self.month_at_risk_micro_usd
+    }
+
+    /// Whether this client may send a request to the connection. Fails closed: a restricted client may use only
+    /// the connections it names.
+    pub fn may_use(&self, provider_id: &str) -> bool {
+        self.allowed_connections.as_ref().is_none_or(|list| list.iter().any(|id| id == provider_id))
     }
 }
 
@@ -341,11 +351,15 @@ fn client_row(conn: &Connection, row: &rusqlite::Row) -> rusqlite::Result<Client
         unknown_cost_policy: row.get(8)?,
         reserved_micro_usd: reserved.max(0) as u64,
         month_at_risk_micro_usd: at_risk.max(0) as u64,
+        // A list that cannot be read allows nothing, rather than everything.
+        allowed_connections: row.get::<_, Option<String>>(9)?
+            .map(|json| serde_json::from_str::<Vec<String>>(&json).unwrap_or_default()),
+        paid_retries: row.get::<_, i64>(10)?.clamp(0, 5) as u32,
     })
 }
 
-const CLIENT_COLUMNS: &str =
-    "id, name, token_prefix, monthly_budget_micro_usd, created_at, last_used_at, revoked_at, max_concurrency, unknown_cost_policy";
+const CLIENT_COLUMNS: &str = "id, name, token_prefix, monthly_budget_micro_usd, created_at, last_used_at, revoked_at, \
+    max_concurrency, unknown_cost_policy, allowed_connections, paid_retries";
 
 pub fn list_clients(conn: &Connection) -> Result<Vec<Client>> {
     let mut stmt = conn
@@ -401,6 +415,21 @@ pub fn set_client_policy(conn: &Connection, id: &str, max_concurrency: Option<u3
         conn.execute("UPDATE gateway_clients SET unknown_cost_policy = ?2 WHERE id = ?1", params![id, policy]).map_err(err)?;
     }
     Ok(())
+}
+
+/// Restricts a client to some connections (`Some`, possibly empty) or lets it use all of them (`None`).
+pub fn set_client_connections(conn: &Connection, id: &str, allowed: Option<&[String]>) -> Result<()> {
+    let json = allowed.map(|list| serde_json::to_string(list).unwrap_or_else(|_| "[]".into()));
+    conn.execute("UPDATE gateway_clients SET allowed_connections = ?2 WHERE id = ?1", params![id, json])
+        .map(|_| ()).map_err(err)
+}
+
+pub fn set_client_paid_retries(conn: &Connection, id: &str, retries: u32) -> Result<()> {
+    if retries > 5 {
+        return Err("Allow from 0 to 5 retries after a server error".into());
+    }
+    conn.execute("UPDATE gateway_clients SET paid_retries = ?2 WHERE id = ?1", params![id, retries])
+        .map(|_| ()).map_err(err)
 }
 
 // ---------- Budget reservations (ROADMAP P0-3) ----------
@@ -792,6 +821,48 @@ impl<'a> UsageRecord<'a> {
         UsageRecord { client_id: Some(client_id), provider_id, model_id, requested_model, input_tokens: None,
             output_tokens: None, cache_tokens: None, cost, outcome, http_status, latency_ms, error: Some(error),
             cache_write_tokens: None, session_key: None, route_mode: None }
+    }
+}
+
+/// A `UsageRecord` that owns its fields, kept in memory while its settlement waits for the store (review FR-03).
+#[derive(Clone, Debug)]
+pub struct PendingUsage {
+    client_id: Option<String>,
+    provider_id: String,
+    model_id: String,
+    requested_model: String,
+    input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
+    cache_tokens: Option<u64>,
+    cost: Cost,
+    outcome: String,
+    http_status: Option<u16>,
+    latency_ms: u64,
+    error: Option<String>,
+    cache_write_tokens: Option<u64>,
+    session_key: Option<String>,
+    route_mode: Option<String>,
+}
+
+impl PendingUsage {
+    pub fn of(r: &UsageRecord) -> PendingUsage {
+        PendingUsage {
+            client_id: r.client_id.map(String::from), provider_id: r.provider_id.into(), model_id: r.model_id.into(),
+            requested_model: r.requested_model.into(), input_tokens: r.input_tokens, output_tokens: r.output_tokens,
+            cache_tokens: r.cache_tokens, cost: r.cost.clone(), outcome: r.outcome.into(), http_status: r.http_status,
+            latency_ms: r.latency_ms, error: r.error.map(String::from), cache_write_tokens: r.cache_write_tokens,
+            session_key: r.session_key.map(String::from), route_mode: r.route_mode.map(String::from),
+        }
+    }
+
+    pub fn record(&self) -> UsageRecord<'_> {
+        UsageRecord {
+            client_id: self.client_id.as_deref(), provider_id: &self.provider_id, model_id: &self.model_id,
+            requested_model: &self.requested_model, input_tokens: self.input_tokens, output_tokens: self.output_tokens,
+            cache_tokens: self.cache_tokens, cost: &self.cost, outcome: &self.outcome, http_status: self.http_status,
+            latency_ms: self.latency_ms, error: self.error.as_deref(), cache_write_tokens: self.cache_write_tokens,
+            session_key: self.session_key.as_deref(), route_mode: self.route_mode.as_deref(),
+        }
     }
 }
 

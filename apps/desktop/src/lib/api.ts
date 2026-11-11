@@ -54,6 +54,10 @@ export type Client = {
   maxConcurrency: number; unknownCostPolicy: 'block' | 'allow'; reservedMicroUsd: number;
   /** Spend that may have been charged but is unknown, counted at the amount held for it. */
   monthAtRiskMicroUsd: number;
+  /** null: every connection. */
+  allowedConnections: string[] | null;
+  /** Further targets tried after a server error the provider may have billed; 0 stops. */
+  paidRetries: number;
 };
 
 export type UsageGroup = {
@@ -106,7 +110,9 @@ export interface GatewayApi {
   createClient(name: string, monthlyBudgetUsd: number | null): Promise<{client: Client; token: string}>;
   revokeClient(id: string): Promise<void>;
   setClientBudget(id: string, monthlyBudgetUsd: number | null): Promise<void>;
-  setClientPolicy(id: string, policy: {maxConcurrency?: number; unknownCostPolicy?: 'block' | 'allow'}): Promise<void>;
+  setClientPolicy(id: string, policy: {maxConcurrency?: number; unknownCostPolicy?: 'block' | 'allow';
+    /** true with allowedConnections restricts the client; false lets it use every connection. */
+    restrictConnections?: boolean; allowedConnections?: string[]; paidRetries?: number}): Promise<void>;
   usage(days: number): Promise<UsageSummary>;
 }
 
