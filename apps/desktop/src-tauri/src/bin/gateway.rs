@@ -10,7 +10,8 @@
 //!   gateway [--db PATH] combo --name NAME --member CONNECTION/MODEL [--member …]
 //!   gateway [--db PATH] model --model CONNECTION/MODEL [--tier T0-T4] [--context N] [--max-output N]
 //!                             [--tools yes|no] [--vision yes|no] [--price-in USD] [--price-out USD] [--billing TYPE]
-//!   gateway [--db PATH] client --name NAME [--auto-min-tier T0-T4] [--paid-retries N] [--tasks yes|no]
+//!   gateway [--db PATH] client --name NAME [--auto-min-tier T0-T4] [--paid-retries N] [--tasks yes|no] [--no-training yes|no]
+//!   gateway [--db PATH] terms --id CONNECTION --terms no_training|may_train|unknown [--source WHERE]
 //!   gateway [--db PATH] auto --alias auto|auto/cheap [--client NAME] [--anthropic yes] [--tools yes] [--prompt N] [--max-tokens N]
 //!                             [--thinking adaptive|enabled] [--effort low|medium|high|xhigh|max]
 //!   gateway [--db PATH] list
@@ -176,6 +177,12 @@ async fn main() {
             }).unwrap_or_else(|e| fail(e));
             println!("Updated {target}");
         }
+        "terms" => {
+            let id = one("id").unwrap_or_else(|| fail("--id is required"));
+            let terms = one("terms").unwrap_or_else(|| fail("--terms is required"));
+            shared.with_db(|db| store::set_provider_terms(db, &id, &terms, one("source").as_deref())).unwrap_or_else(|e| fail(e));
+            println!("Recorded {id}: {terms}");
+        }
         "client" => {
             let name = one("name").unwrap_or_else(|| fail("--name is required"));
             let client = shared.with_db(store::list_clients).unwrap_or_else(|e| fail(e)).into_iter()
@@ -186,6 +193,7 @@ async fn main() {
                     store::set_client_paid_retries(db, &client.id, n.parse().map_err(|_| "bad --paid-retries".to_string())?)?;
                 }
                 if let Some(tasks) = one("tasks") { store::set_client_may_run_tasks(db, &client.id, tasks == "yes")?; }
+                if let Some(only) = one("no-training") { store::set_client_require_no_training(db, &client.id, only == "yes")?; }
                 Ok(())
             }).unwrap_or_else(|e| fail(e));
             println!("Updated client {name}");

@@ -112,13 +112,13 @@ export function demoApi(): GatewayApi {
     accountingError: null, finishing: false};
   const connections: Stored[] = [
     {id: 'gemini', kind: 'gemini', label: 'Gemini', endpoint: PRESETS[0].endpoint!, enabled: true, credentialRef: 'provider-demo1',
-      defaultBilling: 'unknown', dataUseTerms: 'unknown', createdAt: now - 6 * 86_400_000, key: true, wire: 'openai', separateQuota: false, quotaConfirmedAt: null},
+      defaultBilling: 'unknown', dataUseTerms: 'unknown', termsSource: null, termsCheckedAt: null, createdAt: now - 6 * 86_400_000, key: true, wire: 'openai', separateQuota: false, quotaConfirmedAt: null},
     {id: 'anthropic', kind: 'anthropic', label: 'Anthropic', endpoint: PRESETS[1].endpoint!, enabled: true, credentialRef: 'provider-demo3',
-      defaultBilling: 'paid', dataUseTerms: 'unknown', createdAt: now - 6 * 86_400_000, key: true, wire: 'anthropic', separateQuota: false, quotaConfirmedAt: null},
+      defaultBilling: 'paid', dataUseTerms: 'no_training', termsSource: 'anthropic.com/legal/commercial-terms (read 2026-11-10)', termsCheckedAt: now - 86_400_000, createdAt: now - 6 * 86_400_000, key: true, wire: 'anthropic', separateQuota: false, quotaConfirmedAt: null},
     {id: 'openrouter', kind: 'openrouter', label: 'OpenRouter', endpoint: PRESETS[1].endpoint!, enabled: true, credentialRef: 'provider-demo2',
-      defaultBilling: 'paid', dataUseTerms: 'unknown', createdAt: now - 5 * 86_400_000, key: true, wire: 'openai', separateQuota: false, quotaConfirmedAt: null},
+      defaultBilling: 'paid', dataUseTerms: 'unknown', termsSource: null, termsCheckedAt: null, createdAt: now - 5 * 86_400_000, key: true, wire: 'openai', separateQuota: false, quotaConfirmedAt: null},
     {id: 'ollama', kind: 'ollama', label: 'Ollama', endpoint: PRESETS[5].endpoint!, enabled: true, credentialRef: null,
-      defaultBilling: 'local', dataUseTerms: 'unknown', createdAt: now - 4 * 86_400_000, key: false, wire: 'openai', separateQuota: false, quotaConfirmedAt: null},
+      defaultBilling: 'local', dataUseTerms: 'unknown', termsSource: null, termsCheckedAt: null, createdAt: now - 4 * 86_400_000, key: false, wire: 'openai', separateQuota: false, quotaConfirmedAt: null},
   ];
   const UNKNOWN: Capabilities = {tier: null, contextTokens: null, maxOutputTokens: null, supportsTools: null, supportsVision: null,
     thinkingTypes: null, effortLevels: null, source: null, observedAt: null};
@@ -180,11 +180,11 @@ export function demoApi(): GatewayApi {
     {id: 'k1', name: 'Claude Code', tokenPrefix: 'str-3f9a1c0b', monthlyBudgetMicroUsd: 20_000_000, createdAt: now - 5 * 86_400_000,
       lastUsedAt: now - 4 * 60_000, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0,
       maxConcurrency: 8, unknownCostPolicy: 'block', reservedMicroUsd: 412_000, monthAtRiskMicroUsd: 0,
-      allowedConnections: ['anthropic', 'gemini'], paidRetries: 0, autoMinTier: 'T2', mayRunTasks: true},
+      allowedConnections: ['anthropic', 'gemini'], paidRetries: 0, autoMinTier: 'T2', mayRunTasks: true, requireNoTraining: false},
     {id: 'k2', name: 'Scripts', tokenPrefix: 'str-81d2e7aa', monthlyBudgetMicroUsd: null, createdAt: now - 3 * 86_400_000,
       lastUsedAt: now - 3 * 3_600_000, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0,
       maxConcurrency: 4, unknownCostPolicy: 'allow', reservedMicroUsd: 0, monthAtRiskMicroUsd: 0,
-      allowedConnections: null, paidRetries: 1, autoMinTier: 'T1', mayRunTasks: false},
+      allowedConnections: null, paidRetries: 1, autoMinTier: 'T1', mayRunTasks: false, requireNoTraining: false},
   ];
 
   // A day and a half of plausible traffic: mostly priced Flash-Lite, some fallbacks, some unknown costs.
@@ -366,7 +366,7 @@ export function demoApi(): GatewayApi {
       let id = slug(label), n = 2;
       while (connections.some(c => c.id === id)) id = `${slug(label)}-${n++}`;
       const stored: Stored = {id, kind: preset.id, label, endpoint, enabled: true, credentialRef: connection.apiKey ? `provider-${hex(8)}` : null,
-        defaultBilling: connection.billing, dataUseTerms: 'unknown', createdAt: Date.now(), key: !!connection.apiKey?.trim(),
+        defaultBilling: connection.billing, dataUseTerms: 'unknown', termsSource: null, termsCheckedAt: null, createdAt: Date.now(), key: !!connection.apiKey?.trim(),
         wire: preset.wire as Wire, separateQuota: false, quotaConfirmedAt: null};
       connections.push(stored);
       return view(stored);
@@ -390,6 +390,12 @@ export function demoApi(): GatewayApi {
     clearConnectionHealth: async id => {
       for (let i = health.length - 1; i >= 0; i--) if (health[i].providerId === id) health.splice(i, 1);
       return touch(view(find(id)));
+    },
+    setConnectionTerms: async (id, terms, source) => {
+      if (terms === 'no_training' && !source?.trim()) throw 'Say where the terms say so (a link to the provider’s policy, or the page and date you read)';
+      const c = find(id);
+      c.dataUseTerms = terms; c.termsSource = source?.trim() || null; c.termsCheckedAt = terms === 'unknown' ? null : Date.now();
+      return touch(view(c));
     },
     removeConnection: async id => {
       find(id);
@@ -461,7 +467,7 @@ export function demoApi(): GatewayApi {
         monthlyBudgetMicroUsd: monthlyBudgetUsd == null ? null : Math.round(monthlyBudgetUsd * 1_000_000), createdAt: Date.now(),
         lastUsedAt: null, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0,
         maxConcurrency: 8, unknownCostPolicy: 'block' as const, reservedMicroUsd: 0, monthAtRiskMicroUsd: 0,
-        allowedConnections: null as string[] | null, paidRetries: 0, autoMinTier: 'T2' as Tier, mayRunTasks: false};
+        allowedConnections: null as string[] | null, paidRetries: 0, autoMinTier: 'T2' as Tier, mayRunTasks: false, requireNoTraining: false};
       clients.push(client);
       return touch({client: clientView(client), token});
     },
@@ -482,6 +488,7 @@ export function demoApi(): GatewayApi {
       if (c && policy.paidRetries !== undefined) c.paidRetries = policy.paidRetries;
       if (c && policy.autoMinTier) c.autoMinTier = policy.autoMinTier;
       if (c && policy.mayRunTasks !== undefined) c.mayRunTasks = policy.mayRunTasks;
+      if (c && policy.requireNoTraining !== undefined) c.requireNoTraining = policy.requireNoTraining;
       await sleep(80);
     },
     agents: () => touch(DEMO_AGENTS),

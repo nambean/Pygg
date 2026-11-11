@@ -18,6 +18,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0010_approval_estimates.sql"),
     include_str!("../migrations/0011_task_budgets.sql"),
     include_str!("../migrations/0012_request_features.sql"),
+    include_str!("../migrations/0013_data_use_terms.sql"),
 ];
 
 pub const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;

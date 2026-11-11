@@ -20,7 +20,7 @@ export function AutoRouting() {
   const [vision, setVision] = useState(false);
   const [prompt, setPrompt] = useState('2000');
   const [maxTokens, setMaxTokens] = useState('');
-  const [thinking, setThinking] = useState<'adaptive' | 'enabled' | ''>('');
+  const [thinking, setThinking] = useState<'adaptive' | 'enabled' | 'disabled' | ''>('');
   const [effort, setEffort] = useState('');
   const [showExcluded, setShowExcluded] = useState(false);
   const inputTokens = /^\d+$/.test(prompt.trim()) ? Number(prompt) : 0;
@@ -63,9 +63,9 @@ export function AutoRouting() {
         <label className="inline-field">{t('Prompt tokens')}
           <input className="text-input narrow-input" inputMode="numeric" value={prompt} onChange={e => setPrompt(e.target.value)}/></label>
         {anthropic && <select className="popup-button" value={thinking} aria-label={t('Thinking')}
-          onChange={e => setThinking(e.target.value as 'adaptive' | 'enabled' | '')}>
-          <option value="">{t('No thinking')}</option><option value="adaptive">{t('Adaptive thinking')}</option>
-          <option value="enabled">{t('Thinking budget')}</option>
+          onChange={e => setThinking(e.target.value as 'adaptive' | 'enabled' | 'disabled' | '')}>
+          <option value="">{t('No thinking field')}</option><option value="adaptive">{t('Adaptive thinking')}</option>
+          <option value="enabled">{t('Thinking budget')}</option><option value="disabled">{t('Thinking disabled')}</option>
         </select>}
         {anthropic && <select className="popup-button" value={effort} aria-label={t('Effort')} onChange={e => setEffort(e.target.value)}>
           <option value="">{t('No effort')}</option>

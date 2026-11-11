@@ -579,8 +579,39 @@ export const gateway: Record<string, string> = {
   'Connections': 'Kết nối',
   'Requests from this client go only to the connections ticked here, whatever a combo or a fallback says. Use it to keep sensitive work with providers whose terms you have checked.':
     'Request của client này chỉ tới các kết nối được đánh dấu ở đây, bất kể combo hay fallback. Dùng để giữ việc nhạy cảm ở các nhà cung cấp mà bạn đã kiểm tra điều khoản.',
-  'Any connection of a combo may answer, including fallbacks to other providers. The gateway doesn’t check providers’ data-use terms.':
-    'Mọi kết nối trong combo đều có thể trả lời, kể cả khi fallback sang nhà cung cấp khác. Gateway không kiểm tra điều khoản dùng dữ liệu của nhà cung cấp.',
+  'Any connection of a combo may answer, including fallbacks to other providers.':
+    'Mọi kết nối trong combo đều có thể trả lời, kể cả khi fallback sang nhà cung cấp khác.',
+  // Data-use terms (review GW-10)
+  'only providers that do not train on its data': 'chỉ nhà cung cấp không huấn luyện trên dữ liệu của nó',
+  'Requests go only to connections whose terms you recorded as not training on requests, under Connections → Data use. Not recorded counts as may train.':
+    'Request chỉ đi tới các kết nối mà bạn đã ghi là không huấn luyện trên request, ở Connections → Dùng dữ liệu. Chưa ghi được coi là có thể huấn luyện.',
+  'Any connection may answer, whatever its terms say about training.': 'Mọi kết nối đều có thể trả lời, bất kể điều khoản nói gì về việc huấn luyện.',
+  'Only providers that do not train on requests': 'Chỉ nhà cung cấp không huấn luyện trên request',
+  'Not recorded: clients that require providers not to train on their data skip this connection. Check the provider’s terms and record them here.':
+    'Chưa ghi: client yêu cầu nhà cung cấp không huấn luyện trên dữ liệu sẽ bỏ qua kết nối này. Hãy đọc điều khoản của nhà cung cấp và ghi lại ở đây.',
+  'Recorded by you {when}. Pygg does not check it; a provider can change its terms.':
+    'Bạn đã ghi {when}. Pygg không kiểm tra điều này; nhà cung cấp có thể đổi điều khoản.',
+  'Not recorded': 'Chưa ghi',
+  'Does not train on requests': 'Không huấn luyện trên request',
+  'May train on requests': 'Có thể huấn luyện trên request',
+  'Where the terms say so: a link, or the page and date': 'Điều khoản nói ở đâu: một liên kết, hoặc trang và ngày đọc',
+  // Auto: thinking and effort (ROADMAP B1)
+  'adaptive thinking': 'adaptive thinking',
+  'Adaptive thinking': 'Adaptive thinking',
+  'Anthropic API only. Claude Code asks for it; a model that does not take it answers 400, so auto skips it unless this says Supported.':
+    'Chỉ với API Anthropic. Claude Code yêu cầu tính năng này; model không hỗ trợ sẽ trả lỗi 400, nên auto bỏ qua trừ khi ở đây ghi Hỗ trợ.',
+  'Effort levels': 'Các mức effort',
+  'Anthropic API only: the levels it takes, e.g. low, medium, high, xhigh, max; “none” when it takes no effort setting. Empty is unknown.':
+    'Chỉ với API Anthropic: các mức model nhận, ví dụ low, medium, high, xhigh, max; ghi “none” nếu không nhận effort. Để trống là chưa rõ.',
+  'Thinking': 'Thinking',
+  'No thinking field': 'Không có trường thinking',
+  'Thinking budget': 'Ngân sách thinking',
+  'Thinking disabled': 'Tắt thinking',
+  'Effort': 'Effort',
+  'No effort': 'Không có effort',
+  'Effort: {level}': 'Effort: {level}',
+  'An Anthropic request that asks for thinking or an effort level goes only to Anthropic-API models known to take it; their model list says so (Connections → Refresh). Claude Code asks for adaptive thinking.':
+    'Request Anthropic có yêu cầu thinking hoặc mức effort chỉ đi tới model API Anthropic đã biết là nhận nó; danh sách model của họ cho biết điều này (Connections → Refresh). Claude Code yêu cầu adaptive thinking.',
   'All connections': 'Mọi kết nối',
   'Only selected': 'Chỉ kết nối đã chọn',
   'Allowed connections': 'Kết nối được phép',

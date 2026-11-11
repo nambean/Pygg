@@ -28,7 +28,11 @@ pub struct Provider {
     pub enabled: bool,
     pub credential_ref: Option<String>,
     pub default_billing: String,
+    /// `no_training`, `may_train` or `unknown`: what the provider's terms say about training on what is sent. The
+    /// user's record, with where it was checked; Pygg does not verify it.
     pub data_use_terms: String,
+    pub terms_source: Option<String>,
+    pub terms_checked_at: Option<i64>,
     pub created_at: i64,
     /// `openai` or `anthropic`: the API this connection speaks.
     pub wire: String,
@@ -44,7 +48,7 @@ pub struct Provider {
 
 const PROVIDER_COLUMNS: &str =
     "id, kind, account_label, COALESCE(endpoint, ''), enabled, credential_ref, default_billing, data_use_terms, created_at, \
-     wire, COALESCE(quota_group, kind), quota_group IS NOT NULL, quota_confirmed_at";
+     wire, COALESCE(quota_group, kind), quota_group IS NOT NULL, quota_confirmed_at, terms_source, terms_checked_at";
 
 fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
     let kind: String = row.get(1)?;
@@ -61,6 +65,8 @@ fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
         credential_ref: row.get(5)?,
         default_billing: row.get(6)?,
         data_use_terms: row.get(7)?,
+        terms_source: row.get(13)?,
+        terms_checked_at: row.get(14)?,
         created_at: row.get(8)?,
         wire: row.get(9)?,
         quota_group,
@@ -419,6 +425,8 @@ pub struct Client {
     pub auto_min_tier: String,
     /// Whether it may start smart tasks through the gateway's task API (off until the user allows it).
     pub may_run_tasks: bool,
+    /// Only connections whose recorded terms say the provider does not train on what is sent (review GW-10).
+    pub require_no_training: bool,
 }
 
 impl Client {
@@ -429,6 +437,19 @@ impl Client {
 
     /// Whether this client may send a request to the connection. Fails closed: a restricted client may use only
     /// the connections it names.
+    /// Whether this client may send a request to the connection, and why not: its connection list, then the data-use
+    /// terms it requires (review GW-10). Fails closed: unknown terms count as may-train.
+    pub fn allows(&self, provider: &Provider) -> std::result::Result<(), String> {
+        if !self.may_use(&provider.id) {
+            return Err(format!("this client may not use {}", provider.label));
+        }
+        if self.require_no_training && provider.data_use_terms != "no_training" {
+            return Err(format!("this client sends only to providers that do not train on its data, and {}'s terms are {}",
+                provider.label, if provider.data_use_terms == "may_train" { "that it may" } else { "not recorded" }));
+        }
+        Ok(())
+    }
+
     pub fn may_use(&self, provider_id: &str) -> bool {
         self.allowed_connections.as_ref().is_none_or(|list| list.iter().any(|id| id == provider_id))
     }
@@ -487,11 +508,12 @@ fn client_row(conn: &Connection, row: &rusqlite::Row) -> rusqlite::Result<Client
         paid_retries: row.get::<_, i64>(10)?.clamp(0, 5) as u32,
         auto_min_tier: row.get(11)?,
         may_run_tasks: row.get(12)?,
+        require_no_training: row.get(13)?,
     })
 }
 
 const CLIENT_COLUMNS: &str = "id, name, token_prefix, monthly_budget_micro_usd, created_at, last_used_at, revoked_at, \
-    max_concurrency, unknown_cost_policy, allowed_connections, paid_retries, auto_min_tier, may_run_tasks";
+    max_concurrency, unknown_cost_policy, allowed_connections, paid_retries, auto_min_tier, may_run_tasks, require_no_training";
 
 pub fn list_clients(conn: &Connection) -> Result<Vec<Client>> {
     let mut stmt = conn
@@ -569,6 +591,29 @@ pub fn set_client_paid_retries(conn: &Connection, id: &str, retries: u32) -> Res
     }
     conn.execute("UPDATE gateway_clients SET paid_retries = ?2 WHERE id = ?1", params![id, retries])
         .map(|_| ()).map_err(err)
+}
+
+pub fn set_client_require_no_training(conn: &Connection, id: &str, required: bool) -> Result<()> {
+    conn.execute("UPDATE gateway_clients SET require_no_training = ?2 WHERE id = ?1", params![id, required]).map(|_| ()).map_err(err)
+}
+
+/// Records what a provider's terms say about training on what is sent, and where the user read it. `no_training`
+/// needs a source: it is what lets a client limited to such providers send there.
+pub fn set_provider_terms(conn: &Connection, id: &str, terms: &str, source: Option<&str>) -> Result<()> {
+    if !matches!(terms, "no_training" | "may_train" | "unknown") {
+        return Err(format!("unknown terms {terms}"));
+    }
+    let source = source.map(str::trim).filter(|s| !s.is_empty());
+    if terms == "no_training" && source.is_none() {
+        return Err("Say where the terms say so (a link to the provider's policy, or the page and date you read)".into());
+    }
+    let changed = conn.execute(
+        "UPDATE providers SET data_use_terms = ?2, terms_source = ?3, terms_checked_at = CASE WHEN ?2 = 'unknown' THEN NULL ELSE ?4 END WHERE id = ?1",
+        params![id, terms, source, now_ms()]).map_err(err)?;
+    if changed == 0 {
+        return Err("That connection no longer exists".into());
+    }
+    Ok(())
 }
 
 pub fn set_client_may_run_tasks(conn: &Connection, id: &str, allowed: bool) -> Result<()> {

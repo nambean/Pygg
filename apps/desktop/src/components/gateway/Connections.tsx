@@ -233,10 +233,7 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
           </select>
         </span>
       </div>
-      <div className="group-row">
-        <span className="group-label">{t('Data use')}<small>{t('Whether the provider may train on your requests. Check its terms; the app doesn’t know yet.')}</small></span>
-        <span className="group-control value">{t('Unknown')}</span>
-      </div>
+      <TermsRow connection={c}/>
       <div className="group-row">
         <span className="group-label">{t('Model names')}<small>{t('Clients ask for a model of this connection by this name.')}</small></span>
         <span className="group-control value mono selectable">{c.id}/&lt;model&gt;</span>
@@ -650,4 +647,41 @@ function MoneyInput({id, value, onChange, autoFocus}: {id: string; value: string
       aria-invalid={invalid} placeholder="0.00"/>
     <span className="secondary" aria-hidden>{t('/ 1M tokens')}</span>
   </span>;
+}
+
+type Terms = 'no_training' | 'may_train' | 'unknown';
+
+/**
+ * What the provider's terms say about training on what is sent (review GW-10): the user's record, with where they
+ * read it. A client limited to providers that do not train on its data reaches only connections recorded so.
+ */
+function TermsRow({connection: c}: {connection: Connection}) {
+  const [terms, setTerms] = useState<Terms>((c.dataUseTerms as Terms) ?? 'unknown');
+  const [source, setSource] = useState(c.termsSource ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const changed = terms !== c.dataUseTerms || source.trim() !== (c.termsSource ?? '');
+  const save = () => {
+    setBusy(true);
+    setError(null);
+    call(api => api.setConnectionTerms(c.id, terms, source.trim() || null))
+      .then(() => { setBusy(false); gatewayChanged(); }, e => { setError(errorText(e)); setBusy(false); });
+  };
+  return <div className="group-row stacked terms-row">
+    <span className="group-label">{t('Data use')}
+      <small>{c.dataUseTerms === 'unknown'
+        ? t('Not recorded: clients that require providers not to train on their data skip this connection. Check the provider’s terms and record them here.')
+        : t('Recorded by you {when}. Pygg does not check it; a provider can change its terms.', {when: c.termsCheckedAt ? ago(c.termsCheckedAt) : ''})}</small></span>
+    <span className="group-control terms-control">
+      <select className="popup-button" value={terms} onChange={e => setTerms(e.target.value as Terms)} aria-label={t('Data use')} disabled={busy}>
+        <option value="unknown">{t('Not recorded')}</option>
+        <option value="no_training">{t('Does not train on requests')}</option>
+        <option value="may_train">{t('May train on requests')}</option>
+      </select>
+      {terms !== 'unknown' && <input className="text-input" value={source} onChange={e => setSource(e.target.value)} disabled={busy}
+        placeholder={t('Where the terms say so: a link, or the page and date')} aria-label={t('Source')}/>}
+      {changed && <button type="button" className="button" onClick={save} disabled={busy}>{t('Save')}</button>}
+    </span>
+    {error && <ErrorNote>{error}</ErrorNote>}
+  </div>;
 }

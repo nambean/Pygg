@@ -892,7 +892,7 @@ fn a_restricted_client_never_reaches_a_connection_outside_its_list() {
         // Nor a direct request, and the refusal says why.
         let direct = rig.post("/v1/chat/completions", chat("backup/steady")).await;
         assert_eq!(direct.status(), 502);
-        assert!(direct.text().await.unwrap().contains("not allowed to use Backup"));
+        assert!(direct.text().await.unwrap().contains("may not use Backup"));
         assert_eq!(rig.fake.count("steady"), 0);
 
         // B falls back as the combo says (Main is cooling down, so B goes straight to Backup).
@@ -910,6 +910,43 @@ fn a_restricted_client_never_reaches_a_connection_outside_its_list() {
         rig.shared.with_db(|db| store::set_client_connections(db, &rig.client_id, Some(&[]))).unwrap();
         assert_eq!(rig.post("/v1/chat/completions", chat("main/fast")).await.status(), 502);
         assert_eq!(rig.fake.count("fast"), 0);
+    });
+}
+
+// ---------- Review GW-10: data-use terms ----------
+
+#[test]
+fn a_client_that_requires_no_training_reaches_only_connections_recorded_so() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.combo("careful", &[("main", "fast"), ("backup", "steady")]);
+        assert!(rig.shared.with_db(|db| store::set_provider_terms(db, "backup", "no_training", None)).is_err(),
+            "no_training needs a source");
+        rig.shared.with_db(|db| store::set_provider_terms(db, "backup", "no_training", Some("https://example.test/terms, 2026-11-11")))
+            .unwrap();
+        rig.shared.with_db(|db| store::set_provider_terms(db, "router", "may_train", Some("its policy page"))).unwrap();
+        rig.shared.with_db(|db| store::set_client_require_no_training(db, &rig.client_id, true)).unwrap();
+
+        // Main's terms are not recorded, so it counts as may-train: the combo goes straight to Backup.
+        let answer = rig.post("/v1/chat/completions", chat("careful")).await;
+        assert_eq!(answer.headers()["x-smarttaskrouter-route"], "backup/steady");
+        assert_eq!(rig.fake.count("fast"), 0);
+        // A direct request to Main is refused, and says why.
+        let direct = rig.post("/v1/chat/completions", chat("main/fast")).await;
+        assert_eq!(direct.status(), 502);
+        assert!(direct.text().await.unwrap().contains("do not train on its data, and Main's terms are not recorded"));
+        // auto leaves them out with the same reason.
+        let client = rig.shared.with_db(store::list_clients).unwrap().into_iter().find(|c| c.id == rig.client_id).unwrap();
+        let plan = rig.shared.with_db(|db| auto::plan(db, &client, "auto/cheap", auto::Strategy::Cheap,
+            &auto::Needs { input_tokens: 100, ..auto::Needs::default() })).unwrap();
+        assert!(plan.excluded.iter().filter(|e| e.provider_id == "router").all(|e| e.reason.contains("terms are that it may")));
+        // The model list shows only Backup.
+        let models: Value = rig.http.get(format!("{}/v1/models", rig.base)).bearer_auth(&rig.token).send().await.unwrap()
+            .json().await.unwrap();
+        let ids: Vec<&str> = models["data"].as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).collect();
+        assert!(!ids.iter().any(|id| id.starts_with("main/")), "{ids:?}");
+        let provider = rig.shared.with_db(store::list_providers).unwrap().into_iter().find(|p| p.id == "backup").unwrap();
+        assert_eq!((provider.data_use_terms.as_str(), provider.terms_checked_at.is_some()), ("no_training", true));
     });
 }
 

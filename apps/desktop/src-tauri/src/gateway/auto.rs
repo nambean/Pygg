@@ -61,8 +61,8 @@ pub struct Needs {
     pub input_tokens: u64,
     /// The output limit the request sets, if any.
     pub max_tokens: Option<u64>,
-    /// An Anthropic request's `thinking.type` when it asks for thinking (`adaptive`, `enabled`). Claude Code sends
-    /// `adaptive` to a model it does not know, and models that do not take it answer 400.
+    /// An Anthropic request's `thinking.type` (`adaptive`, `enabled`, `disabled`, `between_tools`). Claude Code sends
+    /// `adaptive` to a model it does not know, and models that do not take a type answer 400.
     #[serde(default)]
     pub thinking: Option<String>,
     /// An Anthropic request's `output_config.effort` (`low` to `max`).
@@ -79,7 +79,9 @@ impl Needs {
         }));
         let max_tokens = ["max_tokens", "max_completion_tokens", "max_output_tokens"].iter().find_map(|k| body[*k].as_u64());
         let anthropic = surface == Surface::Anthropic;
-        let thinking = body["thinking"]["type"].as_str().filter(|t| anthropic && matches!(*t, "adaptive" | "enabled")).map(String::from);
+        // Any type the request names: Anthropic's list has adaptive, enabled, disabled and between_tools, and a model
+        // answers 400 to one it does not list (Claude Opus 5.5 refuses disabled).
+        let thinking = body["thinking"]["type"].as_str().filter(|t| anthropic && !t.is_empty()).map(String::from);
         let effort = body["output_config"]["effort"].as_str().filter(|_| anthropic).map(String::from);
         Needs { surface_anthropic: anthropic, tools, vision, input_tokens: estimate_input_tokens(body), max_tokens, thinking, effort }
     }
@@ -210,8 +212,8 @@ fn judge(conn: &Connection, client: &Client, provider: &Provider, model: &Model,
     min_tier: Option<&str>, needs: &Needs) -> store::Result<Result<(u64, String), String>> {
     let caps = &model.capabilities;
     let no = |reason: String| Ok(Err(reason));
-    if !client.may_use(&provider.id) {
-        return no(format!("this client may not use {}", provider.label));
+    if let Err(why) = client.allows(provider) {
+        return no(why);
     }
     if !needs.surface_anthropic && provider.wire == "anthropic" {
         return no("speaks the Anthropic API, which an OpenAI-format request cannot reach yet".into());
@@ -376,6 +378,8 @@ mod tests {
         assert_eq!(reason(&second, "old"), "does not take effort: max");
         // An OpenAI-format request carries neither.
         assert_eq!(Needs::of(Surface::OpenAi, &body).thinking, None);
+        let off = serde_json::json!({ "thinking": { "type": "disabled" }, "messages": [] });
+        assert_eq!(Needs::of(Surface::Anthropic, &off).thinking.as_deref(), Some("disabled"));
     }
 
     #[test]

@@ -40,6 +40,8 @@ export type Health = {
 export type Connection = {
   id: string; kind: string; label: string; endpoint: string; enabled: boolean; credentialRef: string | null;
   defaultBilling: Billing; dataUseTerms: string; createdAt: number;
+  /** Where the user read the terms, and when they recorded them. */
+  termsSource: string | null; termsCheckedAt: number | null;
   wire: Wire; quotaGroup: string; separateQuota: boolean; quotaConfirmedAt: number | null;
   presetName: string; hasKey: boolean; needsKey: boolean; models: number; health: Health[]; sharesQuotaWith: string[];
 };
@@ -70,7 +72,7 @@ export type Model = {
 export type AutoAlias = 'auto' | 'auto/cheap';
 export type AutoNeeds = { surfaceAnthropic: boolean; tools: boolean; vision: boolean; inputTokens: number; maxTokens: number | null;
   /** An Anthropic request's thinking.type and output_config.effort. */
-  thinking: 'adaptive' | 'enabled' | null; effort: string | null };
+  thinking: 'adaptive' | 'enabled' | 'disabled' | null; effort: string | null };
 export type AutoRanked = { providerId: string; modelId: string; tier: Tier | null; billing: Billing; estimateMicroUsd: number; reason: string };
 export type AutoExcluded = { providerId: string; modelId: string; reason: string };
 export type AutoPlan = { alias: AutoAlias; strategy: 'tier' | 'cheap'; minTier: Tier | null; ranked: AutoRanked[]; excluded: AutoExcluded[] };
@@ -94,6 +96,8 @@ export type Client = {
   autoMinTier: Tier;
   /** May start smart tasks through the task API (pygg-mcp). */
   mayRunTasks: boolean;
+  /** Sends only to connections recorded as not training on requests. */
+  requireNoTraining: boolean;
 };
 
 export type UsageGroup = {
@@ -155,6 +159,8 @@ export interface GatewayApi {
   addConnection(connection: NewConnection): Promise<Connection>;
   updateConnection(id: string, change: {enabled?: boolean; billing?: Billing; separateQuota?: boolean}): Promise<Connection>;
   clearConnectionHealth(id: string): Promise<Connection>;
+  /** Records what the provider's terms say about training on requests; no_training needs a source. */
+  setConnectionTerms(id: string, terms: 'no_training' | 'may_train' | 'unknown', source: string | null): Promise<Connection>;
   setConnectionKey(id: string, apiKey: string): Promise<Connection>;
   removeConnection(id: string): Promise<void>;
   refreshModels(id: string): Promise<{listed: number; added: number}>;
@@ -174,7 +180,9 @@ export interface GatewayApi {
     /** true with allowedConnections restricts the client; false lets it use every connection. */
     restrictConnections?: boolean; allowedConnections?: string[]; paidRetries?: number; autoMinTier?: Tier;
     /** Lets the client start smart tasks through the task API (pygg-mcp). */
-    mayRunTasks?: boolean}): Promise<void>;
+    mayRunTasks?: boolean;
+    /** Only connections whose recorded terms say the provider does not train on requests. */
+    requireNoTraining?: boolean}): Promise<void>;
   setModelCapabilities(providerId: string, modelId: string, capabilities: Capabilities): Promise<void>;
   /** What an auto alias would choose, from a client's point of view (null: a new client's defaults). Sends nothing. */
   autoSimulate(clientId: string | null, alias: AutoAlias, needs: AutoNeeds): Promise<AutoPlan>;
@@ -227,6 +235,7 @@ const native: GatewayApi = {
   updateConnection: (id, change) => invoke('connection_update', {id, ...change}),
   setConnectionKey: (id, apiKey) => invoke('connection_set_key', {id, apiKey}),
   clearConnectionHealth: id => invoke('connection_clear_health', {id}),
+  setConnectionTerms: (id, terms, source) => invoke('connection_set_terms', {id, terms, source}),
   removeConnection: id => invoke('connection_remove', {id}),
   refreshModels: id => invoke('connection_refresh_models', {id}),
   models: providerId => invoke('models_list', {providerId: providerId ?? null}),

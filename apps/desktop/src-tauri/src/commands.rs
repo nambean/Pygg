@@ -265,6 +265,14 @@ pub fn connection_clear_health(state: State<'_, AppState>, id: String) -> Res<Co
     Ok(view(&state, provider))
 }
 
+/// Records what the provider's terms say about training on what is sent (`no_training` needs a source).
+#[tauri::command]
+pub fn connection_set_terms(state: State<'_, AppState>, id: String, terms: String, source: Option<String>) -> Res<ConnectionView> {
+    state.shared.with_db(|db| store::set_provider_terms(db, &id, &terms, source.as_deref()))?;
+    let provider = state.shared.with_db(store::list_providers)?.into_iter().find(|p| p.id == id).ok_or("That connection no longer exists")?;
+    Ok(view(&state, provider))
+}
+
 #[tauri::command]
 pub fn connection_remove(state: State<'_, AppState>, id: String) -> Res<()> {
     let reference = state.shared.with_db(|db| store::remove_provider(db, &id))?;
@@ -319,7 +327,7 @@ pub fn auto_simulate(state: State<'_, AppState>, client_id: Option<String>, alia
             None => Client { id: String::new(), name: String::new(), token_prefix: String::new(), monthly_budget_micro_usd: None,
                 created_at: 0, last_used_at: None, revoked_at: None, month_spend_micro_usd: 0, month_unknown_requests: 0,
                 max_concurrency: 8, unknown_cost_policy: "block".into(), reserved_micro_usd: 0, month_at_risk_micro_usd: 0,
-                allowed_connections: None, paid_retries: 0, auto_min_tier: "T2".into(), may_run_tasks: false },
+                allowed_connections: None, paid_retries: 0, auto_min_tier: "T2".into(), may_run_tasks: false, require_no_training: false },
         };
         gateway::auto::plan(db, &client, &alias, strategy, &needs)
     })
@@ -433,7 +441,7 @@ pub fn client_set_budget(state: State<'_, AppState>, id: String, monthly_budget_
 #[tauri::command]
 pub fn client_set_policy(state: State<'_, AppState>, id: String, max_concurrency: Option<u32>,
     unknown_cost_policy: Option<String>, restrict_connections: Option<bool>, allowed_connections: Option<Vec<String>>,
-    paid_retries: Option<u32>, auto_min_tier: Option<String>, may_run_tasks: Option<bool>) -> Res<()> {
+    paid_retries: Option<u32>, auto_min_tier: Option<String>, may_run_tasks: Option<bool>, require_no_training: Option<bool>) -> Res<()> {
     state.shared.with_db(|db| -> store::Result<()> {
         store::set_client_policy(db, &id, max_concurrency, unknown_cost_policy.as_deref())?;
         if let Some(tier) = &auto_min_tier {
@@ -448,6 +456,9 @@ pub fn client_set_policy(state: State<'_, AppState>, id: String, max_concurrency
         }
         if let Some(allowed) = may_run_tasks {
             store::set_client_may_run_tasks(db, &id, allowed)?;
+        }
+        if let Some(required) = require_no_training {
+            store::set_client_require_no_training(db, &id, required)?;
         }
         Ok(())
     })?;

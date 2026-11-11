@@ -88,7 +88,8 @@ function policySummary(c: Client): string {
   const retries = c.paidRetries > 0
     ? ` · ${plural(c.paidRetries, 'retries {n} model after a server error', 'retries up to {n} models after a server error')}` : '';
   const tasks = c.mayRunTasks ? ` · ${t('may start smart tasks')}` : '';
-  return plural(c.maxConcurrency, 'up to {n} request at once', 'up to {n} requests at once') + unknown + scope + retries + tasks;
+  const training = c.requireNoTraining ? ` · ${t('only providers that do not train on its data')}` : '';
+  return plural(c.maxConcurrency, 'up to {n} request at once', 'up to {n} requests at once') + unknown + scope + retries + tasks + training;
 }
 
 function CreateSheet({onClose}: {onClose: () => void}) {
@@ -158,6 +159,7 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
   const [paidRetries, setPaidRetries] = useState(c.paidRetries);
   const [autoMinTier, setAutoMinTier] = useState<Tier>(c.autoMinTier);
   const [mayRunTasks, setMayRunTasks] = useState(c.mayRunTasks);
+  const [noTraining, setNoTraining] = useState(c.requireNoTraining);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const amount = parseUsd(limit);
@@ -169,7 +171,8 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
     call(async api => {
       await api.setClientBudget(c.id, amount);
       await api.setClientPolicy(c.id, {maxConcurrency: inFlight, unknownCostPolicy: unknown,
-        restrictConnections: restricted, allowedConnections: allowed, paidRetries, autoMinTier, mayRunTasks});
+        restrictConnections: restricted, allowedConnections: allowed, paidRetries, autoMinTier, mayRunTasks,
+        requireNoTraining: noTraining});
     }).then(() => { gatewayChanged(); onClose(); }, e => { setError(errorText(e)); setBusy(false); });
   };
   return <Sheet title={t('Limits for {name}', {name: c.name})}
@@ -223,10 +226,17 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
         <label className="check-row"><input id="may-run-tasks" type="checkbox" checked={mayRunTasks}
           onChange={e => setMayRunTasks(e.target.checked)}/>{t('May start tasks')}</label>
       </FormRow>
+      <FormRow label={t('Data use')} htmlFor="no-training"
+        hint={noTraining
+          ? t('Requests go only to connections whose terms you recorded as not training on requests, under Connections → Data use. Not recorded counts as may train.')
+          : t('Any connection may answer, whatever its terms say about training.')}>
+        <label className="check-row"><input id="no-training" type="checkbox" checked={noTraining}
+          onChange={e => setNoTraining(e.target.checked)}/>{t('Only providers that do not train on requests')}</label>
+      </FormRow>
       <FormRow label={t('Connections')} htmlFor="scope"
         hint={restricted
           ? t('Requests from this client go only to the connections ticked here, whatever a combo or a fallback says. Use it to keep sensitive work with providers whose terms you have checked.')
-          : t('Any connection of a combo may answer, including fallbacks to other providers. The gateway doesn’t check providers’ data-use terms.')}>
+          : t('Any connection of a combo may answer, including fallbacks to other providers.')}>
         <select id="scope" className="popup-button" value={restricted ? 'only' : 'all'} onChange={e => setRestricted(e.target.value === 'only')}>
           <option value="all">{t('All connections')}</option>
           <option value="only">{t('Only selected')}</option>

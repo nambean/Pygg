@@ -513,8 +513,8 @@ async fn list_models(State(shared): State<Shared>, headers: HeaderMap) -> Respon
             .map(|c| json!({ "id": c.name, "object": "model", "created": 0, "owned_by": "smarttaskrouter combo" })));
         let providers = store::list_providers(db)?;
         for model in store::list_models(db, None)? {
-            let enabled = providers.iter().any(|p| p.id == model.provider_id && p.enabled);
-            if model.enabled && enabled && client.may_use(&model.provider_id) {
+            let allowed = providers.iter().any(|p| p.id == model.provider_id && p.enabled && client.allows(p).is_ok());
+            if model.enabled && allowed {
                 data.push(json!({ "id": format!("{}/{}", model.provider_id, model.model_id), "object": "model",
                     "created": 0, "owned_by": model.provider_id }));
             }
@@ -693,10 +693,10 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         let name = format!("{}/{model_id}", provider.id);
         let route_reason = reasons.get(&(provider.id.clone(), model_id.clone())).cloned();
 
-        // A client restricted to some connections never reaches another one, whatever the combo, the session
-        // pin or a fallback says (review FR-01).
-        if !client.may_use(&provider.id) {
-            skipped.push(format!("{name}: this client is not allowed to use {}", provider.label));
+        // A client restricted to some connections, or to providers that do not train on its data, never reaches
+        // another one, whatever the combo, the session pin or a fallback says (reviews FR-01, GW-10).
+        if let Err(why) = client.allows(&provider) {
+            skipped.push(format!("{name}: {why}"));
             continue;
         }
 

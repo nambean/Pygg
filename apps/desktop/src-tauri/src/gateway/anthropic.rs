@@ -599,7 +599,7 @@ pub async fn count_tokens(State(shared): State<Shared>, headers: HeaderMap, body
     let requested = request["model"].as_str().unwrap_or("").to_string();
     // Counting sends the prompt to the provider too, so the client's connection list applies (review FR-01).
     let target = shared.with_db(|db| super::store::resolve(db, &requested)).ok().into_iter().flatten()
-        .find(|(provider, _)| provider.wire == "anthropic" && client.may_use(&provider.id));
+        .find(|(provider, _)| provider.wire == "anthropic" && client.allows(provider).is_ok());
     if let Some((provider, model_id)) = target {
         let key = provider.credential_ref.as_deref().and_then(|r| shared.secrets.read(r).ok().flatten());
         request["model"] = json!(model_id);

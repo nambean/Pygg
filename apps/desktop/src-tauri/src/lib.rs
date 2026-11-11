@@ -110,6 +110,7 @@ pub fn run() {
             commands::connection_update,
             commands::connection_set_key,
             commands::connection_remove,
+            commands::connection_set_terms,
             commands::connection_refresh_models,
             commands::models_list,
             commands::model_set_capabilities,

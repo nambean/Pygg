@@ -656,3 +656,6 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .workspaces .page-bar .group-intro { margin: 0; }
 .workspace-card .group-heading h2 { display: flex; align-items: center; gap: 8px; }
 .workspace-card .group + .group, .workspace-card > .group { margin-top: 10px; }
+
+.terms-row .terms-control { max-width: 100%; flex-wrap: wrap; }
+.terms-row .terms-control .text-input { flex: 1 1 260px; }
