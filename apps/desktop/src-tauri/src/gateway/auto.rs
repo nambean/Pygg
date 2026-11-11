@@ -61,6 +61,13 @@ pub struct Needs {
     pub input_tokens: u64,
     /// The output limit the request sets, if any.
     pub max_tokens: Option<u64>,
+    /// An Anthropic request's `thinking.type` when it asks for thinking (`adaptive`, `enabled`). Claude Code sends
+    /// `adaptive` to a model it does not know, and models that do not take it answer 400.
+    #[serde(default)]
+    pub thinking: Option<String>,
+    /// An Anthropic request's `output_config.effort` (`low` to `max`).
+    #[serde(default)]
+    pub effort: Option<String>,
 }
 
 impl Needs {
@@ -71,8 +78,10 @@ impl Needs {
             m["content"].as_array().is_some_and(|parts| parts.iter().any(image_part))
         }));
         let max_tokens = ["max_tokens", "max_completion_tokens", "max_output_tokens"].iter().find_map(|k| body[*k].as_u64());
-        Needs { surface_anthropic: surface == Surface::Anthropic, tools, vision, input_tokens: estimate_input_tokens(body),
-            max_tokens }
+        let anthropic = surface == Surface::Anthropic;
+        let thinking = body["thinking"]["type"].as_str().filter(|t| anthropic && matches!(*t, "adaptive" | "enabled")).map(String::from);
+        let effort = body["output_config"]["effort"].as_str().filter(|_| anthropic).map(String::from);
+        Needs { surface_anthropic: anthropic, tools, vision, input_tokens: estimate_input_tokens(body), max_tokens, thinking, effort }
     }
 
     fn output_tokens(&self) -> u64 {
@@ -234,6 +243,23 @@ fn judge(conn: &Connection, client: &Client, provider: &Provider, model: &Model,
             None => return no("image support unknown".into()),
         }
     }
+    // Thinking and effort reach only a native Anthropic target; a translated route drops them and says so.
+    if provider.wire == "anthropic" {
+        if let Some(kind) = &needs.thinking {
+            match &caps.thinking_types {
+                Some(types) if types.contains(kind) => {}
+                Some(_) => return no(format!("does not take thinking: {kind}")),
+                None => return no(format!("unknown whether it takes thinking: {kind} (refresh its model list, or set it)")),
+            }
+        }
+        if let Some(level) = &needs.effort {
+            match &caps.effort_levels {
+                Some(levels) if levels.contains(level) => {}
+                Some(_) => return no(format!("does not take effort: {level}")),
+                None => return no(format!("unknown whether it takes effort: {level} (refresh its model list, or set it)")),
+            }
+        }
+    }
     let Some(context) = caps.context_tokens else { return no("context size unknown".into()) };
     let wanted = needs.input_tokens + needs.output_tokens();
     if wanted > context {
@@ -314,6 +340,42 @@ mod tests {
 
     fn reason<'a>(plan: &'a Plan, model: &str) -> &'a str {
         &plan.excluded.iter().find(|e| e.model_id == model).unwrap().reason
+    }
+
+    #[test]
+    fn thinking_and_effort_go_only_to_anthropic_models_known_to_take_them() {
+        let w = world();
+        let claude = store::add_provider(&w.conn, &NewProvider { kind: "anthropic", label: "Claude", endpoint: "http://a.test",
+            credential_ref: None, default_billing: "paid", wire: "anthropic" }).unwrap();
+        let model = |m: &str, thinking: Option<Vec<&str>>, effort: Option<Vec<&str>>| {
+            store::add_model(&w.conn, &claude.id, m).unwrap();
+            store::update_model(&w.conn, &claude.id, m, None, None, Some(Some(price(100_000, 500_000)))).unwrap();
+            store::set_capabilities(&w.conn, &claude.id, m, &Capabilities {
+                thinking_types: thinking.map(|t| t.into_iter().map(String::from).collect()),
+                effort_levels: effort.map(|e| e.into_iter().map(String::from).collect()),
+                ..caps(Some("T3"), 200_000, Some(true)) }).unwrap();
+        };
+        model("new", Some(vec!["adaptive"]), Some(vec!["low", "high"]));
+        model("old", Some(vec!["enabled"]), Some(vec![]));
+        model("bare", None, None);
+        // What Claude Code sends to a model it does not know.
+        let body = serde_json::json!({ "model": "auto", "max_tokens": 1000, "thinking": { "type": "adaptive" },
+            "output_config": { "effort": "high" }, "messages": [{ "role": "user", "content": "hi" }] });
+        let needs = Needs::of(Surface::Anthropic, &body);
+        assert_eq!((needs.thinking.as_deref(), needs.effort.as_deref()), (Some("adaptive"), Some("high")));
+        let first = plan(&w.conn, &w.client, "auto", Strategy::Tier, &needs).unwrap();
+        assert!(names(&first).contains(&"claude/new".to_string()), "{:?}", names(&first));
+        assert_eq!(reason(&first, "old"), "does not take thinking: adaptive");
+        assert!(reason(&first, "bare").starts_with("unknown whether it takes thinking: adaptive"));
+        // OpenAI-format targets get a translation that drops both, so they stay eligible.
+        assert!(names(&first).contains(&"paid/mid".to_string()));
+
+        let effort_only = Needs { surface_anthropic: true, effort: Some("max".into()), input_tokens: 1000, ..Needs::default() };
+        let second = plan(&w.conn, &w.client, "auto", Strategy::Tier, &effort_only).unwrap();
+        assert_eq!(reason(&second, "new"), "does not take effort: max");
+        assert_eq!(reason(&second, "old"), "does not take effort: max");
+        // An OpenAI-format request carries neither.
+        assert_eq!(Needs::of(Surface::OpenAi, &body).thinking, None);
     }
 
     #[test]

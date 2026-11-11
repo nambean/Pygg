@@ -56,6 +56,8 @@ export const TIERS: Tier[] = ['T0', 'T1', 'T2', 'T3', 'T4'];
 export type Capabilities = {
   tier: Tier | null; contextTokens: number | null; maxOutputTokens: number | null;
   supportsTools: boolean | null; supportsVision: boolean | null;
+  /** On the Anthropic API: the thinking types it accepts (adaptive, enabled) and effort levels; null is unknown. */
+  thinkingTypes: string[] | null; effortLevels: string[] | null;
   /** 'user', or 'provider: <kind> /models'. */
   source: string | null; observedAt: number | null;
 };
@@ -66,7 +68,9 @@ export type Model = {
 };
 
 export type AutoAlias = 'auto' | 'auto/cheap';
-export type AutoNeeds = { surfaceAnthropic: boolean; tools: boolean; vision: boolean; inputTokens: number; maxTokens: number | null };
+export type AutoNeeds = { surfaceAnthropic: boolean; tools: boolean; vision: boolean; inputTokens: number; maxTokens: number | null;
+  /** An Anthropic request's thinking.type and output_config.effort. */
+  thinking: 'adaptive' | 'enabled' | null; effort: string | null };
 export type AutoRanked = { providerId: string; modelId: string; tier: Tier | null; billing: Billing; estimateMicroUsd: number; reason: string };
 export type AutoExcluded = { providerId: string; modelId: string; reason: string };
 export type AutoPlan = { alias: AutoAlias; strategy: 'tier' | 'cheap'; minTier: Tier | null; ranked: AutoRanked[]; excluded: AutoExcluded[] };

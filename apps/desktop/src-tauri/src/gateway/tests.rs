@@ -1290,7 +1290,8 @@ fn a_listed_model_keeps_what_the_user_set() {
     let p = store::add_provider(&conn, &NewProvider { kind: "openrouter", label: "Router", endpoint: "https://o.test",
         credential_ref: None, default_billing: "paid", wire: "openai" }).unwrap();
     let listed = |context: u64| store::Listed { id: "vendor/m".into(), context_tokens: Some(context), max_output_tokens: Some(4096),
-        supports_tools: Some(true), supports_vision: Some(false), price: Some(Price { input_micro_per_mtok: 1, output_micro_per_mtok: 2,
+        supports_tools: Some(true), supports_vision: Some(false), thinking_types: None, effort_levels: None,
+        price: Some(Price { input_micro_per_mtok: 1, output_micro_per_mtok: 2,
             cached_input_micro_per_mtok: None, cache_write_micro_per_mtok: None, source: "provider list price".into(), observed_at: 0 }) };
     store::import_listed(&conn, &p.id, &[listed(100_000)], Some("provider: openrouter /models")).unwrap();
     let m = store::list_models(&conn, Some(&p.id)).unwrap().remove(0);

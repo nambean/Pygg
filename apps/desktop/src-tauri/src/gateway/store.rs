@@ -191,6 +191,12 @@ pub struct Capabilities {
     pub max_output_tokens: Option<u64>,
     pub supports_tools: Option<bool>,
     pub supports_vision: Option<bool>,
+    /// The thinking types it accepts (`adaptive`, `enabled`), on the Anthropic API.
+    #[serde(default)]
+    pub thinking_types: Option<Vec<String>>,
+    /// The effort levels it accepts (`low` to `max`), on the Anthropic API.
+    #[serde(default)]
+    pub effort_levels: Option<Vec<String>>,
     /// `user`, or `provider: <kind> /models` for facts the provider's model list reported.
     pub source: Option<String>,
     pub observed_at: Option<i64>,
@@ -204,6 +210,8 @@ pub struct Listed {
     pub max_output_tokens: Option<u64>,
     pub supports_tools: Option<bool>,
     pub supports_vision: Option<bool>,
+    pub thinking_types: Option<Vec<String>>,
+    pub effort_levels: Option<Vec<String>>,
     /// A list price, in micro-USD per million tokens (OpenRouter reports one).
     pub price: Option<Price>,
 }
@@ -211,18 +219,20 @@ pub struct Listed {
 impl Listed {
     fn has_facts(&self) -> bool {
         self.context_tokens.is_some() || self.max_output_tokens.is_some() || self.supports_tools.is_some()
-            || self.supports_vision.is_some()
+            || self.supports_vision.is_some() || self.thinking_types.is_some() || self.effort_levels.is_some()
     }
 }
 
 const MODEL_COLUMNS: &str = "m.provider_id, m.model_id, CASE WHEN m.billing = 'unknown' THEN p.default_billing ELSE m.billing END, \
      m.enabled, m.price_json, m.observed_at, CASE WHEN m.tier IS NULL THEN NULL ELSE 'T' || m.tier END, m.context_tokens, m.max_output_tokens, m.supports_tools, \
-     m.supports_vision, m.caps_source, m.caps_observed_at";
+     m.supports_vision, m.caps_source, m.caps_observed_at, m.thinking_types, m.effort_levels";
 
 fn model_row(row: &rusqlite::Row) -> rusqlite::Result<Model> {
     let price: Option<String> = row.get(4)?;
     let u = |i: usize| row.get::<_, Option<i64>>(i).map(|v| v.map(|v| v.max(0) as u64));
     let b = |i: usize| row.get::<_, Option<i64>>(i).map(|v| v.map(|v| v == 1));
+    // A list that cannot be read is unknown, which counts as missing.
+    let list = |i: usize| row.get::<_, Option<String>>(i).map(|v| v.and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok()));
     Ok(Model {
         provider_id: row.get(0)?,
         model_id: row.get(1)?,
@@ -238,6 +248,8 @@ fn model_row(row: &rusqlite::Row) -> rusqlite::Result<Model> {
             supports_vision: b(10)?,
             source: row.get(11)?,
             observed_at: row.get(12)?,
+            thinking_types: list(13)?,
+            effort_levels: list(14)?,
         },
     })
 }
@@ -276,10 +288,10 @@ pub fn import_listed(conn: &Connection, provider_id: &str, listed: &[Listed], so
         if let (Some(source), true) = (source, model.has_facts()) {
             conn.execute(
                 "UPDATE models SET context_tokens = ?3, max_output_tokens = ?4, supports_tools = ?5, supports_vision = ?6, \
-                 caps_source = ?7, caps_observed_at = ?8 \
+                 caps_source = ?7, caps_observed_at = ?8, thinking_types = ?9, effort_levels = ?10 \
                  WHERE provider_id = ?1 AND model_id = ?2 AND (caps_source IS NULL OR caps_source <> 'user')",
                 params![provider_id, model.id, model.context_tokens.map(|v| v as i64), model.max_output_tokens.map(|v| v as i64),
-                    model.supports_tools, model.supports_vision, source, now],
+                    model.supports_tools, model.supports_vision, source, now, json_list(&model.thinking_types), json_list(&model.effort_levels)],
             ).map_err(err)?;
         }
         if let Some(price) = &model.price {
@@ -292,6 +304,10 @@ pub fn import_listed(conn: &Connection, provider_id: &str, listed: &[Listed], so
         }
     }
     Ok(added)
+}
+
+fn json_list(list: &Option<Vec<String>>) -> Option<String> {
+    list.as_ref().map(|l| serde_json::to_string(l).unwrap_or_else(|_| "[]".into()))
 }
 
 /// Sets what auto routing knows about a model, as the user's own statement (source `user`).
@@ -307,10 +323,10 @@ pub fn set_capabilities(conn: &Connection, provider_id: &str, model_id: &str, ca
     let tier = caps.tier.as_deref().and_then(|t| TIERS.iter().position(|x| *x == t)).map(|n| n as i64);
     let changed = conn.execute(
         "UPDATE models SET tier = ?3, tier_source = CASE WHEN ?3 IS NULL THEN NULL ELSE 'user' END, context_tokens = ?4, \
-         max_output_tokens = ?5, supports_tools = ?6, supports_vision = ?7, caps_source = 'user', caps_observed_at = ?8 \
-         WHERE provider_id = ?1 AND model_id = ?2",
+         max_output_tokens = ?5, supports_tools = ?6, supports_vision = ?7, caps_source = 'user', caps_observed_at = ?8, \
+         thinking_types = ?9, effort_levels = ?10 WHERE provider_id = ?1 AND model_id = ?2",
         params![provider_id, model_id, tier, caps.context_tokens.map(|v| v as i64), caps.max_output_tokens.map(|v| v as i64),
-            caps.supports_tools, caps.supports_vision, now_ms()],
+            caps.supports_tools, caps.supports_vision, now_ms(), json_list(&caps.thinking_types), json_list(&caps.effort_levels)],
     ).map_err(err)?;
     if changed == 0 {
         return Err("Model not found".into());

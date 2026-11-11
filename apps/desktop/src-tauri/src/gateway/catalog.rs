@@ -110,7 +110,17 @@ fn listed(id: &str, m: &Value) -> Listed {
         }),
         _ => None,
     };
-    Listed { id: id.to_string(), context_tokens, max_output_tokens, supports_tools, supports_vision, price }
+    // Anthropic: `capabilities.thinking.types.<type>.supported` and `capabilities.effort.<level>.supported`.
+    let thinking_types = supported_keys(&m["capabilities"]["thinking"]["types"]);
+    let effort_levels = supported_keys(&m["capabilities"]["effort"]);
+    Listed { id: id.to_string(), context_tokens, max_output_tokens, supports_tools, supports_vision, thinking_types, effort_levels, price }
+}
+
+/// The keys of an object whose `supported` is true (`{"adaptive": {"supported": true}, ...}`); `None` when the
+/// object is not there, so that what the provider did not say stays unknown.
+fn supported_keys(v: &Value) -> Option<Vec<String>> {
+    let object = v.as_object()?;
+    Some(object.iter().filter(|(k, v)| k.as_str() != "supported" && v["supported"] == true).map(|(k, _)| k.clone()).collect())
 }
 
 #[cfg(test)]
@@ -141,10 +151,19 @@ mod tests {
     #[test]
     fn reads_anthropics_limits_and_image_support_but_not_tools() {
         let list = json!({ "data": [{ "type": "model", "id": "claude-x", "max_input_tokens": 1000000, "max_tokens": 128000,
-            "capabilities": { "image_input": { "supported": true }, "structured_outputs": { "supported": true } } }] });
-        let m = &parse_list(&list, None)[0];
+            "capabilities": { "image_input": { "supported": true }, "structured_outputs": { "supported": true },
+                "thinking": { "supported": true, "types": { "enabled": { "supported": false }, "adaptive": { "supported": true } } },
+                "effort": { "supported": true, "low": { "supported": true }, "high": { "supported": true }, "max": { "supported": false } } } },
+            { "type": "model", "id": "claude-old", "capabilities": { "thinking": { "supported": true, "types": { "enabled": { "supported": true },
+                "adaptive": { "supported": false } } }, "effort": { "supported": false } } }] });
+        let out = parse_list(&list, None);
+        let m = out.iter().find(|m| m.id == "claude-x").unwrap();
         assert_eq!((m.context_tokens, m.max_output_tokens, m.supports_vision, m.supports_tools),
             (Some(1_000_000), Some(128_000), Some(true), None));
+        assert_eq!(m.thinking_types.as_deref(), Some(&["adaptive".to_string()][..]));
+        assert_eq!(m.effort_levels.as_deref(), Some(&["low".to_string(), "high".to_string()][..]));
+        let old = out.iter().find(|m| m.id == "claude-old").unwrap();
+        assert_eq!((old.thinking_types.as_deref(), old.effort_levels.as_deref()), (Some(&["enabled".to_string()][..]), Some(&[][..])));
     }
 
     #[test]

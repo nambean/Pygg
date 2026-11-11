@@ -12,6 +12,7 @@
 //!                             [--tools yes|no] [--vision yes|no] [--price-in USD] [--price-out USD] [--billing TYPE]
 //!   gateway [--db PATH] client --name NAME [--auto-min-tier T0-T4] [--paid-retries N] [--tasks yes|no]
 //!   gateway [--db PATH] auto --alias auto|auto/cheap [--client NAME] [--anthropic yes] [--tools yes] [--prompt N] [--max-tokens N]
+//!                             [--thinking adaptive|enabled] [--effort low|medium|high|xhigh|max]
 //!   gateway [--db PATH] list
 //!   gateway [--db PATH] usage
 //!
@@ -201,7 +202,7 @@ async fn main() {
             let needs = gateway::auto::Needs { surface_anthropic: one("anthropic").as_deref() == Some("yes"),
                 tools: one("tools").as_deref() == Some("yes"), vision: one("vision").as_deref() == Some("yes"),
                 input_tokens: one("prompt").and_then(|v| v.parse().ok()).unwrap_or(1000),
-                max_tokens: one("max-tokens").and_then(|v| v.parse().ok()) };
+                max_tokens: one("max-tokens").and_then(|v| v.parse().ok()), thinking: one("thinking"), effort: one("effort") };
             let plan = shared.with_db(|db| gateway::auto::plan(db, &client, &alias, strategy, &needs)).unwrap_or_else(|e| fail(e));
             for (i, r) in plan.ranked.iter().enumerate() {
                 println!("{:>2}. {}/{}  {}", i + 1, r.provider_id, r.model_id, r.reason);

@@ -20,12 +20,15 @@ export function AutoRouting() {
   const [vision, setVision] = useState(false);
   const [prompt, setPrompt] = useState('2000');
   const [maxTokens, setMaxTokens] = useState('');
+  const [thinking, setThinking] = useState<'adaptive' | 'enabled' | ''>('');
+  const [effort, setEffort] = useState('');
   const [showExcluded, setShowExcluded] = useState(false);
   const inputTokens = /^\d+$/.test(prompt.trim()) ? Number(prompt) : 0;
   const limit = /^\d+$/.test(maxTokens.trim()) ? Number(maxTokens) : null;
   const plan = useGateway(api => api.autoSimulate(clientId || null, alias,
-    {surfaceAnthropic: anthropic, tools, vision, inputTokens, maxTokens: limit}),
-    [alias, clientId, anthropic, tools, vision, inputTokens, limit]);
+    {surfaceAnthropic: anthropic, tools, vision, inputTokens, maxTokens: limit,
+      thinking: anthropic && thinking ? thinking : null, effort: anthropic && effort ? effort : null}),
+    [alias, clientId, anthropic, tools, vision, inputTokens, limit, thinking, effort]);
   const active = (clients.data ?? []).filter(c => !c.revokedAt);
   const route = plan.data?.ranked.slice(0, AUTO_ROUTE_LENGTH) ?? [];
   const more = (plan.data?.ranked.length ?? 0) - route.length;
@@ -41,6 +44,7 @@ export function AutoRouting() {
         <ul className="auto-rules">
           <li><span className="mono">auto</span>{t(' — the lowest tier at or above the client’s minimum (T2 unless you change it in Clients), then local, free, subscription and paid in that order, then the lower estimated cost. This is the lowest eligible tier under your policy, not a promise of the cheapest answer.')}</li>
           <li><span className="mono">auto/cheap</span>{t(' — the lowest estimated cost of this request among the models that can take it. No tier needed.')}</li>
+          <li>{t('An Anthropic request that asks for thinking or an effort level goes only to Anthropic-API models known to take it; their model list says so (Connections → Refresh). Claude Code asks for adaptive thinking.')}</li>
           <li>{t('A model takes part only for what it is known to support: set tiers, context sizes and the rest under Connections → Auto… (OpenRouter’s list fills most of it in). Unknown counts as missing. A session stays on the model that first answered it.')}</li>
         </ul>
       </div>
@@ -58,6 +62,15 @@ export function AutoRouting() {
         <label className="check-row"><input type="checkbox" checked={vision} onChange={e => setVision(e.target.checked)}/>{t('With images')}</label>
         <label className="inline-field">{t('Prompt tokens')}
           <input className="text-input narrow-input" inputMode="numeric" value={prompt} onChange={e => setPrompt(e.target.value)}/></label>
+        {anthropic && <select className="popup-button" value={thinking} aria-label={t('Thinking')}
+          onChange={e => setThinking(e.target.value as 'adaptive' | 'enabled' | '')}>
+          <option value="">{t('No thinking')}</option><option value="adaptive">{t('Adaptive thinking')}</option>
+          <option value="enabled">{t('Thinking budget')}</option>
+        </select>}
+        {anthropic && <select className="popup-button" value={effort} aria-label={t('Effort')} onChange={e => setEffort(e.target.value)}>
+          <option value="">{t('No effort')}</option>
+          {['low', 'medium', 'high', 'xhigh', 'max'].map(l => <option key={l} value={l}>{t('Effort: {level}', {level: l})}</option>)}
+        </select>}
         <label className="inline-field">{t('Output limit')}
           <input className="text-input narrow-input" inputMode="numeric" value={maxTokens} placeholder={t('None')}
             onChange={e => setMaxTokens(e.target.value)}/></label>

@@ -557,6 +557,7 @@ function capsText(m: Model): string {
   if (c.contextTokens) parts.push(t('{n}k context', {n: Math.round(c.contextTokens / 1000)}));
   if (c.supportsTools) parts.push(t('tools'));
   if (c.supportsVision) parts.push(t('images'));
+  if (c.thinkingTypes?.includes('adaptive')) parts.push(t('adaptive thinking'));
   return parts.join(' · ');
 }
 
@@ -572,6 +573,8 @@ function CapsSheet({model: m, onClose, onSaved}: {model: Model; onClose: () => v
   const [maxOutput, setMaxOutput] = useState(c.maxOutputTokens ? String(c.maxOutputTokens) : '');
   const [tools, setTools] = useState<TriState>(tri(c.supportsTools));
   const [vision, setVision] = useState<TriState>(tri(c.supportsVision));
+  const [adaptive, setAdaptive] = useState<TriState>(c.thinkingTypes === null ? 'unknown' : c.thinkingTypes.includes('adaptive') ? 'yes' : 'no');
+  const [effort, setEffort] = useState(c.effortLevels === null ? '' : c.effortLevels.length === 0 ? 'none' : c.effortLevels.join(', '));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const count = (v: string) => v.trim() === '' ? null : /^\d+$/.test(v.trim()) && Number(v) > 0 ? Number(v) : NaN;
@@ -579,7 +582,11 @@ function CapsSheet({model: m, onClose, onSaved}: {model: Model; onClose: () => v
   const save = () => {
     setBusy(true);
     call(api => api.setModelCapabilities(m.providerId, m.modelId, {tier: tier || null, contextTokens: count(context),
-      maxOutputTokens: count(maxOutput), supportsTools: untri(tools), supportsVision: untri(vision), source: 'user', observedAt: null}))
+      maxOutputTokens: count(maxOutput), supportsTools: untri(tools), supportsVision: untri(vision),
+      // `enabled` (a thinking budget) is kept as the provider said; only adaptive is set here.
+      thinkingTypes: adaptive === 'unknown' ? null : [...(c.thinkingTypes ?? []).filter(x => x !== 'adaptive'), ...(adaptive === 'yes' ? ['adaptive'] : [])],
+      effortLevels: effort.trim() === '' ? null : effort.trim() === 'none' ? [] : effort.split(/[\s,]+/).filter(Boolean),
+      source: 'user', observedAt: null}))
       .then(() => { onSaved(); onClose(); }, e => { setError(errorText(e)); setBusy(false); });
   };
   const sourceText = c.source === null ? null : c.source === 'user'
@@ -618,6 +625,16 @@ function CapsSheet({model: m, onClose, onSaved}: {model: Model; onClose: () => v
         <select id="caps-vision" className="popup-button" value={vision} onChange={e => setVision(e.target.value as TriState)}>
           <option value="unknown">{t('Unknown')}</option><option value="yes">{t('Supported')}</option><option value="no">{t('Not supported')}</option>
         </select>
+      </FormRow>
+      <FormRow label={t('Adaptive thinking')} htmlFor="caps-adaptive"
+        hint={t('Anthropic API only. Claude Code asks for it; a model that does not take it answers 400, so auto skips it unless this says Supported.')}>
+        <select id="caps-adaptive" className="popup-button" value={adaptive} onChange={e => setAdaptive(e.target.value as TriState)}>
+          <option value="unknown">{t('Unknown')}</option><option value="yes">{t('Supported')}</option><option value="no">{t('Not supported')}</option>
+        </select>
+      </FormRow>
+      <FormRow label={t('Effort levels')} htmlFor="caps-effort"
+        hint={t('Anthropic API only: the levels it takes, e.g. low, medium, high, xhigh, max; “none” when it takes no effort setting. Empty is unknown.')}>
+        <input id="caps-effort" className="text-input" value={effort} placeholder={t('Unknown')} onChange={e => setEffort(e.target.value)}/>
       </FormRow>
     </div>
     {sourceText && <p className="sheet-text secondary">{sourceText}</p>}

@@ -121,7 +121,7 @@ export function demoApi(): GatewayApi {
       defaultBilling: 'local', dataUseTerms: 'unknown', createdAt: now - 4 * 86_400_000, key: false, wire: 'openai', separateQuota: false, quotaConfirmedAt: null},
   ];
   const UNKNOWN: Capabilities = {tier: null, contextTokens: null, maxOutputTokens: null, supportsTools: null, supportsVision: null,
-    source: null, observedAt: null};
+    thinkingTypes: null, effortLevels: null, source: null, observedAt: null};
   const models: Model[] = [];
   const addModels = (providerId: string, ids: string[]) => {
     for (const modelId of ids) {
@@ -145,6 +145,9 @@ export function demoApi(): GatewayApi {
   const facts = (modelId: string, tier: Tier | null, context: number, output: number, tools: boolean | null, source = 'user') => {
     const m = models.find(x => x.modelId === modelId);
     if (m) m.capabilities = {tier, contextTokens: context, maxOutputTokens: output, supportsTools: tools, supportsVision: tools,
+      // As Anthropic's model list reports them: the newer model takes adaptive thinking, the older only a budget.
+      thinkingTypes: m.providerId !== 'anthropic' ? null : modelId === 'claude-sonnet-4-5' ? ['adaptive'] : ['enabled'],
+      effortLevels: m.providerId !== 'anthropic' ? null : modelId === 'claude-sonnet-4-5' ? ['low', 'medium', 'high', 'max'] : [],
       source, observedAt: now - 2 * 86_400_000};
   };
   facts('gemini-3.1-flash-lite', 'T1', 1_000_000, 64_000, true);
@@ -306,6 +309,14 @@ export function demoApi(): GatewayApi {
       }
       if (needs.tools && caps.supportsTools !== true) { no(caps.supportsTools === false ? 'does not take tools' : 'tool support unknown'); continue; }
       if (needs.vision && caps.supportsVision !== true) { no(caps.supportsVision === false ? 'does not take images' : 'image support unknown'); continue; }
+      if (conn.wire === 'anthropic' && needs.thinking) {
+        if (caps.thinkingTypes === null) { no(`unknown whether it takes thinking: ${needs.thinking} (refresh its model list, or set it)`); continue; }
+        if (!caps.thinkingTypes.includes(needs.thinking)) { no(`does not take thinking: ${needs.thinking}`); continue; }
+      }
+      if (conn.wire === 'anthropic' && needs.effort) {
+        if (caps.effortLevels === null) { no(`unknown whether it takes effort: ${needs.effort} (refresh its model list, or set it)`); continue; }
+        if (!caps.effortLevels.includes(needs.effort)) { no(`does not take effort: ${needs.effort}`); continue; }
+      }
       if (!caps.contextTokens) { no('context size unknown'); continue; }
       if (needs.inputTokens + output > caps.contextTokens) {
         no(`about ${needs.inputTokens} prompt and ${output} output tokens do not fit its ${caps.contextTokens}-token context`); continue;
