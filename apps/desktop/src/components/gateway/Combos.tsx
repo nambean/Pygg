@@ -5,6 +5,7 @@ import { plural, t } from '../../lib/i18n';
 import { billingLabel } from '../../lib/money';
 import { useGateway } from '../../hooks/useGateway';
 import { ConfirmSheet, CopyButton, Empty, ErrorNote, FormRow, Sheet, Spinner } from '../ui';
+import { AutoRouting } from './AutoRouting';
 
 const key = (m: Target) => `${m.providerId}/${m.modelId}`;
 
@@ -55,6 +56,8 @@ export function Combos({intent, onIntentDone}: {intent?: 'create'; onIntentDone:
         </ul>
         <p className="group-footnote">{t('The next model is tried on a rejected key, an exhausted quota or rate limit, or an unavailable model, and only before any of the answer has reached the client. After a timeout or a server error the provider may already have run (and billed) the request, so the gateway stops there unless the client allows retries (Clients → Limits). A malformed request is returned as it is.')}</p>
       </section>}
+
+    <AutoRouting/>
 
     {editing && <ComboSheet combo={editing === 'new' ? null : editing} connections={connections.data ?? []} models={models.data ?? []}
       existing={list} onClose={() => setEditing(null)}/>}

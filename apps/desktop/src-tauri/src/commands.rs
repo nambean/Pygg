@@ -280,7 +280,8 @@ pub struct ImportResult {
 pub async fn connection_refresh_models(state: State<'_, AppState>, id: String) -> Res<ImportResult> {
     let provider = state.shared.with_db(|db| store::get_provider(db, &id))?.ok_or("Connection not found")?;
     let ids = catalog::fetch_models(&state.shared, &provider).await?;
-    let added = state.shared.with_db(|db| store::import_models(db, &id, &ids))?;
+    let source = catalog::list_source(&provider);
+    let added = state.shared.with_db(|db| store::import_listed(db, &id, &ids, Some(&source)))?;
     Ok(ImportResult { listed: ids.len(), added })
 }
 
@@ -289,6 +290,33 @@ pub async fn connection_refresh_models(state: State<'_, AppState>, id: String) -
 #[tauri::command]
 pub fn models_list(state: State<'_, AppState>, provider_id: Option<String>) -> Res<Vec<Model>> {
     state.shared.with_db(|db| store::list_models(db, provider_id.as_deref()))
+}
+
+/// Sets what auto routing knows about a model, as the user's statement.
+#[tauri::command]
+pub fn model_set_capabilities(state: State<'_, AppState>, provider_id: String, model_id: String,
+    capabilities: store::Capabilities) -> Res<()> {
+    state.shared.with_db(|db| store::set_capabilities(db, &provider_id, &model_id, &capabilities))
+}
+
+/// What `auto` or `auto/cheap` would choose for a request with these needs, from a client's point of view,
+/// with every excluded model and why. Sends nothing (ROADMAP P0-5).
+#[tauri::command]
+pub fn auto_simulate(state: State<'_, AppState>, client_id: Option<String>, alias: String, needs: gateway::auto::Needs)
+    -> Res<gateway::auto::Plan> {
+    let strategy = gateway::auto::strategy(&alias).ok_or_else(|| format!("{alias} is not an automatic route"))??;
+    state.shared.with_db(|db| {
+        let clients = store::list_clients(db)?;
+        let client = match &client_id {
+            Some(id) => clients.into_iter().find(|c| &c.id == id).ok_or("Client not found")?,
+            // No client chosen: the defaults a new client gets.
+            None => Client { id: String::new(), name: String::new(), token_prefix: String::new(), monthly_budget_micro_usd: None,
+                created_at: 0, last_used_at: None, revoked_at: None, month_spend_micro_usd: 0, month_unknown_requests: 0,
+                max_concurrency: 8, unknown_cost_policy: "block".into(), reserved_micro_usd: 0, month_at_risk_micro_usd: 0,
+                allowed_connections: None, paid_retries: 0, auto_min_tier: "T2".into() },
+        };
+        gateway::auto::plan(db, &client, &alias, strategy, &needs)
+    })
 }
 
 #[tauri::command]
@@ -399,9 +427,12 @@ pub fn client_set_budget(state: State<'_, AppState>, id: String, monthly_budget_
 #[tauri::command]
 pub fn client_set_policy(state: State<'_, AppState>, id: String, max_concurrency: Option<u32>,
     unknown_cost_policy: Option<String>, restrict_connections: Option<bool>, allowed_connections: Option<Vec<String>>,
-    paid_retries: Option<u32>) -> Res<()> {
+    paid_retries: Option<u32>, auto_min_tier: Option<String>) -> Res<()> {
     state.shared.with_db(|db| -> store::Result<()> {
         store::set_client_policy(db, &id, max_concurrency, unknown_cost_policy.as_deref())?;
+        if let Some(tier) = &auto_min_tier {
+            store::set_client_auto_min_tier(db, &id, tier)?;
+        }
         if let Some(restrict) = restrict_connections {
             let list = allowed_connections.unwrap_or_default();
             store::set_client_connections(db, &id, restrict.then_some(list.as_slice()))?;

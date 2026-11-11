@@ -111,6 +111,8 @@ pub fn add_provider(conn: &Connection, new: &NewProvider) -> Result<Provider> {
         return Err("The endpoint must start with https:// or http://".into());
     }
     let base = slug(new.label);
+    // `auto/…` is the auto-routing alias, so no connection may take that name.
+    let base = if base == AUTO { format!("{AUTO}-connection") } else { base };
     let mut id = base.clone();
     let mut n = 2;
     while get_provider(conn, &id)?.is_some() {
@@ -165,47 +167,150 @@ pub struct Model {
     pub enabled: bool,
     pub price: Option<Price>,
     pub observed_at: Option<i64>,
+    /// What auto routing knows about it (ROADMAP P0-5).
+    pub capabilities: Capabilities,
+}
+
+pub const TIERS: [&str; 5] = ["T0", "T1", "T2", "T3", "T4"];
+/// The auto-routing alias (`auto`, `auto/cheap`); reserved as a connection and combo name.
+pub const AUTO: &str = "auto";
+
+/// What auto routing needs to know about a model. `None` is unknown, and unknown counts as missing.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Capabilities {
+    /// T0 (local) to T4 (frontier); always set by the user.
+    pub tier: Option<String>,
+    /// Prompt and answer together.
+    pub context_tokens: Option<u64>,
+    pub max_output_tokens: Option<u64>,
+    pub supports_tools: Option<bool>,
+    pub supports_vision: Option<bool>,
+    /// `user`, or `provider: <kind> /models` for facts the provider's model list reported.
+    pub source: Option<String>,
+    pub observed_at: Option<i64>,
+}
+
+/// What a provider's model list said about one model.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Listed {
+    pub id: String,
+    pub context_tokens: Option<u64>,
+    pub max_output_tokens: Option<u64>,
+    pub supports_tools: Option<bool>,
+    pub supports_vision: Option<bool>,
+    /// A list price, in micro-USD per million tokens (OpenRouter reports one).
+    pub price: Option<Price>,
+}
+
+impl Listed {
+    fn has_facts(&self) -> bool {
+        self.context_tokens.is_some() || self.max_output_tokens.is_some() || self.supports_tools.is_some()
+            || self.supports_vision.is_some()
+    }
+}
+
+const MODEL_COLUMNS: &str = "m.provider_id, m.model_id, CASE WHEN m.billing = 'unknown' THEN p.default_billing ELSE m.billing END, \
+     m.enabled, m.price_json, m.observed_at, CASE WHEN m.tier IS NULL THEN NULL ELSE 'T' || m.tier END, m.context_tokens, m.max_output_tokens, m.supports_tools, \
+     m.supports_vision, m.caps_source, m.caps_observed_at";
+
+fn model_row(row: &rusqlite::Row) -> rusqlite::Result<Model> {
+    let price: Option<String> = row.get(4)?;
+    let u = |i: usize| row.get::<_, Option<i64>>(i).map(|v| v.map(|v| v.max(0) as u64));
+    let b = |i: usize| row.get::<_, Option<i64>>(i).map(|v| v.map(|v| v == 1));
+    Ok(Model {
+        provider_id: row.get(0)?,
+        model_id: row.get(1)?,
+        billing: row.get(2)?,
+        enabled: row.get::<_, i64>(3)? == 1,
+        price: price.and_then(|p| serde_json::from_str(&p).ok()),
+        observed_at: row.get(5)?,
+        capabilities: Capabilities {
+            tier: row.get(6)?,
+            context_tokens: u(7)?,
+            max_output_tokens: u(8)?,
+            supports_tools: b(9)?,
+            supports_vision: b(10)?,
+            source: row.get(11)?,
+            observed_at: row.get(12)?,
+        },
+    })
 }
 
 pub fn list_models(conn: &Connection, provider_id: Option<&str>) -> Result<Vec<Model>> {
     let mut stmt = conn
-        .prepare(
-            "SELECT m.provider_id, m.model_id, CASE WHEN m.billing = 'unknown' THEN p.default_billing ELSE m.billing END, \
-             m.enabled, m.price_json, m.observed_at FROM models m JOIN providers p ON p.id = m.provider_id \
-             WHERE ?1 IS NULL OR m.provider_id = ?1 ORDER BY m.provider_id, m.model_id",
-        )
+        .prepare(&format!(
+            "SELECT {MODEL_COLUMNS} FROM models m JOIN providers p ON p.id = m.provider_id \
+             WHERE ?1 IS NULL OR m.provider_id = ?1 ORDER BY m.provider_id, m.model_id"))
         .map_err(err)?;
-    let rows = stmt
-        .query_map([provider_id], |row| {
-            let price: Option<String> = row.get(4)?;
-            Ok(Model {
-                provider_id: row.get(0)?,
-                model_id: row.get(1)?,
-                billing: row.get(2)?,
-                enabled: row.get::<_, i64>(3)? == 1,
-                price: price.and_then(|p| serde_json::from_str(&p).ok()),
-                observed_at: row.get(5)?,
-            })
-        })
-        .map_err(err)?;
+    let rows = stmt.query_map([provider_id], model_row).map_err(err)?;
     rows.collect::<rusqlite::Result<_>>().map_err(err)
 }
 
 /// Adds models the provider listed; existing rows keep their settings. Returns how many were new.
 pub fn import_models(conn: &Connection, provider_id: &str, model_ids: &[String]) -> Result<usize> {
+    let listed: Vec<Listed> = model_ids.iter().map(|id| Listed { id: id.clone(), ..Listed::default() }).collect();
+    import_listed(conn, provider_id, &listed, None)
+}
+
+/// Adds models the provider listed, with what the list said about them (`source`, e.g. `provider: openrouter
+/// /models`). Facts and a list price are written only where the user has not set their own: what the user
+/// entered is never overwritten. Returns how many models were new.
+pub fn import_listed(conn: &Connection, provider_id: &str, listed: &[Listed], source: Option<&str>) -> Result<usize> {
     let now = now_ms();
     let mut added = 0;
-    for model in model_ids {
+    for model in listed {
         added += conn
             .execute(
                 "INSERT OR IGNORE INTO models (id, provider_id, model_id, observed_at) VALUES (?1, ?2, ?3, ?4)",
-                params![format!("{provider_id}/{model}"), provider_id, model, now],
+                params![format!("{provider_id}/{}", model.id), provider_id, model.id, now],
             )
             .map_err(err)?;
         conn.execute("UPDATE models SET observed_at = ?3 WHERE provider_id = ?1 AND model_id = ?2",
-            params![provider_id, model, now]).map_err(err)?;
+            params![provider_id, model.id, now]).map_err(err)?;
+        if let (Some(source), true) = (source, model.has_facts()) {
+            conn.execute(
+                "UPDATE models SET context_tokens = ?3, max_output_tokens = ?4, supports_tools = ?5, supports_vision = ?6, \
+                 caps_source = ?7, caps_observed_at = ?8 \
+                 WHERE provider_id = ?1 AND model_id = ?2 AND (caps_source IS NULL OR caps_source <> 'user')",
+                params![provider_id, model.id, model.context_tokens.map(|v| v as i64), model.max_output_tokens.map(|v| v as i64),
+                    model.supports_tools, model.supports_vision, source, now],
+            ).map_err(err)?;
+        }
+        if let Some(price) = &model.price {
+            let json = serde_json::to_string(price).unwrap_or_default();
+            conn.execute(
+                "UPDATE models SET price_json = ?3 WHERE provider_id = ?1 AND model_id = ?2 \
+                 AND (price_json IS NULL OR json_extract(price_json, '$.source') <> 'user')",
+                params![provider_id, model.id, json],
+            ).map_err(err)?;
+        }
     }
     Ok(added)
+}
+
+/// Sets what auto routing knows about a model, as the user's own statement (source `user`).
+pub fn set_capabilities(conn: &Connection, provider_id: &str, model_id: &str, caps: &Capabilities) -> Result<()> {
+    if let Some(tier) = &caps.tier {
+        if !TIERS.contains(&tier.as_str()) {
+            return Err(format!("unknown tier {tier}"));
+        }
+    }
+    if caps.context_tokens == Some(0) || caps.max_output_tokens == Some(0) {
+        return Err("Token limits must be above zero".into());
+    }
+    let tier = caps.tier.as_deref().and_then(|t| TIERS.iter().position(|x| *x == t)).map(|n| n as i64);
+    let changed = conn.execute(
+        "UPDATE models SET tier = ?3, tier_source = CASE WHEN ?3 IS NULL THEN NULL ELSE 'user' END, context_tokens = ?4, \
+         max_output_tokens = ?5, supports_tools = ?6, supports_vision = ?7, caps_source = 'user', caps_observed_at = ?8 \
+         WHERE provider_id = ?1 AND model_id = ?2",
+        params![provider_id, model_id, tier, caps.context_tokens.map(|v| v as i64), caps.max_output_tokens.map(|v| v as i64),
+            caps.supports_tools, caps.supports_vision, now_ms()],
+    ).map_err(err)?;
+    if changed == 0 {
+        return Err("Model not found".into());
+    }
+    Ok(())
 }
 
 /// Adds a model by hand (for providers that do not list theirs).
@@ -289,6 +394,8 @@ pub struct Client {
     pub allowed_connections: Option<Vec<String>>,
     /// Further targets that may be tried after a failure the provider may have billed (review FR-02).
     pub paid_retries: u32,
+    /// The lowest tier `auto` may choose for this client (ROADMAP P0-5).
+    pub auto_min_tier: String,
 }
 
 impl Client {
@@ -355,11 +462,12 @@ fn client_row(conn: &Connection, row: &rusqlite::Row) -> rusqlite::Result<Client
         allowed_connections: row.get::<_, Option<String>>(9)?
             .map(|json| serde_json::from_str::<Vec<String>>(&json).unwrap_or_default()),
         paid_retries: row.get::<_, i64>(10)?.clamp(0, 5) as u32,
+        auto_min_tier: row.get(11)?,
     })
 }
 
 const CLIENT_COLUMNS: &str = "id, name, token_prefix, monthly_budget_micro_usd, created_at, last_used_at, revoked_at, \
-    max_concurrency, unknown_cost_policy, allowed_connections, paid_retries";
+    max_concurrency, unknown_cost_policy, allowed_connections, paid_retries, auto_min_tier";
 
 pub fn list_clients(conn: &Connection) -> Result<Vec<Client>> {
     let mut stmt = conn
@@ -422,6 +530,13 @@ pub fn set_client_connections(conn: &Connection, id: &str, allowed: Option<&[Str
     let json = allowed.map(|list| serde_json::to_string(list).unwrap_or_else(|_| "[]".into()));
     conn.execute("UPDATE gateway_clients SET allowed_connections = ?2 WHERE id = ?1", params![id, json])
         .map(|_| ()).map_err(err)
+}
+
+pub fn set_client_auto_min_tier(conn: &Connection, id: &str, tier: &str) -> Result<()> {
+    if !TIERS.contains(&tier) {
+        return Err(format!("unknown tier {tier}"));
+    }
+    conn.execute("UPDATE gateway_clients SET auto_min_tier = ?2 WHERE id = ?1", params![id, tier]).map(|_| ()).map_err(err)
 }
 
 pub fn set_client_paid_retries(conn: &Connection, id: &str, retries: u32) -> Result<()> {
@@ -745,6 +860,9 @@ pub fn save_combo(conn: &Connection, id: Option<&str>, name: &str, members: &[Ta
     if name.is_empty() || name.contains('/') || name.contains(char::is_whitespace) {
         return Err("A combo name needs at least one character and no spaces or slashes".into());
     }
+    if name == AUTO {
+        return Err("\"auto\" is the name of automatic routing; choose another name for the combo".into());
+    }
     if members.is_empty() {
         return Err("A combo needs at least one model".into());
     }
@@ -826,6 +944,8 @@ pub struct UsageRecord<'a> {
     pub session_key: Option<&'a str>,
     /// `native` or `translated:anthropic->openai`.
     pub route_mode: Option<&'a str>,
+    /// Why auto routing chose this target (ROADMAP P0-5).
+    pub route_reason: Option<&'a str>,
 }
 
 impl<'a> UsageRecord<'a> {
@@ -834,7 +954,7 @@ impl<'a> UsageRecord<'a> {
         outcome: &'a str, http_status: Option<u16>, latency_ms: u64, error: &'a str) -> UsageRecord<'a> {
         UsageRecord { client_id: Some(client_id), provider_id, model_id, requested_model, input_tokens: None,
             output_tokens: None, cache_tokens: None, cost, outcome, http_status, latency_ms, error: Some(error),
-            cache_write_tokens: None, session_key: None, route_mode: None }
+            cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None }
     }
 }
 
@@ -856,6 +976,7 @@ pub struct PendingUsage {
     cache_write_tokens: Option<u64>,
     session_key: Option<String>,
     route_mode: Option<String>,
+    route_reason: Option<String>,
 }
 
 impl PendingUsage {
@@ -866,6 +987,7 @@ impl PendingUsage {
             cache_tokens: r.cache_tokens, cost: r.cost.clone(), outcome: r.outcome.into(), http_status: r.http_status,
             latency_ms: r.latency_ms, error: r.error.map(String::from), cache_write_tokens: r.cache_write_tokens,
             session_key: r.session_key.map(String::from), route_mode: r.route_mode.map(String::from),
+            route_reason: r.route_reason.map(String::from),
         }
     }
 
@@ -876,6 +998,7 @@ impl PendingUsage {
             cache_tokens: self.cache_tokens, cost: &self.cost, outcome: &self.outcome, http_status: self.http_status,
             latency_ms: self.latency_ms, error: self.error.as_deref(), cache_write_tokens: self.cache_write_tokens,
             session_key: self.session_key.as_deref(), route_mode: self.route_mode.as_deref(),
+            route_reason: self.route_reason.as_deref(),
         }
     }
 }
@@ -890,14 +1013,14 @@ fn insert_usage(conn: &Connection, r: &UsageRecord, at_risk_micro: Option<u64>) 
     conn.execute(
         "INSERT INTO usage_events (id, client_id, provider, model, input_tokens, output_tokens, cache_tokens, \
          cost_micro_usd, cost_status, source, created_at, outcome, http_status, latency_ms, requested_model, error, \
-         cache_write_tokens, session_key, route_mode, at_risk_micro_usd) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+         cache_write_tokens, session_key, route_mode, at_risk_micro_usd, route_reason) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
         params![
             uuid::Uuid::new_v4().to_string(), r.client_id, r.provider_id, r.model_id,
             r.input_tokens.map(|v| v as i64), r.output_tokens.map(|v| v as i64), r.cache_tokens.map(|v| v as i64),
             r.cost.micro_usd().map(|v| v as i64), r.cost.status(), r.cost.source(), now, r.outcome,
             r.http_status, r.latency_ms as i64, r.requested_model, r.error,
-            r.cache_write_tokens.map(|v| v as i64), r.session_key, r.route_mode, at_risk_micro.map(|v| v as i64),
+            r.cache_write_tokens.map(|v| v as i64), r.session_key, r.route_mode, at_risk_micro.map(|v| v as i64), r.route_reason,
         ],
     )?;
     if let Some(client) = r.client_id {
@@ -931,6 +1054,8 @@ pub struct UsageEvent {
     pub route_mode: Option<String>,
     /// Counted against the client's limit although the cost is unknown: the amount held for the attempt.
     pub at_risk_micro_usd: Option<u64>,
+    /// Why auto routing chose this target.
+    pub route_reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -996,7 +1121,7 @@ pub fn usage_summary(conn: &Connection, since: i64, recent_limit: usize) -> Resu
         .prepare(
             "SELECT u.id, u.created_at, c.name, u.provider, u.model, u.requested_model, u.input_tokens, u.output_tokens, \
              u.cost_micro_usd, u.cost_status, u.source, u.outcome, u.http_status, u.latency_ms, u.error, \
-             u.cache_tokens, u.cache_write_tokens, u.session_key, u.route_mode, u.at_risk_micro_usd \
+             u.cache_tokens, u.cache_write_tokens, u.session_key, u.route_mode, u.at_risk_micro_usd, u.route_reason \
              FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id \
              WHERE u.created_at >= ?1 ORDER BY u.created_at DESC LIMIT ?2",
         )
@@ -1025,6 +1150,7 @@ pub fn usage_summary(conn: &Connection, since: i64, recent_limit: usize) -> Resu
                 session_key: r.get(17)?,
                 route_mode: r.get(18)?,
                 at_risk_micro_usd: u(19)?,
+                route_reason: r.get(20)?,
             })
         })
         .map_err(err)?
@@ -1112,7 +1238,7 @@ mod tests {
             record_usage(&conn, &UsageRecord { client_id: Some(&client.id), provider_id: &p.id, model_id: "flash",
                 requested_model: "coding", input_tokens: Some(10), output_tokens: Some(5), cache_tokens: None, cost,
                 outcome, http_status: Some(200), latency_ms: 12, error: None, cache_write_tokens: None, session_key: None,
-                route_mode: None }).unwrap();
+                route_mode: None, route_reason: None }).unwrap();
         }
         let summary = usage_summary(&conn, 0, 10).unwrap();
         assert_eq!((summary.total.requests, summary.total.failed, summary.total.fallbacks), (3, 0, 1));

@@ -340,6 +340,17 @@ button { cursor: default; }
   border-radius: 8px; font-size: 13px; }
 .check-row { display: flex; align-items: center; gap: 8px; }
 .check-row .mono { margin-left: auto; font-size: 11px; }
+.auto-intro { display: flex; gap: 8px; align-items: flex-start; margin: 0; font-size: 13px; }
+.auto-intro svg { color: var(--accent-text); flex-shrink: 0; margin-top: 2px; }
+.auto-rules { margin: 6px 0 0; padding-left: 22px; font-size: 12px; color: var(--secondary); display: grid; gap: 4px; }
+.auto-rules .mono { color: var(--label); }
+.auto-controls { flex-direction: row !important; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.inline-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.auto-route { margin-top: 10px; }
+.small-text { font-size: 11px; }
+.auto-excluded { margin-top: 4px; }
+.excluded-list { list-style: none; margin: 6px 0 0; padding: 4px 0; font-size: 12px; }
+.excluded-list li { display: grid; grid-template-columns: minmax(180px, 30%) 1fr; gap: 10px; padding: 4px 12px; }
 
 /* Gateway card on Overview */
 .gateway-card {

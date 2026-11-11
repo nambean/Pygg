@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Cpu, KeyRound, Plug, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
-import { BILLINGS, call, errorText, gatewayChanged, type Billing, type Connection, type Health, type Model, type Preset } from '../../lib/api';
+import { BILLINGS, TIERS, call, errorText, gatewayChanged, type Billing, type Connection, type Health, type Model, type Preset,
+  type Tier } from '../../lib/api';
+import { ago } from '../../lib/format';
 import { plural, t } from '../../lib/i18n';
 import { billingLabel, parseUsd, priceText } from '../../lib/money';
 import { isMac } from '../../lib/platform';
@@ -126,7 +128,7 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
   const models = useGateway(api => api.models(c.id), [c.id]);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState<{ok: boolean; text: string} | null>(null);
-  const [sheet, setSheet] = useState<'key' | 'remove' | 'add-model' | 'quota' | {price: Model} | null>(null);
+  const [sheet, setSheet] = useState<'key' | 'remove' | 'add-model' | 'quota' | {price: Model} | {caps: Model} | null>(null);
   const [query, setQuery] = useState('');
   const [show, setShow] = useState<'all' | 'enabled' | 'unpriced'>('all');
   const check = checks.get(c.id);
@@ -240,13 +242,14 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
         <table className="data-table">
           <thead><tr>
             <th scope="col">{t('Model')}</th><th scope="col">{t('Billing')}</th><th scope="col">{t('Price')}</th>
+            <th scope="col">{t('Auto routing')}</th>
             <th scope="col" className="narrow">{t('Enabled')}</th><th scope="col" className="narrow"><span className="sr-only">{t('Actions')}</span></th>
           </tr></thead>
           <tbody>
-            {shown.map(m => <ModelRow key={m.modelId} model={m} onPrice={() => setSheet({price: m})}
+            {shown.map(m => <ModelRow key={m.modelId} model={m} onPrice={() => setSheet({price: m})} onCaps={() => setSheet({caps: m})}
               health={c.health.find(h => h.modelId === m.modelId)}
               onChange={() => { models.reload(); gatewayChanged(); }}/>)}
-            {shown.length === 0 && <tr><td colSpan={5} className="table-empty">{t('No models match.')}</td></tr>}
+            {shown.length === 0 && <tr><td colSpan={6} className="table-empty">{t('No models match.')}</td></tr>}
           </tbody>
         </table>
       </div>}
@@ -268,12 +271,15 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
       </>}
       onClose={() => setSheet(null)}
       onConfirm={async () => { await call(api => api.removeConnection(c.id)); onRemoved(); gatewayChanged(); }}/>}
-    {sheet && typeof sheet === 'object' && <PriceSheet model={sheet.price} onClose={() => setSheet(null)}
+    {sheet && typeof sheet === 'object' && 'caps' in sheet && <CapsSheet model={sheet.caps} onClose={() => setSheet(null)}
+      onSaved={() => { models.reload(); gatewayChanged(); }}/>}
+    {sheet && typeof sheet === 'object' && 'price' in sheet && <PriceSheet model={sheet.price} onClose={() => setSheet(null)}
       onSaved={() => { models.reload(); gatewayChanged(); }}/>}
   </section>;
 }
 
-function ModelRow({model: m, health, onPrice, onChange}: {model: Model; health?: Health; onPrice: () => void; onChange: () => void}) {
+function ModelRow({model: m, health, onPrice, onCaps, onChange}: {model: Model; health?: Health; onPrice: () => void; onCaps: () => void;
+  onChange: () => void}) {
   const needsPrice = m.billing === 'paid' || m.billing === 'unknown';
   const price = m.price ? priceText(m.price)
     : needsPrice ? t('No price · cost Unknown') : m.billing === 'subscription' ? t('Quota, not money') : t('Not needed');
@@ -281,11 +287,13 @@ function ModelRow({model: m, health, onPrice, onChange}: {model: Model; health?:
     <td className="mono selectable" title={health ? `${m.modelId} · ${health.reason}` : m.modelId}>
       {m.modelId}{health && <> <Badge tone="warn">{healthLabel(health)}</Badge></>}</td>
     <td>{billingLabel(m.billing)}</td>
-    <td className={m.price ? '' : 'secondary'}>{price}{m.price && <small className="source"> · {t('your price')}</small>}</td>
+    <td className={m.price ? '' : 'secondary'}>{price}{m.price && <small className="source"> · {m.price.source === 'user' ? t('your price') : t('list price')}</small>}</td>
+    <td className={m.capabilities.tier ? '' : 'secondary'}>{capsText(m)}</td>
     <td className="narrow"><Switch checked={m.enabled} label={t('Use {model}', {model: m.modelId})}
       onChange={enabled => call(api => api.updateModel(m.providerId, m.modelId, {enabled})).then(onChange)}/></td>
     <td className="narrow row-buttons">
       <button type="button" className="button small" onClick={onPrice}>{m.price ? t('Edit Price…') : t('Set Price…')}</button>
+      <button type="button" className="button small" onClick={onCaps}>{t('Auto…')}</button>
       <button type="button" className="button small icon-only" aria-label={t('Remove {model}', {model: m.modelId})} title={t('Remove')}
         onClick={() => call(api => api.removeModel(m.providerId, m.modelId)).then(onChange)}><Trash2 size={13} aria-hidden/></button>
     </td>
@@ -459,6 +467,82 @@ function PriceSheet({model: m, onClose, onSaved}: {model: Model; onClose: () => 
       </FormRow>
     </div>
     <p className="sheet-text secondary">{t('Providers that report the charge themselves, such as OpenRouter, are recorded as Actual and don’t need a price.')}</p>
+    {error && <ErrorNote>{error}</ErrorNote>}
+  </Sheet>;
+}
+
+/** A short summary of what auto routing knows about a model. */
+function capsText(m: Model): string {
+  const c = m.capabilities;
+  if (!c.tier && !c.contextTokens) return t('Not set');
+  const parts = [c.tier ?? t('no tier')];
+  if (c.contextTokens) parts.push(t('{n}k context', {n: Math.round(c.contextTokens / 1000)}));
+  if (c.supportsTools) parts.push(t('tools'));
+  if (c.supportsVision) parts.push(t('images'));
+  return parts.join(' · ');
+}
+
+type TriState = 'unknown' | 'yes' | 'no';
+const tri = (v: boolean | null): TriState => v === null ? 'unknown' : v ? 'yes' : 'no';
+const untri = (v: TriState): boolean | null => v === 'unknown' ? null : v === 'yes';
+
+/** What auto routing needs to know about a model (ROADMAP P0-5). Unknown counts as missing. */
+function CapsSheet({model: m, onClose, onSaved}: {model: Model; onClose: () => void; onSaved: () => void}) {
+  const c = m.capabilities;
+  const [tier, setTier] = useState<Tier | ''>(c.tier ?? '');
+  const [context, setContext] = useState(c.contextTokens ? String(c.contextTokens) : '');
+  const [maxOutput, setMaxOutput] = useState(c.maxOutputTokens ? String(c.maxOutputTokens) : '');
+  const [tools, setTools] = useState<TriState>(tri(c.supportsTools));
+  const [vision, setVision] = useState<TriState>(tri(c.supportsVision));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const count = (v: string) => v.trim() === '' ? null : /^\d+$/.test(v.trim()) && Number(v) > 0 ? Number(v) : NaN;
+  const valid = [count(context), count(maxOutput)].every(v => v === null || Number.isFinite(v));
+  const save = () => {
+    setBusy(true);
+    call(api => api.setModelCapabilities(m.providerId, m.modelId, {tier: tier || null, contextTokens: count(context),
+      maxOutputTokens: count(maxOutput), supportsTools: untri(tools), supportsVision: untri(vision), source: 'user', observedAt: null}))
+      .then(() => { onSaved(); onClose(); }, e => { setError(errorText(e)); setBusy(false); });
+  };
+  const sourceText = c.source === null ? null : c.source === 'user'
+    ? t('Set by you {when}.', {when: c.observedAt ? ago(c.observedAt) : ''})
+    : t('Read from the provider’s model list ({source}) {when}. Saving here makes them yours, and a refresh no longer changes them.',
+      {source: c.source.replace(/^provider: /, ''), when: c.observedAt ? ago(c.observedAt) : ''});
+  return <Sheet title={t('Auto Routing for {model}', {model: m.modelId})}
+    subtitle={t('auto chooses a model only for what it is known to support. Leave a field empty when you don’t know it.')}
+    onClose={onClose} busy={busy} className="narrow" footer={<>
+      <span className="spacer"/>
+      <button type="button" className="button" onClick={onClose} disabled={busy}>{t('Cancel')}</button>
+      <button type="button" className="button prominent" onClick={save} disabled={busy || !valid}>{t('Save')}</button>
+    </>}>
+    <div className="form">
+      <FormRow label={t('Tier')} htmlFor="caps-tier"
+        hint={t('T0 local, T1 small and fast, T2 capable at low cost, T3 strong coding and reasoning, T4 frontier. Always your judgment; auto never guesses it.')}>
+        <select id="caps-tier" className="popup-button" value={tier} onChange={e => setTier(e.target.value as Tier | '')}>
+          <option value="">{t('Not set (auto skips it)')}</option>
+          {TIERS.map(x => <option key={x} value={x}>{x}</option>)}
+        </select>
+      </FormRow>
+      <FormRow label={t('Context')} htmlFor="caps-context" hint={t('Prompt and answer together, in tokens.')}>
+        <input id="caps-context" className="text-input narrow-input" inputMode="numeric" value={context} placeholder={t('Unknown')}
+          onChange={e => setContext(e.target.value)} aria-invalid={!Number.isFinite(count(context) ?? 0)}/>
+      </FormRow>
+      <FormRow label={t('Maximum output')} htmlFor="caps-output" hint={t('Needed when a request sets its own output limit.')}>
+        <input id="caps-output" className="text-input narrow-input" inputMode="numeric" value={maxOutput} placeholder={t('Unknown')}
+          onChange={e => setMaxOutput(e.target.value)} aria-invalid={!Number.isFinite(count(maxOutput) ?? 0)}/>
+      </FormRow>
+      <FormRow label={t('Tool calls')} htmlFor="caps-tools">
+        <select id="caps-tools" className="popup-button" value={tools} onChange={e => setTools(e.target.value as TriState)}>
+          <option value="unknown">{t('Unknown')}</option><option value="yes">{t('Supported')}</option><option value="no">{t('Not supported')}</option>
+        </select>
+      </FormRow>
+      <FormRow label={t('Images')} htmlFor="caps-vision">
+        <select id="caps-vision" className="popup-button" value={vision} onChange={e => setVision(e.target.value as TriState)}>
+          <option value="unknown">{t('Unknown')}</option><option value="yes">{t('Supported')}</option><option value="no">{t('Not supported')}</option>
+        </select>
+      </FormRow>
+    </div>
+    {sourceText && <p className="sheet-text secondary">{sourceText}</p>}
     {error && <ErrorNote>{error}</ErrorNote>}
   </Sheet>;
 }

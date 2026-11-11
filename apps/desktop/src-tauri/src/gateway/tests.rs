@@ -1192,3 +1192,124 @@ fn a_settlement_waiting_at_stop_keeps_the_store_until_it_is_written() {
         rig.until_released().await;
     });
 }
+
+// ---------- ROADMAP P0-5: rule-based Auto routing ----------
+
+fn set_caps(rig: &Rig, provider: &str, model: &str, tier: &str, tools: Option<bool>) {
+    rig.shared.with_db(|db| {
+        let _ = store::add_model(db, provider, model);
+        store::set_capabilities(db, provider, model, &store::Capabilities { tier: Some(tier.into()),
+            context_tokens: Some(128_000), max_output_tokens: Some(8192), supports_tools: tools, supports_vision: Some(false),
+            ..store::Capabilities::default() })
+    }).unwrap();
+}
+
+#[test]
+fn auto_routes_to_the_lowest_eligible_tier_and_says_why() {
+    rt().block_on(async {
+        let rig = rig().await;
+        set_caps(&rig, "main", "fast", "T2", Some(true));
+        set_caps(&rig, "backup", "steady", "T2", None);
+        let response = rig.post("/v1/chat/completions", chat("auto")).await;
+        assert_eq!(response.status(), 200);
+        // Same tier, and Backup is free: it comes first.
+        assert_eq!(response.headers()["x-smarttaskrouter-route"], "backup/steady");
+        let why = response.headers()["x-smarttaskrouter-auto"].to_str().unwrap().to_string();
+        assert!(why.starts_with("auto; backup/steady ranked 1 of 2 (lowest eligible tier first): tier T2 (minimum T2); free"), "{why}");
+        assert!(rig.ledger().pop().unwrap().route_reason.unwrap().contains("tier T2"));
+
+        // A request with tools needs a model known to take them: Backup's support is unknown.
+        let tools = rig.post("/v1/chat/completions", json!({ "model": "auto", "messages": [],
+            "tools": [{ "type": "function", "function": { "name": "f", "parameters": { "type": "object" } } }] })).await;
+        assert_eq!(tools.headers()["x-smarttaskrouter-route"], "main/fast");
+
+        // auto/cheap: the free one, by estimated cost.
+        let cheap = rig.post("/v1/chat/completions", chat("auto/cheap")).await;
+        assert_eq!(cheap.headers()["x-smarttaskrouter-route"], "backup/steady");
+
+        // The aliases are listed with the models.
+        let models: Value = rig.http.get(format!("{}/v1/models", rig.base)).bearer_auth(&rig.token).send().await.unwrap()
+            .json().await.unwrap();
+        let ids: Vec<&str> = models["data"].as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).collect();
+        assert!(ids.contains(&"auto") && ids.contains(&"auto/cheap"));
+    });
+}
+
+#[test]
+fn auto_refuses_with_every_reason_when_nothing_is_eligible() {
+    rt().block_on(async {
+        let rig = rig().await;
+        // Models exist but nothing is known about them.
+        let refused = rig.post("/v1/chat/completions", chat("auto")).await;
+        assert_eq!(refused.status(), 422);
+        let body: Value = refused.json().await.unwrap();
+        assert_eq!(body["error"]["type"], "no_eligible_model");
+        let message = body["error"]["message"].as_str().unwrap();
+        assert!(message.contains("main/fast: no tier set"), "{message}");
+        assert_eq!(rig.fake.count("fast"), 0, "nothing was sent");
+        // An alias that does not exist is not guessed at.
+        assert_eq!(rig.post("/v1/chat/completions", chat("auto/fast")).await.status(), 404);
+    });
+}
+
+#[test]
+fn an_auto_session_stays_on_its_model_when_a_better_one_appears() {
+    rt().block_on(async {
+        let rig = rig().await;
+        set_caps(&rig, "main", "fast", "T2", Some(true));
+        let first = rig.post_session("/v1/chat/completions", "s-auto", chat("auto")).await;
+        assert_eq!(first.headers()["x-smarttaskrouter-route"], "main/fast");
+        // A free T2 model becomes eligible.
+        set_caps(&rig, "backup", "steady", "T2", None);
+        let kept = rig.post_session("/v1/chat/completions", "s-auto", chat("auto")).await;
+        assert_eq!(kept.headers()["x-smarttaskrouter-route"], "main/fast", "no switch inside a session");
+        assert!(kept.headers()["x-smarttaskrouter-auto"].to_str().unwrap().ends_with("kept for this session"));
+        // A new session or no session gets the better choice.
+        let fresh = rig.post("/v1/chat/completions", chat("auto")).await;
+        assert_eq!(fresh.headers()["x-smarttaskrouter-route"], "backup/steady");
+    });
+}
+
+#[test]
+fn auto_respects_the_client_minimum_tier_and_its_connection_list() {
+    rt().block_on(async {
+        let rig = rig().await;
+        set_caps(&rig, "main", "fast", "T3", Some(true));
+        set_caps(&rig, "backup", "steady", "T1", None);
+        assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-smarttaskrouter-route"], "main/fast");
+        rig.shared.with_db(|db| store::set_client_auto_min_tier(db, &rig.client_id, "T1")).unwrap();
+        assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-smarttaskrouter-route"], "backup/steady");
+        rig.shared.with_db(|db| store::set_client_connections(db, &rig.client_id, Some(&["main".to_string()]))).unwrap();
+        assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-smarttaskrouter-route"], "main/fast");
+    });
+}
+
+#[test]
+fn a_listed_model_keeps_what_the_user_set() {
+    let conn = crate::db::open_in_memory().unwrap();
+    let p = store::add_provider(&conn, &NewProvider { kind: "openrouter", label: "Router", endpoint: "https://o.test",
+        credential_ref: None, default_billing: "paid", wire: "openai" }).unwrap();
+    let listed = |context: u64| store::Listed { id: "vendor/m".into(), context_tokens: Some(context), max_output_tokens: Some(4096),
+        supports_tools: Some(true), supports_vision: Some(false), price: Some(Price { input_micro_per_mtok: 1, output_micro_per_mtok: 2,
+            cached_input_micro_per_mtok: None, cache_write_micro_per_mtok: None, source: "provider list price".into(), observed_at: 0 }) };
+    store::import_listed(&conn, &p.id, &[listed(100_000)], Some("provider: openrouter /models")).unwrap();
+    let m = store::list_models(&conn, Some(&p.id)).unwrap().remove(0);
+    assert_eq!((m.capabilities.context_tokens, m.capabilities.source.as_deref()), (Some(100_000), Some("provider: openrouter /models")));
+    assert_eq!(m.price.as_ref().unwrap().source, "provider list price");
+
+    // The user sets a tier and their own price; a later refresh changes neither.
+    store::set_capabilities(&conn, &p.id, "vendor/m", &store::Capabilities { tier: Some("T2".into()), context_tokens: Some(64_000),
+        ..m.capabilities.clone() }).unwrap();
+    store::update_model(&conn, &p.id, "vendor/m", None, None, Some(Some(price()))).unwrap();
+    store::import_listed(&conn, &p.id, &[listed(200_000)], Some("provider: openrouter /models")).unwrap();
+    let m = store::list_models(&conn, Some(&p.id)).unwrap().remove(0);
+    assert_eq!((m.capabilities.tier.as_deref(), m.capabilities.context_tokens, m.capabilities.source.as_deref()),
+        (Some("T2"), Some(64_000), Some("user")));
+    assert_eq!(m.price.unwrap().source, "user");
+
+    // "auto" is reserved.
+    let auto = store::add_provider(&conn, &NewProvider { kind: "custom", label: "Auto", endpoint: "https://a.test",
+        credential_ref: None, default_billing: "paid", wire: "openai" }).unwrap();
+    assert_eq!(auto.id, "auto-connection");
+    assert!(store::save_combo(&conn, None, "auto", &[Target { provider_id: p.id.clone(), model_id: "vendor/m".into() }]).is_err());
+}

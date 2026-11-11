@@ -43,9 +43,29 @@ export type Price = {
   cacheWriteMicroPerMtok?: number | null; source: string; observedAt: number;
 };
 
+export type Tier = 'T0' | 'T1' | 'T2' | 'T3' | 'T4';
+export const TIERS: Tier[] = ['T0', 'T1', 'T2', 'T3', 'T4'];
+
+/** What auto routing knows about a model. null is unknown, and unknown counts as missing. */
+export type Capabilities = {
+  tier: Tier | null; contextTokens: number | null; maxOutputTokens: number | null;
+  supportsTools: boolean | null; supportsVision: boolean | null;
+  /** 'user', or 'provider: <kind> /models'. */
+  source: string | null; observedAt: number | null;
+};
+
 export type Model = {
   providerId: string; modelId: string; billing: Billing; enabled: boolean; price: Price | null; observedAt: number | null;
+  capabilities: Capabilities;
 };
+
+export type AutoAlias = 'auto' | 'auto/cheap';
+export type AutoNeeds = { surfaceAnthropic: boolean; tools: boolean; vision: boolean; inputTokens: number; maxTokens: number | null };
+export type AutoRanked = { providerId: string; modelId: string; tier: Tier | null; billing: Billing; estimateMicroUsd: number; reason: string };
+export type AutoExcluded = { providerId: string; modelId: string; reason: string };
+export type AutoPlan = { alias: AutoAlias; strategy: 'tier' | 'cheap'; minTier: Tier | null; ranked: AutoRanked[]; excluded: AutoExcluded[] };
+/** How many ranked models make up an auto route. */
+export const AUTO_ROUTE_LENGTH = 5;
 
 export type Target = { providerId: string; modelId: string };
 export type Combo = { id: string; name: string; members: Target[] };
@@ -60,6 +80,8 @@ export type Client = {
   allowedConnections: string[] | null;
   /** Further targets tried after a server error the provider may have billed; 0 stops. */
   paidRetries: number;
+  /** The lowest tier `auto` may choose for this client. */
+  autoMinTier: Tier;
 };
 
 export type UsageGroup = {
@@ -76,6 +98,8 @@ export type UsageEvent = {
   costSource: string; outcome: Outcome; httpStatus: number | null; latencyMs: number | null; error: string | null;
   cacheTokens: number | null; cacheWriteTokens: number | null; sessionKey: string | null; routeMode: string | null;
   atRiskMicroUsd: number | null;
+  /** Why auto routing chose this target. */
+  routeReason: string | null;
 };
 
 export type UsageSummary = {
@@ -114,7 +138,10 @@ export interface GatewayApi {
   setClientBudget(id: string, monthlyBudgetUsd: number | null): Promise<void>;
   setClientPolicy(id: string, policy: {maxConcurrency?: number; unknownCostPolicy?: 'block' | 'allow';
     /** true with allowedConnections restricts the client; false lets it use every connection. */
-    restrictConnections?: boolean; allowedConnections?: string[]; paidRetries?: number}): Promise<void>;
+    restrictConnections?: boolean; allowedConnections?: string[]; paidRetries?: number; autoMinTier?: Tier}): Promise<void>;
+  setModelCapabilities(providerId: string, modelId: string, capabilities: Capabilities): Promise<void>;
+  /** What an auto alias would choose, from a client's point of view (null: a new client's defaults). Sends nothing. */
+  autoSimulate(clientId: string | null, alias: AutoAlias, needs: AutoNeeds): Promise<AutoPlan>;
   usage(days: number): Promise<UsageSummary>;
 }
 
@@ -143,6 +170,8 @@ const native: GatewayApi = {
   revokeClient: id => invoke('client_revoke', {id}),
   setClientBudget: (id, monthlyBudgetUsd) => invoke('client_set_budget', {id, monthlyBudgetUsd}),
   setClientPolicy: (id, policy) => invoke('client_set_policy', {id, ...policy}),
+  setModelCapabilities: (providerId, modelId, capabilities) => invoke('model_set_capabilities', {providerId, modelId, capabilities}),
+  autoSimulate: (clientId, alias, needs) => invoke('auto_simulate', {clientId, alias, needs}),
   usage: days => invoke('usage_summary', {days}),
 };
 

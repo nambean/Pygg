@@ -90,6 +90,8 @@ pub fn run() {
             commands::connection_remove,
             commands::connection_refresh_models,
             commands::models_list,
+            commands::model_set_capabilities,
+            commands::auto_simulate,
             commands::model_add,
             commands::model_update,
             commands::model_remove,

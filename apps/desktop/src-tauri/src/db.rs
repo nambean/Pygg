@@ -12,6 +12,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0004_counter_review.sql"),
     include_str!("../migrations/0005_client_scope.sql"),
     include_str!("../migrations/0006_owner_generation.sql"),
+    include_str!("../migrations/0007_auto_routing.sql"),
 ];
 
 pub const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;

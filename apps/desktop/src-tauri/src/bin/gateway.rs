@@ -105,7 +105,8 @@ async fn main() {
             let provider = shared.with_db(|db| store::get_provider(db, &id)).unwrap_or_else(|e| fail(e))
                 .unwrap_or_else(|| fail("no such connection"));
             let ids = catalog::fetch_models(&shared, &provider).await.unwrap_or_else(|e| fail(e));
-            let added = shared.with_db(|db| store::import_models(db, &id, &ids)).unwrap_or_else(|e| fail(e));
+            let source = catalog::list_source(&provider);
+            let added = shared.with_db(|db| store::import_listed(db, &id, &ids, Some(&source))).unwrap_or_else(|e| fail(e));
             println!("{} listed {} models, {added} new", provider.label, ids.len());
         }
         "create-client" => {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { KeyRound, TriangleAlert } from 'lucide-react';
-import { call, errorText, gatewayChanged, type Client } from '../../lib/api';
+import { TIERS, call, errorText, gatewayChanged, type Client, type Tier } from '../../lib/api';
 import { plural, t } from '../../lib/i18n';
 import { isMac } from '../../lib/platform';
 import { microUsd, parseUsd } from '../../lib/money';
@@ -155,6 +155,7 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
   const [restricted, setRestricted] = useState(c.allowedConnections !== null);
   const [allowed, setAllowed] = useState<string[]>(c.allowedConnections ?? []);
   const [paidRetries, setPaidRetries] = useState(c.paidRetries);
+  const [autoMinTier, setAutoMinTier] = useState<Tier>(c.autoMinTier);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const amount = parseUsd(limit);
@@ -166,7 +167,7 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
     call(async api => {
       await api.setClientBudget(c.id, amount);
       await api.setClientPolicy(c.id, {maxConcurrency: inFlight, unknownCostPolicy: unknown,
-        restrictConnections: restricted, allowedConnections: allowed, paidRetries});
+        restrictConnections: restricted, allowedConnections: allowed, paidRetries, autoMinTier});
     }).then(() => { gatewayChanged(); onClose(); }, e => { setError(errorText(e)); setBusy(false); });
   };
   return <Sheet title={t('Limits for {name}', {name: c.name})}
@@ -205,6 +206,12 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
         <select id="paid-retries" className="popup-button" value={paidRetries} onChange={e => setPaidRetries(Number(e.target.value))}>
           <option value={0}>{t('Stop (no retry)')}</option>
           {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{plural(n, 'Retry {n} model', 'Retry up to {n} models')}</option>)}
+        </select>
+      </FormRow>
+      <FormRow label={t('Auto minimum tier')} htmlFor="auto-tier"
+        hint={t('The lowest tier “auto” may choose for this client. “auto/cheap” ignores it.')}>
+        <select id="auto-tier" className="popup-button" value={autoMinTier} onChange={e => setAutoMinTier(e.target.value as Tier)}>
+          {TIERS.map(x => <option key={x} value={x}>{x}</option>)}
         </select>
       </FormRow>
       <FormRow label={t('Connections')} htmlFor="scope"

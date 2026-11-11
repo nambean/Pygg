@@ -4,8 +4,9 @@
  * data" banner whenever this is in use (ADR-014). It follows the core's rules (slugs, validation, honest
  * costs) closely enough for design review, not as a test of them.
  */
-import type { Billing, Client, Combo, Connection, GatewayApi, GatewayStatus, Health, Model, Preset, Target, UsageEvent,
-  UsageGroup, UsageSummary, Wire } from './api';
+import type { AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
+  Health, Model, Preset, Target, Tier, UsageEvent, UsageGroup, UsageSummary, Wire } from './api';
+import { TIERS } from './api';
 
 const PRESETS: Preset[] = [
   {id: 'gemini', name: 'Google Gemini', endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai', needsKey: true, defaultBilling: 'unknown', wire: 'openai'},
@@ -57,12 +58,14 @@ export function demoApi(): GatewayApi {
     {id: 'ollama', kind: 'ollama', label: 'Ollama', endpoint: PRESETS[5].endpoint!, enabled: true, credentialRef: null,
       defaultBilling: 'local', dataUseTerms: 'unknown', createdAt: now - 4 * 86_400_000, key: false, wire: 'openai', separateQuota: false, quotaConfirmedAt: null},
   ];
+  const UNKNOWN: Capabilities = {tier: null, contextTokens: null, maxOutputTokens: null, supportsTools: null, supportsVision: null,
+    source: null, observedAt: null};
   const models: Model[] = [];
   const addModels = (providerId: string, ids: string[]) => {
     for (const modelId of ids) {
       if (!models.some(m => m.providerId === providerId && m.modelId === modelId)) {
         models.push({providerId, modelId, billing: connections.find(c => c.id === providerId)?.defaultBilling ?? 'unknown',
-          enabled: true, price: null, observedAt: Date.now()});
+          enabled: true, price: null, observedAt: Date.now(), capabilities: {...UNKNOWN}});
       }
     }
   };
@@ -75,6 +78,26 @@ export function demoApi(): GatewayApi {
   const sonnet = models.find(m => m.modelId === 'claude-sonnet-4-5')!;
   sonnet.price = {inputMicroPerMtok: 3_000_000, outputMicroPerMtok: 15_000_000, cachedInputMicroPerMtok: 300_000,
     cacheWriteMicroPerMtok: 3_750_000, source: 'user', observedAt: now - 86_400_000};
+  // What auto routing knows about some of them: sample values for the preview, as if the user entered them
+  // (OpenRouter's as if read from its model list).
+  const facts = (modelId: string, tier: Tier | null, context: number, output: number, tools: boolean | null, source = 'user') => {
+    const m = models.find(x => x.modelId === modelId);
+    if (m) m.capabilities = {tier, contextTokens: context, maxOutputTokens: output, supportsTools: tools, supportsVision: tools,
+      source, observedAt: now - 2 * 86_400_000};
+  };
+  facts('gemini-3.1-flash-lite', 'T1', 1_000_000, 64_000, true);
+  facts('gemini-3.1-pro-preview', 'T3', 1_000_000, 64_000, true);
+  facts('claude-sonnet-4-5', 'T3', 200_000, 64_000, true);
+  facts('claude-haiku-4-5', 'T2', 200_000, 64_000, true);
+  facts('qwen/qwen3-coder', 'T2', 262_000, 32_000, true, 'provider: openrouter /models');
+  facts('deepseek/deepseek-chat', null, 128_000, 8_000, true, 'provider: openrouter /models');
+  facts('qwen2.5-coder:7b', 'T0', 32_000, 8_000, null);
+  const haiku = models.find(m => m.modelId === 'claude-haiku-4-5')!;
+  haiku.price = {inputMicroPerMtok: 1_000_000, outputMicroPerMtok: 5_000_000, cachedInputMicroPerMtok: 100_000,
+    cacheWriteMicroPerMtok: 1_250_000, source: 'user', observedAt: now - 86_400_000};
+  const qwen = models.find(m => m.modelId === 'qwen/qwen3-coder')!;
+  qwen.price = {inputMicroPerMtok: 300_000, outputMicroPerMtok: 1_200_000, cachedInputMicroPerMtok: null,
+    source: 'provider list price', observedAt: now - 2 * 86_400_000};
   // A cooldown to show what a 429 looks like.
   const health: Health[] = [{providerId: 'gemini', modelId: 'gemini-3.1-pro-preview', state: 'rate_limited',
     reason: 'Gemini answered HTTP 429: Resource has been exhausted (e.g. check quota).', httpStatus: 429,
@@ -92,11 +115,11 @@ export function demoApi(): GatewayApi {
     {id: 'k1', name: 'Claude Code', tokenPrefix: 'str-3f9a1c0b', monthlyBudgetMicroUsd: 20_000_000, createdAt: now - 5 * 86_400_000,
       lastUsedAt: now - 4 * 60_000, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0,
       maxConcurrency: 8, unknownCostPolicy: 'block', reservedMicroUsd: 412_000, monthAtRiskMicroUsd: 0,
-      allowedConnections: ['anthropic', 'gemini'], paidRetries: 0},
+      allowedConnections: ['anthropic', 'gemini'], paidRetries: 0, autoMinTier: 'T2'},
     {id: 'k2', name: 'Scripts', tokenPrefix: 'str-81d2e7aa', monthlyBudgetMicroUsd: null, createdAt: now - 3 * 86_400_000,
       lastUsedAt: now - 3 * 3_600_000, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0,
       maxConcurrency: 4, unknownCostPolicy: 'allow', reservedMicroUsd: 0, monthAtRiskMicroUsd: 0,
-      allowedConnections: null, paidRetries: 1},
+      allowedConnections: null, paidRetries: 1, autoMinTier: 'T1'},
   ];
 
   // A day and a half of plausible traffic: mostly priced Flash-Lite, some fallbacks, some unknown costs.
@@ -111,7 +134,7 @@ export function demoApi(): GatewayApi {
     const roll = random();
     const base = {createdAt: at, client, requestedModel: 'coding', latencyMs: Math.round(400 + random() * 5_000), error: null,
       cacheTokens: null, cacheWriteTokens: null, sessionKey: client === 'Claude Code' ? 'shell-7f3a' : null, routeMode: 'native',
-      atRiskMicroUsd: null};
+      atRiskMicroUsd: null, routeReason: null as string | null};
     if (roll < 0.05) {
       // Claude Code on Anthropic, passed through unchanged: most of the prompt is read from the cache.
       const read = Math.round(input * 0.9), write = Math.round(input * 0.08);
@@ -196,6 +219,56 @@ export function demoApi(): GatewayApi {
     return [...map].map(([k, v]) => group(k, v)).sort((a, b) => b.requests - a.requests);
   }
   const touch = async <T>(value: T): Promise<T> => { await sleep(120); return clone(value); };
+
+  /** A short port of gateway/auto.rs for the preview: the same filters and order, on the demo models. */
+  function simulate(clientId: string | null, alias: 'auto' | 'auto/cheap', needs: Parameters<GatewayApi['autoSimulate']>[2]): AutoPlan {
+    const client = clients.find(c => c.id === clientId);
+    const cheap = alias === 'auto/cheap';
+    const minTier: Tier | null = cheap ? null : client?.autoMinTier ?? 'T2';
+    const rank = (t: Tier) => TIERS.indexOf(t);
+    const billingRank = (b: Billing) => ({local: 0, free: 1, subscription: 2} as Record<string, number>)[b] ?? 3;
+    const output = needs.maxTokens ?? 4096;
+    const ranked: AutoRanked[] = [], excluded: AutoExcluded[] = [];
+    for (const m of models) {
+      const conn = connections.find(c => c.id === m.providerId);
+      if (!conn?.enabled || !m.enabled) continue;
+      const caps = m.capabilities, billing = m.billing === 'unknown' ? conn.defaultBilling : m.billing;
+      const no = (reason: string) => excluded.push({providerId: m.providerId, modelId: m.modelId, reason});
+      if (client?.allowedConnections && !client.allowedConnections.includes(conn.id)) { no(`this client may not use ${conn.label}`); continue; }
+      if (!needs.surfaceAnthropic && conn.wire === 'anthropic') { no('speaks the Anthropic API, which an OpenAI-format request cannot reach yet'); continue; }
+      const h = health.find(x => x.providerId === conn.id && (x.modelId === '' || x.modelId === m.modelId) && (x.untilMs ?? Infinity) > Date.now());
+      if (h) { no(`${h.state.replace('_', ' ')} (${h.reason})`); continue; }
+      if (minTier) {
+        if (!caps.tier) { no('no tier set'); continue; }
+        if (rank(caps.tier) < rank(minTier)) { no(`tier ${caps.tier} is below this client's minimum ${minTier}`); continue; }
+      }
+      if (needs.tools && caps.supportsTools !== true) { no(caps.supportsTools === false ? 'does not take tools' : 'tool support unknown'); continue; }
+      if (needs.vision && caps.supportsVision !== true) { no(caps.supportsVision === false ? 'does not take images' : 'image support unknown'); continue; }
+      if (!caps.contextTokens) { no('context size unknown'); continue; }
+      if (needs.inputTokens + output > caps.contextTokens) {
+        no(`about ${needs.inputTokens} prompt and ${output} output tokens do not fit its ${caps.contextTokens}-token context`); continue;
+      }
+      if (needs.maxTokens != null) {
+        if (caps.maxOutputTokens == null) { no('maximum output unknown, and the request sets one'); continue; }
+        if (needs.maxTokens > caps.maxOutputTokens) { no(`the request allows ${needs.maxTokens} output tokens; it gives at most ${caps.maxOutputTokens}`); continue; }
+      }
+      let estimate = 0, cost = `${billing} (as set)`;
+      if (billing === 'subscription') { no('subscription quota is not tracked yet, so its cost cannot be stated'); continue; }
+      if (billing !== 'free' && billing !== 'local') {
+        if (!m.price) { no('price unknown'); continue; }
+        const inPrice = Math.max(m.price.inputMicroPerMtok, m.price.cacheWriteMicroPerMtok ?? 0);
+        estimate = Math.ceil(needs.inputTokens * inPrice / 1e6) + Math.ceil(output * m.price.outputMicroPerMtok / 1e6);
+        cost = `about $${(estimate / 1e6).toFixed(4)} at ${m.price.source === 'user' ? 'your price' : "the provider's list price"}`;
+      }
+      const reason = cheap ? `${billing}; ${cost}`
+        : `tier ${caps.tier} (minimum ${minTier}); ${billing}; ${cost}`;
+      ranked.push({providerId: m.providerId, modelId: m.modelId, tier: caps.tier, billing, estimateMicroUsd: estimate, reason});
+    }
+    ranked.sort((a, b) => cheap
+      ? a.estimateMicroUsd - b.estimateMicroUsd || billingRank(a.billing) - billingRank(b.billing) || rank(b.tier ?? 'T0') - rank(a.tier ?? 'T0')
+      : rank(a.tier!) - rank(b.tier!) || billingRank(a.billing) - billingRank(b.billing) || a.estimateMicroUsd - b.estimateMicroUsd);
+    return {alias, strategy: cheap ? 'cheap' : 'tier', minTier, ranked, excluded};
+  }
 
   return {
     gatewayStatus: () => touch(status),
@@ -283,6 +356,13 @@ export function demoApi(): GatewayApi {
       }
       await sleep(80);
     },
+    setModelCapabilities: async (providerId, modelId, capabilities) => {
+      const m = models.find(x => x.providerId === providerId && x.modelId === modelId);
+      if (!m) throw 'Model not found';
+      m.capabilities = {...capabilities, source: 'user', observedAt: Date.now()};
+      await sleep(80);
+    },
+    autoSimulate: async (clientId, alias, needs) => touch(simulate(clientId, alias, needs)),
     removeModel: async (providerId, modelId) => {
       const i = models.findIndex(x => x.providerId === providerId && x.modelId === modelId);
       if (i >= 0) models.splice(i, 1);
@@ -308,7 +388,7 @@ export function demoApi(): GatewayApi {
         monthlyBudgetMicroUsd: monthlyBudgetUsd == null ? null : Math.round(monthlyBudgetUsd * 1_000_000), createdAt: Date.now(),
         lastUsedAt: null, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0,
         maxConcurrency: 8, unknownCostPolicy: 'block' as const, reservedMicroUsd: 0, monthAtRiskMicroUsd: 0,
-        allowedConnections: null as string[] | null, paidRetries: 0};
+        allowedConnections: null as string[] | null, paidRetries: 0, autoMinTier: 'T2' as Tier};
       clients.push(client);
       return touch({client: clientView(client), token});
     },
@@ -327,6 +407,7 @@ export function demoApi(): GatewayApi {
       if (c && policy.unknownCostPolicy) c.unknownCostPolicy = policy.unknownCostPolicy;
       if (c && policy.restrictConnections !== undefined) c.allowedConnections = policy.restrictConnections ? [...(policy.allowedConnections ?? [])] : null;
       if (c && policy.paidRetries !== undefined) c.paidRetries = policy.paidRetries;
+      if (c && policy.autoMinTier) c.autoMinTier = policy.autoMinTier;
       await sleep(80);
     },
     usage: async days => {

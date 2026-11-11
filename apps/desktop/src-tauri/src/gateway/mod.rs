@@ -22,6 +22,7 @@
 //! - Every upstream attempt is written to the usage ledger with its cost and that cost's provenance.
 
 pub mod anthropic;
+pub mod auto;
 pub mod catalog;
 pub mod policy;
 pub mod presets;
@@ -489,10 +490,12 @@ async fn list_models(State(shared): State<Shared>, headers: HeaderMap) -> Respon
         Err(refusal) => return refusal.openai(),
     };
     let listed = shared.with_db(|db| -> store::Result<Vec<Value>> {
-        let mut data: Vec<Value> = store::list_combos(db)?
-            .into_iter()
-            .map(|c| json!({ "id": c.name, "object": "model", "created": 0, "owned_by": "smarttaskrouter combo" }))
+        let mut data: Vec<Value> = auto::ALIASES.iter()
+            .map(|alias| json!({ "id": alias, "object": "model", "created": 0, "owned_by": "smarttaskrouter auto" }))
             .collect();
+        data.extend(store::list_combos(db)?
+            .into_iter()
+            .map(|c| json!({ "id": c.name, "object": "model", "created": 0, "owned_by": "smarttaskrouter combo" })));
         let providers = store::list_providers(db)?;
         for model in store::list_models(db, None)? {
             let enabled = providers.iter().any(|p| p.id == model.provider_id && p.enabled);
@@ -561,6 +564,9 @@ pub struct Forwarded {
     pub pinned: bool,
     pub client_id: String,
     pub requested: String,
+    /// Why auto routing chose this target, and the header that says so (ROADMAP P0-5).
+    pub route_reason: Option<String>,
+    pub auto_header: Option<String>,
     /// The journaled attempt, settled by `record_success`.
     journal: Option<Attempt>,
     _inflight: InflightGuard,
@@ -608,8 +614,35 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         shared.recover_accounting();
     }
     let requested = incoming.requested;
-    let mut targets = shared.with_db(|db| store::resolve(db, requested))
-        .map_err(|e| Refusal::new(StatusCode::INTERNAL_SERVER_ERROR, "api_error", e))?;
+    // `auto` and `auto/cheap` build their route from the connected models, with a reason for each (P0-5).
+    let mut reasons: HashMap<(String, String), String> = HashMap::new();
+    let mut auto_plan: Option<auto::Plan> = None;
+    let mut targets = match auto::strategy(requested) {
+        None => shared.with_db(|db| store::resolve(db, requested))
+            .map_err(|e| Refusal::new(StatusCode::INTERNAL_SERVER_ERROR, "api_error", e))?,
+        Some(Err(message)) => return Err(Refusal::new(StatusCode::NOT_FOUND, "model_not_found", message)),
+        Some(Ok(strategy)) => {
+            let needs = auto::Needs::of(incoming.surface, incoming.body);
+            let plan = shared.with_db(|db| auto::plan(db, client, requested, strategy, &needs))
+                .map_err(|e| Refusal::new(StatusCode::INTERNAL_SERVER_ERROR, "api_error", e))?;
+            if plan.ranked.is_empty() {
+                let why: Vec<String> = plan.excluded.iter().take(12)
+                    .map(|e| format!("{}/{}: {}", e.provider_id, e.model_id, e.reason)).collect();
+                return Err(Refusal::new(StatusCode::UNPROCESSABLE_ENTITY, "no_eligible_model", format!(
+                    "No connected model is eligible for \"{requested}\". Set tiers, context sizes and prices in \
+                     Connections, or ask for a model by name.{}{}", if why.is_empty() { "" } else { " " }, why.join("; "))));
+            }
+            let mut route = Vec::new();
+            for ranked in plan.ranked.iter().take(auto::ROUTE_LENGTH) {
+                if let Ok(Some(provider)) = shared.with_db(|db| store::get_provider(db, &ranked.provider_id)) {
+                    reasons.insert((ranked.provider_id.clone(), ranked.model_id.clone()), ranked.reason.clone());
+                    route.push((provider, ranked.model_id.clone()));
+                }
+            }
+            auto_plan = Some(plan);
+            route
+        }
+    };
     if targets.is_empty() {
         return Err(Refusal::new(StatusCode::NOT_FOUND, "model_not_found", format!(
             "No model or combo named \"{requested}\". Use <connection>/<model> or a combo name; GET /v1/models lists them.")));
@@ -643,6 +676,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
     for (index, (provider, model_id)) in targets.into_iter().enumerate() {
         let outcome_if_failed = if index + 1 < count { "fallback" } else { "error" };
         let name = format!("{}/{model_id}", provider.id);
+        let route_reason = reasons.get(&(provider.id.clone(), model_id.clone())).cloned();
 
         // A client restricted to some connections never reaches another one, whatever the combo, the session
         // pin or a fallback says (review FR-01).
@@ -731,7 +765,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         let started = Instant::now();
         let settle_failure = |journal: Attempt, status: Option<u16>, cost: Cost, outcome: &str, error: &str| {
             journal.settle(shared, &UsageRecord {
-                session_key: incoming.session, route_mode: Some(mode.label()),
+                session_key: incoming.session, route_mode: Some(mode.label()), route_reason: route_reason.as_deref(),
                 ..UsageRecord::failed(&client.id, &provider.id, &model_id, requested, &cost, outcome, status,
                     started.elapsed().as_millis() as u64, error)
             });
@@ -818,10 +852,18 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             Ok(response) if response.status().is_success() => {
                 let _ = shared.with_db(|db| store::mark_healthy(db, &provider.id, &model_id));
                 let pinned = pinned_target.as_ref().is_some_and(|p| p.provider_id == provider.id && p.model_id == model_id);
+                let auto_header = auto_plan.as_ref().and_then(|plan| plan.ranked.iter()
+                    .find(|r| r.provider_id == provider.id && r.model_id == model_id).map(|r| {
+                        let mut header = plan.header(r);
+                        if pinned {
+                            header.push_str("; kept for this session");
+                        }
+                        header
+                    }));
                 return Ok(Forwarded {
                     response, provider, model_id, billing, price, started, attempt, mode, dropped,
                     session: incoming.session.map(String::from), pinned, client_id: client.id.clone(),
-                    requested: requested.to_string(), journal: Some(journal), _inflight: inflight,
+                    requested: requested.to_string(), auto_header, route_reason, journal: Some(journal), _inflight: inflight,
                 });
             }
             Ok(response) => {
@@ -969,7 +1011,7 @@ pub fn record_success(shared: &Shared, mut forwarded: Forwarded, usage: Option<&
         http_status: Some(forwarded.response.status().as_u16()),
         latency_ms: forwarded.started.elapsed().as_millis() as u64, error,
         cache_write_tokens: usage.map(|u| u.cache_write), session_key: forwarded.session.as_deref(),
-        route_mode: Some(forwarded.mode.label()),
+        route_mode: Some(forwarded.mode.label()), route_reason: forwarded.route_reason.as_deref(),
     };
     if let Some(journal) = journal {
         journal.settle(shared, &record);
@@ -997,6 +1039,9 @@ pub fn route_headers(response: &mut Response, forwarded: &Forwarded) {
         headers.insert("x-smarttaskrouter-route", value);
     }
     headers.insert("x-smarttaskrouter-attempts", HeaderValue::from(forwarded.attempt));
+    if let Some(value) = forwarded.auto_header.as_deref().and_then(|h| HeaderValue::from_str(h).ok()) {
+        headers.insert("x-smarttaskrouter-auto", value);
+    }
     if let Ok(value) = HeaderValue::from_str(forwarded.mode.label()) {
         headers.insert("x-smarttaskrouter-mode", value);
     }
