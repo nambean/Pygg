@@ -486,8 +486,9 @@ pub async fn messages(State(shared): State<Shared>, headers: HeaderMap, body: By
         Err(refusal) => return refusal_response(refusal),
     };
     match forwarded.mode {
-        Mode::Native => native(shared, forwarded, stream).await,
         Mode::AnthropicToOpenAi => translated(shared, forwarded, stream, requested).await,
+        // An Anthropic request never takes the OpenAI → Anthropic route; anything else is native.
+        Mode::Native | Mode::OpenAiToAnthropic => native(shared, forwarded, stream).await,
     }
 }
 

@@ -562,14 +562,38 @@ fn an_anthropic_request_to_an_anthropic_connection_passes_through_unchanged() {
     });
 }
 
+/// ROADMAP B5 (N8): before it, an OpenAI-format request could not reach an Anthropic connection at all.
 #[test]
-fn an_openai_request_cannot_reach_an_anthropic_connection_yet() {
+fn an_openai_request_reaches_an_anthropic_connection_through_translation() {
     rt().block_on(async {
         let rig = rig().await;
-        let response = rig.post("/v1/chat/completions", chat("claude/sonnet")).await;
-        assert_eq!(response.status(), 502);
-        assert!(response.text().await.unwrap().contains("speaks the anthropic API"));
-        assert_eq!(rig.fake.count("sonnet"), 0);
+        let mut request = chat("claude/sonnet");
+        request["seed"] = json!(3);
+        let response = rig.post("/v1/chat/completions", request).await;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.headers()["x-smarttaskrouter-mode"], "translated:openai->anthropic");
+        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "seed");
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["object"], "chat.completion");
+        assert_eq!(body["choices"][0]["message"]["content"], "cache_control=false thinking=false beta=-");
+        assert_eq!(body["choices"][0]["finish_reason"], "stop");
+        assert_eq!((body["usage"]["prompt_tokens"].as_u64(), body["usage"]["prompt_tokens_details"]["cached_tokens"].as_u64()),
+            (Some(1000), Some(900)));
+        assert_eq!(rig.fake.count("sonnet"), 1);
+        let event = rig.ledger().pop().unwrap();
+        assert_eq!(event.route_mode.as_deref(), Some("translated:openai->anthropic"));
+        assert_eq!((event.input_tokens, event.cache_tokens, event.output_tokens), (Some(1000), Some(900), Some(5)));
+
+        // Streamed, with the usage chunk the client asked for.
+        let mut streamed = chat("claude/sonnet");
+        streamed["stream"] = json!(true);
+        streamed["stream_options"] = json!({ "include_usage": true });
+        let text = rig.post("/v1/chat/completions", streamed).await.text().await.unwrap();
+        assert!(text.contains("\"content\":\"cache_control=false"), "{text}");
+        assert!(text.contains("\"completion_tokens\":7") && text.trim_end().ends_with("data: [DONE]"), "{text}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let event = rig.ledger().pop().unwrap();
+        assert_eq!((event.output_tokens, event.outcome.as_str()), (Some(7), "ok"));
     });
 }
 

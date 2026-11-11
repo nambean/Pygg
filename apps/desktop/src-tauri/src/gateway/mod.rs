@@ -24,6 +24,7 @@
 pub mod anthropic;
 pub mod auto;
 pub mod catalog;
+pub mod openai_to_anthropic;
 pub mod policy;
 pub mod presets;
 pub mod probe;
@@ -549,6 +550,8 @@ pub enum Mode {
     Native,
     /// An Anthropic request translated to Chat Completions.
     AnthropicToOpenAi,
+    /// A Chat Completions request translated to Anthropic Messages (ROADMAP B5).
+    OpenAiToAnthropic,
 }
 
 impl Mode {
@@ -556,6 +559,7 @@ impl Mode {
         match self {
             Mode::Native => "native",
             Mode::AnthropicToOpenAi => "translated:anthropic->openai",
+            Mode::OpenAiToAnthropic => "translated:openai->anthropic",
         }
     }
 }
@@ -727,6 +731,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         let mode = match (incoming.surface, provider.wire.as_str()) {
             (Surface::OpenAi, "openai") | (Surface::Anthropic, "anthropic") => Mode::Native,
             (Surface::Anthropic, "openai") => Mode::AnthropicToOpenAi,
+            (Surface::OpenAi, "anthropic") => Mode::OpenAiToAnthropic,
             _ => {
                 skipped.push(format!("{name}: speaks the {} API, which this request's format cannot reach yet", provider.wire));
                 continue;
@@ -1001,6 +1006,7 @@ fn upstream_request(incoming: &Incoming, provider: &Provider, model_id: &str, mo
             }
             (anthropic::to_openai(incoming.body, accepts_cache), dropped)
         }
+        Mode::OpenAiToAnthropic => openai_to_anthropic::to_anthropic(incoming.body),
     };
     body["model"] = json!(model_id);
     if provider.wire == "openai" {
@@ -1139,6 +1145,10 @@ async fn chat_completions(State(shared): State<Shared>, headers: HeaderMap, body
     let status = forwarded.response.status();
     let content_type = forwarded.response.headers().get(header::CONTENT_TYPE).cloned();
     let upstream_headers = forwarded.response.headers().clone();
+    if forwarded.mode == Mode::OpenAiToAnthropic {
+        let include_usage = value["stream_options"]["include_usage"] == true;
+        return from_anthropic_response(shared, forwarded, stream, include_usage, requested).await;
+    }
 
     if !stream {
         let mut forwarded = forwarded;
@@ -1178,6 +1188,75 @@ async fn chat_completions(State(shared): State<Shared>, headers: HeaderMap, body
             }
         }).await;
         record_success(&shared, forwarded, scanner.usage.as_ref(), outcome, error.as_deref());
+    });
+    out
+}
+
+/// An Anthropic answer to a Chat Completions request, translated back (ROADMAP B5), streamed or not.
+async fn from_anthropic_response(shared: Shared, mut forwarded: Forwarded, stream: bool, include_usage: bool,
+    requested: String) -> Response {
+    let upstream = std::mem::replace(&mut forwarded.response, status_only(StatusCode::OK));
+    if !stream {
+        return match upstream.bytes().await {
+            Ok(bytes) => {
+                let parsed = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
+                let (body, usage) = openai_to_anthropic::from_anthropic(&parsed, &requested);
+                let mut out = Json(body).into_response();
+                route_headers(&mut out, &forwarded);
+                record_success(&shared, forwarded, usage.as_ref(), "ok", None);
+                out
+            }
+            Err(e) => {
+                let message = crate::redact::redact(&e.to_string(), &[]);
+                record_success(&shared, forwarded, None, "stream_error", Some(&message));
+                openai_error(StatusCode::BAD_GATEWAY, "api_error", &format!("The provider's response broke off: {message}"))
+            }
+        };
+    }
+    let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(64);
+    let mut out = stream_response(rx, StatusCode::OK, Some(HeaderValue::from_static("text/event-stream")));
+    route_headers(&mut out, &forwarded);
+    tokio::spawn(async move {
+        let mut translator = openai_to_anthropic::ChunkTranslator::new(&requested, include_usage);
+        let mut bytes = upstream.bytes_stream();
+        let mut line = Vec::<u8>::new();
+        let (mut outcome, mut error) = ("ok", None);
+        'read: while let Some(chunk) = bytes.next().await {
+            let chunk = match chunk {
+                Ok(chunk) => chunk,
+                Err(e) => { outcome = "stream_error"; error = Some(crate::redact::redact(&e.to_string(), &[])); break; }
+            };
+            for &b in chunk.iter() {
+                if b != b'\n' {
+                    if line.len() < 4 * 1024 * 1024 { line.push(b); }
+                    continue;
+                }
+                let text = String::from_utf8_lossy(&line).trim_end_matches('\r').to_string();
+                line.clear();
+                let Some(data) = text.strip_prefix("data:").map(str::trim) else { continue };
+                let Ok(event) = serde_json::from_str::<Value>(data) else { continue };
+                if event["type"] == "error" {
+                    outcome = "stream_error";
+                    error = event["error"]["message"].as_str().map(String::from);
+                    break 'read;
+                }
+                for piece in translator.push(&event) {
+                    if tx.send(Ok(Bytes::from(piece))).await.is_err() {
+                        outcome = "client_disconnected";
+                        break 'read;
+                    }
+                }
+            }
+        }
+        if outcome == "ok" {
+            for piece in translator.finish() {
+                let _ = tx.send(Ok(Bytes::from(piece))).await;
+            }
+        } else if outcome == "stream_error" {
+            let _ = tx.send(Err(std::io::Error::other("upstream stream failed"))).await;
+        }
+        let usage = translator.usage.clone();
+        record_success(&shared, forwarded, usage.as_ref(), outcome, error.as_deref());
     });
     out
 }

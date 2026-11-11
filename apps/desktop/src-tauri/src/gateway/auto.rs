@@ -217,9 +217,7 @@ fn judge(conn: &Connection, client: &Client, provider: &Provider, model: &Model,
     if let Err(why) = client.allows(provider) {
         return no(why);
     }
-    if !needs.surface_anthropic && provider.wire == "anthropic" {
-        return no("speaks the Anthropic API, which an OpenAI-format request cannot reach yet".into());
-    }
+    // Both formats reach both kinds of target since ROADMAP B5: OpenAI → Anthropic is translated too.
     if let Some(health) = store::blocking_health(conn, &provider.id, &model.model_id)? {
         return no(format!("{} ({})", health.state.replace('_', " "), health.reason));
     }
