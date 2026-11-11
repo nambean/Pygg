@@ -4,6 +4,7 @@
 //!   agent [--db PATH] run --agent ID --workspace DIR --prompt TEXT [--model M] [--shell yes] [--timeout SECS]
 //!                         [--keep TITLE | --discard yes]
 //!   agent --db PATH task --workspace DIR --prompt TEXT --steps "agent[:model],…" [--check CMD] [--keep TITLE | --discard yes]
+//!   agent --db PATH quality [--days N]
 //!
 //! The agent runs with its own sign-in; nothing here reads or stores it. With --db the run is recorded in that
 //! store's ledger. Without --keep or --discard the worktree is left for inspection and its path printed.
@@ -152,6 +153,18 @@ async fn main() {
             }
         }
         "task" => task(db_path.unwrap_or_else(|| fail("task needs --db PATH")), &flags).await,
+        "quality" => {
+            // How tasks turned out (ROADMAP C4): checks passed, results kept, and known money per kept result.
+            let conn = db::open(&db_path.unwrap_or_else(|| fail("quality needs --db PATH"))).unwrap_or_else(|e| fail(e));
+            let days: i64 = flags.get("days").and_then(|d| d.parse().ok()).unwrap_or(30);
+            let q = tasks::quality(&conn, db::now_ms() - days * 86_400_000).unwrap_or_else(|e| fail(e));
+            let usd = |m: u64| format!("${:.4}", m as f64 / 1e6);
+            println!("last {days} days: {} tasks; {} results kept, {} discarded; {} retried, {} stopped", q.tasks, q.kept,
+                q.discarded, q.retried, q.cancelled);
+            println!("checks passed on {} of {} checked attempts", q.passed_attempts, q.checked_attempts);
+            println!("known money {} ({} entries with an unknown cost, not counted); per kept result {}", usd(q.known_micro_usd),
+                q.unknown_entries, q.micro_usd_per_kept.map(usd).unwrap_or_else(|| "-".into()));
+        }
         other => fail(format!("unknown command {other}")),
     }
 }

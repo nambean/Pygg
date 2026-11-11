@@ -812,6 +812,53 @@ pub fn set_workspace_budget(conn: &Connection, id: &str, micro_usd: Option<u64>)
     audit(conn, "budget.workspace", id, serde_json::json!({"microUsd": micro_usd})).map_err(err)
 }
 
+/// Records one quality signal (ROADMAP C4, ADR-029; migration 0015). Only known signals are written.
+fn signal(conn: &Connection, metric: &str, kind: &str, target: &str, value: bool, source: &str) -> rusqlite::Result<()> {
+    conn.execute("INSERT INTO feedback (id, metric_name, target_kind, target_id, value_bool, source, created_at) \
+                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![new_id(), metric, kind, target, value as i64, source, now_ms()]).map(|_| ())
+}
+
+/// How tasks turned out, and the money they cost per result the user kept (ROADMAP C4): every paid step of every
+/// task counts, kept or not, so a cheap step that failed is in the cost of the result that followed.
+#[derive(Clone, Debug, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Quality {
+    pub tasks: u64,
+    /// Results kept as a branch or a patch.
+    pub kept: u64,
+    pub discarded: u64,
+    pub retried: u64,
+    pub cancelled: u64,
+    /// Attempts whose approved checks ran, and how many of them passed.
+    pub checked_attempts: u64,
+    pub passed_attempts: u64,
+    /// Known money of all tasks' ledger entries, and the entries whose cost is unknown (not counted).
+    pub known_micro_usd: u64,
+    pub unknown_entries: u64,
+    /// Known money per kept result; `None` when nothing was kept.
+    pub micro_usd_per_kept: Option<u64>,
+}
+
+pub fn quality(conn: &Connection, since_ms: i64) -> Result<Quality> {
+    let count = |metric: &str, value: i64| -> Result<u64> {
+        conn.query_row("SELECT COUNT(DISTINCT target_id) FROM feedback WHERE metric_name = ?1 AND value_bool = ?2 AND created_at >= ?3",
+            params![metric, value, since_ms], |r| r.get::<_, i64>(0)).map(|n| n.max(0) as u64).map_err(err)
+    };
+    let tasks: i64 = conn.query_row("SELECT COUNT(*) FROM tasks WHERE created_at >= ?1", [since_ms], |r| r.get(0)).map_err(err)?;
+    let (known, unknown): (i64, i64) = conn.query_row(
+        "SELECT COALESCE(SUM(u.cost_micro_usd), 0), COALESCE(SUM(u.cost_status = 'unknown'), 0) FROM usage_events u \
+         JOIN attempts a ON a.id = u.attempt_id JOIN task_stages s ON s.id = a.stage_id JOIN tasks t ON t.id = s.task_id \
+         WHERE t.created_at >= ?1", [since_ms], |r| Ok((r.get(0)?, r.get(1)?))).map_err(err)?;
+    let kept = count("result_kept", 1)?;
+    let mut q = Quality { tasks: tasks.max(0) as u64, kept, discarded: count("result_kept", 0)?, retried: count("retried", 1)?,
+        cancelled: count("cancelled", 1)?, passed_attempts: count("checks_passed", 1)?, known_micro_usd: known.max(0) as u64,
+        unknown_entries: unknown.max(0) as u64, ..Quality::default() };
+    q.checked_attempts = q.passed_attempts + count("checks_passed", 0)?;
+    q.micro_usd_per_kept = (kept > 0).then(|| q.known_micro_usd / kept);
+    Ok(q)
+}
+
 fn close_attempt(conn: &Connection, id: &str, outcome: &str, escalation: Option<&str>) -> rusqlite::Result<()> {
     conn.execute("UPDATE attempts SET state = ?2, escalation_reason = COALESCE(?3, escalation_reason), finished_at = ?4 WHERE id = ?1",
         params![id, outcome, escalation, now_ms()]).map(|_| ())
@@ -999,6 +1046,7 @@ impl Runner {
             tx.execute("UPDATE attempts SET state = 'canceled', finished_at = ?2 WHERE stage_id = ?1 AND state IN ('waiting', 'running')",
                 params![row.stage_id, now_ms()]).map_err(err)?;
             set_task(&tx, id, "canceled", None, Some("You stopped it")).map_err(err)?;
+            signal(&tx, "cancelled", "task", id, true, "user").map_err(err)?;
             audit(&tx, "task.canceled", id, serde_json::json!({})).map_err(err)?;
             tx.commit().map_err(err)
         })
@@ -1054,6 +1102,7 @@ impl Runner {
                 set_task(&tx, id, "running", Some("preparing"), None).map_err(err)?;
             } else {
                 close_attempt(&tx, &attempt, "canceled", Some("You declined this step")).map_err(err)?;
+                signal(&tx, "declined", "attempt", &attempt, true, "user").map_err(err)?;
                 set_task(&tx, id, "blocked", None, Some("You declined the step it was waiting on")).map_err(err)?;
             }
             audit(&tx, if approve { "approval.approved" } else { "approval.denied" }, id,
@@ -1070,7 +1119,8 @@ impl Runner {
             if row.state != "interrupted" {
                 return Err("Only an interrupted task can be retried".into());
             }
-            set_task(c, id, "running", Some("preparing"), None).map_err(err)
+            set_task(c, id, "running", Some("preparing"), None).map_err(err)?;
+            signal(c, "retried", "task", id, true, "user").map_err(err)
         })?;
         Ok(self.start(id))
     }
@@ -1084,7 +1134,10 @@ impl Runner {
         let attempts = self.with_db(|c| attempts_of(c, id))?;
         let Some((mut index, mut carried)) = resume_point(&attempts) else { return Ok(()) };
         let mut last_failure = attempts.iter().rev().find(|a| a.outcome == "failed").and_then(|a| a.escalation_reason.clone());
-        let stop = |runner: &Runner| runner.with_db(|c| set_task(c, id, "canceled", None, Some("You stopped it"))).map_err(err);
+        let stop = |runner: &Runner| runner.with_db(|c| {
+            set_task(c, id, "canceled", None, Some("You stopped it"))?;
+            signal(c, "cancelled", "task", id, true, "user")
+        }).map_err(err);
         // Set when a paid step went over its cap: the ladder stops there instead of trying further steps.
         let mut halt: Option<String> = None;
 
@@ -1209,6 +1262,7 @@ impl Runner {
                     touched.dedup();
                     return self.with_db(|c| {
                         close_attempt(c, &attempt, "passed", None)?;
+                        signal(c, "checks_passed", "attempt", &attempt, true, "check")?;
                         if touched.is_empty() {
                             set_task(c, id, "checks_passed", None, cost_note.as_ref().map(|n| format!("{n}.")).as_deref())
                         } else {
@@ -1222,7 +1276,10 @@ impl Runner {
                     let reason = format!("`{}` {}", failed.command, failed.detail);
                     carried = Some(handoff(failed));
                     drop_worktree(self)?;
-                    self.with_db(|c| close_attempt(c, &attempt, "failed", Some(&reason))).map_err(err)?;
+                    self.with_db(|c| {
+                        close_attempt(c, &attempt, "failed", Some(&reason))?;
+                        signal(c, "checks_passed", "attempt", &attempt, false, "check")
+                    }).map_err(err)?;
                     last_failure = Some(format!("{name}: {reason}"));
                     index += 1;
                 }
@@ -1263,6 +1320,7 @@ pub fn result_patch(conn: &Connection, id: &str) -> Result<(String, String)> {
 }
 
 pub fn record_export(conn: &Connection, id: &str, path: &str) -> Result<()> {
+    signal(conn, "result_kept", "task", id, true, "user").map_err(err)?;
     audit(conn, "task.exported", id, serde_json::json!({"file": path})).map_err(err)
 }
 
@@ -1279,6 +1337,7 @@ pub fn keep(conn: &Connection, id: &str, title: Option<&str>) -> Result<String> 
                 state = CASE state WHEN 'needs_review' THEN 'manually_accepted' ELSE state END, \
                 reason = CASE state WHEN 'needs_review' THEN NULL ELSE reason END, updated_at = ?3 WHERE id = ?1",
         params![id, branch, now_ms()]).map_err(err)?;
+    signal(&tx, "result_kept", "task", id, true, "user").map_err(err)?;
     audit(&tx, "task.kept", id, serde_json::json!({"branch": branch})).map_err(err)?;
     tx.commit().map_err(err)?;
     Ok(branch)
@@ -1294,6 +1353,7 @@ pub fn discard(conn: &Connection, id: &str) -> Result<()> {
                 state = CASE state WHEN 'needs_review' THEN 'canceled' ELSE state END, \
                 reason = CASE state WHEN 'needs_review' THEN 'You discarded the result' ELSE reason END, updated_at = ?2 WHERE id = ?1",
         params![id, now_ms()]).map_err(err)?;
+    signal(&tx, "result_kept", "task", id, false, "user").map_err(err)?;
     audit(&tx, "task.discarded", id, serde_json::json!({})).map_err(err)?;
     tx.commit().map_err(err)
 }
@@ -1533,6 +1593,10 @@ mod tests {
         let task = detail(&rig, &id);
         assert_eq!((task.summary.state.as_str(), task.result.as_deref()), ("checks_passed", Some("kept")));
         assert!(task.attempt_details.iter().all(|a| !a.open));
+        // Quality signals (ROADMAP C4): one attempt failed its checks, one passed, and the result was kept.
+        let q = quality(&lock(&rig.db), 0).unwrap();
+        assert_eq!((q.tasks, q.checked_attempts, q.passed_attempts, q.kept, q.discarded), (1, 2, 1, 1, 0));
+        assert_eq!((q.unknown_entries, q.micro_usd_per_kept), (2, Some(0)), "agent runs cost unknown, never counted as $0 spent");
         assert_eq!(std::fs::read_to_string(rig.repo.join("app.txt")).unwrap(), "one\n", "the user's checkout is untouched");
     }
 

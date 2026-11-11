@@ -232,6 +232,14 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Why:** Open source fits a local tool that holds keys and code; a small budget keeps the benchmark honest about what it can claim; and Auto Chat would make the app a chat client, which ADR-027 rules out.
 
+## ADR-029 — Quality signals in Pygg's own ledger, in TensorZero's shape (2026-11-11)
+
+**Decision:** ROADMAP C4's one-day TensorZero evaluation found the project archived by its owners on 2026-06-12 (last release 2026.6.0, a security fix), needing Postgres or ClickHouse and a second gateway with its own model names, storing whole conversations and sending usage analytics by default. Pygg does not adopt it. It borrows its small, documented data model instead: **metrics** (name, boolean or float, the level they describe, whether more or less is better) and **feedback** rows keyed to a request, an attempt or a task, with their source. Migration 0015 adds both and seeds `checks_passed`, `result_kept`, `retried`, `cancelled`, `declined` and `rework_minutes`; the task engine records them as they happen, and `tasks::quality` gives the known money per kept result, counting every paid step, kept or not.
+
+**Why:** Pygg is one user on one machine with SQLite (ADR-002); a server stack is out of proportion, and an unmaintained gateway in the path is a security cost. The metric model is the part worth having, and keeping its shape leaves an export open if a maintained successor appears.
+
+**Rules:** an unknown signal has no row, never a 0 or false; Pygg never infers quality from conversation content (ADR-025); request-level feedback comes only from a client that sends it.
+
 ## Open decisions (not yet finalized)
 
 - ~~First agent benchmark client and model matrix~~: settled by the C3 first pass (OpenCode 1.18.4 through the gateway; see the [report](../benchmark/reports/2026-11-11-c3-first-pass.md)).

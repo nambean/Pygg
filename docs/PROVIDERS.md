@@ -43,7 +43,7 @@ An Anthropic-format endpoint is written as the base an Anthropic SDK takes plus 
 
 | Preset | Default endpoint | Notes | Source |
 | --- | --- | --- | --- |
-| Ollama | `http://127.0.0.1:11434/v1` | | Ollama docs |
+| Ollama | `http://127.0.0.1:11434/v1` | **Live** (2026-11-11, Ollama 0.40.16 in Docker on an RTX 3060, `qwen3:8b`, through the Anthropic surface for OpenCode). Agents send prompts of 20k tokens or more: start Ollama with a larger context (`OLLAMA_CONTEXT_LENGTH=32768`), or the prompt is cut. `qwen2.5-coder:7b` did not produce tool calls OpenCode could use | Ollama docs |
 | LM Studio | `http://localhost:1234/v1` | key only if "Require Authentication" is on | https://lmstudio.ai/docs/developer/openai-compat |
 | llama.cpp server | `http://127.0.0.1:9931/v1` | the README's default port; Docker examples use 8080 | https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md |
 | vLLM | `http://localhost:8000/v1` | optional `--api-key` | https://docs.vllm.ai/en/latest/serving/online_serving/openai_compatible_server/ |

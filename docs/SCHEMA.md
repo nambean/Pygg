@@ -1,6 +1,6 @@
 # Store schema
 
-> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v14
+> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v15
 
 The local SQLite store (`db.rs`): every table after all migrations, in order. Credentials are never here: a
 connection holds only a reference to its key in the OS credential store (ADR-002). Client tokens are stored as
@@ -122,6 +122,26 @@ References: `provider_id` → `providers.id` (on delete cascade); `combo_id` →
 
 References: `provider_id` → `providers.id` (on delete cascade).
 
+## `feedback`
+
+| Column | Type | Null | Default | Key | Added in |
+| --- | --- | --- | --- | --- | --- |
+| `id` | TEXT | yes |  | primary | 0015_quality_signals |
+| `metric_name` | TEXT | no |  |  | 0015_quality_signals |
+| `target_kind` | TEXT | no |  |  | 0015_quality_signals |
+| `target_id` | TEXT | no |  |  | 0015_quality_signals |
+| `value_bool` | INTEGER | yes |  |  | 0015_quality_signals |
+| `value_float` | REAL | yes |  |  | 0015_quality_signals |
+| `source` | TEXT | no |  |  | 0015_quality_signals |
+| `tags_json` | TEXT | yes |  |  | 0015_quality_signals |
+| `created_at` | INTEGER | no |  |  | 0015_quality_signals |
+
+References: `metric_name` → `metrics.name`.
+
+Indexes: `feedback_by_metric`, `feedback_by_target`.
+
+4 CHECK constraints (see the migrations).
+
 ## `gateway_clients`
 
 | Column | Type | Null | Default | Key | Added in |
@@ -144,6 +164,18 @@ References: `provider_id` → `providers.id` (on delete cascade).
 | `strict_budget` | INTEGER | no | `0` |  | 0014_strict_budget_and_probes |
 
 8 CHECK constraints (see the migrations).
+
+## `metrics`
+
+| Column | Type | Null | Default | Key | Added in |
+| --- | --- | --- | --- | --- | --- |
+| `name` | TEXT | yes |  | primary | 0015_quality_signals |
+| `type` | TEXT | no |  |  | 0015_quality_signals |
+| `level` | TEXT | no |  |  | 0015_quality_signals |
+| `optimize` | TEXT | no |  |  | 0015_quality_signals |
+| `description` | TEXT | no |  |  | 0015_quality_signals |
+
+3 CHECK constraints (see the migrations).
 
 ## `models`
 

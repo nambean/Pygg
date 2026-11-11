@@ -19,7 +19,7 @@ Pygg is one desktop program: a Rust core inside a Tauri 2 window, with the same 
                         ┌──────────────┼───────────────┐                  │ provider APIs (keys from
                         ▼              ▼               ▼                  ▼ the OS credential store)
                    Task engine    SQLite store    OS credential     OpenAI-compatible and
-                   (tasks.rs)     (db.rs, v14)    store (vault.rs)  Anthropic endpoints, local runtimes
+                   (tasks.rs)     (db.rs, v15)    store (vault.rs)  Anthropic endpoints, local runtimes
                         │
                         ▼  one Git worktree per attempt (isolation.rs)
                    Agent CLIs with their own sign-in (agents.rs): Claude Code, Codex CLI, Gemini CLI, OpenCode
