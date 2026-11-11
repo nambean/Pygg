@@ -1,6 +1,8 @@
 node_modules/
 dist/
 target/
+# Side builds while a binary of target/ is running (Windows locks it).
+target-*/
 .vite/
 .DS_Store
 *.log

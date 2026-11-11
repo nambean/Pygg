@@ -117,6 +117,9 @@ pub struct Config {
     /// `PYGG_BENCH_SESSION` (the agent's configuration sends it as `x-smarttaskrouter-session`), and the
     /// attempt's cost is what that gateway's ledger recorded for the session, at the prices set there.
     pub gateway_db: Option<PathBuf>,
+    /// Keep going after an attempt whose cost could not be read (a timed-out free model, say). Only for runs whose
+    /// paid routes all go through a gateway client with a strict limit, which then bounds the spend.
+    pub allow_unknown: bool,
 }
 
 /// The environment variable that carries an attempt's session key to the agent's configuration.
@@ -191,7 +194,7 @@ impl Ledger {
     /// Why no further attempt may start, if one may not.
     pub fn stop_reason(&self, config: &Config) -> Option<String> {
         let cap = config.budget_micro_usd?;
-        if self.unknown_attempts > 0 {
+        if self.unknown_attempts > 0 && !config.allow_unknown {
             return Some("an attempt's cost was unknown, so the budget cap cannot be enforced".into());
         }
         (self.spent_micro_usd >= cap).then(|| {
@@ -337,7 +340,9 @@ pub async fn run_case(case: &Case, rungs: &[Rung], cascade: bool, config: &Confi
     -> Result<CaseRecord, String> {
     let started = Instant::now();
     let label = run_label(rungs, cascade);
-    let slot = config.scratch.join(format!("{}-{}", case.file.id, label.replace([':', '>'], "_")));
+    // One flat folder: a model name's `/` would nest folders, and an agent that guesses an absolute path from
+    // them can land outside its worktree (seen with Qwen, ROADMAP N4).
+    let slot = config.scratch.join(format!("{}-{}", case.file.id, label.replace([':', '>', '='], "_").replace(['/', '\\'], "-")));
     let repo = slot.join("repo");
     copy_dir(&case.fixture, &repo).map_err(|e| format!("copying fixture: {e}"))?;
     let base = isolation::init_repository(&repo, &format!("fixture {}", case.file.id)).map_err(|e| e.to_string())?;
@@ -464,6 +469,107 @@ pub async fn run_case(case: &Case, rungs: &[Rung], cascade: bool, config: &Confi
     })
 }
 
+/// Runs one case through Pygg's own task engine (ROADMAP N3), as the app would: the fixture becomes a workspace,
+/// its checks are approved, and the rungs become the task's steps for `agent`. A failed check hands its output to
+/// the next step, as in the app; `run_case` instead sends every rung the same prompt. Protected files are guarded
+/// by an approved check that runs first (`git diff --quiet HEAD -- …`). Each attempt runs with
+/// `PYGG_ATTEMPT_ID` set to its id; with a gateway store, the attempt is costed from that session's entries.
+/// The ladder runs to its end once started: the budget is checked between cases, so the gateway client's own
+/// (strict) limit is what bounds a single case.
+pub async fn run_case_engine(case: &Case, rungs: &[Rung], cascade: bool, agent: &str, config: &Config,
+    ledger: &mut Ledger) -> Result<CaseRecord, String> {
+    use crate::tasks;
+    use std::sync::{Arc, Mutex};
+    let started = Instant::now();
+    let label = format!("engine:{}", run_label(rungs, cascade));
+    if let Some(reason) = ledger.stop_reason(config) {
+        return Ok(CaseRecord { case_id: case.file.id.clone(), category: case.file.category.clone(),
+            complexity: case.file.complexity.clone(), run: label, passed: false, passing_tier: None,
+            attempts: Vec::new(), total_ms: 0, stopped: Some(reason) });
+    }
+    let slot = config.scratch.join(format!("{}-{}", case.file.id, label.replace([':', '>', '='], "_").replace('/', "-")));
+    let repo = slot.join("repo");
+    copy_dir(&case.fixture, &repo).map_err(|e| format!("copying fixture: {e}"))?;
+    isolation::init_repository(&repo, &format!("fixture {}", case.file.id)).map_err(|e| e.to_string())?;
+    let conn = crate::db::open(&slot.join("store.sqlite3")).map_err(|e| e.to_string())?;
+    let workspace = tasks::add_workspace(&conn, &repo.to_string_lossy(), Some(&case.file.id))?;
+    if !case.file.protected.is_empty() {
+        let guard = format!("git diff --quiet HEAD -- {}", case.file.protected.join(" "));
+        tasks::add_check(&conn, &workspace.id, &guard)?;
+    }
+    for check in &case.file.checks {
+        tasks::add_check(&conn, &workspace.id, check)?;
+    }
+    let ladder = if cascade { rungs } else { &rungs[..1] };
+    let steps = ladder.iter().map(|r| tasks::Step { agent: agent.into(), model: Some(r.model.clone()), tier: r.tier,
+        billing: "unknown".into() }).collect();
+    let new = tasks::NewTask { workspace_id: workspace.id.clone(), title: Some(case.file.title.clone()),
+        prompt: case.file.prompt.clone(), strategy: "free_first".into(), steps, allow_shell: false,
+        timeout_secs: Some(config.agent_timeout.as_secs()) };
+    let id = tasks::create_task(&conn, &new)?;
+    let db = Arc::new(Mutex::new(conn));
+    let runner = tasks::Runner::new(db.clone(), slot.join("worktrees"), tasks::agent_executor());
+    runner.start(&id).ok_or("the task did not start")?.await.map_err(|e| e.to_string())?;
+    let detail = tasks::task_detail(&db.lock().unwrap_or_else(|p| p.into_inner()), &id)?;
+
+    let mut attempts = Vec::new();
+    for (i, a) in detail.attempt_details.iter().enumerate() {
+        let gateway = match &config.gateway_db {
+            Some(store) => {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                Some(gateway_usage(store, &a.id)?)
+            }
+            None => None,
+        };
+        let routed = gateway.as_ref().filter(|g| g.requests > 0);
+        let agent_estimate = a.agent_estimate_usd.map(|usd| (usd * 1_000_000.0).round() as u64);
+        let (known, micro, source) = match routed {
+            Some(g) => (g.unknown_money == 0, Some(g.known_micro_usd), "gateway ledger at the gateway's prices"),
+            None => (agent_estimate.is_some(), agent_estimate, "agent-reported, catalog list price"),
+        };
+        match (known, micro) {
+            (true, Some(m)) => ledger.spent_micro_usd += m,
+            (false, Some(m)) => { ledger.spent_micro_usd += m; ledger.unknown_attempts += 1; }
+            _ => ledger.unknown_attempts += 1,
+        }
+        let tokens = Tokens { input: a.input_tokens.unwrap_or(0).max(0) as u64, output: a.output_tokens.unwrap_or(0).max(0) as u64,
+            ..Tokens::default() };
+        attempts.push(AttemptRecord {
+            number: i + 1,
+            tier: a.tier,
+            model: a.agent_model.clone().or_else(|| ladder.get(a.step).map(|r| r.model.clone())).unwrap_or_default(),
+            agent_exit: a.detail.clone().unwrap_or_default(),
+            agent_ms: match (a.started_at, a.finished_at) { (Some(s), Some(f)) => (f - s).max(0) as u64, _ => 0 },
+            passed: a.outcome == "passed",
+            checks: a.checks.clone(),
+            files_changed: a.files_changed.unwrap_or(0) as usize,
+            insertions: a.insertions.unwrap_or(0) as usize,
+            deletions: a.deletions.unwrap_or(0) as usize,
+            cost_status: if known { "estimated" } else { "unknown" },
+            cost_micro_usd: micro.filter(|_| known),
+            cost_source: known.then_some(source),
+            tokens,
+            agent_steps: 0,
+            agent_error: (a.outcome != "passed" && a.checks.is_empty()).then(|| a.detail.clone().unwrap_or_default()),
+            gateway,
+        });
+    }
+    let passing_tier = detail.attempt_details.iter().find(|a| a.outcome == "passed").map(|a| a.tier);
+    // The result's worktree waits for the user in the app; here it is only measured.
+    let _ = tasks::discard(&db.lock().unwrap_or_else(|p| p.into_inner()), &id);
+    Ok(CaseRecord {
+        case_id: case.file.id.clone(),
+        category: case.file.category.clone(),
+        complexity: case.file.complexity.clone(),
+        run: label,
+        passed: passing_tier.is_some() && detail.summary.state == "checks_passed",
+        passing_tier,
+        attempts,
+        total_ms: started.elapsed().as_millis() as u64,
+        stopped: None,
+    })
+}
+
 /// Pass rate and effort per run label, for the console report.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Summary {
@@ -551,7 +657,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (cases, agent) = setup(dir.path());
         let config = Config { agent, agent_timeout: Duration::from_secs(60), check_timeout: Duration::from_secs(60),
-            scratch: dir.path().join("scratch"), budget_micro_usd: None, gateway_db: None };
+            scratch: dir.path().join("scratch"), budget_micro_usd: None, gateway_db: None, allow_unknown: false };
         let rungs = vec![Rung::parse("T0=bad").unwrap(), Rung::parse("T1=good").unwrap()];
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let mut ledger = Ledger::default();
@@ -587,7 +693,7 @@ mod tests {
         // Every attempt reports $0.50; the cap is $0.40, so the cascade stops after its first attempt.
         let config = Config { agent: format!("{agent} 0.5"), agent_timeout: Duration::from_secs(60),
             check_timeout: Duration::from_secs(60), scratch: dir.path().join("scratch"),
-            budget_micro_usd: Some(400_000), gateway_db: None };
+            budget_micro_usd: Some(400_000), gateway_db: None, allow_unknown: false };
         let rungs = vec![Rung::parse("T0=bad").unwrap(), Rung::parse("T1=good").unwrap()];
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let mut ledger = Ledger::default();
@@ -636,7 +742,7 @@ mod tests {
         let cheat = dir.path().join("cheat.js");
         fs::write(&cheat, "require('fs').writeFileSync('test.js', '// nothing\\n');\n").unwrap();
         let config = Config { agent: format!("node \"{}\"", cheat.display()), agent_timeout: Duration::from_secs(60),
-            check_timeout: Duration::from_secs(60), scratch: dir.path().join("scratch"), budget_micro_usd: None, gateway_db: None };
+            check_timeout: Duration::from_secs(60), scratch: dir.path().join("scratch"), budget_micro_usd: None, gateway_db: None, allow_unknown: false };
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let record = rt.block_on(run_case(&cases[0], &[Rung::parse("T0=x").unwrap()], false, &config, &mut Ledger::default())).unwrap();
         assert!(!record.passed);

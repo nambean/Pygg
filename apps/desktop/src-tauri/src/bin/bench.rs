@@ -22,11 +22,16 @@ struct Args {
     check_timeout: Duration,
     budget_micro_usd: Option<u64>,
     gateway_db: Option<PathBuf>,
+    /// Run each case through the task engine with this agent (ROADMAP N3) instead of `--agent`'s command.
+    engine: Option<String>,
+    /// Runs of each case per arm, for a pass rate with bounds (ROADMAP N2).
+    repeat: usize,
+    allow_unknown: bool,
 }
 
 fn usage() -> ! {
     eprintln!("usage: bench --cases DIR --agent COMMAND --rung TIER=MODEL [--rung …] \
-        [--mode all|single|cascade] [--only CASE] [--out DIR] [--agent-timeout SECONDS] [--check-timeout SECONDS] [--budget-usd N] [--gateway-db STORE]");
+        [--mode all|single|cascade] [--only CASE] [--out DIR] [--agent-timeout SECONDS] [--check-timeout SECONDS] [--budget-usd N] [--gateway-db STORE] [--engine AGENT] [--repeat N] [--allow-unknown yes]");
     std::process::exit(2);
 }
 
@@ -42,6 +47,9 @@ fn parse() -> Args {
     let mut check_timeout = Duration::from_secs(300);
     let mut budget_micro_usd = None;
     let mut gateway_db = None;
+    let mut engine = None;
+    let mut repeat = 1usize;
+    let mut allow_unknown = false;
     while let Some(flag) = args.next() {
         let mut value = || args.next().unwrap_or_else(|| usage());
         match flag.as_str() {
@@ -59,6 +67,9 @@ fn parse() -> Args {
                 budget_micro_usd = Some((usd * 1_000_000.0).round() as u64);
             }
             "--gateway-db" => gateway_db = Some(PathBuf::from(value())),
+            "--engine" => engine = Some(value()),
+            "--allow-unknown" => allow_unknown = value() == "yes",
+            "--repeat" => repeat = value().parse().ok().filter(|n| (1..=10).contains(n)).unwrap_or_else(|| usage()),
             "-h" | "--help" => usage(),
             other => { eprintln!("unknown argument {other}"); usage() }
         }
@@ -68,8 +79,8 @@ fn parse() -> Args {
     }
     Args {
         cases: cases.unwrap_or_else(|| usage()),
-        agent: agent.unwrap_or_else(|| usage()),
-        rungs, mode, only, out, agent_timeout, check_timeout, budget_micro_usd, gateway_db,
+        agent: agent.or_else(|| engine.as_ref().map(|_| String::new())).unwrap_or_else(|| usage()),
+        rungs, mode, only, out, agent_timeout, check_timeout, budget_micro_usd, gateway_db, engine, repeat, allow_unknown,
     }
 }
 
@@ -99,7 +110,7 @@ async fn main() {
     let scratch = std::env::temp_dir().join(format!("str-bench-{}", uuid::Uuid::new_v4().simple()));
     let config = Config { agent: args.agent.clone(), agent_timeout: args.agent_timeout,
         check_timeout: args.check_timeout, scratch: scratch.clone(), budget_micro_usd: args.budget_micro_usd,
-        gateway_db: args.gateway_db.clone() };
+        gateway_db: args.gateway_db.clone(), allow_unknown: args.allow_unknown };
     let mut ledger = bench::Ledger::default();
     std::fs::create_dir_all(&args.out).expect("cannot create the output folder");
     let stamp = smarttaskrouter_desktop_lib::db::now_ms();
@@ -107,11 +118,23 @@ async fn main() {
     let mut out = std::fs::File::create(&out_path).expect("cannot create the results file");
 
     let mut records: Vec<CaseRecord> = Vec::new();
+    let label_of = |rungs: &[bench::Rung], cascade: bool| match &args.engine {
+        Some(_) => format!("engine:{}", bench::run_label(rungs, cascade)),
+        None => bench::run_label(rungs, cascade),
+    };
     for (run_rungs, cascade) in &runs {
-        let label = bench::run_label(run_rungs, *cascade);
+        let label = label_of(run_rungs, *cascade);
         for case in &cases {
-            eprint!("{label:<44} {:<32} ", case.file.id);
-            match bench::run_case(case, run_rungs, *cascade, &config, &mut ledger).await {
+          for round in 1..=args.repeat {
+            let tag = if args.repeat > 1 { format!("{} #{round}", case.file.id) } else { case.file.id.clone() };
+            eprint!("{label:<52} {tag:<36} ");
+            let result = match &args.engine {
+                Some(agent) => bench::run_case_engine(case, run_rungs, *cascade, agent, &config, &mut ledger).await,
+                None => bench::run_case(case, run_rungs, *cascade, &config, &mut ledger).await,
+            };
+            // Each round gets fresh folders: the engine's store and worktrees are per case and label.
+            let _ = std::fs::remove_dir_all(&scratch);
+            match result {
                 Ok(record) => {
                     let cost = record.cost_micro_usd().map(bench::usd).unwrap_or_else(|| "cost unknown".into());
                     let outcome = if record.passed { "passed" }
@@ -125,16 +148,17 @@ async fn main() {
                 }
                 Err(e) => eprintln!("ERROR {e}"),
             }
+          }
         }
     }
     let _ = std::fs::remove_dir_all(&scratch);
 
-    println!("\n{:<44} Passed   Attempts   Time      Est. cost   Per success   Agent errors", "Run");
+    println!("\n{:<52} Passed   Attempts   Time      Est. cost   Per success   Agent errors", "Run");
     for (run_rungs, cascade) in &runs {
-        let label = bench::run_label(run_rungs, *cascade);
+        let label = label_of(run_rungs, *cascade);
         let summary = bench::summarize(records.iter().filter(|r| r.run == label));
         let show = |v: Option<u64>| v.map(bench::usd).unwrap_or_else(|| "unknown".into());
-        println!("{label:<44} {:>3}/{:<4} {:>8}   {:>7.1}s  {:>10}   {:>11}   {}", summary.passed, summary.cases,
+        println!("{label:<52} {:>3}/{:<4} {:>8}   {:>7.1}s  {:>10}   {:>11}   {}", summary.passed, summary.cases,
             summary.attempts, summary.total_ms as f64 / 1000.0, show(summary.cost_micro_usd),
             show(summary.cost_per_success()), summary.agent_errors);
     }

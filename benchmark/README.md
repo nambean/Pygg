@@ -56,6 +56,10 @@ cargo run --release --bin bench -- `
 
 Each attempt runs in its own Git worktree and is discarded afterwards. Checks run even when the agent exits with an error.
 
+### Through the task engine (`--engine`)
+
+`--engine AGENT` runs each case as a smart task, as the app would, instead of running `--agent`'s command: the fixture becomes a workspace, its checks are approved (protected files first, as `git diff --quiet HEAD -- <files>`), and the rungs become the task's steps for that agent. A failed check hands its output to the next step, so a cascade is the product's own. Each attempt runs with `PYGG_ATTEMPT_ID` set to its id; point the agent's gateway session header at it (`{env:PYGG_ATTEMPT_ID}` in OpenCode's configuration) and `--gateway-db` costs each attempt from the gateway's ledger. The budget is checked between cases: a ladder, once started, runs to its end, so keep the gateway client's limit strict. `--repeat N` (up to 10) runs every case N times per arm, for a pass rate rather than a single outcome. `--allow-unknown yes` keeps a run going after an attempt whose cost could not be read (a free model that timed out leaves no usage); use it only when every paid route goes through a gateway client with a strict limit, which then bounds the spend.
+
 ### Through the gateway
 
 With `--gateway-db`, each attempt runs with its own session key in `PYGG_BENCH_SESSION`. The agent's configuration sends it as `x-smarttaskrouter-session`, and the attempt's cost is what the gateway's ledger recorded for that session, at the gateway's prices: the agent cannot know which model a route chose. Requests on a subscription count as quota, not money. An attempt that sent nothing through the gateway (a model the agent reaches directly) is costed from the agent's own report. Put a spending limit on the gateway client too, and make it strict (Clients → Limits): the gateway then holds each request at the most it could cost, so the limit cannot be passed.

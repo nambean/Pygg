@@ -888,6 +888,8 @@ pub struct ExecRequest {
     pub timeout_secs: u64,
     /// The cap the user approved for a paid step; the agent enforces it where it can (`agents::enforces_budget`).
     pub max_budget_usd: Option<f64>,
+    /// The attempt's id, handed to the agent as `PYGG_ATTEMPT_ID`.
+    pub attempt_id: String,
 }
 
 /// Runs one attempt and returns its run, worktree included. The app's runs the agent CLI (`agent_executor`);
@@ -900,7 +902,7 @@ pub fn agent_executor() -> Executor {
             let request = agents::TaskRequest {
                 agent: request.agent, workspace: request.workspace, prompt: request.prompt, model: request.model,
                 allow_shell: request.allow_shell, timeout_secs: Some(request.timeout_secs), base: Some(request.base),
-                max_budget_usd: request.max_budget_usd,
+                max_budget_usd: request.max_budget_usd, attempt_id: Some(request.attempt_id),
             };
             agents::run(&request, &worktrees, canceled(cancel)).await
         })
@@ -1107,7 +1109,7 @@ impl Runner {
             let request = ExecRequest {
                 agent: step.agent.clone(), model: step.model.clone(), workspace: PathBuf::from(&row.workspace_path),
                 base: base.clone(), prompt: compose(&row.prompt, carried.as_deref()), allow_shell: row.policy.allow_shell,
-                timeout_secs: row.policy.timeout_secs, max_budget_usd: cap.map(usd),
+                timeout_secs: row.policy.timeout_secs, max_budget_usd: cap.map(usd), attempt_id: attempt.clone(),
             };
             let name = agents::find(&step.agent).map(|a| a.name).unwrap_or(step.agent.as_str());
             let run = match (self.exec)(request, self.worktrees.clone(), cancel.clone()).await {
@@ -1473,7 +1475,8 @@ mod tests {
                     exit: if outcome == "ok" { "exit 0".into() } else { "exit 1".into() }, duration_ms: 5,
                     files_changed: stat.files, insertions: stat.insertions, deletions: stat.deletions,
                     usage: AgentUsage { input_tokens: Some(100), output_tokens: Some(10), estimate_usd: estimate, ..AgentUsage::default() },
-                    log_tail: String::new(),
+                    // The attempt id the engine handed over, so a test can check it is the attempt's own.
+                    log_tail: request.attempt_id.clone(),
                 })
             })
         })
@@ -1517,6 +1520,10 @@ mod tests {
         assert!(prompts[1].starts_with("Make result.txt say good\n\n---\n") && prompts[1].contains("did not pass"), "{}", prompts[1]);
         // Each attempt has its own ledger entry, with an unknown cost.
         assert_eq!(task.summary.cost.unknown_calls, 2);
+        // Each agent run was told which attempt it is (PYGG_ATTEMPT_ID), so a gateway can tie requests to it.
+        for a in &task.attempt_details {
+            assert_eq!(a.log_tail.as_deref(), Some(a.id.as_str()));
+        }
         assert_eq!(task.attempt_details[1].input_tokens, Some(100));
 
         let diff = result_diff(&lock(&rig.db), &id).unwrap();

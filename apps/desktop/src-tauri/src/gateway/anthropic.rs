@@ -563,7 +563,9 @@ async fn translated(shared: Shared, mut forwarded: super::Forwarded, stream: boo
     let mut out = stream_response(rx, StatusCode::OK, Some(HeaderValue::from_static("text/event-stream")));
     route_headers(&mut out, &forwarded);
     tokio::spawn(async move {
+        use std::io::Write;
         let mut translator = StreamTranslator::new(&requested);
+        let mut capture = capture_file(forwarded.session.as_deref(), &forwarded.model_id);
         let mut bytes = upstream.bytes_stream();
         let mut line = Vec::<u8>::new();
         let mut outcome = "ok";
@@ -586,6 +588,9 @@ async fn translated(shared: Shared, mut forwarded: super::Forwarded, stream: boo
                 }
                 let text = String::from_utf8_lossy(&line).trim_end_matches('\r').to_string();
                 line.clear();
+                if let Some(file) = capture.as_mut() {
+                    let _ = writeln!(file, "IN  {text}");
+                }
                 let Some(data) = text.strip_prefix("data:").map(str::trim) else { continue };
                 if data == "[DONE]" {
                     break 'read;
@@ -593,6 +598,9 @@ async fn translated(shared: Shared, mut forwarded: super::Forwarded, stream: boo
                 let Ok(value) = serde_json::from_str::<Value>(data) else { continue };
                 shared.capture_signatures(&value);
                 for event in translator.push(&value) {
+                    if let Some(file) = capture.as_mut() {
+                        let _ = write!(file, "OUT {event}");
+                    }
                     if tx.send(Ok(Bytes::from(event))).await.is_err() {
                         outcome = "client_disconnected";
                         break 'read;
@@ -608,14 +616,34 @@ async fn translated(shared: Shared, mut forwarded: super::Forwarded, stream: boo
                 let _ = tx.send(Ok(Bytes::from(event))).await;
             } else {
                 for event in translator.finish() {
+                    if let Some(file) = capture.as_mut() {
+                        let _ = write!(file, "OUT {event}");
+                    }
                     let _ = tx.send(Ok(Bytes::from(event))).await;
                 }
             }
         }
+        if let Some(file) = capture.as_mut() {
+            let _ = writeln!(file, "END {outcome}");
+        }
+        drop(capture);
         let usage = translator.usage.clone();
         record_success(&shared, forwarded, usage.as_ref(), outcome, error.as_deref());
     });
     out
+}
+
+/// A debugging aid (ROADMAP N4): with `SMARTTASKROUTER_CAPTURE_DIR` set, each translated stream is written there,
+/// one file per request, as received from the provider (`IN`) and as sent to the client (`OUT`). The file holds the
+/// model's whole answer, so the variable is for diagnosing a client on one's own machine; nothing is written unless
+/// it is set.
+fn capture_file(session: Option<&str>, model: &str) -> Option<std::io::BufWriter<std::fs::File>> {
+    let dir = std::env::var_os("SMARTTASKROUTER_CAPTURE_DIR")?;
+    let safe = |s: &str| s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect::<String>();
+    let name = format!("{}-{}-{}-{}.txt", crate::db::now_ms(), safe(session.unwrap_or("none")), safe(model),
+        &uuid::Uuid::new_v4().simple().to_string()[..6]);
+    std::fs::create_dir_all(&dir).ok()?;
+    std::fs::File::create(std::path::Path::new(&dir).join(name)).ok().map(std::io::BufWriter::new)
 }
 
 /// Token counting for Claude Code's context management. An Anthropic connection answers exactly; for

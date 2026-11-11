@@ -12,7 +12,7 @@
 //!                             [--tools yes|no] [--vision yes|no] [--price-in USD] [--price-out USD] [--billing TYPE]
 //!                             [--price-cached USD] [--price-cache-write USD] [--price-source WHERE]   (USD per million tokens)
 //!   gateway [--db PATH] client --name NAME [--auto-min-tier T0-T4] [--paid-retries N] [--tasks yes|no] [--no-training yes|no]
-//!                             [--strict yes|no]
+//!                             [--strict yes|no] [--monthly-usd N (0 removes the limit)]
 //!   gateway [--db PATH] terms --id CONNECTION --terms no_training|may_train|unknown [--source WHERE]
 //!   gateway [--db PATH] auto --alias auto|auto/cheap [--client NAME] [--anthropic yes] [--tools yes] [--prompt N] [--max-tokens N]
 //!                             [--thinking adaptive|enabled] [--effort low|medium|high|xhigh|max]
@@ -200,6 +200,10 @@ async fn main() {
                 if let Some(tasks) = one("tasks") { store::set_client_may_run_tasks(db, &client.id, tasks == "yes")?; }
                 if let Some(only) = one("no-training") { store::set_client_require_no_training(db, &client.id, only == "yes")?; }
                 if let Some(strict) = one("strict") { store::set_client_strict_budget(db, &client.id, strict == "yes")?; }
+                if let Some(usd) = one("monthly-usd") {
+                    let limit = usd.parse::<f64>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or("bad --monthly-usd")?;
+                    store::set_client_budget(db, &client.id, (limit > 0.0).then(|| (limit * 1e6).round() as u64))?;
+                }
                 Ok(())
             }).unwrap_or_else(|e| fail(e));
             println!("Updated client {name}");

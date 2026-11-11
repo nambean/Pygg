@@ -227,7 +227,7 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Decisions (owner):**
 - **Licence:** Pygg is open source under the MIT licence ([LICENSE](../LICENSE)). MIT-licensed code from other projects (OmniRoute among them) may be ported with its copyright and licence notice kept, recorded in `THIRD_PARTY_NOTICES.md`. ADR-026 still applies: no session, cookie or OAuth bridges, whatever their licence.
-- **Paid benchmark budget:** under **$5 in total** for the benchmark (ROADMAP C3), enforced with `bench --budget-usd`. Free tiers, local models and agents on the owner's subscriptions do not count against it, but their runs are reported apart.
+- **Paid benchmark budget:** under **$5 in total** for the benchmark (ROADMAP C3), enforced with `bench --budget-usd`. **Raised to $20 in total by the owner on 2026-11-11**, after the first pass showed the suite needs harder cases and repeats to say anything; about $2.44 of it was spent by then. Free tiers, local models and agents on the owner's subscriptions do not count against it, but their runs are reported apart.
 - **No Auto Chat in the app.** The app is not a place to compose chats or tasks (ADR-027). ADR-017 and ADR-018 are withdrawn as app features: no app-owned conversation store, Memory & Context screen or per-turn model affinity for chats. What survives of that design is what tasks need: the bounded summary a failed attempt hands to the next step, and session affinity in the gateway (P0-4).
 
 **Why:** Open source fits a local tool that holds keys and code; a small budget keeps the benchmark honest about what it can claim; and Auto Chat would make the app a chat client, which ADR-027 rules out.

@@ -193,6 +193,11 @@ pub struct TaskRequest {
     /// A spending cap the agent enforces itself, where it can (Claude Code's `--max-budget-usd`).
     #[serde(default)]
     pub max_budget_usd: Option<f64>,
+    /// The task attempt this run is, given to the agent as `PYGG_ATTEMPT_ID`. An agent the user pointed at the
+    /// gateway can send it as its session (`x-smarttaskrouter-session`), so the gateway's ledger says which
+    /// attempt each request belonged to; the benchmark costs attempts that way.
+    #[serde(default)]
+    pub attempt_id: Option<String>,
 }
 
 /// What the agent reported about the run.
@@ -345,6 +350,9 @@ fn last_json_document(text: &str) -> Option<Value> {
     serde_json::from_str(text[start..].trim()).ok()
 }
 
+/// The environment variable that names the task attempt an agent run belongs to.
+pub const ATTEMPT_ENV: &str = "PYGG_ATTEMPT_ID";
+
 /// Runs a task: a worktree of the workspace's current commit under `worktrees`, the agent started in it, and
 /// the result measured. The worktree is kept for the user to keep as a branch or discard.
 pub async fn run(request: &TaskRequest, worktrees: &Path, cancel: impl std::future::Future<Output = ()>)
@@ -375,6 +383,9 @@ pub async fn run(request: &TaskRequest, worktrees: &Path, cancel: impl std::futu
         // The worktree is a copy Pygg made for this task; Gemini CLI refuses an untrusted folder in headless mode
         // (geminicli.com/docs/cli/trusted-folders).
         command.env.push(("GEMINI_CLI_TRUST_WORKSPACE".into(), "true".into()));
+    }
+    if let Some(attempt) = request.attempt_id.as_deref().filter(|a| !a.is_empty()) {
+        command.env.push((ATTEMPT_ENV.into(), attempt.into()));
     }
     let outcome = process::run(&command, cancel).await;
 
