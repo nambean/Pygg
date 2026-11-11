@@ -1,6 +1,7 @@
 //! SmartTaskRouter desktop core. One crate with modules (docs/DECISIONS.md, ADR-005): the interface
 //! talks to it through Tauri commands (src/commands.rs), and the local gateway runs in the same process.
 
+pub mod agents;
 pub mod bench;
 pub mod checks;
 pub mod commands;
@@ -60,7 +61,8 @@ pub fn run() {
             let path = dir.join("store.sqlite3");
             let conn = db::open(&path)?;
             let shared = gateway::Shared::for_store(Arc::new(Mutex::new(conn)), Arc::new(gateway::OsSecrets), &path);
-            let state = AppState { shared, server: tokio::sync::Mutex::new(None), last_error: Mutex::new(None) };
+            let state = AppState { shared, server: tokio::sync::Mutex::new(None), last_error: Mutex::new(None),
+                data_dir: dir.clone(), runs: Mutex::new(Default::default()) };
             if state.autostart() {
                 // A busy port is reported in Endpoints rather than stopping the app from opening.
                 let _ = tauri::async_runtime::block_on(state.start());
@@ -92,6 +94,10 @@ pub fn run() {
             commands::models_list,
             commands::model_set_capabilities,
             commands::auto_simulate,
+            commands::agents_detect,
+            commands::agent_run,
+            commands::agent_diff,
+            commands::agent_finish,
             commands::model_add,
             commands::model_update,
             commands::model_remove,

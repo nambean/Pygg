@@ -4,7 +4,7 @@
  * data" banner whenever this is in use (ADR-014). It follows the core's rules (slugs, validation, honest
  * costs) closely enough for design review, not as a test of them.
  */
-import type { AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
+import type { AgentInfo, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
   Health, Model, Preset, Target, Tier, UsageEvent, UsageGroup, UsageSummary, Wire } from './api';
 import { TIERS } from './api';
 
@@ -65,6 +65,20 @@ const PRESETS: Preset[] = BASE_PRESETS.map(p => {
   return {...p, offer: offer?.[0] ?? (p.endpoint === null ? 'custom' : p.defaultBilling === 'local' ? 'local' : 'paid'),
     offerNote: offer?.[1] ?? null};
 });
+
+/** As found on a developer machine: three agents installed, Codex signed in with a ChatGPT plan. */
+const DEMO_AGENTS: AgentInfo[] = [
+  {id: 'claude-code', name: 'Claude Code', installed: false, program: null, version: null, login: null,
+    signIn: 'Your Claude subscription or Anthropic Console login, managed by Claude Code (`claude` then /login).',
+    install: 'https://docs.claude.com/en/docs/claude-code/setup'},
+  {id: 'codex', name: 'Codex CLI', installed: true, program: 'codex.exe', version: 'codex-cli 0.163.0', login: 'Logged in using ChatGPT',
+    signIn: 'Your ChatGPT plan or an OpenAI API key, managed by Codex (`codex login`).', install: 'https://developers.openai.com/codex/cli'},
+  {id: 'gemini-cli', name: 'Gemini CLI', installed: true, program: 'gemini.js', version: '0.66.0', login: null,
+    signIn: 'A Gemini API key set in Gemini CLI (run `gemini`, choose the API key). Google no longer accepts its free Google-account login from this CLI.',
+    install: 'https://github.com/google-gemini/gemini-cli'},
+  {id: 'opencode', name: 'OpenCode', installed: true, program: 'opencode.exe', version: '1.18.4', login: null,
+    signIn: 'The providers configured in OpenCode (`opencode auth login`).', install: 'https://opencode.ai/docs'},
+];
 
 const DEMO_MODELS: Record<string, string[]> = {
   anthropic: ['claude-haiku-4-5', 'claude-sonnet-4-5'],
@@ -456,6 +470,19 @@ export function demoApi(): GatewayApi {
       if (c && policy.autoMinTier) c.autoMinTier = policy.autoMinTier;
       await sleep(80);
     },
+    agents: () => touch(DEMO_AGENTS),
+    runAgent: async task => {
+      await sleep(1500);
+      const agent = DEMO_AGENTS.find(a => a.id === task.agent);
+      if (!agent?.installed) throw `${agent?.name ?? task.agent} is not installed, or not on PATH.`;
+      if (!task.prompt.trim()) throw 'Describe the task';
+      return {id: hex(8), agent: task.agent, model: task.model, workspace: task.workspace, worktree: `${task.workspace}/../.worktrees/demo`,
+        base: 'a91e7e7', outcome: 'ok', exit: 'exit 0', durationMs: 28_541, filesChanged: 1, insertions: 1, deletions: 1,
+        usage: {model: null, inputTokens: 83_166, outputTokens: 291, cacheReadTokens: 65_664, cacheWriteTokens: null, estimateUsd: null,
+          result: 'Updated `calc.py` so `add()` returns `a + b`. Nothing else changed.', error: null}, logTail: ''};
+    },
+    agentDiff: async () => touch('diff --git a/calc.py b/calc.py\n--- a/calc.py\n+++ b/calc.py\n@@ -1,2 +1,2 @@\n def add(a, b):\n-    return a - b\n+    return a + b\n'),
+    finishAgentRun: async (runId, keep) => { await sleep(300); return keep ? `str/${keep.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${runId}` : null; },
     usage: async days => {
       const since = Date.now() - days * 86_400_000;
       const list = events.filter(e => e.createdAt >= since);

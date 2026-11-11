@@ -111,7 +111,26 @@ export type UsageSummary = {
   since: number; total: UsageGroup; byModel: UsageGroup[]; byClient: UsageGroup[]; recent: UsageEvent[];
 };
 
-export type NewConnection = { preset: string; label: string; endpoint?: string; apiKey?: string; billing: Billing };
+/** An official agent CLI (Claude Code, Codex CLI, Gemini CLI, OpenCode) and how it signs in. */
+export type AgentInfo = {
+  id: string; name: string; installed: boolean; program: string | null; version: string | null;
+  /** The CLI's own status line, where it has one. */
+  login: string | null; signIn: string; install: string;
+};
+export type AgentTask = {
+  agent: string; workspace: string; prompt: string; model: string | null; allowShell: boolean; timeoutSecs: number | null;
+};
+export type AgentUsage = {
+  model: string | null; inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null;
+  cacheWriteTokens: number | null; estimateUsd: number | null; result: string | null; error: string | null;
+};
+export type AgentRun = {
+  id: string; agent: string; model: string | null; workspace: string; worktree: string; base: string;
+  outcome: 'ok' | 'failed' | 'timed_out' | 'canceled' | 'not_started'; exit: string; durationMs: number;
+  filesChanged: number; insertions: number; deletions: number; usage: AgentUsage; logTail: string;
+};
+
+export type NewConnection ={ preset: string; label: string; endpoint?: string; apiKey?: string; billing: Billing };
 export type PriceInput = {
   inputUsdPerMtok: number; outputUsdPerMtok: number; cachedInputUsdPerMtok?: number | null; cacheWriteUsdPerMtok?: number | null;
 };
@@ -148,6 +167,12 @@ export interface GatewayApi {
   /** What an auto alias would choose, from a client's point of view (null: a new client's defaults). Sends nothing. */
   autoSimulate(clientId: string | null, alias: AutoAlias, needs: AutoNeeds): Promise<AutoPlan>;
   usage(days: number): Promise<UsageSummary>;
+  agents(): Promise<AgentInfo[]>;
+  /** Runs a task through an agent with its own sign-in, in a worktree of the workspace. */
+  runAgent(task: AgentTask): Promise<AgentRun>;
+  agentDiff(runId: string): Promise<string>;
+  /** Keeps the run's changes as a branch (keep = its title) or discards them; returns the branch. */
+  finishAgentRun(runId: string, keep: string | null): Promise<string | null>;
 }
 
 const native: GatewayApi = {
@@ -178,6 +203,10 @@ const native: GatewayApi = {
   setModelCapabilities: (providerId, modelId, capabilities) => invoke('model_set_capabilities', {providerId, modelId, capabilities}),
   autoSimulate: (clientId, alias, needs) => invoke('auto_simulate', {clientId, alias, needs}),
   usage: days => invoke('usage_summary', {days}),
+  agents: () => invoke('agents_detect'),
+  runAgent: task => invoke('agent_run', {request: task}),
+  agentDiff: runId => invoke('agent_diff', {id: runId}),
+  finishAgentRun: (runId, keep) => invoke('agent_finish', {id: runId, keep}),
 };
 
 let demo: Promise<GatewayApi> | null = null;

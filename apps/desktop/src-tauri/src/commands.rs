@@ -12,6 +12,10 @@ pub struct AppState {
     pub shared: Shared,
     pub server: tokio::sync::Mutex<Option<Server>>,
     pub last_error: std::sync::Mutex<Option<String>>,
+    /// Where agent runs get their worktrees (the app data folder).
+    pub data_dir: std::path::PathBuf,
+    /// Agent runs whose worktree is still there, by id. The interface refers to a run by id only, never by path.
+    pub runs: std::sync::Mutex<std::collections::HashMap<String, crate::agents::TaskRun>>,
 }
 
 type Res<T> = Result<T, String>;
@@ -453,3 +457,41 @@ pub fn usage_summary(state: State<'_, AppState>, days: u32) -> Res<UsageSummary>
     let since = crate::db::now_ms() - days * 86_400_000;
     state.shared.with_db(|db| store::usage_summary(db, since, 200))
 }
+
+// ---------- Agents (official agent CLIs with their own sign-in) ----------
+
+#[tauri::command]
+pub async fn agents_detect() -> Res<Vec<crate::agents::Detected>> {
+    Ok(crate::agents::detect().await)
+}
+
+/// Runs a task through an agent CLI in a worktree of the workspace, records it in the ledger, and keeps the run
+/// until it is kept as a branch or discarded.
+#[tauri::command]
+pub async fn agent_run(state: State<'_, AppState>, request: crate::agents::TaskRequest) -> Res<crate::agents::TaskRun> {
+    let worktrees = state.data_dir.join("worktrees");
+    let run = crate::agents::run(&request, &worktrees, std::future::pending()).await?;
+    state.shared.with_db(|db| crate::agents::record(db, &run))?;
+    state.runs.lock().unwrap_or_else(|p| p.into_inner()).insert(run.id.clone(), run.clone());
+    Ok(run)
+}
+
+fn run_by_id(state: &AppState, id: &str) -> Res<crate::agents::TaskRun> {
+    state.runs.lock().unwrap_or_else(|p| p.into_inner()).get(id).cloned().ok_or_else(|| "That run is no longer open".into())
+}
+
+#[tauri::command]
+pub fn agent_diff(state: State<'_, AppState>, id: String) -> Res<String> {
+    crate::agents::diff(&run_by_id(&state, &id)?)
+}
+
+/// Keeps the run's changes as a new branch of the workspace (`keep` is its title), or discards them. Either way
+/// the worktree is removed. Returns the branch name when kept.
+#[tauri::command]
+pub fn agent_finish(state: State<'_, AppState>, id: String, keep: Option<String>) -> Res<Option<String>> {
+    let run = run_by_id(&state, &id)?;
+    let branch = crate::agents::finish(&run, keep.as_deref().map(str::trim).filter(|k| !k.is_empty()))?;
+    state.runs.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
+    Ok(branch)
+}
+

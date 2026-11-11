@@ -457,6 +457,50 @@ export const gateway: Record<string, string> = {
   'Free or credits': 'Miễn phí hoặc có credit',
   'No provider matches. Custom (OpenAI) connects any compatible endpoint.':
     'Không có nhà cung cấp nào khớp. Custom (OpenAI) kết nối được với mọi endpoint tương thích.',
+  // Agents (official agent CLIs with their own sign-in)
+  'Agents': 'Agent',
+  'Agents on This Computer': 'Agent trên máy này',
+  'Pygg starts each agent’s own program with the sign-in it already has: a subscription, a free tier or a key it manages. Pygg never reads, stores or shares that sign-in, and never offers it to other apps.':
+    'Pygg chạy chính chương trình của từng agent bằng đăng nhập sẵn có của nó: gói subscription, gói miễn phí hoặc key do agent tự quản lý. Pygg không đọc, không lưu, không chia sẻ thông tin đăng nhập đó, và không cho ứng dụng khác dùng.',
+  'Looking for agents…': 'Đang tìm agent…',
+  'Installed': 'Đã cài',
+  'Not found': 'Không tìm thấy',
+  'How to Install': 'Cách cài',
+  'Run a Task': 'Chạy task',
+  'Install one of the agents above to run tasks with it.': 'Cài một trong các agent ở trên để chạy task với nó.',
+  'Agent': 'Agent',
+  'Repository': 'Repository',
+  'A folder under Git. The agent works on a separate copy (a worktree) of its current commit; your files and branch are not touched.':
+    'Một thư mục có Git. Agent làm việc trên một bản sao riêng (worktree) của commit hiện tại; file và nhánh của bạn không bị đụng tới.',
+  'What should the agent do? Be specific about the files and what done looks like.':
+    'Agent cần làm gì? Nêu rõ file nào và thế nào là xong.',
+  'Optional, in the agent’s own naming. Empty uses the agent’s default.': 'Không bắt buộc, theo cách đặt tên của agent. Để trống thì dùng mặc định của agent.',
+  'Shell commands': 'Lệnh shell',
+  'The agent may run commands in the copy, such as tests. Codex always runs in its own sandbox.':
+    'Agent được chạy lệnh trong bản sao, ví dụ chạy test. Codex luôn chạy trong sandbox riêng của nó.',
+  'Off: the agent may read and edit files only. Codex always runs commands in its own sandbox.':
+    'Tắt: agent chỉ được đọc và sửa file. Codex luôn chạy lệnh trong sandbox riêng của nó.',
+  'Up to 15 minutes. The run uses the agent’s own plan or quota.': 'Tối đa 15 phút. Lần chạy dùng gói hoặc quota của chính agent.',
+  'Running…': 'Đang chạy…',
+  'Run Task': 'Chạy task',
+  'Kept as branch {branch}. Your checkout was not changed.': 'Đã giữ thành nhánh {branch}. Thư mục làm việc của bạn không bị thay đổi.',
+  'Discarded.': 'Đã bỏ.',
+  'Timed out': 'Quá thời gian',
+  '{s} s': '{s} giây',
+  '{files} files, +{ins} −{del}': '{files} file, +{ins} −{del}',
+  'agent’s default': 'mặc định của agent',
+  '{input} in · {output} out · {cache} from cache': '{input} vào · {output} ra · {cache} từ cache',
+  'Not reported': 'Không báo',
+  'Unknown: depends on the agent’s sign-in. Its own list-price estimate: ${amount}':
+    'Chưa rõ: tuỳ cách agent đăng nhập. Ước tính theo giá niêm yết của chính agent: ${amount}',
+  'Unknown: depends on the agent’s sign-in (a subscription is not billed per request).':
+    'Chưa rõ: tuỳ cách agent đăng nhập (gói subscription không tính tiền theo từng request).',
+  'Agent output': 'Output của agent',
+  'Changes': 'Thay đổi',
+  'Branch title, e.g. Fix add()': 'Tên nhánh, ví dụ Sửa add()',
+  'Branch title': 'Tên nhánh',
+  'Keep as Branch': 'Giữ thành nhánh',
+  'Discard': 'Bỏ',
   // Auto routing (ROADMAP P0-5)
   'Auto routing': 'Định tuyến auto',
   'list price': 'giá niêm yết',

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ChartColumn, Gauge, KeyRound, ListOrdered, ListTodo, PanelLeft, Plug, Plus, Settings as SettingsIcon,
+import { Bot, ChartColumn, Gauge, KeyRound, ListOrdered, ListTodo, PanelLeft, Plug, Plus, Settings as SettingsIcon,
   SlidersHorizontal } from 'lucide-react';
 import './styles.css';
 import brandMark from './assets/brand-mark.svg';
@@ -25,6 +25,7 @@ import { Combos } from './components/gateway/Combos';
 import { Connections } from './components/gateway/Connections';
 import { Overview, type GatewayDestination } from './components/gateway/Overview';
 import { Usage } from './components/gateway/Usage';
+import { Agents } from './components/gateway/Agents';
 
 type View =
   | {kind: GatewayDestination}
@@ -32,6 +33,7 @@ type View =
   | {kind: 'task'; id: string; from: TaskFilter}
   | {kind: 'new'}
   | {kind: 'policies'}
+  | {kind: 'agents'}
   | {kind: 'settings'};
 type Intent = 'connect' | 'create';
 
@@ -90,6 +92,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
       const index = Number(key) - 1;
       if (index >= 0 && index < GATEWAY.length) { event.preventDefault(); go(GATEWAY[index].kind); }
       else if (key === '6') { event.preventDefault(); setView({kind: 'tasks', filter: 'all'}); }
+      else if (key === '7') { event.preventDefault(); setView({kind: 'agents'}); }
       else if (key === 'n' && (view.kind === 'tasks' || view.kind === 'task')) { event.preventDefault(); newTask(); }
       else if (key === ',') { event.preventDefault(); setView({kind: 'settings'}); }
       else if (key === 'f' && view.kind === 'tasks') { event.preventDefault(); searchRef.current?.focus(); }
@@ -105,6 +108,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
     : view.kind === 'task' ? openedTask?.title ?? t('Task')
     : view.kind === 'new' ? t('New Task')
     : view.kind === 'policies' ? t('Policies')
+    : view.kind === 'agents' ? t('Agents')
     : t('Settings');
   const isTaskScreen = view.kind === 'tasks' || view.kind === 'task' || view.kind === 'new' || view.kind === 'policies';
   const primary = isGateway(view.kind) ? PRIMARY[view.kind] : undefined;
@@ -120,6 +124,10 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         <SidebarGroup title={t('Gateway')}>
           {GATEWAY.map((g, i) => <SidebarItem key={g.kind} icon={g.icon} label={t(g.title)} shortcut={`${MOD}${i + 1}`}
             selected={view.kind === g.kind} onSelect={() => go(g.kind)}/>)}
+        </SidebarGroup>
+        <SidebarGroup title={t('Agents')}>
+          <SidebarItem icon={<Bot/>} label={t('Agents')} shortcut={`${MOD}7`}
+            selected={view.kind === 'agents'} onSelect={() => setView({kind: 'agents'})}/>
         </SidebarGroup>
         <SidebarGroup title={t('Smart Tasks · Preview')}>
           <SidebarItem icon={<ListTodo/>} label={t('Tasks')} count={counts.all} shortcut={`${MOD}6`}
@@ -160,7 +168,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         </button>}
       </header>
 
-      {isGateway(view.kind) && !runningInDesktop && <p className="banner sample" role="status">
+      {(isGateway(view.kind) || view.kind === 'agents') && !runningInDesktop && <p className="banner sample" role="status">
         {t('Browser preview with demo data. Nothing is stored or sent; the desktop app runs the real gateway.')}
       </p>}
       {isTaskScreen && <p className="banner sample" role="status">
@@ -173,6 +181,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         {view.kind === 'combos' && <Combos intent={intent === 'create' ? 'create' : undefined} onIntentDone={intentDone}/>}
         {view.kind === 'clients' && <Clients intent={intent === 'create' ? 'create' : undefined} onIntentDone={intentDone}/>}
         {view.kind === 'usage' && <Usage/>}
+        {view.kind === 'agents' && <Agents/>}
         {view.kind === 'tasks' && <>
           <div className="page-bar task-filters">
             <Segmented label={t('Show')} value={view.filter} onChange={filter => setView({kind: 'tasks', filter})}
