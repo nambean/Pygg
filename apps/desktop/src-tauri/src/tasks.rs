@@ -661,6 +661,10 @@ pub fn agent_executor() -> Executor {
     })
 }
 
+/// Told when a task's runner stops, with the task and the state it stopped in (`waiting_approval`,
+/// `checks_passed`, `needs_review`, `check_failed`, `blocked`, `canceled`). The app notifies the user from it.
+pub type Notify = Arc<dyn Fn(&str, &str) + Send + Sync>;
+
 /// Runs tasks in the background, one runner per task, each with its own stop signal.
 #[derive(Clone)]
 pub struct Runner {
@@ -668,6 +672,7 @@ pub struct Runner {
     worktrees: PathBuf,
     exec: Executor,
     live: Arc<Mutex<HashMap<String, watch::Sender<bool>>>>,
+    notify: Option<Notify>,
 }
 
 /// Takes a task off the live list however its runner ends.
@@ -684,7 +689,12 @@ impl Drop for Live {
 
 impl Runner {
     pub fn new(db: Arc<Mutex<Connection>>, worktrees: PathBuf, exec: Executor) -> Runner {
-        Runner { db, worktrees, exec, live: Arc::default() }
+        Runner { db, worktrees, exec, live: Arc::default(), notify: None }
+    }
+
+    /// Calls `notify` whenever a task's runner stops.
+    pub fn with_notify(self, notify: Notify) -> Runner {
+        Runner { notify: Some(notify), ..self }
     }
 
     fn with_db<T>(&self, f: impl FnOnce(&Connection) -> T) -> T {
@@ -713,6 +723,11 @@ impl Runner {
             if let Err(e) = runner.drive(&id, &rx).await {
                 // The store or the workspace failed under it: the task cannot continue on its own.
                 runner.with_db(|c| set_task(c, &id, "blocked", None, Some(&e))).ok();
+            }
+            if let Some(notify) = &runner.notify {
+                if let Ok(state) = runner.with_db(|c| task_row(c, &id)).map(|row| row.state) {
+                    notify(&id, &state);
+                }
             }
         }))
     }
@@ -1260,6 +1275,21 @@ mod tests {
         assert_eq!(task.summary.state, "checks_passed");
         assert_eq!(task.attempt_details.len(), 2, "the approved attempt is the one that ran");
         assert!(rig.prompts.lock().unwrap()[1].contains("did not pass"), "the failure is still handed on after the wait");
+    }
+
+    #[tokio::test]
+    async fn the_app_is_told_where_each_runner_stopped() {
+        let rig = rig(&[]);
+        let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+        let log = seen.clone();
+        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
+            fake(vec![Act::Write("x.txt", "x")], rig.prompts.clone()))
+            .with_notify(Arc::new(move |_, state| log.lock().unwrap().push(state.to_string())));
+        let paid = create(&rig, vec![step("claude-code", "paid", 3)]);
+        runner.start(&paid).unwrap().await.unwrap();
+        let free = create(&rig, vec![step("codex", "subscription", 3)]);
+        runner.start(&free).unwrap().await.unwrap();
+        assert_eq!(*seen.lock().unwrap(), ["waiting_approval", "needs_review"]);
     }
 
     #[tokio::test]

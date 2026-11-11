@@ -10,6 +10,8 @@ import { isMac, MOD } from './lib/platform';
 import { FILTERS, matchesFilter, type TaskFilter, type TaskSummary } from './lib/tasks';
 import type { GatewayStatus as Status } from './lib/api';
 import { useGateway } from './hooks/useGateway';
+import { gatewayChanged } from './lib/api';
+import { onTasksChanged, sendShellStrings } from './lib/shell';
 import { BudgetSubtitle } from './components/BudgetSubtitle';
 import { GatewayStatus } from './components/GatewayStatus';
 import { NewTaskView } from './components/NewTaskView';
@@ -70,6 +72,8 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
 
   // Tasks and workspaces from the core (tasks.rs); live while anything runs. The browser preview shows sample tasks.
   const taskList = useGateway(api => api.tasks(), [], 3_000);
+  // A task's runner stopped (one from an IDE included): every screen reloads at once, not at the next poll.
+  useEffect(() => onTasksChanged(gatewayChanged), []);
   const workspaceList = useGateway(api => api.workspaces());
   const allTasks = useMemo(() => taskList.data ?? [], [taskList.data]);
   const workspaces = workspaceList.data ?? [];
@@ -239,6 +243,7 @@ function Localized() {
     loadLanguage(next).catch(() => undefined).then(() => {
       if (!current) return;
       applyLanguage(next);
+      sendShellStrings();
       setLang(next);
     });
     return () => { current = false; };

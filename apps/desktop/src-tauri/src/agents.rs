@@ -63,11 +63,14 @@ pub struct Launch {
     pub prefix: Vec<String>,
 }
 
-/// Looks for `name` on PATH. On Windows, npm installs `.cmd` shims; their target (an `.exe`, or a `.js` run by
-/// Node) is started directly, because passing a free-text prompt through `cmd` is not safe to quote.
+/// Looks for `name` on PATH, then in `~/.local/bin`, where the official native installers put Claude Code even
+/// when that folder is not on PATH yet. On Windows, npm installs `.cmd` shims; their target (an `.exe`, or a `.js`
+/// run by Node) is started directly, because passing a free-text prompt through `cmd` is not safe to quote.
 pub fn locate(name: &str) -> Option<Launch> {
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
+    let fallback = home.map(|h| h.join(".local").join("bin"));
+    for dir in std::env::split_paths(&path).chain(fallback) {
         if cfg!(windows) {
             let exe = dir.join(format!("{name}.exe"));
             if exe.is_file() {
@@ -135,6 +138,18 @@ async fn quick(launch: &Launch, args: &[&str]) -> Option<String> {
     Some(crate::redact::redact(line, &[]).chars().take(120).collect())
 }
 
+/// Claude Code's own `auth status` (JSON), as one line. Only whether and how it is signed in, never an account.
+async fn claude_login(launch: &Launch) -> Option<String> {
+    let args = launch.prefix.iter().cloned().chain(["auth".to_string(), "status".to_string()]).collect();
+    let out = process::run(&command(launch, args, &std::env::temp_dir(), Duration::from_secs(20)), std::future::pending()).await;
+    let status: Value = serde_json::from_str(out.stdout.trim()).ok()?;
+    Some(if status["loggedIn"] == true {
+        format!("Signed in ({})", status["authMethod"].as_str().unwrap_or("unknown method"))
+    } else {
+        "Not signed in: run claude auth login".to_string()
+    })
+}
+
 /// Every known agent, installed or not, with its version and sign-in state where the CLI reports one.
 pub async fn detect() -> Vec<Detected> {
     let mut out = Vec::new();
@@ -142,7 +157,11 @@ pub async fn detect() -> Vec<Detected> {
         let launch = spec.programs.iter().find_map(|p| locate(p));
         let (version, login) = match &launch {
             Some(launch) => (quick(launch, &["--version"]).await,
-                if spec.id == "codex" { quick(launch, &["login", "status"]).await } else { None }),
+                match spec.id {
+                    "codex" => quick(launch, &["login", "status"]).await,
+                    "claude-code" => claude_login(launch).await,
+                    _ => None,
+                }),
             None => (None, None),
         };
         out.push(Detected { id: spec.id.into(), name: spec.name.into(), installed: launch.is_some(),

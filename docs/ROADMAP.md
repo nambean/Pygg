@@ -60,7 +60,7 @@ Details and verification: [Implementation Status](IMPLEMENTATION-STATUS.md). Dec
 A review of every planning doc against the build ([DECISIONS](DECISIONS.md), the [functional plan](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md), [SCREENS](design/SCREENS.md), [Account Rotation](ACCOUNT_API_ROTATION.md), [CLI/IDE/npm/Tiers](CLI_IDE_NPM_PROVIDER_TIERS.md), [Universal Memory](UNIVERSAL_SHARED_MEMORY.md), the [OmniRoute research](OMNIROUTE_FEATURE_RESEARCH.md), the [benchmark README](../benchmark/README.md), the root README and every file in [reviews](reviews)). In order:
 
 **A. Make the IDE flow usable every day**
-1. Tray and notifications for a paid step waiting, a task finished or failed (SCREENS §2.5). Per ADR-010, no task names or paths, and no approve button, in a notification. Closing the window keeps the gateway and tasks running from the tray (review GW-9).
+1. **Built 2026-11-11:** tray and notifications for a paid step waiting, a task ready, needing review or not finished (SCREENS §2.5). Per ADR-010, no task names or paths, and no approve button, in a notification. Closing the window keeps the gateway and tasks running from the tray (review GW-9); both are switches in Settings → Background. Not yet: a click on a notification opening the task.
 2. Approvals as ADR-010 specifies: an estimate and a cap, invalidated when the policy, catalog or budget changes (SCREENS §6.3).
 3. Task budgets per day and per workspace (functional plan §2.4).
 4. Workspace Settings in the app: approve the checks of workspaces created from an IDE folder, privacy class, a folder picker (SCREENS §5.3).

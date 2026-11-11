@@ -11,6 +11,7 @@ pub mod isolation;
 pub mod mcp;
 pub mod process;
 pub mod redact;
+pub mod shell;
 pub mod tasks;
 pub mod vault;
 
@@ -50,15 +51,15 @@ fn fit_to_screen(app: &tauri::App) {
 pub fn run() {
     tauri::Builder::default()
         // First: a second launch only brings the running window forward.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
-        }))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| shell::show_main(app)))
+        .plugin(tauri_plugin_notification::init())
+        .manage(shell::Strings::default())
         .setup(|app| {
-            let dir = app.path().app_data_dir()?;
+            // PYGG_DATA_DIR: another store, for trying the app without touching the real one.
+            let dir = match std::env::var_os("PYGG_DATA_DIR") {
+                Some(dir) => std::path::PathBuf::from(dir),
+                None => app.path().app_data_dir()?,
+            };
             std::fs::create_dir_all(&dir)?;
             let path = dir.join("store.sqlite3");
             let conn = db::open(&path)?;
@@ -71,7 +72,9 @@ pub fn run() {
                 eprintln!("could not recover tasks: {e}");
             }
             let db = Arc::new(Mutex::new(conn));
-            let runner = tasks::Runner::new(db.clone(), worktrees, tasks::agent_executor());
+            let handle = app.handle().clone();
+            let runner = tasks::Runner::new(db.clone(), worktrees, tasks::agent_executor())
+                .with_notify(Arc::new(move |_task, state| shell::task_stopped(&handle, state)));
             // IDE agents start tasks through the gateway's task API (gateway/task_api.rs); they run here.
             let shared = gateway::Shared::for_store(db, Arc::new(gateway::OsSecrets), &path).with_tasks(runner.clone());
             let state = AppState { shared, server: tokio::sync::Mutex::new(None), last_error: Mutex::new(None),
@@ -82,9 +85,11 @@ pub fn run() {
                 let _ = tauri::async_runtime::block_on(state.start());
             }
             app.manage(state);
+            shell::setup_tray(app)?;
             fit_to_screen(app);
             Ok(())
         })
+        .on_window_event(shell::on_window_event)
         // The window starts hidden (tauri.conf.json) and appears once the page with its start-up screen has
         // loaded, so it never opens blank.
         .on_page_load(|webview, payload| {
@@ -126,6 +131,9 @@ pub fn run() {
             commands::task_diff,
             commands::task_finish,
             commands::mcp_setup,
+            shell::app_preferences,
+            shell::app_set_preference,
+            shell::ui_strings,
             commands::model_add,
             commands::model_update,
             commands::model_remove,

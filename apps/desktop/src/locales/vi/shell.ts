@@ -76,4 +76,26 @@ export const shell: Record<string, string> = {
   'System': 'Theo hệ thống',
   'Appearance': 'Giao diện',
   'Follows the system’s light, dark and contrast settings.': 'Theo chế độ sáng, tối và độ tương phản của hệ thống.',
+  // Tray and notifications (src-tauri/src/shell.rs)
+  'Open Pygg': 'Mở Pygg',
+  'Quit Pygg': 'Thoát Pygg',
+  'Pygg is still running': 'Pygg vẫn đang chạy',
+  'The gateway and your tasks keep running. Open Pygg or quit it from the tray icon.':
+    'Gateway và các task của bạn vẫn chạy. Mở hoặc thoát Pygg từ biểu tượng ở khay hệ thống.',
+  'A task is waiting for your approval': 'Có task đang chờ bạn duyệt',
+  'Open Pygg to approve or decline its paid step.': 'Mở Pygg để duyệt hoặc từ chối bước trả phí.',
+  'A task is ready': 'Có task đã xong',
+  'Its checks passed. Open Pygg to keep or discard the result.': 'Check đã qua. Mở Pygg để giữ hoặc bỏ kết quả.',
+  'A task needs your review': 'Có task cần bạn xem lại',
+  'It finished, but no check confirmed it. Open Pygg to review the changes.':
+    'Task đã xong nhưng chưa có check nào xác nhận. Mở Pygg để xem các thay đổi.',
+  'A task did not finish': 'Có task không hoàn thành',
+  'Open Pygg to see why each step stopped.': 'Mở Pygg để xem vì sao từng bước dừng lại.',
+  'Background': 'Chạy nền',
+  'Keep running in the tray': 'Tiếp tục chạy ở khay hệ thống',
+  'Closing the window keeps the gateway and your tasks running. Quit from the tray icon.':
+    'Đóng cửa sổ thì gateway và các task vẫn chạy. Thoát từ biểu tượng ở khay hệ thống.',
+  'Notify me about tasks': 'Thông báo về task',
+  'When a paid step waits for approval, or a task is ready, needs review or did not finish. Notifications never show a task’s name or files.':
+    'Khi bước trả phí chờ duyệt, hoặc task đã xong, cần xem lại hay không hoàn thành. Thông báo không bao giờ hiện tên task hay file.',
 };
