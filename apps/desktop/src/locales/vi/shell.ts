@@ -22,6 +22,8 @@ export const shell: Record<string, string> = {
   'Workspace Settings': 'Cài đặt workspace',
   'Workspace Settings…': 'Cài đặt workspace…',
 
+  'Loading…': 'Đang tải…',
+
   // Toolbar and window
   'Hide sidebar': 'Ẩn thanh bên',
   'Show sidebar': 'Hiện thanh bên',
@@ -63,6 +65,11 @@ export const shell: Record<string, string> = {
     'Chọn thư mục, kiểm tra có cô lập được bằng Git không, phát hiện các check và đặt mức riêng tư.',
   'Providers and accounts, the model catalog with where each fact comes from, and the agent that runs tasks.':
     'Provider và tài khoản, danh mục model kèm nguồn của từng thông tin, và agent chạy tác vụ.',
+  'One place for strategies, tiers, attempt limits, budgets and when paid steps need your approval. Until then, these are set where they apply:':
+    'Một nơi chung cho chiến lược, tier, giới hạn số lần thử, ngân sách và khi nào bước trả phí cần bạn duyệt. Trong lúc chờ, các mục này được đặt ngay nơi chúng áp dụng:',
+  'Checks and Privacy in Workspaces': 'Check và riêng tư trong Workspace',
+  'Daily Budget in Settings': 'Ngân sách ngày trong Cài đặt',
+  'Steps and Strategy in New Task': 'Các bước và chiến lược trong Tác vụ mới',
   'Strategies, tiers, attempt limits, budgets and when paid steps need your approval.':
     'Chiến lược, tier, giới hạn số lần thử, ngân sách và khi nào bước trả phí cần bạn duyệt.',
   'The usage ledger with actual, estimated and unknown costs kept apart, plus subscription and local use.':

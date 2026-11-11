@@ -12,6 +12,7 @@
   --field: rgba(0, 0, 0, .055);
   --label: #1D1D1F;            /* 16.8:1 on surface */
   --secondary: #636366;        /* 5.9:1 on surface */
+  --placeholder: #636366;      /* 5.9:1 on a white control */
   --separator: rgba(0, 0, 0, .1);
   --hover: rgba(0, 0, 0, .04);
   --selection: rgba(0, 0, 0, .085);
@@ -36,6 +37,7 @@
     --field: rgba(255, 255, 255, .08);
     --label: #F5F5F7;
     --secondary: #A1A1A6;      /* 5.4:1 on surface */
+    --placeholder: #C7C7CC;    /* 5.2:1 on --control; --secondary there is only 3.4:1 */
     --separator: rgba(255, 255, 255, .1);
     --hover: rgba(255, 255, 255, .05);
     --selection: rgba(255, 255, 255, .1);
@@ -184,7 +186,7 @@ button { cursor: default; }
   -webkit-user-select: text; user-select: text;
 }
 .search-field input:focus-visible { box-shadow: none; }
-.search-field input::placeholder { color: var(--secondary); }
+.search-field input::placeholder { color: var(--placeholder); }
 .back-button {
   display: inline-flex; align-items: center; gap: 2px; margin: 0 0 12px -4px; padding: 2px 6px 2px 2px;
   border: 0; border-radius: 6px; background: none; color: var(--accent-text); font-weight: 500;
@@ -206,6 +208,7 @@ button { cursor: default; }
 .placeholder p { font-size: 13px; }
 .placeholder .mono { font-size: 11px; margin-top: 4px; }
 .placeholder .button { margin-top: 8px; }
+.placeholder-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .placeholder-icon { color: var(--secondary); margin-bottom: 4px; }
 
 /* ---------- Task list ---------- */
@@ -285,7 +288,7 @@ button { cursor: default; }
   background: var(--surface); box-shadow: var(--shadow); color: var(--label); line-height: 1.45;
   -webkit-user-select: text; user-select: text;
 }
-.task-input::placeholder { color: var(--secondary); }
+.task-input::placeholder { color: var(--placeholder); }
 .form-actions { display: flex; align-items: center; gap: 10px; margin-top: 20px; }
 .shortcut-hint { font-size: 11px; color: var(--secondary); }
 
@@ -307,6 +310,7 @@ button { cursor: default; }
   background: none; color: var(--accent-text); font-weight: 500; font-size: 12px;
 }
 .link-button:hover { background: var(--hover); }
+.link-button.table-more { margin: 6px 0 0 8px; }
 .button.small { height: 22px; padding: 0 8px; font-size: 12px; }
 .button.icon-only { width: 26px; padding: 0; }
 .button.small.icon-only { width: 22px; }
@@ -480,6 +484,8 @@ td.row-buttons .button + .button { margin-inline-start: 4px; }
 .totals .group-footnote { margin: 8px 0 0; }
 .two-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 0 18px; }
 .two-columns .group { margin-top: 18px; }
+/* In a half-width table the name column takes what is left and is cut with an ellipsis, so the numbers stay in view. */
+.two-columns .data-table td:first-child { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Clients */
 .spend { display: flex; flex-direction: column; gap: 3px; min-width: 150px; }
@@ -541,7 +547,7 @@ td.row-buttons .button + .button { margin-inline-start: 4px; }
 }
 .text-input.mono { font-size: 12px; }
 .text-input.narrow-input { width: 110px; font-variant-numeric: tabular-nums; }
-.text-input::placeholder { color: var(--secondary); }
+.text-input::placeholder { color: var(--placeholder); }
 .text-input[aria-invalid="true"] { box-shadow: 0 0 0 1px var(--red); }
 .money-input { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border-radius: 6px;
   background: var(--control); box-shadow: var(--shadow); font-variant-numeric: tabular-nums; }

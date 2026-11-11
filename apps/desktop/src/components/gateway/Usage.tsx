@@ -90,7 +90,7 @@ export function Usage() {
             </tbody>
           </table>
         </div>
-        <p className="group-footnote">{t('Shows up to 200 of the most recent requests in this period. Failed attempts before a fallback are listed too; providers don’t bill rejected requests.')}</p>
+        <p className="group-footnote">{t('Shows up to 200 of the most recent requests in this period. Failed attempts before a fallback are listed too. A request the provider refused before answering is usually not billed; one cut off after it started may have been, so its cost shows as unknown or estimated.')}</p>
       </section>
     </>}
   </div>;
@@ -119,6 +119,8 @@ function TaskResults({q}: {q: TaskQuality}) {
 }
 
 function GroupTable({title, column, groups, mono}: {title: string; column: string; groups: UsageGroup[]; mono?: boolean}) {
+  const [all, setAll] = useState(false);
+  const shown = all ? groups : groups.slice(0, 8);
   return <section className="group">
     <h2>{title}</h2>
     <div className="group-box table-box">
@@ -128,7 +130,7 @@ function GroupTable({title, column, groups, mono}: {title: string; column: strin
           <th scope="col" className="num">{t('Tokens')}</th><th scope="col" className="num">{t('Known cost')}</th>
         </tr></thead>
         <tbody>
-          {groups.slice(0, 8).map(g => <tr key={g.key}>
+          {shown.map(g => <tr key={g.key}>
             <td className={mono ? 'mono' : ''} title={g.key}>{g.key || t('No client')}</td>
             <td className="num">{g.requests}{g.fallbacks + g.failed > 0 && <small className="secondary"> · {t('{n} not OK', {n: g.fallbacks + g.failed})}</small>}</td>
             <td className="num">{tokens(g.inputTokens + g.outputTokens)}</td>
@@ -137,6 +139,8 @@ function GroupTable({title, column, groups, mono}: {title: string; column: strin
         </tbody>
       </table>
     </div>
+    {groups.length > 8 && <button type="button" className="link-button table-more" onClick={() => setAll(v => !v)}>
+      {all ? t('Show the top 8') : t('Show all {n}', {n: groups.length})}</button>}
   </section>;
 }
 

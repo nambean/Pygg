@@ -7,7 +7,7 @@ import brandMark from './assets/brand-mark.svg';
 import { applyLanguage, LanguageContext, loadLanguage, resolve, t, type Language, type LanguageChoice } from './lib/i18n';
 import { runningInDesktop, savedLanguage, saveLanguage } from './lib/native';
 import { isMac, MOD } from './lib/platform';
-import { FILTERS, matchesFilter, type TaskFilter, type TaskSummary } from './lib/tasks';
+import { FILTERS, matchesFilter, needsAttention, type TaskFilter, type TaskSummary } from './lib/tasks';
 import type { GatewayStatus as Status } from './lib/api';
 import { useGateway } from './hooks/useGateway';
 import { gatewayChanged } from './lib/api';
@@ -82,6 +82,16 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
   const workspaces = workspaceList.data ?? [];
   const counts = useMemo(() => Object.fromEntries(FILTERS.map(f => [f, allTasks.filter(task => matchesFilter(task, f)).length])) as
     Record<TaskFilter, number>, [allTasks]);
+  const attention = allTasks.filter(needsAttention).length;
+  // A paid step waiting when the app opens is the first thing to see, not the gateway's setup (UX review, 2026-11-12).
+  const openedOnce = useRef(false);
+  useEffect(() => {
+    if (openedOnce.current || !taskList.data) return;
+    openedOnce.current = true;
+    if (taskList.data.some(task => task.state === 'waiting_approval')) {
+      setView(current => current.kind === 'overview' ? {kind: 'tasks', filter: 'approval'} : current);
+    }
+  }, [taskList.data]);
 
   const go = useCallback((kind: GatewayDestination, next?: Intent) => { setView({kind}); setIntent(next); }, []);
   const intentDone = useCallback(() => setIntent(undefined), []);
@@ -140,7 +150,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
             selected={view.kind === 'agents'} onSelect={() => setView({kind: 'agents'})}/>
         </SidebarGroup>
         <SidebarGroup title={t('Smart Tasks')}>
-          <SidebarItem icon={<ListTodo/>} label={t('Tasks')} count={counts.all} shortcut={`${MOD}6`}
+          <SidebarItem icon={<ListTodo/>} label={t('Tasks')} count={attention} emphasized shortcut={`${MOD}6`}
             selected={view.kind === 'tasks' || view.kind === 'task' || view.kind === 'new'} onSelect={() => setView({kind: 'tasks', filter: 'all'})}/>
           <SidebarItem icon={<FolderGit2/>} label={t('Workspaces')} count={workspaces.filter(needsChecks).length} emphasized
             title={t('Workspaces')} selected={view.kind === 'workspaces'} onSelect={() => setView({kind: 'workspaces'})}/>
@@ -185,7 +195,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
       </p>}
 
       <div className="content">
-        {view.kind === 'overview' && <Overview status={status} onStatus={setStatus} navigate={go}/>}
+        {view.kind === 'overview' && <Overview status={status} onStatus={setStatus} navigate={go} onAgents={() => setView({kind: 'agents'})}/>}
         {view.kind === 'connections' && <Connections intent={intent === 'connect' ? 'connect' : undefined} onIntentDone={intentDone}/>}
         {view.kind === 'combos' && <Combos intent={intent === 'create' ? 'create' : undefined} onIntentDone={intentDone}/>}
         {view.kind === 'clients' && <Clients intent={intent === 'create' ? 'create' : undefined} onIntentDone={intentDone}/>}
@@ -202,8 +212,12 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         {view.kind === 'task' && <TaskDetail id={view.id} onBack={() => { taskList.reload(); setView({kind: 'tasks', filter: view.from}); }}/>}
         {view.kind === 'new' && <NewTaskView onCreated={created}/>}
         {view.kind === 'workspaces' && <WorkspacesView/>}
-        {view.kind === 'policies' && <PendingView title={t('Policies')} section="§5.5"
-          purpose={t('Strategies, tiers, attempt limits, budgets and when paid steps need your approval.')}/>}
+        {view.kind === 'policies' && <PendingView title={t('Policies')}
+          purpose={t('One place for strategies, tiers, attempt limits, budgets and when paid steps need your approval. Until then, these are set where they apply:')}>
+          <button type="button" className="button" onClick={() => setView({kind: 'workspaces'})}>{t('Checks and Privacy in Workspaces')}</button>
+          <button type="button" className="button" onClick={() => setView({kind: 'settings'})}>{t('Daily Budget in Settings')}</button>
+          <button type="button" className="button" onClick={newTask}>{t('Steps and Strategy in New Task')}</button>
+        </PendingView>}
         {view.kind === 'settings' && <SettingsView language={language} onLanguage={onLanguage} onGateway={() => go('overview')}/>}
       </div>
     </main>

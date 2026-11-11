@@ -37,7 +37,7 @@ function AgentRow({agent: a}: {agent: AgentInfo}) {
       <span className="agent-title">{a.name}
         {a.installed ? <Badge tone="ok">{t('Installed')}</Badge> : <Badge tone="off">{t('Not found')}</Badge>}
         {a.version && <span className="secondary mono"> {a.version}</span>}</span>
-      <small className="secondary">{a.login ? `${a.login} · ` : ''}{a.signIn}</small>
+      <small className="secondary">{a.login ? `${a.login} · ` : ''}{t(a.signIn)}</small>
     </span>
     {!a.installed && <a className="button small" href={a.install} target="_blank" rel="noreferrer">
       {t('How to Install')}<ExternalLink size={12} aria-hidden/></a>}

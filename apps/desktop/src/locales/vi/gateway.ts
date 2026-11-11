@@ -5,8 +5,8 @@ export const gateway: Record<string, string> = {
   'Overview': 'Tổng quan',
   'Combos': 'Combo',
   'Clients': 'Client',
-  'Smart Tasks': 'Task thông minh',
-  'Tasks': 'Task',
+  'Smart Tasks': 'Tác vụ thông minh',
+  // 'Tasks' is in shell.ts: 'Tác vụ', as in 'Tác vụ mới'.
   'All': 'Tất cả',
   'Show': 'Hiển thị',
   'Browser preview with demo data. Nothing is stored or sent; the desktop app runs the real gateway.':
@@ -113,6 +113,8 @@ export const gateway: Record<string, string> = {
   'Key missing': 'Thiếu key',
   'Check failed': 'Kiểm tra thất bại',
   'Ready': 'Sẵn sàng',
+  'Checked': 'Đã kiểm tra',
+  'No problem seen': 'Chưa thấy lỗi',
   '{n} model': '{n} model',
   '{n} models': '{n} model',
   'Disable {name}': 'Tắt {name}',
@@ -336,8 +338,8 @@ export const gateway: Record<string, string> = {
   'Source': 'Nguồn',
   'Result': 'Kết quả',
   'Nothing to show for this filter.': 'Không có gì cho bộ lọc này.',
-  'Shows up to 200 of the most recent requests in this period. Failed attempts before a fallback are listed too; providers don’t bill rejected requests.':
-    'Hiển thị tối đa 200 yêu cầu gần nhất trong khoảng này. Các lần thử thất bại trước khi chuyển model cũng được liệt kê; nhà cung cấp không tính phí yêu cầu bị từ chối.',
+  'Shows up to 200 of the most recent requests in this period. Failed attempts before a fallback are listed too. A request the provider refused before answering is usually not billed; one cut off after it started may have been, so its cost shows as unknown or estimated.':
+    'Hiển thị tối đa 200 yêu cầu gần nhất trong khoảng này. Các lần thử thất bại trước khi chuyển model cũng được liệt kê. Yêu cầu bị nhà cung cấp từ chối trước khi trả lời thường không bị tính phí; yêu cầu bị ngắt sau khi đã bắt đầu thì có thể đã bị tính, nên chi phí hiện là chưa rõ hoặc ước tính.',
   'Asked for': 'Yêu cầu',
   'Answered by': 'Trả lời bởi',
   'Cost source': 'Nguồn chi phí',
@@ -472,6 +474,20 @@ export const gateway: Record<string, string> = {
   'Pygg starts each agent’s own program with the sign-in it already has: a subscription, a free tier or a key it manages. Pygg never reads, stores or shares that sign-in, and never offers it to other apps.':
     'Pygg chạy chính chương trình của từng agent bằng đăng nhập sẵn có của nó: gói subscription, gói miễn phí hoặc key do agent tự quản lý. Pygg không đọc, không lưu, không chia sẻ thông tin đăng nhập đó, và không cho ứng dụng khác dùng.',
   'Looking for agents…': 'Đang tìm agent…',
+  'Show all {n}': 'Hiện tất cả {n}',
+  'Only want your IDE’s agent to hand tasks to Pygg, run by the agents you already sign in to? That needs no provider here.':
+    'Chỉ muốn agent trong IDE giao tác vụ cho Pygg, chạy bằng các agent bạn đã đăng nhập sẵn? Việc đó không cần kết nối nhà cung cấp ở đây.',
+  'Set Up From Your IDE': 'Cài đặt từ IDE',
+  'Show the top 8': 'Chỉ hiện 8 dòng đầu',
+  // Each agent's sign-in, as agents.rs describes it.
+  'Your Claude subscription or Anthropic Console login, managed by Claude Code (`claude` then /login).':
+    'Gói Claude hoặc đăng nhập Anthropic Console, do Claude Code quản lý (chạy `claude` rồi /login).',
+  'Your ChatGPT plan or an OpenAI API key, managed by Codex (`codex login`).':
+    'Gói ChatGPT hoặc API key OpenAI, do Codex quản lý (`codex login`).',
+  'A Gemini API key set in Gemini CLI (run `gemini`, choose the API key). Google no longer accepts its free Google-account login from this CLI.':
+    'API key Gemini đặt trong Gemini CLI (chạy `gemini`, chọn API key). Google không còn nhận đăng nhập miễn phí bằng tài khoản Google từ CLI này.',
+  'The providers configured in OpenCode (`opencode auth login`).':
+    'Các nhà cung cấp đã cấu hình trong OpenCode (`opencode auth login`).',
   'Installed': 'Đã cài',
   'Not found': 'Không tìm thấy',
   'How to Install': 'Cách cài',

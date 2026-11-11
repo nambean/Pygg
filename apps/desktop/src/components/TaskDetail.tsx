@@ -8,7 +8,7 @@ import { AGENT_NAMES, type ApprovalView, type AttemptView, type TaskDetail as De
 import { useGateway } from '../hooks/useGateway';
 import { billingLabel, outcomeLabel } from './AttemptSequence';
 import { StateIcon, statusLine } from './TaskList';
-import { Badge, CopyButton, ErrorNote, FormRow, Spinner } from './ui';
+import { Badge, ConfirmSheet, CopyButton, ErrorNote, FormRow, Spinner } from './ui';
 
 /**
  * Task detail (SCREENS.md §5.2): what the task is waiting on, its result, and every attempt with its checks.
@@ -66,6 +66,7 @@ function Actions({task, onChanged}: {task: Detail; onChanged: () => void}) {
   const [message, setMessage] = useState<string | null>(null);
   const [diff, setDiff] = useState<string | null>(null);
   const [title, setTitle] = useState('');
+  const [discarding, setDiscarding] = useState(false);
   const run = (f: () => Promise<unknown>, done?: (value: unknown) => void) => {
     setBusy(true);
     setError(null);
@@ -90,7 +91,7 @@ function Actions({task, onChanged}: {task: Detail; onChanged: () => void}) {
       <details onToggle={e => {
         if ((e.target as HTMLDetailsElement).open && diff === null) call(api => api.taskDiff(task.id)).then(setDiff, x => setError(errorText(x)));
       }}>
-        <summary>{t('Changes')}</summary>
+        <summary>{t('Review Changes')}</summary>
         {diff === null ? <Spinner/> : <div className="diff-box"><CopyButton text={diff}/><pre className="log-tail">{diff}</pre></div>}
       </details>
       <div className="form-actions">
@@ -99,15 +100,19 @@ function Actions({task, onChanged}: {task: Detail; onChanged: () => void}) {
         <button type="button" className="button prominent" disabled={busy}
           onClick={() => run(() => call(api => api.finishTask(task.id, true, title.trim() || null)))}>
           <GitBranch size={13} aria-hidden/>{t('Keep as Branch')}</button>
-        <button type="button" className="button" disabled={busy}
-          onClick={() => run(() => call(api => api.finishTask(task.id, false, null)), () => setMessage(t('Discarded.')))}>
-          <Trash2 size={13} aria-hidden/>{t('Discard')}</button>
+        <button type="button" className="button" disabled={busy} onClick={() => setDiscarding(true)}>
+          <Trash2 size={13} aria-hidden/>{t('Discard…')}</button>
         <button type="button" className="button" disabled={busy} title={t('Save the changes as a file git apply takes; the result stays here')}
           onClick={() => run(() => call(api => api.exportPatch(task.id)),
             path => { if (path) setMessage(t('Saved as {path}. The result is still here to keep or discard.', {path: String(path)})); })}>
           <FileDown size={13} aria-hidden/>{t('Export Patch…')}</button>
       </div>
+      <p className="group-footnote">{t('Keep as Branch saves the result as a new branch in the repository. The folder you have open, and its branch, are not changed.')}</p>
     </div>}
+    {discarding && <ConfirmSheet title={t('Discard this result?')} confirmLabel={t('Discard Result')}
+      message={<p>{t('The changes and the copy of the repository they were made in are deleted. This cannot be undone. Export Patch first to keep a copy.')}</p>}
+      onClose={() => setDiscarding(false)}
+      onConfirm={async () => { await call(api => api.finishTask(task.id, false, null)); setMessage(t('Discarded.')); onChanged(); }}/>}
 
     {task.approval && <ApprovalPanel key={`${task.approval.step}-${task.approval.estimate.highMicroUsd}`} approval={task.approval}
       busy={busy} onDecide={(approve, cap) => run(() => call(api => api.decideTask(task.id, approve, cap)))}/>}
@@ -163,7 +168,9 @@ function ApprovalPanel({approval: a, busy, onDecide}: {approval: ApprovalView; b
     </FormRow>
     <div className="form-actions">
       <button type="button" className="button prominent" disabled={busy || !valid} onClick={() => onDecide(true, amount)}>
-        <Check size={13} aria-hidden/>{t('Approve up to {amount}', {amount: valid ? `$${amount.toFixed(2)}` : '—'})}</button>
+        <Check size={13} aria-hidden/>{a.enforcedByAgent
+          ? t('Approve up to {amount}', {amount: valid ? `$${amount.toFixed(2)}` : '—'})
+          : t('Approve with a {amount} cap', {amount: valid ? `$${amount.toFixed(2)}` : '—'})}</button>
       <button type="button" className="button" disabled={busy} onClick={() => onDecide(false, null)}>
         <X size={13} aria-hidden/>{t('Decline')}</button>
     </div>

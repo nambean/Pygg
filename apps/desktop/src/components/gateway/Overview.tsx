@@ -16,7 +16,8 @@ type ClientKind = 'claude' | 'opencode' | 'sdk' | 'curl';
 type Shell = 'powershell' | 'posix';
 
 /** Overview (home): the gateway's state, what is left to set up, how to point a client at it, and today's traffic. */
-export function Overview({status, onStatus, navigate}: {status: GatewayStatus | null; onStatus: (s: GatewayStatus) => void; navigate: Navigate}) {
+export function Overview({status, onStatus, navigate, onAgents}: {status: GatewayStatus | null; onStatus: (s: GatewayStatus) => void;
+  navigate: Navigate; onAgents?: () => void}) {
   const connections = useGateway(api => api.connections());
   const combos = useGateway(api => api.combos());
   const models = useGateway(api => api.models());
@@ -56,6 +57,10 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
           {step.done ? <span className="value">{t('Done')}</span> : step.action}
         </li>)}
       </ol>
+      {onAgents && <p className="group-footnote">
+        {t('Only want your IDE’s agent to hand tasks to Pygg, run by the agents you already sign in to? That needs no provider here.')}{' '}
+        <button type="button" className="link-button" onClick={onAgents}>{t('Set Up From Your IDE')}<ArrowRight size={12} aria-hidden/></button>
+      </p>}
     </section>}
 
     <ClientSetup baseUrl={status?.baseUrl ?? `http://127.0.0.1:${status?.port ?? 8741}`}

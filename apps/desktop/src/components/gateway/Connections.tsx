@@ -38,7 +38,7 @@ export function Connections({intent, onIntentDone}: {intent?: 'connect'; onInten
   const q = query.trim().toLowerCase();
   const visible = connections.filter(c =>
     (!q || c.label.toLowerCase().includes(q) || c.id.includes(q) || c.presetName.toLowerCase().includes(q))
-    && (show === 'all' || (show === 'attention' ? connectionState(c).tone !== 'ok'
+    && (show === 'all' || (show === 'attention' ? !c.enabled || ['warn', 'error'].includes(connectionState(c).tone)
       : show === 'local' ? c.defaultBilling === 'local' : c.wire === 'anthropic')));
   const selected = connections.find(c => c.id === selectedId) ?? visible[0] ?? connections[0];
 
@@ -90,7 +90,8 @@ export function connectionState(c: Connection): {tone: 'ok' | 'warn' | 'off' | '
   if (check && !check.ok) return {tone: 'error', text: t('Check failed')};
   if (c.models === 0) return {tone: 'warn', text: t('No models yet')};
   if (c.health.length) return {tone: 'warn', text: plural(c.health.length, '{n} model cooling down', '{n} models cooling down')};
-  return {tone: 'ok', text: t('Ready')};
+  // Green only once a check answered: without one, no problem has been seen, which is not the same as working.
+  return check?.ok ? {tone: 'ok', text: t('Checked')} : {tone: 'off', text: t('No problem seen')};
 }
 
 export function healthLabel(h: Health): string {

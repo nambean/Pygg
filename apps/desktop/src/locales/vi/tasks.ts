@@ -35,12 +35,10 @@ export const tasks: Record<string, string> = {
   // Attempts and billing
   'Attempts': 'Các lần thử',
   'Free': 'Miễn phí',
-  'Local': 'Local',
-  'Subscription': 'Subscription',
+  // 'Local' and 'Subscription' are in gateway.ts, one wording for both screens.
   'Paid': 'Trả phí',
   'Unknown billing': 'Chưa rõ cách tính phí',
   'Passed': 'Đã qua',
-  'Check failed': 'Check thất bại',
   'Skipped: not answering': 'Bỏ qua: không phản hồi',
   'Waiting for approval': 'Chờ duyệt',
   'API {zero} · local': 'API {zero} · local',
@@ -89,6 +87,18 @@ export const tasks: Record<string, string> = {
   'This agent cannot stop at a cap. If the cost it reports afterwards is over it, Pygg tries no further step.':
     'Agent này không tự dừng theo mức chi. Nếu chi phí nó báo sau khi chạy vượt mức này, Pygg sẽ không thử bước nào nữa.',
   'Approve up to {amount}': 'Duyệt tối đa {amount}',
+  'Approve with a {amount} cap': 'Duyệt, mức chặn {amount}',
+  'Discard…': 'Bỏ…',
+  'Workspaces could not be loaded: {error}': 'Không tải được danh sách workspace: {error}',
+  'Agents could not be listed: {error}': 'Không liệt kê được agent: {error}',
+  'Try Again': 'Thử lại',
+  'Review Changes': 'Xem thay đổi',
+  'Keep as Branch saves the result as a new branch in the repository. The folder you have open, and its branch, are not changed.':
+    'Giữ thành nhánh lưu kết quả thành một nhánh mới trong repository. Thư mục bạn đang mở và nhánh của nó không bị thay đổi.',
+  'Discard this result?': 'Bỏ kết quả này?',
+  'Discard Result': 'Bỏ kết quả',
+  'The changes and the copy of the repository they were made in are deleted. This cannot be undone. Export Patch first to keep a copy.':
+    'Các thay đổi và bản sao repository chứa chúng sẽ bị xoá, không hoàn tác được. Muốn giữ một bản thì Xuất patch trước.',
   'agent’s estimate {amount}': 'agent ước tính {amount}',
   'cap {amount}': 'mức chi {amount}',
   'Decline': 'Từ chối',
