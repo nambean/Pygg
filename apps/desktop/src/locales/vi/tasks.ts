@@ -47,34 +47,75 @@ export const tasks: Record<string, string> = {
   '1 call unknown': '1 lượt gọi chưa rõ',
   '{n} calls unknown': '{n} lượt gọi chưa rõ',
 
+  'Finished, not checked': 'Đã xong, chưa được check',
+  'Finished, needs your review · {time}': 'Đã xong, cần bạn xem lại · {time}',
+
   // Detail
   'Cost so far: {cost}': 'Chi phí đến giờ: {cost}',
-  'The plan, live output and result review come with the task engine.':
-    'Kế hoạch, output trực tiếp và phần duyệt kết quả sẽ có khi xây xong bộ máy chạy tác vụ.',
+  'The first step is starting.': 'Bước đầu tiên đang khởi động.',
+  'Agents run with their own sign-in, so their cost is unknown to Pygg.':
+    'Agent chạy bằng đăng nhập riêng của nó, nên Pygg không biết chi phí.',
+  'Steps': 'Các bước',
+  'None approved': 'Chưa duyệt check nào',
+  'Started from': 'Bắt đầu từ',
+  'The result was discarded.': 'Kết quả đã bị bỏ.',
+  'Checks passed': 'Check đã qua',
+  'Needs your review': 'Cần bạn xem lại',
+  'Approve Paid Step': 'Duyệt bước trả phí',
+  'Decline': 'Từ chối',
+  'Retry': 'Chạy lại',
+  'Stop Task': 'Dừng tác vụ',
+  'Step {n}': 'Bước {n}',
+  '{input} in · {output} out': '{input} vào · {output} ra',
+  'Check output': 'Output của check',
 
   // New task
   'Describe the change, e.g. “Fix timeout handling and add regression tests.”':
     'Mô tả thay đổi, ví dụ “Sửa xử lý timeout và thêm test hồi quy.”',
   'Strategy': 'Chiến lược',
-  'Starts with the lowest eligible tier; paid steps ask first.':
-    'Bắt đầu ở tier thấp nhất đủ điều kiện; bước trả phí sẽ hỏi trước.',
-  'Balances cost, speed and quality.': 'Cân bằng chi phí, tốc độ và chất lượng.',
-  'Starts with a strong model for hard or risky work.': 'Bắt đầu bằng model mạnh cho việc khó hoặc rủi ro.',
+  'Starts with the agents most likely to be free; a paid step asks first.':
+    'Bắt đầu với các agent nhiều khả năng miễn phí; bước trả phí sẽ hỏi trước.',
+  'Starts with a capable agent and keeps cheaper ones as fallbacks.':
+    'Bắt đầu với agent đủ mạnh, giữ các agent rẻ hơn làm dự phòng.',
+  'Starts with the strongest agent for hard or risky work.': 'Bắt đầu bằng agent mạnh nhất cho việc khó hoặc rủi ro.',
   'Free First': 'Ưu tiên miễn phí',
   'Balanced': 'Cân bằng',
   'Quality': 'Chất lượng',
   'Workspace': 'Workspace',
-  'Choose…': 'Chọn…',
-  'From Workspace': 'Từ workspace',
-  'Path': 'Đường dẫn',
-  'Privacy': 'Riêng tư',
-  'Not set yet': 'Chưa đặt',
   'Checks': 'Check',
-  'Not detected yet': 'Chưa phát hiện',
-  'Privacy, checks and permissions come from Workspace Settings. A task can only tighten them.':
-    'Mức riêng tư, check và quyền lấy từ Cài đặt workspace. Một tác vụ chỉ có thể siết chặt hơn.',
-  'Needs the task engine': 'Cần bộ máy chạy tác vụ',
-  'Analyze Task': 'Phân tích tác vụ',
-  'Analysis needs the task engine, which isn’t built yet. Nothing is sent anywhere.':
-    'Việc phân tích cần bộ máy chạy tác vụ, phần này chưa được xây. Không có dữ liệu nào được gửi đi.',
+  'No agent is installed. Install Claude Code, Codex CLI, Gemini CLI or OpenCode (see Agents) to run tasks.':
+    'Chưa có agent nào được cài. Cài Claude Code, Codex CLI, Gemini CLI hoặc OpenCode (xem Agents) để chạy tác vụ.',
+  'Agents may run commands in their copy, such as tests. Codex always runs in its own sandbox.':
+    'Agent được chạy lệnh trong bản sao của nó, ví dụ test. Codex luôn chạy trong sandbox riêng.',
+  'Off: agents may read and edit files only. Codex always runs commands in its own sandbox.':
+    'Tắt: agent chỉ được đọc và sửa file. Codex luôn chạy lệnh trong sandbox riêng.',
+  'Each step uses the agent’s own sign-in, in a fresh copy of the workspace’s current commit. Tier and billing are your classing: Pygg cannot see which plan an agent uses, so its cost is recorded as unknown.':
+    'Mỗi bước dùng đăng nhập riêng của agent, trên một bản sao mới của commit hiện tại trong workspace. Tier và cách tính phí là do bạn phân loại: Pygg không thấy agent dùng gói nào, nên chi phí được ghi là chưa rõ.',
+  'Start Task': 'Bắt đầu tác vụ',
+  'Add…': 'Thêm…',
+  'Folder': 'Thư mục',
+  'A Git repository. Every attempt works on its own worktree of it, so your files and branch are never touched.':
+    'Một repository Git. Mỗi lần thử làm trên worktree riêng của nó, nên file và nhánh của bạn không bao giờ bị động đến.',
+  'Add Workspace': 'Thêm workspace',
+  'added by you': 'do bạn thêm',
+  'found in {file}': 'tìm thấy trong {file}',
+  'Add a check': 'Thêm check',
+  'Add a check, e.g. pnpm test': 'Thêm check, ví dụ pnpm test',
+  'Add': 'Thêm',
+  'Look for checks again': 'Tìm check lại',
+  'Detect': 'Phát hiện',
+  'No check is approved: a finished attempt waits for your review instead of being confirmed.':
+    'Chưa duyệt check nào: lần thử xong sẽ chờ bạn xem lại thay vì được xác nhận tự động.',
+  'Approved checks run in order on each attempt’s copy, and stop at the first failure. They run the code the agent wrote, on this computer.':
+    'Các check đã duyệt chạy lần lượt trên bản sao của từng lần thử và dừng ở lỗi đầu tiên. Chúng chạy code do agent viết, trên máy này.',
+  'Agent for step {n}': 'Agent cho bước {n}',
+  'Model for step {n}': 'Model cho bước {n}',
+  'default model': 'model mặc định',
+  'Tier for step {n}': 'Tier cho bước {n}',
+  'Billing for step {n}': 'Cách tính phí cho bước {n}',
+  'Move up': 'Lên trên',
+  'Move down': 'Xuống dưới',
+  'Remove step {n}': 'Xoá bước {n}',
+  'Add Step': 'Thêm bước',
+  'Steps marked paid wait for your approval before they run.': 'Bước đánh dấu trả phí sẽ chờ bạn duyệt trước khi chạy.',
 };

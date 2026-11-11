@@ -8,7 +8,7 @@ import type { DayBudget } from '../lib/tasks';
  * it opens the budget popover. Reservations are shown apart from spend; unknown costs make the summary
  * "needs review" instead of a confident remaining amount.
  */
-export function BudgetSubtitle({running, waiting, budget}: {running: number; waiting: number; budget: DayBudget}) {
+export function BudgetSubtitle({running, waiting, budget}: {running: number; waiting: number; budget?: DayBudget}) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLSpanElement>(null);
   useEffect(() => {
@@ -20,6 +20,8 @@ export function BudgetSubtitle({running, waiting, budget}: {running: number; wai
     return () => { document.removeEventListener('mousedown', outside); document.removeEventListener('keydown', escape); };
   }, [open]);
 
+  // Tasks have no daily API budget yet; the counts stand alone until they do.
+  if (!budget) return <span className="subtitle-anchor">{[t('{n} running', {n: running}), t('{n} waiting', {n: waiting})].join(' · ')}</span>;
   const money = budget.unknownCalls > 0 ? t('Budget needs review')
     : t('{recorded} recorded + {reserved} reserved / {limit} today',
       {recorded: usd(budget.recordedUsd), reserved: usd(budget.reservedUsd), limit: usd(budget.limitUsd)});

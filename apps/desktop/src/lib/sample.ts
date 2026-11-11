@@ -1,6 +1,6 @@
 /**
- * Sample data for design review while the task engine does not exist. Every screen that shows it says so
- * (SampleBanner). Model names, prices and results are illustrative, not measurements.
+ * Sample tasks for the browser preview (pnpm dev), which has no task engine; the preview says so on every
+ * screen. Agents, models, prices and results are illustrative, not measurements.
  */
 import type { DayBudget, TaskSummary, Workspace } from './tasks';
 
@@ -11,9 +11,9 @@ export const SAMPLE_WORKSPACES: Workspace[] = [
   {id: 'ws-docs', name: 'docs-site', path: 'F:\\2026\\docs-site'},
 ];
 
-const LOCAL = 'Ollama / This Computer · qwen2.5-coder:7b';
-const MINI = 'OpenRouter / Personal · openai/gpt-4.1-mini';
-const MID = 'OpenRouter / Personal · anthropic/claude-sonnet';
+const LOCAL = 'OpenCode · ollama/qwen2.5-coder:7b';
+const MINI = 'OpenCode · openrouter/openai/gpt-4.1-mini';
+const MID = 'Claude Code · default model';
 
 export function sampleTasks(now = Date.now()): TaskSummary[] {
   const at = (minutesAgo: number) => now - minutesAgo * minute;
@@ -29,7 +29,7 @@ export function sampleTasks(now = Date.now()): TaskSummary[] {
     {
       id: 't-102', title: 'Rename settings keys to camelCase', workspaceId: 'ws-docs',
       state: 'interrupted',
-      attempts: [{tier: 1, billing: 'free', model: 'Google Gemini / Personal · gemini-flash', outcome: 'canceled'}],
+      attempts: [{tier: 1, billing: 'free', model: 'Gemini CLI · gemini-2.5-flash', outcome: 'canceled'}],
       cost: {actualUsd: 0, estimatedUsd: 0, unknownCalls: 1, localOnly: false},
       startedAt: at(95), updatedAt: at(90),
     },
@@ -66,7 +66,7 @@ export function sampleTasks(now = Date.now()): TaskSummary[] {
     {
       id: 't-107', title: 'Explain the ledger schema in ARCHITECTURE.md', workspaceId: 'ws-str',
       state: 'manually_accepted',
-      attempts: [{tier: 2, billing: 'subscription', model: 'Codex (native) · default model', outcome: 'passed'}],
+      attempts: [{tier: 2, billing: 'subscription', model: 'Codex CLI · default model', outcome: 'passed'}],
       cost: {actualUsd: 0, estimatedUsd: 0, unknownCalls: 1, localOnly: false},
       startedAt: at(180), updatedAt: at(171),
     },
@@ -75,7 +75,7 @@ export function sampleTasks(now = Date.now()): TaskSummary[] {
       state: 'check_failed',
       attempts: [{tier: 1, billing: 'paid', model: MINI, outcome: 'failed'},
         {tier: 2, billing: 'paid', model: MID, outcome: 'failed'},
-        {tier: 3, billing: 'paid', model: 'Anthropic / Work · claude-opus', outcome: 'failed'}],
+        {tier: 3, billing: 'paid', model: 'Claude Code · opus', outcome: 'failed'}],
       cost: {actualUsd: 0.41, estimatedUsd: 0, unknownCalls: 0, localOnly: false},
       startedAt: at(300), updatedAt: at(282),
     },

@@ -1,4 +1,4 @@
-import { Check, Circle, Hourglass, LoaderCircle, X } from 'lucide-react';
+import { Check, Circle, Eye, Hourglass, LoaderCircle, X } from 'lucide-react';
 import { t } from '../lib/i18n';
 import type { Attempt, AttemptOutcome, Billing } from '../lib/tasks';
 
@@ -24,6 +24,7 @@ function OutcomeIcon({outcome}: {outcome: AttemptOutcome}) {
   const props = {size: 11, strokeWidth: 2.6, 'aria-hidden': true} as const;
   switch (outcome) {
     case 'passed': return <Check {...props}/>;
+    case 'done': return <Eye {...props}/>;
     case 'failed': return <X {...props}/>;
     case 'running': return <LoaderCircle {...props} className="spin"/>;
     case 'waiting': return <Hourglass {...props}/>;
@@ -44,6 +45,7 @@ export function billingLabel(billing: Billing): string {
 export function outcomeLabel(outcome: AttemptOutcome): string {
   switch (outcome) {
     case 'passed': return t('Passed');
+    case 'done': return t('Finished, not checked');
     case 'failed': return t('Check failed');
     case 'running': return t('Running');
     case 'waiting': return t('Waiting for approval');

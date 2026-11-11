@@ -230,7 +230,7 @@ button { cursor: default; }
 
 .state-icon { display: grid; place-items: center; width: 20px; flex-shrink: 0; margin-top: 1px; color: var(--secondary); }
 .state-icon.running { color: var(--accent-text); }
-.state-icon.waiting_approval, .state-icon.interrupted, .state-icon.needs_revalidation { color: var(--orange); }
+.state-icon.waiting_approval, .state-icon.interrupted, .state-icon.needs_revalidation, .state-icon.needs_review { color: var(--orange); }
 .state-icon.checks_passed, .state-icon.manually_accepted { color: var(--green); }
 .state-icon.check_failed, .state-icon.blocked { color: var(--red); }
 .state-icon.canceled { color: var(--paused); }
@@ -246,6 +246,7 @@ button { cursor: default; }
 .attempt.passed .attempt-chip { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
 .attempt.failed .attempt-chip { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
 .attempt.running .attempt-chip { color: var(--accent-text); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.attempt.done .attempt-chip { color: var(--orange); background: color-mix(in srgb, var(--orange) 10%, transparent); }
 .attempt.waiting .attempt-chip { color: var(--orange); background: color-mix(in srgb, var(--orange) 14%, transparent); }
 
 /* ---------- Detail ---------- */
@@ -261,6 +262,7 @@ button { cursor: default; }
 .attempt-number.passed { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
 .attempt-number.failed { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
 .attempt-number.running { color: var(--accent-text); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.attempt-number.done { color: var(--orange); background: color-mix(in srgb, var(--orange) 10%, transparent); }
 .attempt-number.waiting { color: var(--orange); background: color-mix(in srgb, var(--orange) 14%, transparent); }
 .detail-note { margin-top: 20px; font-size: 12px; color: var(--secondary); }
 
@@ -614,3 +616,32 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .health-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 11px; }
 .client-name { display: block; }
 .data-table td small.secondary { display: block; }
+
+/* ---------- Smart tasks: new task and detail ---------- */
+.step-list { list-style: none; margin: 0; padding: 0; }
+.step-row { gap: 8px; }
+.step-row + .step-row, .step-list + .group-row { border-top: 1px solid var(--separator); }
+.settings.new-task { max-width: 780px; }
+.step-model { flex: 1 1 140px; min-width: 120px; }
+.step-actions { display: flex; gap: 2px; margin-left: auto; }
+.check-line { flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.check-line .mono { font-size: 12px; }
+.new-task .group-row .text-input { flex: 1; min-width: 0; }
+.task-actions { display: grid; gap: 8px; }
+.task-actions .form-actions { margin-top: 0; }
+.task-actions .warning-note { margin: 0; }
+.attempt-detail { align-items: flex-start; }
+.attempt-body { flex: 1; min-width: 0; display: grid; gap: 4px; font-size: 12px; }
+.attempt-body p { margin: 0; }
+.attempt-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.attempt-line .spacer { flex: 1; }
+.attempt-line .value { color: var(--secondary); display: inline-flex; align-items: center; gap: 3px; }
+.attempt-body summary { cursor: pointer; color: var(--accent-text); }
+.check-results { list-style: none; margin: 2px 0 0; padding: 0; display: grid; gap: 3px; }
+.check-results li { display: flex; align-items: center; gap: 6px; }
+.check-results li.passed svg { color: var(--green); }
+.check-results li.failed svg { color: var(--red); }
+.detail .detail-list { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; padding: 0 12px 12px; font-size: 12px; }
+.detail .detail-list dt { color: var(--secondary); }
+.detail .detail-list dd { margin: 0; overflow-wrap: anywhere; }
+.detail .agent-message { margin: 0; padding: 12px; white-space: pre-wrap; }

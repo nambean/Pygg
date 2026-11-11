@@ -7,7 +7,6 @@ import brandMark from './assets/brand-mark.svg';
 import { applyLanguage, LanguageContext, loadLanguage, resolve, t, type Language, type LanguageChoice } from './lib/i18n';
 import { runningInDesktop, savedLanguage, saveLanguage } from './lib/native';
 import { isMac, MOD } from './lib/platform';
-import { SAMPLE_BUDGET, SAMPLE_WORKSPACES, sampleTasks } from './lib/sample';
 import { FILTERS, matchesFilter, type TaskFilter, type TaskSummary } from './lib/tasks';
 import type { GatewayStatus as Status } from './lib/api';
 import { useGateway } from './hooks/useGateway';
@@ -69,9 +68,11 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
   const [status, setStatus] = useState<Status | null>(null);
   useEffect(() => { if (gateway.data) setStatus(gateway.data); }, [gateway.data]);
 
-  // Smart task routing is a preview on sample data (ADR-014, ADR-016); the banner says so on every task screen.
-  const [allTasks] = useState(() => sampleTasks());
-  const workspaces = SAMPLE_WORKSPACES;
+  // Tasks and workspaces from the core (tasks.rs); live while anything runs. The browser preview shows sample tasks.
+  const taskList = useGateway(api => api.tasks(), [], 3_000);
+  const workspaceList = useGateway(api => api.workspaces());
+  const allTasks = useMemo(() => taskList.data ?? [], [taskList.data]);
+  const workspaces = workspaceList.data ?? [];
   const counts = useMemo(() => Object.fromEntries(FILTERS.map(f => [f, allTasks.filter(task => matchesFilter(task, f)).length])) as
     Record<TaskFilter, number>, [allTasks]);
 
@@ -103,6 +104,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
 
   const openTask = (task: TaskSummary) => setView({kind: 'task', id: task.id, from: view.kind === 'tasks' ? view.filter : 'all'});
   const openedTask = view.kind === 'task' ? allTasks.find(task => task.id === view.id) : undefined;
+  const created = (id: string) => { taskList.reload(); workspaceList.reload(); setView({kind: 'task', id, from: 'all'}); };
   const title = isGateway(view.kind) ? t(GATEWAY.find(g => g.kind === view.kind)!.title)
     : view.kind === 'tasks' ? t('Tasks')
     : view.kind === 'task' ? openedTask?.title ?? t('Task')
@@ -129,7 +131,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
           <SidebarItem icon={<Bot/>} label={t('Agents')} shortcut={`${MOD}7`}
             selected={view.kind === 'agents'} onSelect={() => setView({kind: 'agents'})}/>
         </SidebarGroup>
-        <SidebarGroup title={t('Smart Tasks · Preview')}>
+        <SidebarGroup title={t('Smart Tasks')}>
           <SidebarItem icon={<ListTodo/>} label={t('Tasks')} count={counts.all} shortcut={`${MOD}6`}
             selected={view.kind === 'tasks' || view.kind === 'task' || view.kind === 'new'} onSelect={() => setView({kind: 'tasks', filter: 'all'})}/>
           <SidebarItem icon={<SlidersHorizontal/>} label={t('Policies')}
@@ -156,7 +158,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         <div className="toolbar-title" data-tauri-drag-region>
           <h1>{title}</h1>
           {(view.kind === 'tasks' || view.kind === 'task') &&
-            <BudgetSubtitle running={counts.running} waiting={counts.approval} budget={SAMPLE_BUDGET}/>}
+            <BudgetSubtitle running={counts.running} waiting={counts.approval}/>}
         </div>
         <span className="spacer" data-tauri-drag-region/>
         {primary && <button type="button" className="button prominent" onClick={() => setIntent(primary.intent)}>
@@ -168,11 +170,8 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         </button>}
       </header>
 
-      {(isGateway(view.kind) || view.kind === 'agents') && !runningInDesktop && <p className="banner sample" role="status">
+      {(isGateway(view.kind) || view.kind === 'agents' || isTaskScreen) && !runningInDesktop && <p className="banner sample" role="status">
         {t('Browser preview with demo data. Nothing is stored or sent; the desktop app runs the real gateway.')}
-      </p>}
-      {isTaskScreen && <p className="banner sample" role="status">
-        {t('Preview of smart task routing on sample tasks. The task engine isn’t built yet, so nothing here ran.')}
       </p>}
 
       <div className="content">
@@ -190,10 +189,8 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
           <TaskList tasks={allTasks} filter={view.filter} workspaces={workspaces} scoped={false} query={query} onQuery={setQuery}
             searchRef={searchRef} onOpen={openTask} onNewTask={newTask} onWorkspaceSettings={null}/>
         </>}
-        {view.kind === 'task' && openedTask && <TaskDetail task={openedTask}
-          workspace={workspaces.find(w => w.id === openedTask.workspaceId)}
-          onBack={() => setView({kind: 'tasks', filter: view.from})}/>}
-        {view.kind === 'new' && <NewTaskView workspace={undefined} workspaces={workspaces} onWorkspace={() => undefined}/>}
+        {view.kind === 'task' && <TaskDetail id={view.id} onBack={() => { taskList.reload(); setView({kind: 'tasks', filter: view.from}); }}/>}
+        {view.kind === 'new' && <NewTaskView onCreated={created}/>}
         {view.kind === 'policies' && <PendingView title={t('Policies')} section="§5.5"
           purpose={t('Strategies, tiers, attempt limits, budgets and when paid steps need your approval.')}/>}
         {view.kind === 'settings' && <SettingsView language={language} onLanguage={onLanguage} onGateway={() => go('overview')}/>}

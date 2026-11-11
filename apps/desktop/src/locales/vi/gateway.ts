@@ -5,14 +5,12 @@ export const gateway: Record<string, string> = {
   'Overview': 'Tổng quan',
   'Combos': 'Combo',
   'Clients': 'Client',
-  'Smart Tasks · Preview': 'Task thông minh · Xem trước',
+  'Smart Tasks': 'Task thông minh',
   'Tasks': 'Task',
   'All': 'Tất cả',
   'Show': 'Hiển thị',
   'Browser preview with demo data. Nothing is stored or sent; the desktop app runs the real gateway.':
     'Bản xem trước trên trình duyệt với dữ liệu demo. Không có gì được lưu hay gửi đi; gateway thật chạy trong ứng dụng desktop.',
-  'Preview of smart task routing on sample tasks. The task engine isn’t built yet, so nothing here ran.':
-    'Bản xem trước định tuyến task thông minh với task mẫu. Bộ máy task chưa được xây, nên chưa có gì ở đây thực sự chạy.',
   'Gateway Running · {port}': 'Gateway đang chạy · {port}',
   'Gateway Couldn’t Start': 'Gateway không khởi động được',
   'Open Overview': 'Mở Tổng quan',

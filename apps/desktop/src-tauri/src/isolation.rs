@@ -117,6 +117,13 @@ pub fn changes(worktree: &Worktree) -> Result<DiffStat, IsolationError> {
     Ok(stat)
 }
 
+/// The paths the attempt added, changed or removed, relative to the repository root.
+pub fn changed_files(worktree: &Worktree) -> Result<Vec<String>, IsolationError> {
+    git(&worktree.path, &["add", "--all"])?;
+    let names = git(&worktree.path, &["diff", "--cached", "--name-only", &worktree.base])?;
+    Ok(names.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect())
+}
+
 /// The unified diff of the attempt against its base.
 pub fn diff(worktree: &Worktree) -> Result<String, IsolationError> {
     git(&worktree.path, &["add", "--all"])?;
@@ -173,6 +180,11 @@ pub fn init_repository(dir: &Path, message: &str) -> Result<String, IsolationErr
     git(dir, &["add", "--all"])?;
     git(dir, &["commit", "--quiet", "--allow-empty", "-m", message])?;
     git(dir, &["rev-parse", "HEAD"])
+}
+
+/// Forgets worktrees whose folder is gone.
+pub fn prune(repo: &Path) -> Result<(), IsolationError> {
+    git(repo, &["worktree", "prune"]).map(|_| ())
 }
 
 /// Removes the worktree and its files. The branch, if one was kept, stays.

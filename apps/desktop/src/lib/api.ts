@@ -5,6 +5,7 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import { runningInDesktop } from './native';
+import type { NewTask, TaskDetail, TaskSummary, WorkspaceView } from './tasks';
 
 export type Billing = 'free' | 'local' | 'subscription' | 'paid' | 'unknown';
 export const BILLINGS: Billing[] = ['free', 'local', 'subscription', 'paid', 'unknown'];
@@ -173,6 +174,23 @@ export interface GatewayApi {
   agentDiff(runId: string): Promise<string>;
   /** Keeps the run's changes as a branch (keep = its title) or discards them; returns the branch. */
   finishAgentRun(runId: string, keep: string | null): Promise<string | null>;
+  workspaces(): Promise<WorkspaceView[]>;
+  /** Adds a Git repository as a workspace; the checks it already has arrive as suggestions. */
+  addWorkspace(path: string, name: string | null): Promise<WorkspaceView>;
+  removeWorkspace(id: string): Promise<void>;
+  detectChecks(id: string): Promise<WorkspaceView>;
+  workspaceCheck(id: string, command: string, action: 'approve' | 'unapprove' | 'add' | 'remove'): Promise<WorkspaceView>;
+  tasks(): Promise<TaskSummary[]>;
+  task(id: string): Promise<TaskDetail>;
+  /** Creates a task and starts it; returns its id. */
+  createTask(task: NewTask): Promise<string>;
+  cancelTask(id: string): Promise<void>;
+  /** Approves or declines the paid step a task waits on. */
+  decideTask(id: string, approve: boolean): Promise<void>;
+  retryTask(id: string): Promise<void>;
+  taskDiff(id: string): Promise<string>;
+  /** Keeps the result as a branch (returned) or discards it. */
+  finishTask(id: string, keep: boolean, title: string | null): Promise<string | null>;
 }
 
 const native: GatewayApi = {
@@ -207,6 +225,19 @@ const native: GatewayApi = {
   runAgent: task => invoke('agent_run', {request: task}),
   agentDiff: runId => invoke('agent_diff', {id: runId}),
   finishAgentRun: (runId, keep) => invoke('agent_finish', {id: runId, keep}),
+  workspaces: () => invoke('workspaces_list'),
+  addWorkspace: (path, name) => invoke('workspace_add', {path, name}),
+  removeWorkspace: id => invoke('workspace_remove', {id}),
+  detectChecks: id => invoke('workspace_detect_checks', {id}),
+  workspaceCheck: (id, command, action) => invoke('workspace_check', {id, command, action}),
+  tasks: () => invoke('tasks_list'),
+  task: id => invoke('task_get', {id}),
+  createTask: task => invoke('task_create', {task}),
+  cancelTask: id => invoke('task_cancel', {id}),
+  decideTask: (id, approve) => invoke('task_decide', {id, approve}),
+  retryTask: id => invoke('task_retry', {id}),
+  taskDiff: id => invoke('task_diff', {id}),
+  finishTask: (id, keep, title) => invoke('task_finish', {id, keep, title}),
 };
 
 let demo: Promise<GatewayApi> | null = null;

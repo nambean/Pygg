@@ -21,10 +21,12 @@ pub fn detect(workspace: &Path) -> Vec<DetectedCheck> {
     let mut found = Vec::new();
     if let Ok(text) = std::fs::read_to_string(workspace.join("package.json")) {
         if let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&text) {
-            let runner = if workspace.join("pnpm-lock.yaml").exists() { "pnpm" }
-                else if workspace.join("yarn.lock").exists() { "yarn" }
-                else { "npm run" };
+            let (runner, install) = if workspace.join("pnpm-lock.yaml").exists() { ("pnpm", "pnpm install --frozen-lockfile") }
+                else if workspace.join("yarn.lock").exists() { ("yarn", "yarn install --frozen-lockfile") }
+                else if workspace.join("package-lock.json").exists() { ("npm run", "npm ci") }
+                else { ("npm run", "npm install") };
             if let Some(scripts) = manifest.get("scripts").and_then(|s| s.as_object()) {
+                let first = found.len();
                 for name in SCRIPT_CHECKS {
                     let Some(body) = scripts.get(*name).and_then(|b| b.as_str()) else { continue };
                     // npm's placeholder test script always fails; it is not a check.
@@ -32,6 +34,11 @@ pub fn detect(workspace: &Path) -> Vec<DetectedCheck> {
                         continue;
                     }
                     found.push(DetectedCheck { command: format!("{runner} {name}"), source: "package.json".into() });
+                }
+                // An attempt's worktree is a fresh checkout without node_modules, so the scripts need the
+                // dependencies installed there first. Checks run in order and stop at the first failure.
+                if found.len() > first {
+                    found.insert(first, DetectedCheck { command: install.into(), source: "package.json".into() });
                 }
             }
         }
@@ -43,7 +50,7 @@ pub fn detect(workspace: &Path) -> Vec<DetectedCheck> {
     found
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CheckResult {
     pub command: String,
@@ -97,7 +104,7 @@ mod tests {
         fs::write(dir.path().join("pnpm-lock.yaml"), "").unwrap();
         fs::write(dir.path().join("Cargo.toml"), "[package]").unwrap();
         let commands: Vec<String> = detect(dir.path()).into_iter().map(|c| c.command).collect();
-        assert_eq!(commands, ["pnpm typecheck", "pnpm build", "cargo check", "cargo test"]);
+        assert_eq!(commands, ["pnpm install --frozen-lockfile", "pnpm typecheck", "pnpm build", "cargo check", "cargo test"]);
     }
 
     #[test]

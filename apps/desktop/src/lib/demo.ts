@@ -7,6 +7,8 @@
 import type { AgentInfo, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
   Health, Model, Preset, Target, Tier, UsageEvent, UsageGroup, UsageSummary, Wire } from './api';
 import { TIERS } from './api';
+import { SAMPLE_WORKSPACES, sampleTasks } from './sample';
+import type { AttemptView, NewTask, TaskDetail, TaskSummary, WorkspaceView } from './tasks';
 
 type BasePreset = Omit<Preset, 'offer' | 'offerNote'>;
 const BASE_PRESETS: BasePreset[] = [
@@ -483,6 +485,7 @@ export function demoApi(): GatewayApi {
     },
     agentDiff: async () => touch('diff --git a/calc.py b/calc.py\n--- a/calc.py\n+++ b/calc.py\n@@ -1,2 +1,2 @@\n def add(a, b):\n-    return a - b\n+    return a + b\n'),
     finishAgentRun: async (runId, keep) => { await sleep(300); return keep ? `str/${keep.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${runId}` : null; },
+    ...demoTasks(touch),
     usage: async days => {
       const since = Date.now() - days * 86_400_000;
       const list = events.filter(e => e.createdAt >= since);
@@ -491,5 +494,117 @@ export function demoApi(): GatewayApi {
         recent: [...list].sort((a, b) => b.createdAt - a.createdAt).slice(0, 200)};
       return touch(summary);
     },
+  };
+}
+
+const DEMO_DIFF = 'diff --git a/src/timeout.ts b/src/timeout.ts\n--- a/src/timeout.ts\n+++ b/src/timeout.ts\n@@ -3,3 +3,3 @@\n-  return setTimeout(fn, ms * 100);\n+  return setTimeout(fn, ms);\n';
+
+/** Tasks for the browser preview: the sample tasks, and new ones that "run" for a few seconds. Nothing runs. */
+function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'workspaces' | 'addWorkspace' | 'removeWorkspace'
+  | 'detectChecks' | 'workspaceCheck' | 'tasks' | 'task' | 'createTask' | 'cancelTask' | 'decideTask' | 'retryTask' | 'taskDiff'
+  | 'finishTask'> {
+  const workspaces: WorkspaceView[] = SAMPLE_WORKSPACES.map((w, i) => ({...w, tasks: 0, checks: i === 0
+    ? [{command: 'pnpm install --frozen-lockfile', source: 'package.json', approved: true},
+       {command: 'pnpm typecheck', source: 'package.json', approved: true}, {command: 'pnpm test', source: 'package.json', approved: true},
+       {command: 'cargo test', source: 'Cargo.toml', approved: false}]
+    : [{command: 'npm ci', source: 'package.json', approved: false}, {command: 'npm run build', source: 'package.json', approved: false}]}));
+  const details = new Map<string, TaskDetail>();
+  for (const s of sampleTasks()) details.set(s.id, detailOf(s));
+
+  function detailOf(s: TaskSummary): TaskDetail {
+    const ws = workspaces.find(w => w.id === s.workspaceId)!;
+    const checks = ws.checks.filter(c => c.approved).map(({command, source}) => ({command, source}));
+    const attempts: AttemptView[] = s.attempts.map((a, i) => ({
+      id: `${s.id}-${i}`, number: i + 1, step: i, agent: a.model.startsWith('Codex') ? 'codex' : a.model.startsWith('Claude') ? 'claude-code'
+        : a.model.startsWith('Gemini') ? 'gemini-cli' : 'opencode', label: a.model, agentModel: null, tier: a.tier, billing: a.billing,
+      outcome: a.outcome, detail: a.outcome === 'running' || a.outcome === 'waiting' ? null : 'exit 0',
+      escalationReason: a.outcome === 'failed' ? '`pnpm test` exited 1' : null,
+      checks: a.outcome === 'passed' || a.outcome === 'failed' ? checks.map((c, j) => ({command: c.command,
+        passed: a.outcome === 'passed' || j < checks.length - 1, detail: a.outcome === 'passed' || j < checks.length - 1 ? 'exited 0' : 'exited 1',
+        outputTail: a.outcome === 'failed' && j === checks.length - 1 ? 'FAIL src/timeout.test.ts\n  expected 50 ms, got 5000 ms' : '',
+        durationMs: 2400 + j * 900})) : [],
+      filesChanged: a.outcome === 'waiting' ? null : 2, insertions: 6, deletions: 3,
+      summary: a.outcome === 'passed' ? 'Fixed the unit conversion in timeout handling and added a regression test.' : null,
+      logTail: null, inputTokens: a.outcome === 'waiting' ? null : 41_200, outputTokens: a.outcome === 'waiting' ? null : 1_830,
+      startedAt: s.startedAt, finishedAt: a.outcome === 'running' || a.outcome === 'waiting' ? null : s.updatedAt,
+      open: a.outcome === 'passed' && (s.state === 'checks_passed'),
+    }));
+    return {...s, prompt: s.title, strategy: 'free_first', reason: s.state === 'interrupted'
+      ? 'The app closed while this task ran. Retry runs the step again from the same code.'
+      : s.state === 'waiting_approval' ? 'Step 2 is marked paid, so it waits for your approval.' : null,
+      result: null, resultBranch: null, baseRevision: 'a91e7e7', workspaceName: ws.name, workspacePath: ws.path,
+      policy: {steps: s.attempts.map((a, i) => ({agent: attempts[i].agent, model: null, tier: a.tier, billing: a.billing})), checks,
+        allowShell: false, timeoutSecs: 900},
+      attempts: s.attempts, attemptDetails: attempts};
+  }
+  const summary = (d: TaskDetail): TaskSummary => ({id: d.id, title: d.title, workspaceId: d.workspaceId, state: d.state, phase: d.phase,
+    attempts: d.attempts, cost: d.cost, startedAt: d.startedAt, updatedAt: d.updatedAt});
+  const get = (id: string) => { const d = details.get(id); if (!d) throw 'That task no longer exists'; return d; };
+  const set = (id: string, change: Partial<TaskDetail>) => { details.set(id, {...get(id), ...change, updatedAt: Date.now()}); };
+  const findWorkspace = (id: string) => { const w = workspaces.find(x => x.id === id); if (!w) throw 'That workspace no longer exists'; return w; };
+
+  return {
+    workspaces: () => touch(workspaces.map(w => ({...w, tasks: [...details.values()].filter(d => d.workspaceId === w.id).length}))),
+    addWorkspace: async (path, name) => {
+      await sleep(200);
+      if (!path.trim()) throw 'Choose the workspace folder';
+      if (workspaces.some(w => w.path === path.trim())) throw 'That folder is already a workspace';
+      const w: WorkspaceView = {id: hex(6), name: name?.trim() || path.trim().split(/[\\/]/).filter(Boolean).pop() || path, path: path.trim(),
+        tasks: 0, checks: [{command: 'npm ci', source: 'package.json', approved: false}, {command: 'npm run test', source: 'package.json', approved: false}]};
+      workspaces.push(w);
+      return clone(w);
+    },
+    removeWorkspace: async id => {
+      if ([...details.values()].some(d => d.workspaceId === id)) throw 'This workspace has task history, so it stays.';
+      workspaces.splice(workspaces.findIndex(w => w.id === id), 1);
+    },
+    detectChecks: id => touch(findWorkspace(id)),
+    workspaceCheck: async (id, command, action) => {
+      const w = findWorkspace(id);
+      const c = w.checks.find(x => x.command === command);
+      if (action === 'add') { if (!command.trim()) throw 'Type the command, e.g. pnpm test'; if (c) c.approved = true; else w.checks.push({command: command.trim(), source: 'user', approved: true}); }
+      else if (action === 'remove') w.checks = w.checks.filter(x => x.command !== command);
+      else if (c) c.approved = action === 'approve';
+      return touch(w);
+    },
+    tasks: () => touch([...details.values()].map(summary).sort((a, b) => b.updatedAt - a.updatedAt)),
+    task: async id => touch(get(id)),
+    createTask: async (task: NewTask) => {
+      await sleep(250);
+      if (!task.prompt.trim()) throw 'Describe the task';
+      if (task.steps.length === 0) throw 'Add at least one step';
+      const w = findWorkspace(task.workspaceId);
+      const id = `t-${hex(4)}`;
+      const first = task.steps[0];
+      const label = `${DEMO_AGENTS.find(a => a.id === first.agent)?.name ?? first.agent} · ${first.model ?? 'default model'}`;
+      const now = Date.now();
+      const base: TaskSummary = {id, title: task.title ?? task.prompt.trim().split('\n')[0].slice(0, 80), workspaceId: w.id, state: 'running',
+        phase: 'generating', attempts: [{tier: first.tier, billing: first.billing, model: label, outcome: 'running'}],
+        cost: {actualUsd: 0, estimatedUsd: 0, unknownCalls: 0, localOnly: false}, startedAt: now, updatedAt: now};
+      details.set(id, {...detailOf(base), prompt: task.prompt, strategy: task.strategy,
+        policy: {steps: task.steps, checks: w.checks.filter(c => c.approved).map(({command, source}) => ({command, source})),
+          allowShell: task.allowShell, timeoutSecs: task.timeoutSecs ?? 900}});
+      setTimeout(() => { if (details.get(id)?.state === 'running') set(id, {phase: 'checking'}); }, 2500);
+      setTimeout(() => {
+        const d = details.get(id);
+        if (d?.state !== 'running') return;
+        const done = {...detailOf({...summary(d), state: 'checks_passed', attempts: [{...d.attempts[0], outcome: 'passed'}],
+          cost: {actualUsd: 0, estimatedUsd: 0, unknownCalls: 1, localOnly: false}})};
+        set(id, {state: 'checks_passed', phase: undefined, attempts: done.attempts, cost: done.cost, attemptDetails: done.attemptDetails});
+      }, 5000);
+      return id;
+    },
+    cancelTask: async id => { const d = get(id); if (!['running', 'waiting_approval', 'interrupted'].includes(d.state)) throw 'Only a running or waiting task can be stopped';
+      set(id, {state: 'canceled', phase: undefined, reason: 'You stopped it', attempts: d.attempts.map(a => a.outcome === 'running' || a.outcome === 'waiting' ? {...a, outcome: 'canceled'} : a)}); },
+    decideTask: async (id, approve) => { await sleep(150);
+      set(id, approve ? {state: 'running', phase: 'generating', reason: null, attempts: get(id).attempts.map(a => a.outcome === 'waiting' ? {...a, outcome: 'running'} : a)}
+        : {state: 'blocked', reason: 'You declined the paid step, and no step after it is free to run', attempts: get(id).attempts.map(a => a.outcome === 'waiting' ? {...a, outcome: 'canceled'} : a)}); },
+    retryTask: async id => { if (get(id).state !== 'interrupted') throw 'Only an interrupted task can be retried';
+      set(id, {state: 'running', phase: 'preparing', reason: null}); },
+    taskDiff: () => touch(DEMO_DIFF),
+    finishTask: async (id, keep, title) => { await sleep(250); const d = get(id);
+      const branch = keep ? `str/${(title || d.title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48)}-${id.replace(/\W/g, '').slice(0, 8)}` : null;
+      set(id, {result: keep ? 'kept' : 'discarded', resultBranch: branch, state: d.state === 'needs_review' ? (keep ? 'manually_accepted' : 'canceled') : d.state});
+      return branch; },
   };
 }

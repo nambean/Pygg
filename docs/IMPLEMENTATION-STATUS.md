@@ -47,7 +47,7 @@ The levels are cumulative. **Fake-tested** means end-to-end tests against the fa
 | Clients | Token table with spend against limit, spend possibly charged (at risk), an overrun, spend held for requests in flight, and each client's policy. The limit is described as checked against an estimate. Create sheet shows the token once and a command to keep it in an environment variable. **Limits…** sets the monthly limit, the unknown-price policy, the in-flight cap, the minimum tier for `auto`, retries after a server error (off by default) and the connections the client may use. Revoke. | Browser preview |
 | Usage | 24 hours, 7 days or 30 days. Actual, estimated and unknown totals. By model, by client, and a ledger with an expandable row for each request. | Browser preview; native screenshot with real requests |
 | **Agents** | Official agent CLIs (Claude Code, Codex CLI, Gemini CLI, OpenCode) found on this computer, with version and, for Codex, its own login status. **Run a Task**: agent, repository, task, optional model, shell commands off by default. The agent runs with its own sign-in in a Git worktree; the result shows the agent's message, tokens, the cost as unknown (with the agent's list-price estimate when it gives one), the diff, and **Keep as Branch** or **Discard**. Every run is in Usage. See [AGENTS.md](AGENTS.md). | `agents.rs` unit tests (commands, usage parsing, npm shims); live runs: Codex with a ChatGPT plan and OpenCode with a free model fixed a bug in a scratch repo; Gemini CLI refused by Google (free login discontinued); browser preview |
-| Smart Tasks · Preview | The task list, detail and New Task on labeled sample data, plus Policies as a "not built yet" page. | Browser preview |
+| **Smart Tasks** | Task engine v1 (`tasks.rs`, schema v8): workspaces (Git repositories) with detected checks to approve, a ladder of agent steps per task, checks on each attempt's worktree, escalation to the next step with what failed, approval before a paid step, stop, interrupted after a restart and Retry, Keep as Branch or Discard. New Task, the list and the detail run on it, refreshing while a task runs. Policies is still a "not built yet" page. See [AGENTS.md](AGENTS.md#smart-tasks-task-engine-v1-tasksrs-schema-v8). | 11 `tasks.rs` tests with a scripted agent in real worktrees; a live task (OpenCode free model, check passed); browser preview on sample tasks |
 | Look | DownFetch's tokens and green accent (light `#0B7A4B`, dark `#0D8551`, accent text `#3DDC97`), regenerated icons, light and dark. | Browser preview in both appearances |
 | i18n | Every string is in English and Vietnamese. | String scan: no untranslated interface strings left (names and sample titles excepted) |
 
@@ -55,7 +55,7 @@ Browser preview (`pnpm dev`) runs on an in-memory demo that is labeled on screen
 
 ### Core modules from the bootstrap
 
-`db.rs` (migrations, now at schema v7), `vault.rs`, `redact.rs`, `process.rs`, `isolation.rs` and `checks.rs` are unchanged. `bench.rs` now reads agent cost events and enforces a hard `--budget-usd` cap.
+`db.rs` (migrations, now at schema v8), `vault.rs`, `redact.rs`, `process.rs`, `isolation.rs` and `checks.rs` are unchanged. `bench.rs` now reads agent cost events and enforces a hard `--budget-usd` cap.
 
 `cargo test`: 110 passed, 1 ignored (including five lifecycle tests: stop with a request or a stream in flight, a settlement waiting at stop, quick restarts with an orphan, a failed start-up recovery), plus `tests/two_gateways.rs`, which runs two real `gateway serve` processes on one store (the second is refused; after the first is killed a new one starts and records the attempt the dead one left as interrupted) (the OS credential store test, which passes with `--ignored`).
 
@@ -152,7 +152,7 @@ With the owner's go-ahead, Claude Code 2.1.317 ran a headless session (`claude -
 
 ## Designed, not built
 
-- Smart task routing: Plan/Run/Result, workspaces, approvals and Policies.
+- Smart task routing beyond engine v1: task analysis and a proposed plan, Policies, a daily task budget.
 - The Setup Assistant.
 - Quota tracking for subscriptions.
 - Data-use terms per provider.

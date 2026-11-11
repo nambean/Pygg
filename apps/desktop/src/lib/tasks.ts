@@ -1,6 +1,6 @@
 /**
  * Task model as the interface sees it, and the sidebar filters over it (docs/design/SCREENS.md §2.2, §5.1).
- * The Rust core will own these records; until it exists the list is filled from sample data (sample.ts).
+ * The Rust core owns these records (src-tauri/src/tasks.rs); the browser preview fills them from sample data (sample.ts).
  */
 
 export type Tier = 0 | 1 | 2 | 3 | 4;
@@ -11,13 +11,15 @@ export type TaskState =
   | 'waiting_approval'   // paused before a paid attempt
   | 'needs_revalidation' // planned, but the catalog, a connection or the workspace changed
   | 'checks_passed'
+  | 'needs_review'       // finished, but nothing confirmed it (no checks, or it changed what defines them)
   | 'manually_accepted'
   | 'check_failed'
   | 'blocked'            // no eligible model, or the policy or budget allows nothing more
   | 'canceled'
   | 'interrupted';       // the app stopped while it ran; needs reconciliation
 
-export type AttemptOutcome = 'passed' | 'failed' | 'running' | 'waiting' | 'canceled';
+/** done: the attempt finished and no check judged it. */
+export type AttemptOutcome = 'passed' | 'done' | 'failed' | 'running' | 'waiting' | 'canceled';
 
 export type Attempt = {
   tier: Tier;
@@ -53,6 +55,48 @@ export type TaskSummary = {
 
 export type Workspace = { id: string; name: string; path: string };
 
+/** A check command; only approved ones run. Detected ones arrive as suggestions. */
+export type WorkspaceCheck = { command: string; source: string; approved: boolean };
+export type WorkspaceView = Workspace & { checks: WorkspaceCheck[]; tasks: number };
+
+export type Strategy = 'free_first' | 'balanced' | 'quality';
+
+/** One step of a task's ladder: an agent with its own sign-in, the model it is asked for, how the user classes it. */
+export type Step = { agent: string; model: string | null; tier: Tier; billing: Billing };
+
+export type NewTask = {
+  workspaceId: string; title: string | null; prompt: string; strategy: Strategy; steps: Step[];
+  allowShell: boolean; timeoutSecs: number | null;
+};
+
+export type CheckResult = { command: string; passed: boolean; detail: string; outputTail: string; durationMs: number };
+
+export type AttemptView = {
+  id: string; number: number; step: number; agent: string; label: string; agentModel: string | null;
+  tier: Tier; billing: Billing; outcome: AttemptOutcome; detail: string | null; escalationReason: string | null;
+  checks: CheckResult[]; filesChanged: number | null; insertions: number | null; deletions: number | null;
+  summary: string | null; logTail: string | null; inputTokens: number | null; outputTokens: number | null;
+  startedAt: number | null; finishedAt: number | null;
+  /** Its worktree is still there: the result waits for the user. */
+  open: boolean;
+};
+
+export type TaskDetail = TaskSummary & {
+  prompt: string; strategy: Strategy; reason: string | null; result: 'kept' | 'discarded' | null; resultBranch: string | null;
+  baseRevision: string | null; workspaceName: string; workspacePath: string;
+  policy: { steps: Step[]; checks: { command: string; source: string }[]; allowShell: boolean; timeoutSecs: number };
+  /** Every attempt in full; `attempts` holds the chips. */
+  attemptDetails: AttemptView[];
+};
+
+/** Display names of the agents (agents.rs AGENTS). */
+export const AGENT_NAMES: Record<string, string> = {
+  'claude-code': 'Claude Code', codex: 'Codex CLI', 'gemini-cli': 'Gemini CLI', opencode: 'OpenCode',
+};
+
+/** At most this many steps per task (tasks.rs MAX_STEPS). */
+export const MAX_STEPS = 6;
+
 export type TaskFilter = 'all' | 'running' | 'approval' | 'completed' | 'failed' | 'stopped';
 
 export const FILTERS: TaskFilter[] = ['all', 'running', 'approval', 'completed', 'failed', 'stopped'];
@@ -63,7 +107,7 @@ export function matchesFilter(task: TaskSummary, filter: TaskFilter): boolean {
     // Running excludes approval waits: those have their own filter.
     case 'running': return task.state === 'running';
     case 'approval': return task.state === 'waiting_approval';
-    case 'completed': return task.state === 'checks_passed' || task.state === 'manually_accepted';
+    case 'completed': return task.state === 'checks_passed' || task.state === 'manually_accepted' || task.state === 'needs_review';
     case 'failed': return task.state === 'check_failed' || task.state === 'blocked';
     case 'stopped': return task.state === 'canceled' || task.state === 'interrupted';
   }
@@ -71,7 +115,8 @@ export function matchesFilter(task: TaskSummary, filter: TaskFilter): boolean {
 
 /** Tasks that wait on the user; pinned above the list and not repeated in it. */
 export function needsAttention(task: TaskSummary): boolean {
-  return task.state === 'waiting_approval' || task.state === 'interrupted' || task.state === 'needs_revalidation';
+  return task.state === 'waiting_approval' || task.state === 'interrupted' || task.state === 'needs_revalidation'
+    || task.state === 'needs_review';
 }
 
 export type DayBudget = {

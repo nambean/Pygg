@@ -16,6 +16,8 @@ pub struct AppState {
     pub data_dir: std::path::PathBuf,
     /// Agent runs whose worktree is still there, by id. The interface refers to a run by id only, never by path.
     pub runs: std::sync::Mutex<std::collections::HashMap<String, crate::agents::TaskRun>>,
+    /// Smart tasks running in the background (tasks.rs).
+    pub tasks: crate::tasks::Runner,
 }
 
 type Res<T> = Result<T, String>;
@@ -493,5 +495,88 @@ pub fn agent_finish(state: State<'_, AppState>, id: String, keep: Option<String>
     let branch = crate::agents::finish(&run, keep.as_deref().map(str::trim).filter(|k| !k.is_empty()))?;
     state.runs.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
     Ok(branch)
+}
+
+// ---------- Workspaces and smart tasks (tasks.rs) ----------
+
+use crate::tasks::{self, NewTask, TaskDetail, TaskSummary, WorkspaceView};
+
+#[tauri::command]
+pub fn workspaces_list(state: State<'_, AppState>) -> Res<Vec<WorkspaceView>> {
+    state.shared.with_db(tasks::list_workspaces)
+}
+
+#[tauri::command]
+pub async fn workspace_add(state: State<'_, AppState>, path: String, name: Option<String>) -> Res<WorkspaceView> {
+    state.shared.with_db(|db| tasks::add_workspace(db, &path, name.as_deref()))
+}
+
+#[tauri::command]
+pub fn workspace_remove(state: State<'_, AppState>, id: String) -> Res<()> {
+    state.shared.with_db(|db| tasks::remove_workspace(db, &id))
+}
+
+#[tauri::command]
+pub fn workspace_detect_checks(state: State<'_, AppState>, id: String) -> Res<WorkspaceView> {
+    state.shared.with_db(|db| tasks::detect_checks(db, &id))
+}
+
+/// Approves a check (or withdraws the approval), adds one the user typed, or removes one.
+#[tauri::command]
+pub fn workspace_check(state: State<'_, AppState>, id: String, command: String, action: String) -> Res<WorkspaceView> {
+    state.shared.with_db(|db| {
+        match action.as_str() {
+            "approve" => tasks::set_check(db, &id, &command, true),
+            "unapprove" => tasks::set_check(db, &id, &command, false),
+            "add" => tasks::add_check(db, &id, &command),
+            "remove" => tasks::remove_check(db, &id, &command),
+            other => Err(format!("unknown action {other}")),
+        }?;
+        tasks::workspace(db, &id)
+    })
+}
+
+#[tauri::command]
+pub fn tasks_list(state: State<'_, AppState>) -> Res<Vec<TaskSummary>> {
+    state.shared.with_db(tasks::list_tasks)
+}
+
+#[tauri::command]
+pub fn task_get(state: State<'_, AppState>, id: String) -> Res<TaskDetail> {
+    state.shared.with_db(|db| tasks::task_detail(db, &id))
+}
+
+/// Creates a task and starts it in the background. Returns its id.
+#[tauri::command]
+pub async fn task_create(state: State<'_, AppState>, task: NewTask) -> Res<String> {
+    let id = state.shared.with_db(|db| tasks::create_task(db, &task))?;
+    state.tasks.start(&id);
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn task_cancel(state: State<'_, AppState>, id: String) -> Res<()> {
+    state.tasks.cancel(&id)
+}
+
+#[tauri::command]
+pub async fn task_decide(state: State<'_, AppState>, id: String, approve: bool) -> Res<()> {
+    state.tasks.decide(&id, approve).map(|_| ())
+}
+
+#[tauri::command]
+pub async fn task_retry(state: State<'_, AppState>, id: String) -> Res<()> {
+    state.tasks.retry(&id).map(|_| ())
+}
+
+#[tauri::command]
+pub async fn task_diff(state: State<'_, AppState>, id: String) -> Res<String> {
+    state.shared.with_db(|db| tasks::result_diff(db, &id))
+}
+
+/// Keeps the task's result as a branch (`title` names it) or discards it. Returns the branch when kept.
+#[tauri::command]
+pub async fn task_finish(state: State<'_, AppState>, id: String, keep: bool, title: Option<String>) -> Res<Option<String>> {
+    state.shared.with_db(|db| if keep { tasks::keep(db, &id, title.as_deref()).map(Some) } else { tasks::discard(db, &id).map(|()| None) })
 }
 

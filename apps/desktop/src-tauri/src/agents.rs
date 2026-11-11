@@ -167,6 +167,10 @@ pub struct TaskRequest {
     #[serde(default)]
     pub allow_shell: bool,
     pub timeout_secs: Option<u64>,
+    /// The commit the worktree starts from. Empty: the workspace's current commit. A task fixes it when it is
+    /// created, so every attempt starts from the same code.
+    #[serde(default)]
+    pub base: Option<String>,
 }
 
 /// What the agent reported about the run.
@@ -319,7 +323,10 @@ pub async fn run(request: &TaskRequest, worktrees: &Path, cancel: impl std::futu
     let launch = spec.programs.iter().find_map(|p| locate(p))
         .ok_or_else(|| format!("{} is not installed, or not on PATH. See {}", spec.name, spec.install))?;
     let id = uuid::Uuid::new_v4().simple().to_string();
-    let base = isolation::head(&request.workspace).map_err(|e| e.to_string())?;
+    let base = match request.base.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
+        Some(base) => base.to_string(),
+        None => isolation::head(&request.workspace).map_err(|e| e.to_string())?,
+    };
     std::fs::create_dir_all(worktrees).map_err(|e| e.to_string())?;
     let dir = worktrees.join(&id[..12]);
     let worktree = isolation::create(&request.workspace, &base, &dir).map_err(|e| e.to_string())?;
@@ -358,6 +365,12 @@ pub async fn run(request: &TaskRequest, worktrees: &Path, cancel: impl std::futu
 /// depends on how the agent is signed in (a subscription is not billed per request). The agent's own estimate,
 /// when it gave one, is kept in the source.
 pub fn record(conn: &Connection, run: &TaskRun) -> store::Result<()> {
+    record_for(conn, run, None)
+}
+
+/// `record`, with the entry tied to a task attempt (`usage_events.attempt_id`), so a task's cost is the sum of
+/// its own entries.
+pub fn record_for(conn: &Connection, run: &TaskRun, attempt_id: Option<&str>) -> store::Result<()> {
     let source = match run.usage.estimate_usd {
         Some(usd) => format!("agent run with its own sign-in; its list-price estimate: ${usd:.4}"),
         None => "agent run with its own sign-in; it reported no cost".to_string(),
@@ -365,13 +378,23 @@ pub fn record(conn: &Connection, run: &TaskRun) -> store::Result<()> {
     let cost = Cost::Unknown { source };
     let model = run.usage.model.clone().or_else(|| run.model.clone()).unwrap_or_else(|| "default".into());
     let error = run.usage.error.clone().or_else(|| (run.outcome != "ok").then(|| run.exit.clone()));
-    store::record_usage(conn, &UsageRecord {
+    let record = UsageRecord {
         client_id: None, provider_id: &format!("agent:{}", run.agent), model_id: &model, requested_model: "task",
         input_tokens: run.usage.input_tokens, output_tokens: run.usage.output_tokens, cache_tokens: run.usage.cache_read_tokens,
         cost: &cost, outcome: if run.outcome == "ok" { "ok" } else { "error" }, http_status: None,
         latency_ms: run.duration_ms, error: error.as_deref(), cache_write_tokens: run.usage.cache_write_tokens,
         session_key: None, route_mode: Some("agent"), route_reason: None,
-    })
+    };
+    let Some(attempt_id) = attempt_id else { return store::record_usage(conn, &record) };
+    // The entry and its attempt link land together or not at all.
+    conn.execute_batch("SAVEPOINT agent_usage").map_err(|e| e.to_string())?;
+    let linked = store::record_usage(conn, &record).and_then(|()| {
+        conn.execute("UPDATE usage_events SET attempt_id = ?1 WHERE rowid = last_insert_rowid()", [attempt_id])
+            .map(|_| ()).map_err(|e| e.to_string())
+    });
+    let end = if linked.is_ok() { "RELEASE agent_usage" } else { "ROLLBACK TO agent_usage; RELEASE agent_usage" };
+    conn.execute_batch(end).map_err(|e| e.to_string())?;
+    linked
 }
 
 /// Keeps a run's result as a branch of the workspace, or discards it; either way the worktree is removed.

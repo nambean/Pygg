@@ -1,4 +1,4 @@
-import { Ban, CircleAlert, CircleCheck, CircleX, Hourglass, LoaderCircle, RefreshCw, Search, TriangleAlert,
+import { Ban, CircleAlert, CircleCheck, CircleX, Eye, Hourglass, LoaderCircle, RefreshCw, Search, TriangleAlert,
   UserCheck } from 'lucide-react';
 import type { RefObject } from 'react';
 import { ago, elapsed, taskCost } from '../lib/format';
@@ -98,6 +98,7 @@ export function statusLine(task: TaskSummary, now = Date.now()): string {
     case 'waiting_approval': return t('Waiting for approval · attempt {n}', {n: attempt});
     case 'needs_revalidation': return t('Plan needs revalidation');
     case 'checks_passed': return t('Checks passed · {time}', {time: ago(task.updatedAt, now)});
+    case 'needs_review': return t('Finished, needs your review · {time}', {time: ago(task.updatedAt, now)});
     case 'manually_accepted': return t('Manually accepted · {time}', {time: ago(task.updatedAt, now)});
     case 'check_failed': return attempt === 1 ? t('Check failed · {time}', {time: ago(task.updatedAt, now)})
       : t('Check failed after {n} attempts · {time}', {n: attempt, time: ago(task.updatedAt, now)});
@@ -115,6 +116,7 @@ export function StateIcon({state}: {state: TaskState}) {
       case 'waiting_approval': return <Hourglass {...props}/>;
       case 'needs_revalidation': return <RefreshCw {...props}/>;
       case 'checks_passed': return <CircleCheck {...props}/>;
+      case 'needs_review': return <Eye {...props}/>;
       case 'manually_accepted': return <UserCheck {...props}/>;
       case 'check_failed': return <CircleAlert {...props}/>;
       case 'blocked': return <Ban {...props}/>;

@@ -10,6 +10,7 @@ pub mod gateway;
 pub mod isolation;
 pub mod process;
 pub mod redact;
+pub mod tasks;
 pub mod vault;
 
 use commands::AppState;
@@ -60,9 +61,16 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let path = dir.join("store.sqlite3");
             let conn = db::open(&path)?;
-            let shared = gateway::Shared::for_store(Arc::new(Mutex::new(conn)), Arc::new(gateway::OsSecrets), &path);
+            let worktrees = dir.join("worktrees");
+            // Nothing runs yet: a task left running was cut off when the app last closed.
+            if let Err(e) = tasks::recover(&conn, &worktrees) {
+                eprintln!("could not recover tasks: {e}");
+            }
+            let db = Arc::new(Mutex::new(conn));
+            let shared = gateway::Shared::for_store(db.clone(), Arc::new(gateway::OsSecrets), &path);
             let state = AppState { shared, server: tokio::sync::Mutex::new(None), last_error: Mutex::new(None),
-                data_dir: dir.clone(), runs: Mutex::new(Default::default()) };
+                data_dir: dir.clone(), runs: Mutex::new(Default::default()),
+                tasks: tasks::Runner::new(db, worktrees, tasks::agent_executor()) };
             if state.autostart() {
                 // A busy port is reported in Endpoints rather than stopping the app from opening.
                 let _ = tauri::async_runtime::block_on(state.start());
@@ -98,6 +106,19 @@ pub fn run() {
             commands::agent_run,
             commands::agent_diff,
             commands::agent_finish,
+            commands::workspaces_list,
+            commands::workspace_add,
+            commands::workspace_remove,
+            commands::workspace_detect_checks,
+            commands::workspace_check,
+            commands::tasks_list,
+            commands::task_get,
+            commands::task_create,
+            commands::task_cancel,
+            commands::task_decide,
+            commands::task_retry,
+            commands::task_diff,
+            commands::task_finish,
             commands::model_add,
             commands::model_update,
             commands::model_remove,

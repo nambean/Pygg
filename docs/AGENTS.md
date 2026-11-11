@@ -34,9 +34,28 @@ A scratch repository with `add()` returning `a - b`; the task was to make it `a 
 
 Every run, including the failed ones, has a ledger entry under `agent:<id>`.
 
+## Smart tasks: task engine v1 (`tasks.rs`, schema v8)
+
+A task is a ladder of agent steps fixed when it is created (`tasks.policy_snapshot_json`), run against the workspace's **approved** checks:
+
+1. Each attempt runs one step (agent, model, the user's tier and billing classing) in a fresh worktree of the task's **base commit**, recorded at creation, so every attempt starts from the same code.
+2. The approved checks run in order in that worktree and stop at the first failure. Passing means exit code 0.
+3. If an attempt fails its checks, its worktree is discarded and the next step starts. The new step's prompt gets the failed command and the last 1,500 characters of its (redacted) output. If the agent itself failed (exit, timeout, could not start), the next step gets the task alone. An attempt that changed nothing counts as a failure.
+4. When the checks pass, the task is `checks_passed` and the worktree waits for **Keep as Branch** or **Discard**. With no approved checks, the task is `needs_review`: nothing confirmed it. If the attempt changed the file that defines a check (`package.json`, `Cargo.toml`), the task is also `needs_review`, because the checks could pass without the task being done. Keeping a reviewed result makes it `manually_accepted`.
+5. A step marked **paid** waits for approval before it runs (an `approvals` row; agents report no cost before they run, so the approval has no cap). Declining blocks the task.
+6. **Stop** ends the running agent or check, including its whole process tree. At start-up, a task left `running` becomes `interrupted` (Retry runs that step again), and leftover worktrees in the app's folder are removed.
+
+Workspaces must be Git repositories. Detected checks (`package.json` scripts, preceded by the package manager's install, and `cargo check` / `cargo test`) are suggestions until the user approves them, and checks run the code the agent wrote, on this computer. Each attempt's ledger entry carries `usage_events.attempt_id`, so a task's cost is the sum of its own entries (unknown for agents).
+
+Headless: `cargo run --bin agent -- --db STORE task --workspace DIR --prompt TEXT --steps "opencode:opencode/some-free-model,codex" --check "CMD" [--keep TITLE | --discard yes]`.
+
+### Live verification, 2026-11-11
+
+A scratch repository with `add()` returning `a - b`, the check `python test_calc.py`, and two steps: OpenCode with `opencode/deepseek-v4.1-flash-free`, then Codex. Step 1 fixed it (+1 −1, 9,781 input / 356 output tokens), the check passed in its worktree in 157 ms, and the task ended `checks_passed` without reaching Codex. The cascade itself (a failed check handing off to the next step, approvals, stop, interruption and retry) is covered by `tasks.rs` tests with a scripted agent in real worktrees, not live.
+
 ## Not built yet
 
-- Cancelling a run from the app (the time limit applies).
-- Deterministic checks after a run (checks.rs exists; wiring it here is next), and a cascade across agents or models.
+- Starting a task from where the user already works (an IDE agent, a terminal), rather than from the app. The headless `agent task` is the first step.
+- Cancelling a single run on the Agents screen (tasks can be stopped).
 - A folder picker for the repository (the path is typed or pasted).
-- Persisting runs across an app restart: an open run's worktree survives, but the app forgets it. `git worktree prune` cleans up.
+- A daily budget for tasks, and a cost estimate on the approval for a paid step.
