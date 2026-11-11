@@ -181,6 +181,10 @@ The Overview's OpenCode snippet, as generated, in a scratch `opencode.json` for 
 
 An OpenAI-format client to `anthropic/claude-haiku-5-5` through a scratch gateway (ROADMAP N8): a plain request ("Paris", `finish_reason: stop`, usage in OpenAI's shape); a forced tool call (`get_weather {"city":"Hanoi"}`, `finish_reason: tool_calls`) followed by its tool result and a final answer; and a stream with `include_usage` (text deltas, a usage chunk, `[DONE]`). Every response said `x-smarttaskrouter-mode: translated:openai->anthropic`; four ledger entries, $0.00014 in all. The key was removed afterwards.
 
+## Benchmark N2 through the gateway and the task engine, 2026-11-11 to 2026-11-12
+
+12 harder cases, three runs each, six arms, OpenCode driven by the task engine (`bench --engine`), every attempt costed from the gateway's ledger by its `PYGG_ATTEMPT_ID` ([report](../benchmark/reports/2026-11-12-n2-savings.md)). Live through the gateway: Anthropic (Sonnet 5.5, Haiku 5.5; 438 requests, none failed), Qwen's token plan through `auto` and as a cascade step (489 requests, all quota), and **Ollama** in Docker on the GPU (`qwen3:8b`, 173 requests, 2 failed). $4.89 at list prices, within the client's strict $17.50 limit, which held each request at its most before sending. One finding changed the product: a step whose service stops answering is now skipped (AGENTS.md).
+
 ## Not verified yet
 
 - **Anthropic-compatible endpoints other than Anthropic's own.**
@@ -189,7 +193,7 @@ An OpenAI-format client to `anthropic/claude-haiku-5-5` through a scratch gatewa
 
 - **Claude Code in an interactive terminal.** A headless session was run (above); an interactive one may send background requests that `-p` does not, and was not run.
 - **The counter-review changes against a real provider.** The quota-group hold, HTTP-date resets, the attempt journal and the at-risk accounting were tested against the fake provider only.
-- **Providers other than Gemini, Anthropic and Qwen answering successfully.** OpenRouter, OpenAI, Groq, DeepSeek and Mistral gave their real 401 answers (above); a successful request, and Ollama, only against the fake provider.
+- **Providers other than Gemini, Anthropic, Qwen and Ollama answering successfully.** OpenRouter, OpenAI, Groq, DeepSeek and Mistral gave their real 401 answers (above); a successful request only against the fake provider. Ollama answered live in the N2 benchmark.
 - **Clicking through the native window.** It was checked through screenshots and DevTools-driven commands. The D12 checks for traffic-light controls (snap layouts, scaling, screen readers) remain open.
 
 ## Designed, not built

@@ -10,7 +10,7 @@ Read them in this order when they disagree:
 
 1. **What is built, and how was it verified?** [Implementation Status](IMPLEMENTATION-STATUS.md).
 2. **What comes next, and what is the gate?** [ROADMAP](ROADMAP.md). It is the only authority on order.
-3. **Why was it decided?** [DECISIONS](DECISIONS.md) (ADR-001 to ADR-028).
+3. **Why was it decided?** [DECISIONS](DECISIONS.md) (ADR-001 to ADR-029).
 4. **How does one part work?** The current and reference documents below.
 5. **What did reviewers object to, and what was answered?** [reviews](reviews).
 
@@ -37,6 +37,7 @@ Read them in this order when they disagree:
 | [design/README.md](design/README.md) | Historical | The original SVG sketches |
 | [UNIVERSAL_SHARED_MEMORY.md](UNIVERSAL_SHARED_MEMORY.md) | Withdrawn | App-owned conversation memory; not pursued (ADR-028) |
 | [reviews/](reviews) | Record | Architecture reviews and the answers to them, as written at the time |
+| [reports/](reports) | Record | Progress reports to the owner, in Vietnamese, as written at the time |
 
 ## Status words
 
@@ -56,7 +57,7 @@ Each document has one status line under its title.
 - **Claims carry their evidence.** "Built" names its code; "verified" says how (unit test, fake provider, live run) and, for a live run, the model, the date and what it cost. Untested is said plainly.
 - **Costs are honest.** Unknown is never $0; an estimate says what it was estimated from; a subscription's use is quota, not money.
 - **Owner decisions** (licence, budget, scope) are recorded as ADRs and cited by number.
-- **Language:** documents are in English; reviews may be in Vietnamese, as written.
+- **Language:** documents are in English; reviews may be in Vietnamese, as written, and progress reports to the owner are.
 - **File names** stay as they are, so links keep working.
 
 ## Brand
