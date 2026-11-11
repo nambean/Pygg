@@ -138,6 +138,7 @@ pub fn run() {
             commands::task_finish,
             commands::mcp_setup,
             commands::task_budget,
+            commands::tasks_quality,
             commands::workspace_set_privacy,
             commands::pick_folder,
             commands::task_export_patch,

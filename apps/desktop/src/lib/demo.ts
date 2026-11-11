@@ -515,6 +515,9 @@ export function demoApi(): GatewayApi {
         recent: [...list].sort((a, b) => b.createdAt - a.createdAt).slice(0, 200)};
       return touch(summary);
     },
+    // Sample figures for the preview, under its demo banner (ADR-014).
+    taskQuality: () => touch({tasks: 6, kept: 4, discarded: 1, retried: 1, cancelled: 1, checkedAttempts: 8, passedAttempts: 5,
+      knownMicroUsd: 48_000, unknownEntries: 3, microUsdPerKept: 12_000}),
   };
 }
 

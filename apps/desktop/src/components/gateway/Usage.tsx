@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ChartColumn } from 'lucide-react';
-import type { CostStatus, Outcome, UsageEvent, UsageGroup } from '../../lib/api';
+import type { CostStatus, Outcome, TaskQuality, UsageEvent, UsageGroup } from '../../lib/api';
 import { locale, plural, t } from '../../lib/i18n';
 import { costText, microUsd, sourceText, tokens } from '../../lib/money';
 import { useGateway } from '../../hooks/useGateway';
@@ -26,6 +26,7 @@ const statusLabel = (s: CostStatus) => ({actual: t('Actual'), estimated: t('Esti
 export function Usage() {
   const [range, setRange] = useState<Range>('7');
   const usage = useGateway(api => api.usage(Number(range)), [range], 15_000);
+  const quality = useGateway(api => api.taskQuality(Number(range)), [range], 15_000);
   const [show, setShow] = useState<'all' | 'problems' | 'unknown'>('all');
   const [openId, setOpenId] = useState<string | null>(null);
   const rows = useMemo(() => (usage.data?.recent ?? []).filter(e =>
@@ -40,6 +41,7 @@ export function Usage() {
   return <div className="page">
     {bar}
     {usage.error && <ErrorNote>{usage.error}</ErrorNote>}
+    {quality.data && quality.data.tasks > 0 && <TaskResults q={quality.data}/>}
     {data && data.total.requests === 0 && <Empty icon={<ChartColumn size={40} strokeWidth={1.4}/>} title={t('No Usage Recorded Yet')}>
       {t('Point a client at the gateway and its requests appear here, each with its cost and where that figure comes from.')}
     </Empty>}
@@ -92,6 +94,28 @@ export function Usage() {
       </section>
     </>}
   </div>;
+}
+
+/** How tasks turned out (ROADMAP C4): what the user kept, and the known money behind each kept result. */
+function TaskResults({q}: {q: TaskQuality}) {
+  return <section className="group">
+    <h2>{t('Task Results')}</h2>
+    <div className="group-box totals">
+      <div className="totals-main">
+        <span className="totals-figure">{q.microUsdPerKept == null ? '—' : microUsd(q.microUsdPerKept)}</span>
+        <span className="secondary">{t('known money per kept result')}</span>
+      </div>
+      <div className="totals-parts">
+        <span>{t('{kept} of {tasks} kept', {kept: String(q.kept), tasks: String(q.tasks)})}</span>
+        <span>{t('{passed} of {checked} attempts passed their checks', {passed: String(q.passedAttempts), checked: String(q.checkedAttempts)})}</span>
+        {(q.discarded > 0 || q.retried > 0 || q.cancelled > 0) &&
+          <span>{t('{d} discarded · {r} retried · {c} stopped', {d: String(q.discarded), r: String(q.retried), c: String(q.cancelled)})}</span>}
+        {q.unknownEntries > 0 && <span className="warn-text">
+          {plural(q.unknownEntries, '{n} agent run with unknown cost', '{n} agent runs with unknown cost')}</span>}
+      </div>
+      <p className="group-footnote">{t('Every paid step counts, kept or not, so a cheap step that failed is in the cost of the result that followed. Agents signed in with a subscription report no money, so their runs are not in the figure.')}</p>
+    </div>
+  </section>;
 }
 
 function GroupTable({title, column, groups, mono}: {title: string; column: string; groups: UsageGroup[]; mono?: boolean}) {

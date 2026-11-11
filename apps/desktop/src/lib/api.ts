@@ -126,6 +126,13 @@ export type UsageSummary = {
   since: number; total: UsageGroup; byModel: UsageGroup[]; byClient: UsageGroup[]; recent: UsageEvent[];
 };
 
+/** How tasks turned out (ROADMAP C4): every paid step counts toward the money per kept result. */
+export type TaskQuality = {
+  tasks: number; kept: number; discarded: number; retried: number; cancelled: number;
+  checkedAttempts: number; passedAttempts: number; knownMicroUsd: number; unknownEntries: number;
+  microUsdPerKept: number | null;
+};
+
 /** An official agent CLI (Claude Code, Codex CLI, Gemini CLI, OpenCode) and how it signs in. */
 export type AgentInfo = {
   id: string; name: string; installed: boolean; program: string | null; version: string | null;
@@ -193,6 +200,8 @@ export interface GatewayApi {
   /** What an auto alias would choose, from a client's point of view (null: a new client's defaults). Sends nothing. */
   autoSimulate(clientId: string | null, alias: AutoAlias, needs: AutoNeeds): Promise<AutoPlan>;
   usage(days: number): Promise<UsageSummary>;
+  /** How tasks turned out over the last `days`. */
+  taskQuality(days: number): Promise<TaskQuality>;
   agents(): Promise<AgentInfo[]>;
   /** Runs a task through an agent with its own sign-in, in a worktree of the workspace. */
   runAgent(task: AgentTask): Promise<AgentRun>;
@@ -259,6 +268,7 @@ const native: GatewayApi = {
   setModelCapabilities: (providerId, modelId, capabilities) => invoke('model_set_capabilities', {providerId, modelId, capabilities}),
   autoSimulate: (clientId, alias, needs) => invoke('auto_simulate', {clientId, alias, needs}),
   usage: days => invoke('usage_summary', {days}),
+  taskQuality: days => invoke('tasks_quality', {days}),
   agents: () => invoke('agents_detect'),
   runAgent: task => invoke('agent_run', {request: task}),
   agentDiff: runId => invoke('agent_diff', {id: runId}),

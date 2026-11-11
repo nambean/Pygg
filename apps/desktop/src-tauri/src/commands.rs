@@ -626,6 +626,13 @@ pub fn task_budget(state: State<'_, AppState>) -> Res<tasks::DayBudget> {
     state.shared.with_db(tasks::day_budget)
 }
 
+/// How tasks turned out over the last `days` (ROADMAP C4): results kept, checks passed, money per kept result.
+#[tauri::command]
+pub fn tasks_quality(state: State<'_, AppState>, days: u32) -> Res<tasks::Quality> {
+    let since = crate::db::now_ms() - days.clamp(1, 366) as i64 * 86_400_000;
+    state.shared.with_db(|db| tasks::quality(db, since))
+}
+
 /// Sets the daily budget for paid steps (`None`: no limit).
 #[tauri::command]
 pub fn task_set_budget(state: State<'_, AppState>, daily_usd: Option<f64>) -> Res<tasks::DayBudget> {

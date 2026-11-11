@@ -304,6 +304,15 @@ export const gateway: Record<string, string> = {
   'Point a client at the gateway and its requests appear here, each with its cost and where that figure comes from.':
     'Trỏ một client vào gateway và các yêu cầu của nó sẽ hiện ở đây, mỗi yêu cầu kèm chi phí và nguồn của con số đó.',
   'API Costs': 'Chi phí API',
+  'Task Results': 'Kết quả task',
+  'known money per kept result': 'tiền đã biết cho mỗi kết quả được giữ',
+  '{kept} of {tasks} kept': 'Giữ {kept} trên {tasks}',
+  '{passed} of {checked} attempts passed their checks': '{passed} trên {checked} lần chạy đạt check',
+  '{d} discarded · {r} retried · {c} stopped': '{d} bị bỏ · {r} chạy lại · {c} bị dừng',
+  '{n} agent run with unknown cost': '{n} lần chạy agent chưa rõ chi phí',
+  '{n} agent runs with unknown cost': '{n} lần chạy agent chưa rõ chi phí',
+  'Every paid step counts, kept or not, so a cheap step that failed is in the cost of the result that followed. Agents signed in with a subscription report no money, so their runs are not in the figure.':
+    'Mọi bước trả phí đều được tính, dù kết quả có được giữ hay không, nên một bước rẻ đã thất bại cũng nằm trong chi phí của kết quả sau nó. Agent đăng nhập bằng gói thuê bao không báo tiền, nên các lần chạy đó không có trong con số này.',
   'known': 'đã biết',
   '{amount} actual': '{amount} thực tế',
   '≈{amount} estimated': '≈{amount} ước tính',
