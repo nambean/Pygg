@@ -53,12 +53,15 @@ async fn main() {
     let one = |name: &str| flags.get(name).and_then(|v| v.first()).cloned();
 
     let conn = db::open(&db_path).unwrap_or_else(|e| fail(format!("{}: {e}", db_path.display())));
-    let shared = Shared::new(Arc::new(Mutex::new(conn)), Arc::new(OsSecrets));
+    let shared = Shared::for_store(Arc::new(Mutex::new(conn)), Arc::new(OsSecrets), &db_path);
 
     match command.as_str() {
         "serve" => {
             let port = one("port").map(|p| p.parse().unwrap_or_else(|_| fail("bad port"))).unwrap_or(gateway::DEFAULT_PORT);
-            let server = gateway::start(shared, port).await.unwrap_or_else(|e| fail(format!("127.0.0.1:{port}: {e}")));
+            let server = gateway::start(shared, port).await.unwrap_or_else(|e| match e.kind() {
+                std::io::ErrorKind::ResourceBusy => fail(e.to_string()),
+                _ => fail(format!("127.0.0.1:{port}: {e}")),
+            });
             println!("Gateway listening on http://{} (store: {})", server.addr, db_path.display());
             let _ = tokio::signal::ctrl_c().await;
             server.stop().await;

@@ -79,7 +79,7 @@ For OpenAI → OpenAI-compatible, the request is kept the same way and `stream_o
 | 408, 504, 524 | **Stop** | None | Unknown, held amount at risk |
 | 409, 400, 413, 422 and other 4xx | **Stop** | None | $0, rejected |
 | 425 | Next target | None | $0, rejected |
-| Other 5xx | **Stop**, unless the client allows paid retries or the connection is free or local ([follow-up FR-02](2026-11-11-remaining-gateway-risks-response.md)) | Model, `Retry-After` or 15 s | Unknown, held amount at risk |
+| Other 5xx | **Stop** on every billing type, unless the client allows retries after a server error ([FR-02](2026-11-11-remaining-gateway-risks-response.md), [PR-02](2026-11-11-post-d518438-response.md)) | Model, `Retry-After` or 15 s | Unknown, held amount at risk |
 
 "Other quota groups only" also holds for later requests: while a refusal is active on a connection, other connections of its quota group are not used for the covered model (for any model, when the refusal covers the whole connection).
 

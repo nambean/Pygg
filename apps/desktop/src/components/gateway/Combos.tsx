@@ -53,7 +53,7 @@ export function Combos({intent, onIntentDone}: {intent?: 'create'; onIntentDone:
             </ol>
           </li>)}
         </ul>
-        <p className="group-footnote">{t('The next model is tried on a rejected key, an exhausted quota or rate limit, or an unavailable model, and only before any of the answer has reached the client. After a timeout or a server error the provider may already have billed the request, so the gateway stops there unless the client allows retries (Clients → Limits). A malformed request is returned as it is.')}</p>
+        <p className="group-footnote">{t('The next model is tried on a rejected key, an exhausted quota or rate limit, or an unavailable model, and only before any of the answer has reached the client. After a timeout or a server error the provider may already have run (and billed) the request, so the gateway stops there unless the client allows retries (Clients → Limits). A malformed request is returned as it is.')}</p>
       </section>}
 
     {editing && <ComboSheet combo={editing === 'new' ? null : editing} connections={connections.data ?? []} models={models.data ?? []}

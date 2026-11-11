@@ -882,11 +882,23 @@ fn a_server_error_stops_by_default_and_retries_only_when_the_client_allows_it() 
         let outcomes: Vec<String> = rig.ledger().into_iter().rev().take(2).map(|e| e.outcome).collect();
         assert_eq!(outcomes, ["ok", "fallback"]);
 
-        // A failure on a free connection may move on without the opt-in: nothing was billed.
+        // A free or local label does not make a replay safe: without the opt-in, a free connection's 5xx stops
+        // too (review PR-02).
         rig.allow_paid_retries(0);
         rig.combo("free-first", &[("router", "broke"), ("backup", "steady")]);
         let free = rig.post("/v1/chat/completions", chat("free-first")).await;
-        assert_eq!(free.headers()["x-smarttaskrouter-route"], "backup/steady");
+        assert_eq!(free.status(), 500);
+        assert_eq!(rig.fake.count("steady"), 1, "only the opted-in retry above reached Backup");
+
+        // Retries are bounded by the setting, not only by the combo: one retry over three failing models.
+        rig.shared.with_db(|db| store::clear_health(db, "main")).unwrap();
+        rig.shared.with_db(|db| store::clear_health(db, "router")).unwrap();
+        rig.combo("three", &[("main", "broke"), ("router", "broke"), ("backup", "steady")]);
+        rig.allow_paid_retries(1);
+        let before = rig.fake.count("broke");
+        let bounded = rig.post("/v1/chat/completions", chat("three")).await;
+        assert_eq!(bounded.status(), 500);
+        assert_eq!((rig.fake.count("broke") - before, rig.fake.count("steady")), (2, 1), "two calls, then stop");
     });
 }
 
@@ -923,5 +935,48 @@ fn a_settlement_that_cannot_be_written_holds_paid_requests_until_it_is() {
         assert_eq!(rig.journal_len(), 0);
         let health: Value = rig.http.get(format!("{}/health", rig.base)).send().await.unwrap().json().await.unwrap();
         assert_eq!(health["accounting"], "ok");
+    });
+}
+
+// ---------- Review PR-01: one gateway per store ----------
+
+#[test]
+fn a_second_gateway_on_the_same_store_is_refused_until_the_first_stops() {
+    rt().block_on(async {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.sqlite3");
+        let open = || {
+            let conn = crate::db::open(&path).unwrap();
+            Shared::for_store(Arc::new(Mutex::new(conn)), Arc::new(MapSecrets(HashMap::new())), &path)
+        };
+        let first = start(open(), 0).await.expect("the first gateway owns the store");
+        let second = start(open(), 0).await;
+        let error = second.err().expect("a second gateway is refused");
+        assert_eq!(error.kind(), std::io::ErrorKind::ResourceBusy);
+        assert!(error.to_string().contains("Another gateway is already serving this store"));
+        // Stopping releases the store for the other one.
+        first.stop().await;
+        let third = start(open(), 0).await.expect("free again once the first stopped");
+        third.stop().await;
+    });
+}
+
+#[test]
+fn owning_the_store_turns_every_older_unsettled_attempt_at_once() {
+    rt().block_on(async {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.sqlite3");
+        let conn = crate::db::open(&path).unwrap();
+        let (client, _) = store::create_client(&conn, "Tests", None).unwrap();
+        // An entry left by a gateway that died ten minutes ago: not an hour old, but no one else can own it.
+        let start_row = store::AttemptStart { client_id: &client.id, provider_id: "main", model_id: "fast",
+            requested_model: "main/fast", session_key: None, route_mode: "native", hold_micro: 0 };
+        store::open_attempt(&conn, &start_row).unwrap().unwrap();
+        conn.execute("UPDATE budget_reservations SET created_at = created_at - 600000", []).unwrap();
+        let shared = Shared::for_store(Arc::new(Mutex::new(conn)), Arc::new(MapSecrets(HashMap::new())), &path);
+        let server = start(shared.clone(), 0).await.unwrap();
+        let events = shared.with_db(|db| store::usage_summary(db, 0, 10)).unwrap().recent;
+        assert_eq!((events.len(), events[0].outcome.as_str()), (1, "interrupted"));
+        server.stop().await;
     });
 }

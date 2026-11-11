@@ -57,8 +57,9 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
-            let conn = db::open(&dir.join("store.sqlite3"))?;
-            let shared = gateway::Shared::new(Arc::new(Mutex::new(conn)), Arc::new(gateway::OsSecrets));
+            let path = dir.join("store.sqlite3");
+            let conn = db::open(&path)?;
+            let shared = gateway::Shared::for_store(Arc::new(Mutex::new(conn)), Arc::new(gateway::OsSecrets), &path);
             let state = AppState { shared, server: tokio::sync::Mutex::new(None), last_error: Mutex::new(None) };
             if state.autostart() {
                 // A busy port is reported in Endpoints rather than stopping the app from opening.

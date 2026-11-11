@@ -48,6 +48,9 @@ impl AppState {
             Err(e) => {
                 let message = if e.kind() == std::io::ErrorKind::AddrInUse {
                     format!("Port {port} is already in use by another program")
+                } else if e.kind() == std::io::ErrorKind::ResourceBusy {
+                    // Another gateway (`gateway serve`) owns the store; this one waits until it stops.
+                    e.to_string()
                 } else {
                     format!("Could not listen on 127.0.0.1:{port}: {e}")
                 };

@@ -221,8 +221,8 @@ export const gateway: Record<string, string> = {
   'Order': 'Thứ tự',
   'Skipped: its connection is disabled or removed': 'Bỏ qua: kết nối của nó đã tắt hoặc bị gỡ',
   'Empty: its models’ connections were removed.': 'Trống: kết nối của các model trong đó đã bị gỡ.',
-  'The next model is tried on a rejected key, an exhausted quota or rate limit, or an unavailable model, and only before any of the answer has reached the client. After a timeout or a server error the provider may already have billed the request, so the gateway stops there unless the client allows retries (Clients → Limits). A malformed request is returned as it is.':
-    'Model kế tiếp được thử khi key bị từ chối, hết quota hoặc bị giới hạn tốc độ, hoặc model không khả dụng, và chỉ khi chưa có phần nào của câu trả lời tới client. Sau khi quá thời gian hoặc lỗi máy chủ, nhà cung cấp có thể đã tính phí request, nên gateway dừng ở đó trừ khi client cho phép thử lại (Clients → Giới hạn). Yêu cầu sai định dạng được trả về nguyên trạng.',
+  'The next model is tried on a rejected key, an exhausted quota or rate limit, or an unavailable model, and only before any of the answer has reached the client. After a timeout or a server error the provider may already have run (and billed) the request, so the gateway stops there unless the client allows retries (Clients → Limits). A malformed request is returned as it is.':
+    'Model kế tiếp được thử khi key bị từ chối, hết quota hoặc bị giới hạn tốc độ, hoặc model không khả dụng, và chỉ khi chưa có phần nào của câu trả lời tới client. Sau khi quá thời gian hoặc lỗi máy chủ, nhà cung cấp có thể đã chạy (và tính phí) request, nên gateway dừng ở đó trừ khi client cho phép thử lại (Clients → Giới hạn). Yêu cầu sai định dạng được trả về nguyên trạng.',
   'Clients that ask for “{name}” will get “model not found” until a combo with that name exists again.':
     'Client gọi “{name}” sẽ nhận lỗi “không tìm thấy model” cho tới khi lại có combo mang tên đó.',
   'Edit {name}': 'Sửa {name}',

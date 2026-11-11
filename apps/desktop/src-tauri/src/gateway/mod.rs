@@ -80,6 +80,35 @@ pub struct Shared {
     inflight: Arc<Mutex<HashMap<String, u32>>>,
     /// Ledger health (counter-review CR-06, review FR-03).
     accounting: Arc<Mutex<Accounting>>,
+    /// The store file, when there is one. A gateway serving it must own it alone (review PR-01).
+    store_path: Option<std::path::PathBuf>,
+}
+
+/// When this process started using the gateway: journal entries older than this belong to another process.
+fn process_start_ms() -> i64 {
+    static START: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+    *START.get_or_init(crate::db::now_ms)
+}
+
+/// The lock file next to a store, held exclusively by the one gateway that serves it.
+pub fn owner_lock_path(store: &std::path::Path) -> std::path::PathBuf {
+    let mut name = store.as_os_str().to_owned();
+    name.push(".gateway-lock");
+    std::path::PathBuf::from(name)
+}
+
+/// Takes the store's owner lock, or says who has it. The operating system releases it when the process
+/// ends, however it ends, so a crash leaves no stale lock.
+fn claim_store(store: &std::path::Path) -> std::io::Result<std::fs::File> {
+    let path = owner_lock_path(store);
+    let file = std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&path)?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(std::fs::TryLockError::WouldBlock) => Err(std::io::Error::new(std::io::ErrorKind::ResourceBusy,
+            "Another gateway is already serving this store: the SmartTaskRouter app or `gateway serve`. \
+             Stop that one first; only one gateway may write the usage ledger at a time.")),
+        Err(std::fs::TryLockError::Error(e)) => Err(e),
+    }
 }
 
 /// What the ledger is waiting for. While any settlement is pending, no paid request is admitted.
@@ -107,7 +136,14 @@ impl Shared {
             .user_agent(concat!("SmartTaskRouter/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("HTTP client");
-        Shared { db, secrets, http, signatures: Arc::default(), inflight: Arc::default(), accounting: Arc::default() }
+        process_start_ms();
+        Shared { db, secrets, http, signatures: Arc::default(), inflight: Arc::default(), accounting: Arc::default(),
+            store_path: None }
+    }
+
+    /// For a store on disk: `start` then takes the store's owner lock, so two processes never serve one store.
+    pub fn for_store(db: Arc<Mutex<Connection>>, secrets: Arc<dyn Secrets>, path: &std::path::Path) -> Shared {
+        Shared { store_path: Some(path.to_path_buf()), ..Shared::new(db, secrets) }
     }
 
     fn accounting(&self) -> std::sync::MutexGuard<'_, Accounting> {
@@ -230,10 +266,13 @@ pub struct Server {
     pub addr: SocketAddr,
     shutdown: Option<oneshot::Sender<()>>,
     task: tokio::task::JoinHandle<()>,
+    /// The store's owner lock, released when the server stops (review PR-01).
+    _owner: Option<std::fs::File>,
 }
 
 impl Server {
-    /// Stops accepting requests, gives open responses a few seconds to finish, then ends them.
+    /// Stops accepting requests, gives open responses a few seconds to finish, then ends them, and releases
+    /// the store for another gateway.
     pub async fn stop(mut self) {
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
@@ -244,11 +283,19 @@ impl Server {
     }
 }
 
+/// Starts serving. For a store on disk, takes its owner lock first: one gateway per store, so the usage
+/// ledger, its pending settlements and the paid-admission hold are never split across processes (review
+/// PR-01). A second gateway on the same store fails with `ErrorKind::ResourceBusy` and sends nothing.
 pub async fn start(shared: Shared, port: u16) -> std::io::Result<Server> {
-    // Attempts a crash or a killed process left unsettled become ledger entries with an unknown cost. Only
-    // those older than an hour: the CLI and the app may share the store, and the other one may still be
-    // waiting on its attempts.
-    let _ = shared.with_db(|db| store::settle_interrupted(db, None, 60 * 60 * 1000));
+    let owner = match &shared.store_path {
+        Some(path) => Some(claim_store(path)?),
+        None => None,
+    };
+    // Attempts left unsettled by a crash or a killed process become ledger entries with an unknown cost.
+    // Owning the store means no other process can still be waiting on them, so every entry from before this
+    // process started is turned now. Without a store file (tests), only entries older than an hour.
+    let age = if owner.is_some() { (db_now() - process_start_ms()).max(0) } else { 60 * 60 * 1000 };
+    let _ = shared.with_db(|db| store::settle_interrupted(db, None, age));
     let _ = shared.with_db(|db| store::purge_sessions(db, None));
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
     let addr = listener.local_addr()?;
@@ -257,7 +304,7 @@ pub async fn start(shared: Shared, port: u16) -> std::io::Result<Server> {
     let task = tokio::spawn(async move {
         let _ = axum::serve(listener, app).with_graceful_shutdown(async { let _ = rx.await; }).await;
     });
-    Ok(Server { addr, shutdown: Some(tx), task })
+    Ok(Server { addr, shutdown: Some(tx), task, _owner: owner })
 }
 
 pub fn router(shared: Shared, port: u16) -> Router {
@@ -539,7 +586,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
     let mut blocked_groups: HashMap<String, String> = HashMap::new();
     let mut retry_at: Option<i64> = None;
     let has_limit = client.monthly_budget_micro_usd.is_some();
-    // Further targets this client allows after a failure the provider may have billed (review FR-02).
+    // Further targets this client allows after a failure the provider may have processed (reviews FR-02, PR-02).
     let mut paid_retries_left = client.paid_retries;
     let mut accounting_held = false;
 
@@ -733,13 +780,15 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 let decision = apply(&Failure::Http(error), &message, &provider);
                 let mut next = decision.next;
                 let mut message = message;
-                // A failure the provider may have billed (a 5xx) moves on to another target only if this client
-                // opted into paid retries; by default a possible double charge stops here (review FR-02).
-                if decision.maybe_billed && next != Next::Stop && !is_free(&billing) && index + 1 < count {
+                // A failure after which the provider may have processed the request (a 5xx) moves on to another
+                // target only if this client opted into retries after a server error. By default it stops, on
+                // every billing type: a free or local label says nothing was charged, not that running the
+                // request twice is safe (reviews FR-02, PR-02).
+                if decision.maybe_billed && next != Next::Stop && index + 1 < count {
                     if paid_retries_left == 0 {
                         next = Next::Stop;
-                        message = format!("{message}. The provider may have billed this request, so no other model was \
-                            tried; this client allows no retry after a server error.");
+                        message = format!("{message}. The provider may have processed this request, so no other model \
+                            was tried; this client allows no retry after a server error.");
                     } else {
                         paid_retries_left -= 1;
                     }
