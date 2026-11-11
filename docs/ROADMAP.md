@@ -6,9 +6,9 @@
 
 ## Current built foundation (as reported by Implementation Status, not independently rerun here)
 
-A local Rust gateway at `127.0.0.1:8741`, OpenAI Chat Completions and Anthropic Messages *translation* surfaces, a few provider presets, static combos with fallback, client tokens, a cost-provenance ledger, a headless `gateway serve` binary and desktop Overview/Connections/Combos/Clients/Usage screens exist. Reported live verification uses Gemini; no claim of full Claude Code/OpenRouter Anthropic cache parity. Native Anthropic passthrough and Auto route do **not** yet exist. [Implementation Status](IMPLEMENTATION-STATUS.md) is authoritative.
+A local Rust gateway at `127.0.0.1:8741`, OpenAI Chat Completions and Anthropic Messages *translation* surfaces, a few provider presets, static combos with fallback, client tokens, a cost-provenance ledger, a headless `gateway serve` binary and desktop Overview/Connections/Combos/Clients/Usage screens exist. Reported live verification uses Gemini; no claim of full Claude Code/OpenRouter Anthropic cache parity. Native Anthropic passthrough is built and tested against a fake endpoint only; Auto route does **not** yet exist. [Implementation Status](IMPLEMENTATION-STATUS.md) is authoritative, including the verification level of each P0 item.
 
-> **Independent counter-review (2026-11-11):** [Architect counter-review](reviews/2026-11-11-architect-counter-review.md) challenges error/quota scope, budget guarantee, accounting durability, Retry-After HTTP-date, HTTP 408/409/425 retry, session isolation and native Anthropic parity. These are **review findings, not accepted fixes**. Claude should respond item by item before any release-ready claim. Current P0-1…P0-4 status remains "built" according to Implementation Status, not "proven cost parity".
+> **Independent counter-review (2026-11-11):** [Architect counter-review](reviews/2026-11-11-architect-counter-review.md) challenges error/quota scope, budget guarantee, accounting durability, Retry-After HTTP-date, HTTP 408/409/425 retry, session isolation and native Anthropic parity. **Answered item by item** in the [counter-review response](reviews/2026-11-11-counter-review-response.md): six accepted, three in part, with the code and tests that implement them. Current P0-1…P0-4 status remains "built and fake-tested" according to Implementation Status, not "proven cost parity".
 
 ## P0: cost-safe gateway parity — five items, in dependency order
 
@@ -24,10 +24,10 @@ A local Rust gateway at `127.0.0.1:8741`, OpenAI Chat Completions and Anthropic 
 
 | Item | State | What is still open |
 | --- | --- | --- |
-| P0-1 | **Built.** Native Anthropic passthrough, cache-preserving translation for OpenRouter, dropped hints reported | Parity measured against a real Anthropic endpoint (no key here); OpenRouter cache behaviour measured |
-| P0-2 | **Built.** Error-scoped fallback, cooldowns with `Retry-After`, quota groups (default: provider kind), no replay after an ambiguous timeout | Fixtures per real provider; GW-7 (fallback before the first token rather than before headers) held, as the response advised |
-| P0-3 | **Built.** Atomic reservations, per-client in-flight cap, unknown-price policy, detached handlers | Reservation estimate is pessimistic and may refuse a request near the limit; tuning after real use |
-| P0-4 | **Built.** Explicit `x-smarttaskrouter-session` only; snippets set it | Whether Claude Code sends its own session id over HTTP (not assumed) |
+| P0-1 | **Built, fake-tested.** Native-format semantic passthrough (key order kept, provider limit headers passed back), cache-preserving translation for OpenRouter, every dropped field reported | Parity measured against a real Anthropic endpoint (no key here); OpenRouter cache behaviour measured |
+| P0-2 | **Built, fake-tested.** Error-scoped fallback, quota-group hold across requests, provider error codes, cooldowns from `Retry-After` (seconds or HTTP date) or Gemini `RetryInfo`, no replay after an ambiguous timeout or 408/504/524 | Fixtures per real provider; GW-7 (fallback before the first token rather than before headers) held, as the response advised |
+| P0-3 | **Built, fake-tested.** Attempt journal before sending, atomic settlement, estimated admission holds, spend at risk counted, per-client in-flight cap, unknown-price policy, detached handlers | The limit is an estimate, not a hard cap (stated in the UI); strict mode after the P0-5 catalog |
+| P0-4 | **Built, fake-tested.** Explicit `x-smarttaskrouter-session` only, scoped per client, expired pins deleted; snippets set it | Whether Claude Code puts the header on every request of a long session (needs a run) |
 | P0-5 | Not started | Next |
 
 Details and verification: [Implementation Status](IMPLEMENTATION-STATUS.md). Decisions taken while building: [architect decisions](reviews/2026-11-11-architect-decisions.md).

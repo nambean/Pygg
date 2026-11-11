@@ -24,6 +24,8 @@ Inputs: [the architecture review](2026-11-11-architecture-review.md), the owner'
 7. **`x-smarttaskrouter-attempts` counts upstream calls,** not route positions: skipped targets cost nothing and are not counted.
 8. **The binary stays `gateway serve`.** `str start` remains the planned packaging name, as the response decided.
 
+> **Revised after the [counter-review](2026-11-11-architect-counter-review.md):** decision 1 now holds across requests, not only within one, and its switch is "Independent quota confirmed"; decision 2 adds HTTP 408, 504 and 524 to "ambiguous"; decision 3 was wrong to call the estimate pessimistic. It is an estimate that can be exceeded, and it is now labeled that way. See the [response](2026-11-11-counter-review-response.md).
+
 ## Not done, and why
 
 - **P0-5 (`auto`)** has not started. It depends on P0-1 to P0-4 and on a sourced model catalog.
