@@ -138,7 +138,8 @@ function ApprovalPanel({approval: a, busy, onDecide}: {approval: ApprovalView; b
       ? t('No estimate: this agent and model have no earlier run that reported a cost.')
       : e.lowMicroUsd === e.highMicroUsd
         ? t('Its last {n} runs cost {amount} each, by the agent’s own list-price estimate.', {n: e.runs, amount: money(e.highMicroUsd)})
-        : t('Its last {n} runs cost {low} to {high}, by the agent’s own list-price estimate.', {n: e.runs, low: money(e.lowMicroUsd), high: money(e.highMicroUsd)})}</p>
+        : t('Its last {n} runs cost {low} to {high}, by the agent’s own list-price estimate.', {n: e.runs, low: money(e.lowMicroUsd), high: money(e.highMicroUsd)})}
+      {a.remainingUsd !== null && ` ${t('Left of today’s budget for paid steps: {amount}.', {amount: `$${a.remainingUsd.toFixed(2)}`})}`}</p>
     <FormRow label={t('Spending cap')} htmlFor="approval-cap"
       hint={a.enforcedByAgent ? t('The agent stops at this amount itself.')
         : t('This agent cannot stop at a cap. If the cost it reports afterwards is over it, Pygg tries no further step.')}>

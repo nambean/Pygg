@@ -502,10 +502,11 @@ export function demoApi(): GatewayApi {
 const DEMO_DIFF = 'diff --git a/src/timeout.ts b/src/timeout.ts\n--- a/src/timeout.ts\n+++ b/src/timeout.ts\n@@ -3,3 +3,3 @@\n-  return setTimeout(fn, ms * 100);\n+  return setTimeout(fn, ms);\n';
 
 /** Tasks for the browser preview: the sample tasks, and new ones that "run" for a few seconds. Nothing runs. */
-function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'workspaces' | 'addWorkspace' | 'removeWorkspace'
+function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'workspaces' | 'addWorkspace' | 'removeWorkspace' | 'taskBudget' | 'setTaskBudget' | 'setWorkspaceBudget'
   | 'detectChecks' | 'workspaceCheck' | 'tasks' | 'task' | 'createTask' | 'cancelTask' | 'decideTask' | 'retryTask' | 'taskDiff'
   | 'finishTask'> {
-  const workspaces: WorkspaceView[] = SAMPLE_WORKSPACES.map((w, i) => ({...w, tasks: 0, checks: i === 0
+  let dailyLimit: number | null = 2;
+  const workspaces: WorkspaceView[] = SAMPLE_WORKSPACES.map((w, i) => ({...w, tasks: 0, dailyBudgetUsd: null, checks: i === 0
     ? [{command: 'pnpm install --frozen-lockfile', source: 'package.json', approved: true},
        {command: 'pnpm typecheck', source: 'package.json', approved: true}, {command: 'pnpm test', source: 'package.json', approved: true},
        {command: 'cargo test', source: 'Cargo.toml', approved: false}]
@@ -542,7 +543,8 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'worksp
         allowShell: false, timeoutSecs: 900},
       attempts: s.attempts, attemptDetails: attempts,
       approval: s.state === 'waiting_approval' && waiting ? {step: waiting.step, label: waiting.label,
-        estimate: {runs: 4, lowMicroUsd: 20_000, highMicroUsd: 60_000}, suggestedCapUsd: 0.1, enforcedByAgent: waiting.agent === 'claude-code'} : null};
+        estimate: {runs: 4, lowMicroUsd: 20_000, highMicroUsd: 60_000}, suggestedCapUsd: 0.1, enforcedByAgent: waiting.agent === 'claude-code',
+        remainingUsd: 1.42} : null};
   }
   const summary = (d: TaskDetail): TaskSummary => ({id: d.id, title: d.title, workspaceId: d.workspaceId, state: d.state, phase: d.phase,
     attempts: d.attempts, cost: d.cost, startedAt: d.startedAt, updatedAt: d.updatedAt});
@@ -557,7 +559,7 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'worksp
       if (!path.trim()) throw 'Choose the workspace folder';
       if (workspaces.some(w => w.path === path.trim())) throw 'That folder is already a workspace';
       const w: WorkspaceView = {id: hex(6), name: name?.trim() || path.trim().split(/[\\/]/).filter(Boolean).pop() || path, path: path.trim(),
-        tasks: 0, checks: [{command: 'npm ci', source: 'package.json', approved: false}, {command: 'npm run test', source: 'package.json', approved: false}]};
+        tasks: 0, dailyBudgetUsd: null, checks: [{command: 'npm ci', source: 'package.json', approved: false}, {command: 'npm run test', source: 'package.json', approved: false}]};
       workspaces.push(w);
       return clone(w);
     },
@@ -610,6 +612,9 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'worksp
     retryTask: async id => { if (get(id).state !== 'interrupted') throw 'Only an interrupted task can be retried';
       set(id, {state: 'running', phase: 'preparing', reason: null}); },
     taskDiff: () => touch(DEMO_DIFF),
+    taskBudget: () => touch({recordedUsd: 0.48, reservedUsd: 0.1, limitUsd: dailyLimit, unknownCalls: 1}),
+    setTaskBudget: async dailyUsd => { dailyLimit = dailyUsd; return touch({recordedUsd: 0.48, reservedUsd: 0.1, limitUsd: dailyLimit, unknownCalls: 1}); },
+    setWorkspaceBudget: async (id, dailyUsd) => { const w = findWorkspace(id); w.dailyBudgetUsd = dailyUsd; return touch(w); },
     finishTask: async (id, keep, title) => { await sleep(250); const d = get(id);
       const branch = keep ? `str/${(title || d.title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48)}-${id.replace(/\W/g, '').slice(0, 8)}` : null;
       set(id, {result: keep ? 'kept' : 'discarded', resultBranch: branch, state: d.state === 'needs_review' ? (keep ? 'manually_accepted' : 'canceled') : d.state});

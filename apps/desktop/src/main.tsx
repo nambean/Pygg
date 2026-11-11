@@ -75,6 +75,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
   // A task's runner stopped (one from an IDE included): every screen reloads at once, not at the next poll.
   useEffect(() => onTasksChanged(gatewayChanged), []);
   const workspaceList = useGateway(api => api.workspaces());
+  const budget = useGateway(api => api.taskBudget(), [], 10_000);
   const allTasks = useMemo(() => taskList.data ?? [], [taskList.data]);
   const workspaces = workspaceList.data ?? [];
   const counts = useMemo(() => Object.fromEntries(FILTERS.map(f => [f, allTasks.filter(task => matchesFilter(task, f)).length])) as
@@ -162,7 +163,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         <div className="toolbar-title" data-tauri-drag-region>
           <h1>{title}</h1>
           {(view.kind === 'tasks' || view.kind === 'task') &&
-            <BudgetSubtitle running={counts.running} waiting={counts.approval}/>}
+            <BudgetSubtitle running={counts.running} waiting={counts.approval} budget={budget.data ?? undefined}/>}
         </div>
         <span className="spacer" data-tauri-drag-region/>
         {primary && <button type="button" className="button prominent" onClick={() => setIntent(primary.intent)}>

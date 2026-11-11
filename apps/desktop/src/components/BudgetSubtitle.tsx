@@ -20,24 +20,25 @@ export function BudgetSubtitle({running, waiting, budget}: {running: number; wai
     return () => { document.removeEventListener('mousedown', outside); document.removeEventListener('keydown', escape); };
   }, [open]);
 
-  // Tasks have no daily API budget yet; the counts stand alone until they do.
   if (!budget) return <span className="subtitle-anchor">{[t('{n} running', {n: running}), t('{n} waiting', {n: waiting})].join(' · ')}</span>;
-  const money = budget.unknownCalls > 0 ? t('Budget needs review')
+  // Paid runs that reported no cost are counted at their cap, so the total is an upper bound, not a figure.
+  const money = budget.limitUsd === null
+    ? t('{recorded} on paid steps today', {recorded: usd(budget.recordedUsd + budget.reservedUsd)})
     : t('{recorded} recorded + {reserved} reserved / {limit} today',
       {recorded: usd(budget.recordedUsd), reserved: usd(budget.reservedUsd), limit: usd(budget.limitUsd)});
   const line = [t('{n} running', {n: running}), t('{n} waiting', {n: waiting}), money].join(' · ');
 
   return <span className="subtitle-anchor" ref={box}>
     <button type="button" className="subtitle-button" aria-expanded={open} onClick={() => setOpen(o => !o)}>{line}</button>
-    {open && <div className="popover" role="dialog" aria-label={t('Today’s API budget')}>
-      <h3>{t('Today’s API budget')}</h3>
+    {open && <div className="popover" role="dialog" aria-label={t('Today’s budget for paid steps')}>
+      <h3>{t('Today’s budget for paid steps')}</h3>
       <dl>
         <dt>{t('Recorded')}</dt><dd>{usd(budget.recordedUsd)}</dd>
         <dt>{t('Reserved for running work')}</dt><dd>{usd(budget.reservedUsd)}</dd>
-        <dt>{t('Daily limit')}</dt><dd>{usd(budget.limitUsd)}</dd>
-        <dt>{t('Calls with unknown cost')}</dt><dd>{budget.unknownCalls}</dd>
+        <dt>{t('Daily limit')}</dt><dd>{budget.limitUsd === null ? t('None') : usd(budget.limitUsd)}</dd>
+        <dt>{t('Runs with unknown cost')}</dt><dd>{budget.unknownCalls}</dd>
       </dl>
-      <p>{t('Reserved money is held for running attempts; it is not spent. Subscription and local use are not included.')}</p>
+      <p>{t('Recorded is the agents’ own estimates; a run that reported none counts at its cap. Reserved is held for running steps. Free, local and subscription steps are not included. Resets at 00:00 UTC; set the limit in Settings.')}</p>
     </div>}
   </span>;
 }

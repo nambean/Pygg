@@ -75,6 +75,8 @@ pub struct WorkspaceView {
     pub path: String,
     pub checks: Vec<WorkspaceCheck>,
     pub tasks: u32,
+    /// This workspace's own daily limit for paid steps, on top of the overall one.
+    pub daily_budget_usd: Option<f64>,
 }
 
 /// Adds a Git repository as a workspace and suggests the checks it already has.
@@ -113,14 +115,14 @@ fn suggest_checks(conn: &Connection, id: &str, dir: &Path) -> Result<()> {
 }
 
 pub fn workspace(conn: &Connection, id: &str) -> Result<WorkspaceView> {
-    let (name, path): (String, String) = conn.query_row("SELECT name, path FROM workspaces WHERE id = ?1", [id],
-        |r| Ok((r.get(0)?, r.get(1)?))).optional().map_err(err)?.ok_or("That workspace no longer exists")?;
+    let (name, path, budget): (String, String, Option<i64>) = conn.query_row("SELECT name, path, daily_budget_micro_usd FROM workspaces WHERE id = ?1", [id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional().map_err(err)?.ok_or("That workspace no longer exists")?;
     let mut statement = conn.prepare("SELECT command, source, approved FROM workspace_checks WHERE workspace_id = ?1 ORDER BY rowid")
         .map_err(err)?;
     let checks = statement.query_map([id], |r| Ok(WorkspaceCheck { command: r.get(0)?, source: r.get(1)?, approved: r.get(2)? }))
         .map_err(err)?.collect::<rusqlite::Result<Vec<_>>>().map_err(err)?;
     let tasks: u32 = conn.query_row("SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1", [id], |r| r.get(0)).map_err(err)?;
-    Ok(WorkspaceView { id: id.into(), name, path, checks, tasks })
+    Ok(WorkspaceView { id: id.into(), name, path, checks, tasks, daily_budget_usd: budget.filter(|b| *b > 0).map(|b| b as f64 / 1e6) })
 }
 
 pub fn list_workspaces(conn: &Connection) -> Result<Vec<WorkspaceView>> {
@@ -392,6 +394,8 @@ pub struct ApprovalView {
     pub suggested_cap_usd: f64,
     /// The agent stops at the cap itself (Claude Code); otherwise it is checked against the cost reported afterwards.
     pub enforced_by_agent: bool,
+    /// What today's budgets leave for paid steps in this workspace; `None` without a budget. The cap cannot be more.
+    pub remaining_usd: Option<f64>,
 }
 
 struct TaskRow {
@@ -537,8 +541,10 @@ fn approval_of(conn: &Connection, row: &TaskRow, attempts: &[AttemptView]) -> Re
     // The number of runs the estimate was made from, as recorded in its basis.
     let runs = asked_on.split('|').nth(5).and_then(|n| n.parse().ok()).unwrap_or(0);
     let estimate = Estimate { runs, low_micro_usd: low.map(|v| v as u64), high_micro_usd: high.map(|v| v as u64) };
-    Ok(Some(ApprovalView { step: waiting.step, label: waiting.label.clone(), suggested_cap_usd: usd(suggested_cap_micro(&estimate)),
-        enforced_by_agent: agents::enforces_budget(&step.agent), estimate }))
+    let left = remaining(conn, &row.workspace_id).map_err(err)?;
+    let suggested = match left { Some(left) if left > 0 => suggested_cap_micro(&estimate).min(left), _ => suggested_cap_micro(&estimate) };
+    Ok(Some(ApprovalView { step: waiting.step, label: waiting.label.clone(), suggested_cap_usd: usd(suggested),
+        enforced_by_agent: agents::enforces_budget(&step.agent), remaining_usd: left.map(usd), estimate }))
 }
 
 // ---------- State changes ----------
@@ -589,15 +595,24 @@ fn open_attempt(conn: &Connection, task_id: &str, stage_id: &str, index: usize, 
             };
         }
     }
+    let paid = step.billing == "paid";
+    let workspace = task_workspace(conn, task_id)?;
+    if paid {
+        if let Some(0) = remaining(conn, &workspace)? {
+            set_task(conn, task_id, "blocked", None, Some(&format!(
+                "Step {} ({}) is paid, and today's budget for paid steps is used; it resets at 00:00 UTC. Raise the \
+                 budget in Settings, or start the task again after the reset.", index + 1, step_label(step))))?;
+            return Ok(Opened::Declined);
+        }
+    }
     let number: u32 = conn.query_row("SELECT COALESCE(MAX(number), 0) + 1 FROM attempts WHERE stage_id = ?1", [stage_id], |r| r.get(0))?;
     let id = new_id();
-    let paid = step.billing == "paid";
     conn.execute("INSERT INTO attempts (id, stage_id, number, agent, model_ref, tier, billing, state, started_at, rung) \
                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![id, stage_id, number, step.agent, step_label(step), step.tier, step.billing, if paid { "waiting" } else { "running" },
             if paid { None } else { Some(now) }, index as i64])?;
     if paid {
-        ask_approval(conn, &id, step)?;
+        ask_approval(conn, &id, step, &workspace)?;
         set_task(conn, task_id, "waiting_approval", None, Some(&paid_reason(index, step)))?;
         return Ok(Opened::Waiting);
     }
@@ -633,18 +648,20 @@ fn estimate_for(conn: &Connection, step: &Step) -> rusqlite::Result<Estimate> {
 
 /// What an approval was asked on (`approvals.policy_version`): the step and its estimate. When it is different at
 /// the moment the user decides, the approval no longer describes what would run (ADR-010).
-fn basis(step: &Step, estimate: &Estimate) -> String {
-    format!("tasks-v2|{}|{}|T{}|{}|{}|{:?}|{:?}", step.agent, step.model.as_deref().unwrap_or(""), step.tier, step.billing,
-        estimate.runs, estimate.low_micro_usd, estimate.high_micro_usd)
+fn basis(step: &Step, estimate: &Estimate, limits: &Limits) -> String {
+    format!("tasks-v3|{}|{}|T{}|{}|{}|{:?}|{:?}|{:?}|{:?}", step.agent, step.model.as_deref().unwrap_or(""), step.tier, step.billing,
+        estimate.runs, estimate.low_micro_usd, estimate.high_micro_usd, limits.daily, limits.workspace)
 }
 
-/// A pending approval for one attempt, with the estimate as it is now. The cap is the user's, set when approving.
-fn ask_approval(conn: &Connection, attempt: &str, step: &Step) -> rusqlite::Result<()> {
+/// A pending approval for one attempt, with the estimate and the budgets as they are now. The cap is the user's,
+/// set when approving.
+fn ask_approval(conn: &Connection, attempt: &str, step: &Step, workspace_id: &str) -> rusqlite::Result<()> {
     let estimate = estimate_for(conn, step)?;
+    let limits = limits(conn, workspace_id)?;
     conn.execute("INSERT INTO approvals (id, attempt_id, cap_micro_usd, estimate_low_micro, estimate_high_micro, policy_version, \
                   state, created_at) VALUES (?1, ?2, 0, ?3, ?4, ?5, 'pending', ?6)",
         params![new_id(), attempt, estimate.low_micro_usd.map(|v| v as i64), estimate.high_micro_usd.map(|v| v as i64),
-            basis(step, &estimate), now_ms()]).map(|_| ())
+            basis(step, &estimate, &limits), now_ms()]).map(|_| ())
 }
 
 /// The cap the user approved for an attempt.
@@ -663,6 +680,105 @@ fn suggested_cap_micro(estimate: &Estimate) -> u64 {
 
 fn usd(micro: u64) -> f64 {
     micro as f64 / 1e6
+}
+
+// ---------- Budgets (ROADMAP A3) ----------
+
+/// The daily limit for paid steps across all tasks, in micro-USD (settings).
+pub const DAILY_BUDGET_KEY: &str = "tasks.daily_budget_micro_usd";
+
+/// Midnight UTC of the day `now` is in; budgets reset then, like the clients' monthly limits.
+fn day_start(now: i64) -> i64 {
+    now - now.rem_euclid(86_400_000)
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Limits {
+    daily: Option<u64>,
+    workspace: Option<u64>,
+}
+
+fn limits(conn: &Connection, workspace_id: &str) -> rusqlite::Result<Limits> {
+    let daily = conn.query_row("SELECT value FROM settings WHERE key = ?1", [DAILY_BUDGET_KEY], |r| r.get::<_, String>(0))
+        .optional()?.and_then(|v| v.parse::<u64>().ok()).filter(|v| *v > 0);
+    let workspace = conn.query_row("SELECT daily_budget_micro_usd FROM workspaces WHERE id = ?1", [workspace_id],
+        |r| r.get::<_, Option<i64>>(0)).optional()?.flatten().filter(|v| *v > 0).map(|v| v as u64);
+    Ok(Limits { daily, workspace })
+}
+
+/// Today's paid steps, everywhere or in one workspace: (spent, held for steps still running, runs that reported no
+/// cost). A finished step counts at the agent's own estimate, or at its approved cap when it reported none, since
+/// it may have cost that much; a running one holds its cap. Free, local and subscription steps are not billed per
+/// request and do not count (ADR-011).
+fn used_today(conn: &Connection, workspace_id: Option<&str>) -> rusqlite::Result<(u64, u64, u32)> {
+    conn.query_row(
+        "SELECT COALESCE(SUM(CASE WHEN a.state = 'running' THEN 0 ELSE COALESCE(a.agent_estimate_micro_usd, p.cap_micro_usd, 0) END), 0), \
+                COALESCE(SUM(CASE WHEN a.state = 'running' THEN COALESCE(p.cap_micro_usd, 0) ELSE 0 END), 0), \
+                COALESCE(SUM(CASE WHEN a.state <> 'running' AND a.agent_estimate_micro_usd IS NULL THEN 1 ELSE 0 END), 0) \
+         FROM attempts a JOIN task_stages s ON s.id = a.stage_id JOIN tasks t ON t.id = s.task_id \
+         LEFT JOIN approvals p ON p.attempt_id = a.id AND p.state = 'approved' \
+         WHERE a.billing = 'paid' AND a.started_at IS NOT NULL AND a.started_at >= ?1 AND (?2 IS NULL OR t.workspace_id = ?2)",
+        params![day_start(now_ms()), workspace_id],
+        |r| Ok((r.get::<_, i64>(0)?.max(0) as u64, r.get::<_, i64>(1)?.max(0) as u64, r.get::<_, i64>(2)?.max(0) as u32)))
+}
+
+/// What is left today for paid steps in a workspace: the smaller of what the daily and the workspace's limits leave;
+/// `None` without either limit.
+fn remaining(conn: &Connection, workspace_id: &str) -> rusqlite::Result<Option<u64>> {
+    let l = limits(conn, workspace_id)?;
+    let mut left: Option<u64> = None;
+    if let Some(daily) = l.daily {
+        let (spent, held, _) = used_today(conn, None)?;
+        left = Some(daily.saturating_sub(spent + held));
+    }
+    if let Some(limit) = l.workspace {
+        let (spent, held, _) = used_today(conn, Some(workspace_id))?;
+        let here = limit.saturating_sub(spent + held);
+        left = Some(left.map_or(here, |l| l.min(here)));
+    }
+    Ok(left)
+}
+
+fn task_workspace(conn: &Connection, task_id: &str) -> rusqlite::Result<String> {
+    conn.query_row("SELECT workspace_id FROM tasks WHERE id = ?1", [task_id], |r| r.get(0))
+}
+
+/// Today's paid steps for the toolbar (SCREENS.md §2.3): spend apart from what running steps hold.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DayBudget {
+    pub recorded_usd: f64,
+    pub reserved_usd: f64,
+    pub limit_usd: Option<f64>,
+    /// Paid runs today that reported no cost, counted at their cap.
+    pub unknown_calls: u32,
+}
+
+pub fn day_budget(conn: &Connection) -> Result<DayBudget> {
+    let (spent, held, unknown) = used_today(conn, None).map_err(err)?;
+    let limit = conn.query_row("SELECT value FROM settings WHERE key = ?1", [DAILY_BUDGET_KEY], |r| r.get::<_, String>(0))
+        .optional().map_err(err)?.and_then(|v| v.parse::<u64>().ok()).filter(|v| *v > 0);
+    Ok(DayBudget { recorded_usd: usd(spent), reserved_usd: usd(held), limit_usd: limit.map(usd), unknown_calls: unknown })
+}
+
+/// Sets (or, with `None`, removes) the daily limit for paid steps. Pending approvals then no longer match and are
+/// asked again when the user decides (ADR-010).
+pub fn set_daily_budget(conn: &Connection, micro_usd: Option<u64>) -> Result<()> {
+    match micro_usd.filter(|v| *v > 0) {
+        Some(v) => conn.execute("INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2",
+            params![DAILY_BUDGET_KEY, v.to_string()]),
+        None => conn.execute("DELETE FROM settings WHERE key = ?1", [DAILY_BUDGET_KEY]),
+    }.map_err(err)?;
+    audit(conn, "budget.daily", "tasks", serde_json::json!({"microUsd": micro_usd})).map_err(err)
+}
+
+pub fn set_workspace_budget(conn: &Connection, id: &str, micro_usd: Option<u64>) -> Result<()> {
+    let changed = conn.execute("UPDATE workspaces SET daily_budget_micro_usd = ?2 WHERE id = ?1",
+        params![id, micro_usd.filter(|v| *v > 0).map(|v| v as i64)]).map_err(err)?;
+    if changed == 0 {
+        return Err("That workspace no longer exists".into());
+    }
+    audit(conn, "budget.workspace", id, serde_json::json!({"microUsd": micro_usd})).map_err(err)
 }
 
 fn close_attempt(conn: &Connection, id: &str, outcome: &str, escalation: Option<&str>) -> rusqlite::Result<()> {
@@ -880,15 +996,20 @@ impl Runner {
                 [&attempt], |r| r.get(0)).optional().map_err(err)?;
             let tx = c.unchecked_transaction().map_err(err)?;
             if approve {
-                let now_basis = basis(step, &estimate_for(&tx, step).map_err(err)?);
+                let now_basis = basis(step, &estimate_for(&tx, step).map_err(err)?, &limits(&tx, &row.workspace_id).map_err(err)?);
                 if asked_on.as_deref() != Some(now_basis.as_str()) {
                     tx.execute("UPDATE approvals SET state = 'invalidated', decided_at = ?2 WHERE attempt_id = ?1 AND state = 'pending'",
                         params![attempt, now_ms()]).map_err(err)?;
-                    ask_approval(&tx, &attempt, step).map_err(err)?;
+                    ask_approval(&tx, &attempt, step, &row.workspace_id).map_err(err)?;
                     audit(&tx, "approval.invalidated", id, serde_json::json!({"attempt": attempt})).map_err(err)?;
                     tx.commit().map_err(err)?;
-                    return Err("This step's estimate changed since you were asked: other runs of this agent were recorded. \
+                    return Err("This step's estimate or your budget changed since you were asked. \
                         Check the new estimate and approve again.".into());
+                }
+                if let (Some(cap), Some(left)) = (cap, remaining(&tx, &row.workspace_id).map_err(err)?) {
+                    if cap > left {
+                        return Err(format!("The cap is more than what is left of today's budget for paid steps (${:.2})", usd(left)));
+                    }
                 }
             }
             tx.execute("UPDATE approvals SET state = ?2, cap_micro_usd = COALESCE(?3, cap_micro_usd), decided_at = ?4 \
@@ -1472,7 +1593,7 @@ mod tests {
 
         // Another run of the same agent is recorded while the approval waits: the estimate it showed is stale.
         lock(&rig.db).execute("UPDATE attempts SET agent_estimate_micro_usd = 900000 WHERE agent_estimate_micro_usd = 120000", []).unwrap();
-        assert!(runner.decide(&second, true, Some(200_000)).unwrap_err().contains("estimate changed"));
+        assert!(runner.decide(&second, true, Some(200_000)).unwrap_err().contains("changed since you were asked"));
         let approval = detail(&rig, &second).approval.unwrap();
         assert_eq!(approval.estimate.high_micro_usd, Some(900_000), "a new approval is asked with the new estimate");
         let states: Vec<String> = lock(&rig.db).prepare("SELECT state FROM approvals ORDER BY created_at").unwrap()
@@ -1506,6 +1627,55 @@ mod tests {
         runner.decide(&id, true, Some(100_000)).unwrap().unwrap().await.unwrap();
         let task = detail(&rig, &id);
         assert!(task.reason.unwrap().contains("reported no cost, so your cap for this step could not be checked"));
+    }
+
+    #[tokio::test]
+    async fn the_daily_budget_counts_paid_steps_and_bounds_approvals() {
+        let rig = rig(&[]);
+        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
+            fake(vec![Act::Costly("x.txt", "x", 0.30), Act::Write("y.txt", "y"), Act::Write("z.txt", "z")], rig.prompts.clone()));
+        set_daily_budget(&lock(&rig.db), Some(1_000_000)).unwrap();
+
+        // A paid step that reported its cost counts at it; a free one does not count.
+        let first = create(&rig, vec![step("claude-code", "paid", 3)]);
+        runner.start(&first).unwrap().await.unwrap();
+        runner.decide(&first, true, Some(500_000)).unwrap().unwrap().await.unwrap();
+        let free = create(&rig, vec![step("opencode", "free", 1)]);
+        runner.start(&free).unwrap().await.unwrap();
+        assert_eq!(day_budget(&lock(&rig.db)).unwrap(),
+            DayBudget { recorded_usd: 0.30, reserved_usd: 0.0, limit_usd: Some(1.0), unknown_calls: 0 });
+
+        // A paid step that reported nothing counts at its whole cap.
+        let second = create(&rig, vec![step("codex", "paid", 3)]);
+        runner.start(&second).unwrap().await.unwrap();
+        let approval = detail(&rig, &second).approval.unwrap();
+        assert_eq!(approval.remaining_usd, Some(0.70));
+        assert!(runner.decide(&second, true, Some(800_000)).unwrap_err().contains("$0.70"), "a cap cannot pass what is left");
+        runner.decide(&second, true, Some(700_000)).unwrap().unwrap().await.unwrap();
+        let budget = day_budget(&lock(&rig.db)).unwrap();
+        assert_eq!((budget.recorded_usd, budget.unknown_calls), (1.0, 1));
+
+        // Used up: the next paid step is refused before it asks.
+        let third = create(&rig, vec![step("claude-code", "paid", 3)]);
+        runner.start(&third).unwrap().await.unwrap();
+        let task = detail(&rig, &third);
+        assert_eq!(task.summary.state, "blocked");
+        assert!(task.reason.unwrap().contains("today's budget for paid steps is used"));
+        assert!(task.attempt_details.is_empty(), "nothing was asked or run");
+    }
+
+    #[tokio::test]
+    async fn changing_a_budget_invalidates_a_waiting_approval() {
+        let rig = rig(&[]);
+        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(), fake(vec![Act::Write("x.txt", "x")], rig.prompts.clone()));
+        let id = create(&rig, vec![step("claude-code", "paid", 3)]);
+        runner.start(&id).unwrap().await.unwrap();
+        set_workspace_budget(&lock(&rig.db), &rig.workspace, Some(2_000_000)).unwrap();
+        assert!(runner.decide(&id, true, Some(500_000)).unwrap_err().contains("budget changed"));
+        assert_eq!(detail(&rig, &id).approval.unwrap().remaining_usd, Some(2.0));
+        runner.decide(&id, true, Some(500_000)).unwrap().unwrap().await.unwrap();
+        assert_eq!(detail(&rig, &id).summary.state, "needs_review");
+        assert_eq!(workspace(&lock(&rig.db), &rig.workspace).unwrap().daily_budget_usd, Some(2.0));
     }
 
     #[tokio::test]

@@ -5,7 +5,7 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import { runningInDesktop } from './native';
-import type { NewTask, TaskDetail, TaskSummary, WorkspaceView } from './tasks';
+import type { DayBudget, NewTask, TaskDetail, TaskSummary, WorkspaceView } from './tasks';
 
 export type Billing = 'free' | 'local' | 'subscription' | 'paid' | 'unknown';
 export const BILLINGS: Billing[] = ['free', 'local', 'subscription', 'paid', 'unknown'];
@@ -200,6 +200,10 @@ export interface GatewayApi {
   finishTask(id: string, keep: boolean, title: string | null): Promise<string | null>;
   /** Where pygg-mcp is, for the IDE setup instructions. */
   mcpSetup(): Promise<McpSetup>;
+  /** Today's paid steps against the daily budget. */
+  taskBudget(): Promise<DayBudget>;
+  setTaskBudget(dailyUsd: number | null): Promise<DayBudget>;
+  setWorkspaceBudget(id: string, dailyUsd: number | null): Promise<WorkspaceView>;
 }
 
 const native: GatewayApi = {
@@ -248,6 +252,9 @@ const native: GatewayApi = {
   taskDiff: id => invoke('task_diff', {id}),
   finishTask: (id, keep, title) => invoke('task_finish', {id, keep, title}),
   mcpSetup: () => invoke('mcp_setup'),
+  taskBudget: () => invoke('task_budget'),
+  setTaskBudget: dailyUsd => invoke('task_set_budget', {dailyUsd}),
+  setWorkspaceBudget: (id, dailyUsd) => invoke('workspace_set_budget', {id, dailyUsd}),
 };
 
 let demo: Promise<GatewayApi> | null = null;

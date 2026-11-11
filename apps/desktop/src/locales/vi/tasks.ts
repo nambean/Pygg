@@ -62,6 +62,18 @@ export const tasks: Record<string, string> = {
   'Checks passed': 'Check đã qua',
   'Needs your review': 'Cần bạn xem lại',
   'Paid step': 'Bước trả phí',
+  'Left of today’s budget for paid steps: {amount}.': 'Ngân sách hôm nay cho bước trả phí còn {amount}.',
+  'Task budgets': 'Ngân sách task',
+  'Paid steps per day': 'Bước trả phí mỗi ngày',
+  'All tasks together. A paid step is refused once it is used, and a cap cannot be more than what is left. Resets at 00:00 UTC.':
+    'Tính chung mọi task. Hết ngân sách thì bước trả phí bị từ chối, và mức chi không được vượt phần còn lại. Đặt lại lúc 00:00 UTC.',
+  'Only paid steps count, at the agent’s own estimate, or at their cap when it reported none. Free, local and subscription steps are not billed per request.':
+    'Chỉ tính bước trả phí, theo ước tính của chính agent, hoặc bằng mức chi nếu agent không báo. Bước miễn phí, local và subscription không tính tiền theo request.',
+  '{recorded} on paid steps today': '{recorded} cho bước trả phí hôm nay',
+  'Today’s budget for paid steps': 'Ngân sách hôm nay cho bước trả phí',
+  'Runs with unknown cost': 'Lần chạy chưa rõ chi phí',
+  'Recorded is the agents’ own estimates; a run that reported none counts at its cap. Reserved is held for running steps. Free, local and subscription steps are not included. Resets at 00:00 UTC; set the limit in Settings.':
+    'Đã ghi là ước tính của chính các agent; lần chạy không báo chi phí được tính bằng mức chi. Đã giữ là phần dành cho bước đang chạy. Không tính bước miễn phí, local và subscription. Đặt lại lúc 00:00 UTC; đặt giới hạn trong Settings.',
   'No estimate: this agent and model have no earlier run that reported a cost.':
     'Chưa có ước tính: agent và model này chưa có lần chạy nào báo chi phí.',
   'Its last {n} runs cost {amount} each, by the agent’s own list-price estimate.':

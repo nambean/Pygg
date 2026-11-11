@@ -568,6 +568,27 @@ pub fn mcp_setup(state: State<'_, AppState>) -> Res<McpSetup> {
         url: format!("http://127.0.0.1:{}", state.port()) })
 }
 
+fn budget_micro(usd: Option<f64>) -> Option<u64> {
+    usd.filter(|u| u.is_finite() && *u > 0.0).map(|u| (u * 1e6).round() as u64)
+}
+
+/// Today's paid steps against the daily budget, for the toolbar.
+#[tauri::command]
+pub fn task_budget(state: State<'_, AppState>) -> Res<tasks::DayBudget> {
+    state.shared.with_db(tasks::day_budget)
+}
+
+/// Sets the daily budget for paid steps (`None`: no limit).
+#[tauri::command]
+pub fn task_set_budget(state: State<'_, AppState>, daily_usd: Option<f64>) -> Res<tasks::DayBudget> {
+    state.shared.with_db(|db| { tasks::set_daily_budget(db, budget_micro(daily_usd))?; tasks::day_budget(db) })
+}
+
+#[tauri::command]
+pub fn workspace_set_budget(state: State<'_, AppState>, id: String, daily_usd: Option<f64>) -> Res<WorkspaceView> {
+    state.shared.with_db(|db| { tasks::set_workspace_budget(db, &id, budget_micro(daily_usd))?; tasks::workspace(db, &id) })
+}
+
 /// Creates a task and starts it in the background. Returns its id.
 #[tauri::command]
 pub async fn task_create(state: State<'_, AppState>, task: NewTask) -> Res<String> {

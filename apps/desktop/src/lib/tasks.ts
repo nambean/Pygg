@@ -59,7 +59,11 @@ export type Workspace = { id: string; name: string; path: string };
 
 /** A check command; only approved ones run. Detected ones arrive as suggestions. */
 export type WorkspaceCheck = { command: string; source: string; approved: boolean };
-export type WorkspaceView = Workspace & { checks: WorkspaceCheck[]; tasks: number };
+export type WorkspaceView = Workspace & {
+  checks: WorkspaceCheck[]; tasks: number;
+  /** This workspace's own daily limit for paid steps, on top of the overall one. */
+  dailyBudgetUsd: number | null;
+};
 
 export type Strategy = 'free_first' | 'balanced' | 'quality';
 
@@ -95,6 +99,8 @@ export type ApprovalView = {
   step: number; label: string; estimate: Estimate; suggestedCapUsd: number;
   /** The agent stops at the cap itself (Claude Code); otherwise it is checked against the cost it reports. */
   enforcedByAgent: boolean;
+  /** What today's budgets leave for paid steps here; null without a budget. The cap cannot be more. */
+  remainingUsd: number | null;
 };
 
 export type TaskDetail = TaskSummary & {
@@ -141,7 +147,8 @@ export type DayBudget = {
   recordedUsd: number;
   /** Capacity held for running attempts; not spend. */
   reservedUsd: number;
-  limitUsd: number;
+  /** null: no daily limit. */
+  limitUsd: number | null;
   /** Calls whose cost is not known make the remaining budget uncertain. */
   unknownCalls: number;
 };
