@@ -40,7 +40,8 @@ export function Connections({intent, onIntentDone}: {intent?: 'connect'; onInten
     (!q || c.label.toLowerCase().includes(q) || c.id.includes(q) || c.presetName.toLowerCase().includes(q))
     && (show === 'all' || (show === 'attention' ? !c.enabled || ['warn', 'error'].includes(connectionState(c).tone)
       : show === 'local' ? c.defaultBilling === 'local' : c.wire === 'anthropic')));
-  const selected = connections.find(c => c.id === selectedId) ?? visible[0] ?? connections[0];
+  // Only a connection the list shows can be open below it, so a search never leaves another one's settings in view.
+  const selected = visible.find(c => c.id === selectedId) ?? visible[0];
 
   if (list.loading && !list.data) return <div className="page"><Spinner label={t('Loading connections…')}/></div>;
   return <div className="page">
@@ -461,7 +462,8 @@ function KeySheet({connection: c, onClose}: {connection: Connection; onClose: ()
   const [error, setError] = useState<string | null>(null);
   const save = () => {
     setBusy(true);
-    call(api => api.setConnectionKey(c.id, key)).then(() => { gatewayChanged(); onClose(); },
+    // The last check was of the old key; until the new one is checked, nothing is known about it.
+    call(api => api.setConnectionKey(c.id, key)).then(() => { checks.delete(c.id); gatewayChanged(); onClose(); },
       e => { setError(errorText(e)); setBusy(false); });
   };
   return <Sheet title={c.hasKey ? t('Replace Key for {name}', {name: c.label}) : t('Add Key for {name}', {name: c.label})}

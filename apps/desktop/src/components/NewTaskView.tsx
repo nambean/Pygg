@@ -72,7 +72,7 @@ export function NewTaskView({onCreated}: {onCreated: (id: string) => void}) {
     </section>
 
     {workspaces.error && !workspaces.data
-      ? <LoadFailed what={t('Workspaces could not be loaded: {error}', {error: workspaces.error})} onRetry={workspaces.reload}/>
+      ? <LoadFailed what={t('Workspaces could not be loaded: {error}', {error: workspaces.error})} retrying={workspaces.loading} onRetry={workspaces.reload}/>
       : <WorkspacePicker workspaces={list} loading={!workspaces.data} selected={workspaceId}
         onSelect={setWorkspaceId} onChanged={w => { workspaces.reload(); if (w) setWorkspaceId(w.id); }}/>}
     {workspace && <WorkspaceChecks workspace={workspace} onChanged={workspaces.reload}/>}
@@ -94,7 +94,7 @@ export function NewTaskView({onCreated}: {onCreated: (id: string) => void}) {
           </span>
         </div>
         {!agents.data && agents.error ? <div className="group-row">
-            <LoadFailed what={t('Agents could not be listed: {error}', {error: agents.error})} onRetry={agents.reload}/></div>
+            <LoadFailed what={t('Agents could not be listed: {error}', {error: agents.error})} retrying={agents.loading} onRetry={agents.reload}/></div>
           : !agents.data ? <div className="group-row"><Spinner label={t('Looking for agents…')}/></div>
           : installed.length === 0 ? <div className="group-row"><span className="group-label">
             {t('No agent is installed. Install Claude Code, Codex CLI, Gemini CLI or OpenCode (see Agents) to run tasks.')}</span></div>
@@ -120,8 +120,9 @@ export function NewTaskView({onCreated}: {onCreated: (id: string) => void}) {
 }
 
 /** A load that failed, with a way to try again, so it never looks like endless loading or missing setup. */
-function LoadFailed({what, onRetry}: {what: string; onRetry: () => void}) {
-  return <ErrorNote>{what}{' '}<button type="button" className="link-button" onClick={onRetry}>{t('Try Again')}</button></ErrorNote>;
+function LoadFailed({what, retrying, onRetry}: {what: string; retrying: boolean; onRetry: () => void}) {
+  return <ErrorNote>{what}{' '}<button type="button" className="link-button" onClick={onRetry} disabled={retrying}>
+    {retrying ? t('Trying again…') : t('Try Again')}</button></ErrorNote>;
 }
 
 function WorkspacePicker({workspaces, loading, selected, onSelect, onChanged}: {

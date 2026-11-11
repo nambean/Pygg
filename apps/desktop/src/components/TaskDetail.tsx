@@ -160,7 +160,7 @@ function ApprovalPanel({approval: a, busy, onDecide}: {approval: ApprovalView; b
         ? t('Its last {n} runs cost {amount} each, by the agent’s own list-price estimate.', {n: e.runs, amount: money(e.highMicroUsd)})
         : t('Its last {n} runs cost {low} to {high}, by the agent’s own list-price estimate.', {n: e.runs, low: money(e.lowMicroUsd), high: money(e.highMicroUsd)})}
       {a.remainingUsd !== null && ` ${t('Left of today’s budget for paid steps: {amount}.', {amount: `$${a.remainingUsd.toFixed(2)}`})}`}</p>
-    <FormRow label={t('Spending cap')} htmlFor="approval-cap"
+    <FormRow label={a.enforcedByAgent ? t('Spending cap') : t('Stop further steps above')} htmlFor="approval-cap"
       hint={a.enforcedByAgent ? t('The agent stops at this amount itself.')
         : t('This agent cannot stop at a cap. If the cost it reports afterwards is over it, Pygg tries no further step.')}>
       <span className={valid ? 'money-input' : 'money-input invalid'}><span aria-hidden>$</span>
@@ -170,7 +170,7 @@ function ApprovalPanel({approval: a, busy, onDecide}: {approval: ApprovalView; b
       <button type="button" className="button prominent" disabled={busy || !valid} onClick={() => onDecide(true, amount)}>
         <Check size={13} aria-hidden/>{a.enforcedByAgent
           ? t('Approve up to {amount}', {amount: valid ? `$${amount.toFixed(2)}` : '—'})
-          : t('Approve with a {amount} cap', {amount: valid ? `$${amount.toFixed(2)}` : '—'})}</button>
+          : t('Approve Step')}</button>
       <button type="button" className="button" disabled={busy} onClick={() => onDecide(false, null)}>
         <X size={13} aria-hidden/>{t('Decline')}</button>
     </div>

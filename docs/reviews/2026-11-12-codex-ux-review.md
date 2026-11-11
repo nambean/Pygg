@@ -22,4 +22,17 @@
 | 14 | What Keep as Branch does is said only afterwards | **Done.** One sentence under the buttons; the disclosure is "Review Changes" |
 | 15 | Policies is a placeholder with a documentation path | **Done.** It points to where those controls are now: Workspaces, the daily budget in Settings, steps in New Task |
 
+## Second round
+
+Codex was then given the commit with these fixes and 7 new screenshots, and asked whether each fix solved its finding, what the fixes made worse, and for at most 5 new findings. It judged 11 solved and 4 partial (#1, #9, #11 as documented, #13 for the reported cases), found two regressions and three new problems:
+
+| Finding (Codex, round 2) | Answer |
+| --- | --- |
+| #1: "Approve with a cap" still implies the agent stops there; the field is still called a spending cap | **Done.** For an agent that cannot stop at it, the button is "Approve Step" and the field "Stop further steps above" |
+| #9, worse: model names cut to prefixes you cannot tell apart | **Done.** The two tables sit side by side only when each has 520 px; otherwise one under the other, with whole names |
+| #7, worse: Try Again shows no progress | **Done.** It says "Trying again…" and is disabled while loading |
+| New: Tasks can show "Ready for your first task" while loading or after a failed load | **Done.** A spinner until the list loads, or the error with Try Again |
+| New: a search can leave a connection that the list no longer shows open below it | **Done.** Only a listed connection can be open; with no match, none is |
+| New: a replaced key keeps the old key's check result | **Done.** Saving a key forgets the last check |
+
 **Left for later:** task-engine reasons in Vietnamese (#11), and the native window itself, which this review saw only through the browser preview.

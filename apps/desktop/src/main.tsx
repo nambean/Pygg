@@ -21,7 +21,7 @@ import { TaskDetail } from './components/TaskDetail';
 import { TaskList } from './components/TaskList';
 import { needsChecks, WorkspacesView } from './components/WorkspacesView';
 import { WindowControls } from './components/WindowControls';
-import { Segmented } from './components/ui';
+import { ErrorNote, Segmented, Spinner } from './components/ui';
 import { Clients } from './components/gateway/Clients';
 import { Combos } from './components/gateway/Combos';
 import { Connections } from './components/gateway/Connections';
@@ -206,8 +206,14 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
             <Segmented label={t('Show')} value={view.filter} onChange={filter => setView({kind: 'tasks', filter})}
               options={FILTERS.map(f => ({value: f, label: `${t(FILTER_TITLES[f])}${counts[f] ? ` ${counts[f]}` : ''}`}))}/>
           </div>
-          <TaskList tasks={allTasks} filter={view.filter} workspaces={workspaces} scoped={false} query={query} onQuery={setQuery}
-            searchRef={searchRef} onOpen={openTask} onNewTask={newTask} onWorkspaceSettings={null}/>
+          {/* Until the list has loaded once, an empty list would read as "no tasks yet". */}
+          {!taskList.data ? (taskList.error
+            ? <div className="page"><ErrorNote>{t('Tasks could not be loaded: {error}', {error: taskList.error})}{' '}
+                <button type="button" className="link-button" onClick={taskList.reload} disabled={taskList.loading}>
+                  {taskList.loading ? t('Trying again…') : t('Try Again')}</button></ErrorNote></div>
+            : <div className="page"><Spinner label={t('Loading tasks…')}/></div>)
+          : <TaskList tasks={allTasks} filter={view.filter} workspaces={workspaces} scoped={false} query={query} onQuery={setQuery}
+            searchRef={searchRef} onOpen={openTask} onNewTask={newTask} onWorkspaceSettings={null}/>}
         </>}
         {view.kind === 'task' && <TaskDetail id={view.id} onBack={() => { taskList.reload(); setView({kind: 'tasks', filter: view.from}); }}/>}
         {view.kind === 'new' && <NewTaskView onCreated={created}/>}

@@ -87,11 +87,15 @@ export const tasks: Record<string, string> = {
   'This agent cannot stop at a cap. If the cost it reports afterwards is over it, Pygg tries no further step.':
     'Agent này không tự dừng theo mức chi. Nếu chi phí nó báo sau khi chạy vượt mức này, Pygg sẽ không thử bước nào nữa.',
   'Approve up to {amount}': 'Duyệt tối đa {amount}',
-  'Approve with a {amount} cap': 'Duyệt, mức chặn {amount}',
+  'Approve Step': 'Duyệt bước này',
+  'Stop further steps above': 'Dừng các bước sau nếu vượt',
   'Discard…': 'Bỏ…',
   'Workspaces could not be loaded: {error}': 'Không tải được danh sách workspace: {error}',
   'Agents could not be listed: {error}': 'Không liệt kê được agent: {error}',
   'Try Again': 'Thử lại',
+  'Trying again…': 'Đang thử lại…',
+  'Tasks could not be loaded: {error}': 'Không tải được danh sách tác vụ: {error}',
+  'Loading tasks…': 'Đang tải tác vụ…',
   'Review Changes': 'Xem thay đổi',
   'Keep as Branch saves the result as a new branch in the repository. The folder you have open, and its branch, are not changed.':
     'Giữ thành nhánh lưu kết quả thành một nhánh mới trong repository. Thư mục bạn đang mở và nhánh của nó không bị thay đổi.',

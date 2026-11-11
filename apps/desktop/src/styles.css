@@ -482,7 +482,8 @@ td.row-buttons .button + .button { margin-inline-start: 4px; }
 .totals-figure { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .totals-parts { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 4px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .totals .group-footnote { margin: 8px 0 0; }
-.two-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 0 18px; }
+/* Side by side only when each table still has room for a model's name; otherwise one under the other. */
+.two-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 0 18px; }
 .two-columns .group { margin-top: 18px; }
 /* In a half-width table the name column takes what is left and is cut with an ellipsis, so the numbers stay in view. */
 .two-columns .data-table td:first-child { max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
