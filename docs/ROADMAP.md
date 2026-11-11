@@ -92,7 +92,7 @@ C3's first pass settled less than it was meant to. All 24 cases passed on OpenCo
 | N1 | **C3 report and commit** | The first pass written up with every arm, the three fixes, and what it cannot claim | Report in `benchmark/reports/` | $0 |
 | N2 | **A suite that separates models (C3b)** | 10–15 harder cases: several files, a real repository layout, a requirement only the check states, longer contexts; each run three times for a pass rate with bounds | The free model fails some cases | ≤ $1.50 |
 | N3 | **The bench runs the product's cascade** | Bench drives `tasks.rs`, so a failed check hands its output to the next step as the app does (the bench now resends the same prompt) | Same pass/fail as the engine on C2's case | $0 |
-| N4 | **Find why `auto` on Qwen stops early** | Record the upstream stream of a failed attempt; then either carry `reasoning_content` across the translation (B5) or report it as the model's | The cause named, with the stream | $0 (quota) |
+| N4 | **Find why `auto` on Qwen stops early** (done 2026-11-11: not the translation, whose tool calls were whole and valid; Qwen read a file by an absolute path it got wrong, outside the worktree, and OpenCode's headless run ended on the refused permission. Captured with the new `SMARTTASKROUTER_CAPTURE_DIR`) | Record the upstream stream of a failed attempt; then either carry `reasoning_content` across the translation (B5) or report it as the model's | The cause named, with the stream | $0 (quota) |
 | N5 | **Pygg's name and icons in the app** | Window title, tray, installer and icons from `branding/`, checked in a packaged build | Native screenshot of each | $0 |
 | N6 | **A paid step approved live** | The C2 cascade with a paid last step: estimate, cap, approval, and the cap held | Ledger matches the cap | ≤ $0.50 |
 | N7 | **C4: quality signals, TensorZero check** | Retry, "use a better model" and cancel recorded per result; one day evaluating TensorZero before building more | A written yes or no on TensorZero | $0 |
@@ -102,7 +102,7 @@ C3's first pass settled less than it was meant to. All 24 cases passed on OpenCo
 
 Then D2 (integrations hub, `str` and npm), B6 and E, in the order already set. N5 and N10 can run alongside the others; N2 needs N3 to measure the product's own cascade.
 
-**Owner decisions:** the remaining $2.56 covers N2, N6 and N8 as listed (**approved 2026-11-11**). Still to decide: a code-signing certificate for D3, when distribution starts; the npm package name before D2.
+**Owner decisions:** the remaining $2.56 covers N2, N6 and N8 as listed (**approved 2026-11-11**); later the same day the owner **raised the benchmark budget to $20 in total** (ADR-028), so N2 can repeat every arm, premium included, and cover harder cases. Still to decide: a code-signing certificate for D3, when distribution starts; the npm package name before D2.
 
 **D. Distribution**
 1. An NSIS installer tried on a clean machine.
@@ -128,7 +128,7 @@ Then D2 (integrations hub, `str` and npm), B6 and E, in the order already set. N
   - cancelling a single run on the Agents screen (AGENTS.md);
   - client verification beyond Claude Code, Codex and OpenCode (Aider, Cursor; P1-2), and the Skills/Prompts hub (P2).
 
-**Housekeeping:** a CONTRIBUTING file with the review's rules (RM-1); one schema reference generated from the migrations (RM-4); demo data replaying recorded snapshots instead of copying the core's rules (OSS-3); `ARCHITECTURE.md` and `SECURITY.md`, which the functional plan names but nobody has written. Licence decided: MIT (ADR-028); ported code keeps its notice in `THIRD_PARTY_NOTICES.md` (OSS-2).
+**Housekeeping:** ~~a CONTRIBUTING file with the review's rules (RM-1); one schema reference generated from the migrations (RM-4); `ARCHITECTURE.md` and `SECURITY.md`~~ (done 2026-11-11, N10: [CONTRIBUTING](../CONTRIBUTING.md), [SCHEMA](SCHEMA.md) from `scripts/schema-reference.py`, [ARCHITECTURE](ARCHITECTURE.md), [SECURITY](SECURITY.md)); still open: demo data replaying recorded snapshots instead of copying the core's rules (OSS-3). Licence decided: MIT (ADR-028); ported code keeps its notice in `THIRD_PARTY_NOTICES.md` (OSS-2).
 
 **Superseded by ADR-027:** the New Task → Analyze → Plan → Run flow as the main path, `POST /api/routes/analyze`, the tasks API in the functional plan §6 (the built one is `/pygg/v1/tasks`), "Needs Revalidation", and first-run screens that end in analyzing a task. **Superseded by ADR-026:** "Supported OAuth" connections and rotation of subscription sessions.
 

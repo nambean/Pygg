@@ -21,6 +21,10 @@ Read them in this order when they disagree:
 | [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) | Authoritative | Every built part, its verification level, and every live run with its date and cost |
 | [ROADMAP.md](ROADMAP.md) | Authoritative | Delivery order (P0 status, the revised plan A–E, housekeeping) and release gates |
 | [DECISIONS.md](DECISIONS.md) | Current | Architecture decision records |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Current | How the parts fit together: a gateway request, a task, the boundaries, where to change what |
+| [SECURITY.md](SECURITY.md) | Current | What Pygg protects and how, what the user is trusted with, how to report a problem |
+| [SCHEMA.md](SCHEMA.md) | Current | The store's tables and columns, generated from the migrations (`scripts/schema-reference.py`) |
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) | Current | How to change Pygg: order, status, tests, schema, money, writing, commits |
 | [AGENTS.md](AGENTS.md) | Current | Agent CLIs with their own sign-in, the task engine, the MCP server and task API |
 | [PROVIDERS.md](PROVIDERS.md) | Current | Connection presets, their endpoints and the documentation each came from |
 | [../benchmark/README.md](../benchmark/README.md) | Current | The benchmark harness, its cases and how to run it through the gateway |
@@ -57,4 +61,4 @@ Each document has one status line under its title.
 
 ## Brand
 
-The name, tagline, logo, icon and colours are in [branding](../branding/README.md) (`brand.json`). The interface's green accent (`#0B7A4B` light, `#0D8551` dark) is the brand accent. The brand icons are not yet wired into the app's packaged icons; that needs its own packaging check.
+The name, tagline, logo, icon and colours are in [branding](../branding/README.md) (`brand.json`). The interface's green accent (`#0B7A4B` light, `#0D8551` dark) is the brand accent. The app's name and icons come from it (ROADMAP N5); the data folder's identifier and the credential service keep the engineering name, so existing stores and keys stay where they are.
