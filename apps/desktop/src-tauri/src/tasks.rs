@@ -1250,6 +1250,20 @@ pub fn result_diff(conn: &Connection, id: &str) -> Result<String> {
     isolation::diff(&worktree).map_err(|e| e.to_string())
 }
 
+/// The result as a patch file's name and text (ADR-009, Export Patch). A short header names the task and the commit it
+/// applies to; `git apply` skips it. The result stays open: keep or discard it afterwards.
+pub fn result_patch(conn: &Connection, id: &str) -> Result<(String, String)> {
+    let (row, _, worktree) = result_attempt(conn, id)?;
+    let diff = isolation::patch(&worktree).map_err(|e| e.to_string())?;
+    let name = format!("{}.patch", isolation::branch_name(&row.title, id).trim_start_matches("str/"));
+    let header = format!("Pygg task: {}\nApplies to: {}\nApply in the repository with: git apply {name}\n\n", row.title, worktree.base);
+    Ok((name, header + &diff))
+}
+
+pub fn record_export(conn: &Connection, id: &str, path: &str) -> Result<()> {
+    audit(conn, "task.exported", id, serde_json::json!({"file": path})).map_err(err)
+}
+
 /// Keeps the result as a new branch of the workspace (the user's checkout is untouched) and removes the worktree.
 pub fn keep(conn: &Connection, id: &str, title: Option<&str>) -> Result<String> {
     let (row, attempt, worktree) = result_attempt(conn, id)?;
@@ -1728,6 +1742,23 @@ mod tests {
         runner.decide(&id, true, None).unwrap().unwrap().await.unwrap();
         assert_eq!(detail(&rig, &id).summary.state, "needs_review");
         assert_eq!(workspace(&lock(&rig.db), &rig.workspace).unwrap().privacy_class, "sensitive");
+    }
+
+    #[tokio::test]
+    async fn the_result_exports_as_a_patch_git_applies() {
+        let rig = rig(&[]);
+        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
+            fake(vec![Act::Write("app.txt", "two\n")], rig.prompts.clone()));
+        let id = create(&rig, vec![step("codex", "subscription", 3)]);
+        runner.start(&id).unwrap().await.unwrap();
+        let (name, patch) = result_patch(&lock(&rig.db), &id).unwrap();
+        assert!(name.starts_with("make-result-txt-say-good-") && name.ends_with(".patch"), "{name}");
+        assert!(patch.starts_with("Pygg task: Make result.txt say good\n") && patch.contains("+two"), "{patch}");
+        let file = rig.repo.parent().unwrap().join(&name);
+        std::fs::write(&file, &patch).unwrap();
+        let apply = std::process::Command::new("git").arg("-C").arg(&rig.repo).args(["apply", "--check"]).arg(&file).output().unwrap();
+        assert!(apply.status.success(), "{}", String::from_utf8_lossy(&apply.stderr));
+        assert_eq!(detail(&rig, &id).summary.state, "needs_review", "exporting leaves the result open");
     }
 
     #[tokio::test]

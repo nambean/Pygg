@@ -589,6 +589,23 @@ pub async fn pick_folder(app: tauri::AppHandle) -> Res<Option<String>> {
     Ok(folder.and_then(|f| f.into_path().ok()).map(|p| p.to_string_lossy().into_owned()))
 }
 
+/// Saves the task's result as a patch file where the user chooses (the system's save dialog). Returns the path, or
+/// `None` when canceled. The result stays open.
+#[tauri::command]
+pub async fn task_export_patch(app: tauri::AppHandle, state: State<'_, AppState>, id: String) -> Res<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let (name, patch) = state.shared.with_db(|db| tasks::result_patch(db, &id))?;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog().file().set_title("Export Patch").set_file_name(&name).add_filter("Patch", &["patch", "diff"])
+        .save_file(move |file| { let _ = tx.send(file); });
+    let Some(file) = rx.await.map_err(|e| e.to_string())? else { return Ok(None) };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&path, patch).map_err(|e| format!("Could not write {}: {e}", path.display()))?;
+    let shown = path.to_string_lossy().into_owned();
+    state.shared.with_db(|db| tasks::record_export(db, &id, &shown))?;
+    Ok(Some(shown))
+}
+
 /// Today's paid steps against the daily budget, for the toolbar.
 #[tauri::command]
 pub fn task_budget(state: State<'_, AppState>) -> Res<tasks::DayBudget> {

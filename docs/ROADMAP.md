@@ -64,8 +64,8 @@ A review of every planning doc against the build ([DECISIONS](DECISIONS.md), the
 2. **Built 2026-11-11:** approvals as ADR-010 specifies (SCREENS §6.3). The estimate is the range of the agent's own list-price estimates over its last 10 runs of that model; approving needs a cap; Claude Code stops at it itself (`--max-budget-usd`), and for other agents a reported cost over the cap stops the ladder. An approval is invalidated and asked again when its estimate changed before the user decided. A budget change (A3) also invalidates it.
 3. **Built 2026-11-11:** task budgets per day, overall and per workspace (functional plan §2.4; schema v11), for paid steps only. A finished paid step counts at the agent's own estimate, or at its cap when it reported none; a running one holds its cap. A used-up budget blocks a paid step before it asks; a cap cannot pass what is left; a budget change invalidates a waiting approval. Days are UTC. Set in Settings → Task budgets; the toolbar shows today's figures.
 4. **Built 2026-11-11:** the Workspaces screen (SCREENS §5.3): each workspace's checks to approve (a sidebar badge counts workspaces whose suggested checks wait, as IDE-created ones do), its privacy class, its daily budget, and removal while it has no tasks; Add Workspace with the system's folder picker. In a **sensitive** workspace every step asks before an agent sees the code, free ones included, until data-use terms (B2) can say where agents send it. The folder picker has not been clicked through in the native app.
-5. Export Patch next to Keep as Branch (ADR-009).
-6. Claude Code through MCP, verified like Codex.
+5. **Built 2026-11-11:** Export Patch next to Keep as Branch (ADR-009): the result saved through the system's save dialog as a patch `git apply` takes (binary files included, a short header naming the task and its base commit); the result stays open to keep or discard.
+6. **Done 2026-11-11:** Claude Code through MCP, verified like Codex (AGENTS.md).
 
 **B. Gateway correctness**
 1. `auto` filters by request features (adaptive thinking, effort), from the provider's model list.

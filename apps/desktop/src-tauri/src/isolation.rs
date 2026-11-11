@@ -138,6 +138,15 @@ pub fn diff(worktree: &Worktree) -> Result<String, IsolationError> {
     git(&worktree.path, &["diff", "--cached", &worktree.base])
 }
 
+/// The attempt's changes as a patch `git apply` takes, binary files included (ADR-009, Export Patch).
+pub fn patch(worktree: &Worktree) -> Result<String, IsolationError> {
+    git(&worktree.path, &["add", "--all"])?;
+    let mut text = git(&worktree.path, &["diff", "--cached", "--binary", &worktree.base])?;
+    // `git` output is trimmed; a patch must end with a newline to apply.
+    text.push('\n');
+    Ok(text)
+}
+
 /// `str/<slug>-<short id>`: lowercase ASCII letters, digits and dashes, at most 48 characters of slug.
 pub fn branch_name(title: &str, id: &str) -> String {
     let mut slug = String::new();

@@ -208,6 +208,8 @@ export interface GatewayApi {
   setWorkspacePrivacy(id: string, privacyClass: 'standard' | 'sensitive'): Promise<WorkspaceView>;
   /** The system's folder picker (desktop only); null when canceled. */
   pickFolder(): Promise<string | null>;
+  /** Saves the task's result as a patch where the user chooses; the path, or null when canceled. */
+  exportPatch(id: string): Promise<string | null>;
 }
 
 const native: GatewayApi = {
@@ -261,6 +263,7 @@ const native: GatewayApi = {
   setWorkspaceBudget: (id, dailyUsd) => invoke('workspace_set_budget', {id, dailyUsd}),
   setWorkspacePrivacy: (id, privacyClass) => invoke('workspace_set_privacy', {id, class: privacyClass}),
   pickFolder: () => invoke('pick_folder'),
+  exportPatch: id => invoke('task_export_patch', {id}),
 };
 
 let demo: Promise<GatewayApi> | null = null;

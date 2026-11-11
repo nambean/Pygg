@@ -135,6 +135,7 @@ pub fn run() {
             commands::task_budget,
             commands::workspace_set_privacy,
             commands::pick_folder,
+            commands::task_export_patch,
             commands::task_set_budget,
             commands::workspace_set_budget,
             shell::app_preferences,

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, ChevronLeft, GitBranch, Play, RotateCcw, Square, Trash2, X } from 'lucide-react';
+import { Check, ChevronLeft, FileDown, GitBranch, Play, RotateCcw, Square, Trash2, X } from 'lucide-react';
 import { call, errorText, gatewayChanged } from '../lib/api';
 import { taskCost } from '../lib/format';
 import { t } from '../lib/i18n';
@@ -102,6 +102,10 @@ function Actions({task, onChanged}: {task: Detail; onChanged: () => void}) {
         <button type="button" className="button" disabled={busy}
           onClick={() => run(() => call(api => api.finishTask(task.id, false, null)), () => setMessage(t('Discarded.')))}>
           <Trash2 size={13} aria-hidden/>{t('Discard')}</button>
+        <button type="button" className="button" disabled={busy} title={t('Save the changes as a file git apply takes; the result stays here')}
+          onClick={() => run(() => call(api => api.exportPatch(task.id)),
+            path => { if (path) setMessage(t('Saved as {path}. The result is still here to keep or discard.', {path: String(path)})); })}>
+          <FileDown size={13} aria-hidden/>{t('Export Patch…')}</button>
       </div>
     </div>}
 
