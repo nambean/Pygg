@@ -1,0 +1,13 @@
+{
+  "id": "js-query-string",
+  "title": "Parse and build query strings",
+  "category": "feature",
+  "complexity": "medium",
+  "prompt": "Implement parse(qs) and stringify(obj) in qs.js. parse ignores a leading '?', splits on '&' and skips empty pairs, splits each pair at its first '=', decodes percent escapes and '+' as a space in keys and values, gives '' for a key without '=', and collects a repeated key into an array of its values in order (a key seen once is a string). stringify writes keys in sorted order, an array as the key repeated once per value, skips undefined values, encodes with encodeURIComponent but writes spaces as '+', and returns '' for an empty object. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

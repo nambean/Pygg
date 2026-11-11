@@ -1,0 +1,13 @@
+{
+  "id": "js-roman-numerals",
+  "title": "Convert integers to Roman numerals",
+  "category": "feature",
+  "complexity": "low",
+  "prompt": "Implement toRoman(n) in roman.js: it returns the Roman numeral for an integer from 1 to 3999 using standard subtractive notation (4 is IV, 900 is CM). For anything else (0, negative, above 3999, not an integer) it throws a RangeError. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

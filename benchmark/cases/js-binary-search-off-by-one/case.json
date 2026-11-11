@@ -1,0 +1,13 @@
+{
+  "id": "js-binary-search-off-by-one",
+  "title": "Fix binary search missing elements",
+  "category": "bug_fix",
+  "complexity": "low",
+  "prompt": "search(arr, x) in search.js should return the index of x in the sorted array arr, or -1 when it is not there. It sometimes returns -1 for an element that is in the array, for example the last one. Fix it. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

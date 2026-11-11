@@ -1,0 +1,13 @@
+{
+  "id": "js-matrix-spiral",
+  "title": "Read a matrix in spiral order",
+  "category": "feature",
+  "complexity": "low",
+  "prompt": "Implement spiral(matrix) in spiral.js: return the elements of a rectangular matrix (an array of equal-length rows) in clockwise spiral order, starting at the top-left. An empty matrix, or one with empty rows, returns []. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

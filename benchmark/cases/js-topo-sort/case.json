@@ -1,0 +1,13 @@
+{
+  "id": "js-topo-sort",
+  "title": "Topological sort with cycle detection",
+  "category": "feature",
+  "complexity": "high",
+  "prompt": "Implement topoSort(deps) in topo.js. deps maps each node name to an array of the names it depends on; a name that appears only as a dependency is a node too. Return every node once, each after all of its dependencies. When several nodes could come next, take them in alphabetical order. If there is a cycle, throw an Error whose message starts with 'cycle:' followed by the names of the nodes in one cycle; nodes outside every cycle must not be named. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

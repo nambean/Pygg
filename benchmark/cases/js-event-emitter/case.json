@@ -1,0 +1,13 @@
+{
+  "id": "js-event-emitter",
+  "title": "A small event emitter",
+  "category": "feature",
+  "complexity": "low",
+  "prompt": "Implement the Emitter class in emitter.js with on(event, fn), off(event, fn), once(event, fn) and emit(event, ...args). on and once return the emitter. emit calls the event's listeners in the order they were added, with args, and returns true if there was at least one listener. off removes one registration of fn, and also removes a once listener registered with that fn. A listener added during an emit is not called by that emit; a listener removed during an emit does not stop the others of that emit from being called. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

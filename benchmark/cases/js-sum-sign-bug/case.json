@@ -4,5 +4,10 @@
   "category": "bug_fix",
   "complexity": "low",
   "prompt": "The function in sum.js should return the sum of its two arguments, but the test in test.js fails. Fix sum.js. Do not change test.js.",
-  "checks": ["node test.js"]
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
 }

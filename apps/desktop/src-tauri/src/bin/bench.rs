@@ -21,11 +21,12 @@ struct Args {
     agent_timeout: Duration,
     check_timeout: Duration,
     budget_micro_usd: Option<u64>,
+    gateway_db: Option<PathBuf>,
 }
 
 fn usage() -> ! {
     eprintln!("usage: bench --cases DIR --agent COMMAND --rung TIER=MODEL [--rung …] \
-        [--mode all|single|cascade] [--only CASE] [--out DIR] [--agent-timeout SECONDS] [--check-timeout SECONDS]");
+        [--mode all|single|cascade] [--only CASE] [--out DIR] [--agent-timeout SECONDS] [--check-timeout SECONDS] [--budget-usd N] [--gateway-db STORE]");
     std::process::exit(2);
 }
 
@@ -40,6 +41,7 @@ fn parse() -> Args {
     let mut agent_timeout = Duration::from_secs(900);
     let mut check_timeout = Duration::from_secs(300);
     let mut budget_micro_usd = None;
+    let mut gateway_db = None;
     while let Some(flag) = args.next() {
         let mut value = || args.next().unwrap_or_else(|| usage());
         match flag.as_str() {
@@ -56,6 +58,7 @@ fn parse() -> Args {
                 if !(usd.is_finite() && usd > 0.0) { usage() }
                 budget_micro_usd = Some((usd * 1_000_000.0).round() as u64);
             }
+            "--gateway-db" => gateway_db = Some(PathBuf::from(value())),
             "-h" | "--help" => usage(),
             other => { eprintln!("unknown argument {other}"); usage() }
         }
@@ -66,7 +69,7 @@ fn parse() -> Args {
     Args {
         cases: cases.unwrap_or_else(|| usage()),
         agent: agent.unwrap_or_else(|| usage()),
-        rungs, mode, only, out, agent_timeout, check_timeout, budget_micro_usd,
+        rungs, mode, only, out, agent_timeout, check_timeout, budget_micro_usd, gateway_db,
     }
 }
 
@@ -95,7 +98,8 @@ async fn main() {
 
     let scratch = std::env::temp_dir().join(format!("str-bench-{}", uuid::Uuid::new_v4().simple()));
     let config = Config { agent: args.agent.clone(), agent_timeout: args.agent_timeout,
-        check_timeout: args.check_timeout, scratch: scratch.clone(), budget_micro_usd: args.budget_micro_usd };
+        check_timeout: args.check_timeout, scratch: scratch.clone(), budget_micro_usd: args.budget_micro_usd,
+        gateway_db: args.gateway_db.clone() };
     let mut ledger = bench::Ledger::default();
     std::fs::create_dir_all(&args.out).expect("cannot create the output folder");
     let stamp = smarttaskrouter_desktop_lib::db::now_ms();
@@ -106,7 +110,7 @@ async fn main() {
     for (run_rungs, cascade) in &runs {
         let label = bench::run_label(run_rungs, *cascade);
         for case in &cases {
-            eprint!("{label:<24} {:<32} ", case.file.id);
+            eprint!("{label:<44} {:<32} ", case.file.id);
             match bench::run_case(case, run_rungs, *cascade, &config, &mut ledger).await {
                 Ok(record) => {
                     let cost = record.cost_micro_usd().map(bench::usd).unwrap_or_else(|| "cost unknown".into());
@@ -125,17 +129,22 @@ async fn main() {
     }
     let _ = std::fs::remove_dir_all(&scratch);
 
-    println!("\nRun                      Passed   Attempts   Time      Est. cost   Per success   Agent errors");
+    println!("\n{:<44} Passed   Attempts   Time      Est. cost   Per success   Agent errors", "Run");
     for (run_rungs, cascade) in &runs {
         let label = bench::run_label(run_rungs, *cascade);
         let summary = bench::summarize(records.iter().filter(|r| r.run == label));
         let show = |v: Option<u64>| v.map(bench::usd).unwrap_or_else(|| "unknown".into());
-        println!("{label:<24} {:>3}/{:<4} {:>8}   {:>7.1}s  {:>10}   {:>11}   {}", summary.passed, summary.cases,
+        println!("{label:<44} {:>3}/{:<4} {:>8}   {:>7.1}s  {:>10}   {:>11}   {}", summary.passed, summary.cases,
             summary.attempts, summary.total_ms as f64 / 1000.0, show(summary.cost_micro_usd),
             show(summary.cost_per_success()), summary.agent_errors);
     }
-    println!("\nEstimated total: {}. Costs are the agent's own estimates at catalog list price, not provider \
-        bills; \"unknown\" means the agent reported none.", bench::usd(ledger.spent_micro_usd));
+    let source = if config.gateway_db.is_some() {
+        "Attempts sent through the gateway are costed from its ledger at its prices; others from the agent's own \
+         estimate at catalog list price. Neither is a provider bill; a subscription's use is quota, not money"
+    } else {
+        "Costs are the agent's own estimates at catalog list price, not provider bills"
+    };
+    println!("\nEstimated total: {}. {source}; \"unknown\" means no cost could be read.", bench::usd(ledger.spent_micro_usd));
     if let Some(reason) = ledger.stop_reason(&config) {
         println!("Stopped early: {reason}.");
     }

@@ -1,0 +1,13 @@
+{
+  "id": "js-semver-compare",
+  "title": "Compare semantic versions",
+  "category": "feature",
+  "complexity": "medium",
+  "prompt": "Implement compare(a, b) in semver.js for Semantic Versioning 2.0.0 strings: MAJOR.MINOR.PATCH, optionally followed by -prerelease (dot-separated identifiers) and +build metadata. Return -1 if a has lower precedence, 1 if higher, 0 if equal. Build metadata is ignored. A version with a prerelease is lower than the same version without one. Prerelease identifiers are compared one by one: numeric ones numerically, others in ASCII order, and a numeric identifier is lower than a non-numeric one; if all compared identifiers are equal, the shorter list is lower. Throw a TypeError for a string that is not a valid version. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

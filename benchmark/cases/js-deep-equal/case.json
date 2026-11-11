@@ -1,0 +1,13 @@
+{
+  "id": "js-deep-equal",
+  "title": "Fix a deep equality check",
+  "category": "bug_fix",
+  "complexity": "high",
+  "prompt": "deepEqual(a, b) in equal.js returns true for some values that differ. Make it correct for primitives, plain objects, arrays and Dates: NaN equals NaN; an array never equals a plain object; objects are equal only with the same own enumerable keys (a key set to undefined is not the same as a missing key) and equal values; Dates are equal when they hold the same time, and a Date never equals a non-Date. Nested values are compared the same way. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

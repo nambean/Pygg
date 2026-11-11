@@ -631,6 +631,16 @@ fn is_free(billing: &str) -> bool {
     matches!(billing, "free" | "local")
 }
 
+/// A failed request on a subscription uses the plan's quota, not money: an unknown cost says so, as a successful
+/// one does, so a money limit does not count it as spend at risk (found by the benchmark, ROADMAP C3).
+fn quota_not_money(billing: &str, cost: Cost) -> Cost {
+    match cost {
+        Cost::Unknown { source } if billing == "subscription" => Cost::Unknown {
+            source: format!("subscription: counts against a quota, not money ({source})") },
+        other => other,
+    }
+}
+
 /// Sends the request to each target of `requested` in turn, until one starts a successful response. Each
 /// failed attempt is recorded in the ledger as it happens; each skipped target says why.
 pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) -> Result<Forwarded, Refusal> {
@@ -745,7 +755,9 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         }
 
         let (billing, price) = shared.with_db(|db| store::pricing_for(db, &provider, &model_id)).unwrap_or_default();
-        let hold = if is_free(&billing) || !has_limit {
+        // A subscription (a token plan) uses a quota, not money per request: it holds nothing against a money
+        // limit, as auto ranks it and as its ledger entry says. Its price, if one was entered, is not what it costs.
+        let hold = if is_free(&billing) || billing == "subscription" || !has_limit {
             0
         } else if let Some(price) = price.as_ref() {
             if client.strict_budget {
@@ -875,11 +887,11 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 // waiting, a dropped connection) may have run the request: stop, and say the cost is unknown.
                 let failure = if e.is_connect() { Failure::NotSent } else { Failure::Ambiguous };
                 let decision = apply(&failure, &message, &provider);
-                let cost = if decision.maybe_billed {
+                let cost = quota_not_money(&billing, if decision.maybe_billed {
                     pricing::resolve_failure(None)
                 } else {
                     Cost::Estimated { micro_usd: 0, source: "could not connect".into() }
-                };
+                });
                 let next = decision.next;
                 settle_failure(journal, None, cost, if next == Next::Stop { "error" } else { outcome_if_failed }, &message);
                 if next == Next::Stop {
@@ -931,11 +943,11 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                         paid_retries_left -= 1;
                     }
                 }
-                let cost = if decision.maybe_billed {
+                let cost = quota_not_money(&billing, if decision.maybe_billed {
                     Cost::Unknown { source: format!("HTTP {}: the provider may have run the request", status.as_u16()) }
                 } else {
                     pricing::resolve_failure(Some(status.as_u16()))
-                };
+                });
                 settle_failure(journal, Some(status.as_u16()), cost,
                     if next == Next::Stop { "error" } else { outcome_if_failed }, &message);
                 // The provider's own body is only handed back to a client that speaks its format.
@@ -1036,9 +1048,12 @@ pub fn record_success(shared: &Shared, mut forwarded: Forwarded, usage: Option<&
     let cost = if outcome == "ok" {
         pricing::resolve(&forwarded.billing, forwarded.price.as_ref(), usage)
     } else {
-        // Cut short: whatever usage arrived is partial, so the amount cannot be stated.
+        // Cut short: whatever usage arrived is partial, so the amount cannot be stated. Free, local and
+        // subscription billing cost no money either way, so they keep what they say (a subscription's entry
+        // still says quota, not money: the benchmark, ROADMAP C3, read it as possible spend).
         match pricing::resolve(&forwarded.billing, forwarded.price.as_ref(), usage) {
             cost @ Cost::Estimated { micro_usd: 0, .. } => cost,
+            cost if forwarded.billing == "subscription" => cost,
             _ => Cost::Unknown { source: "the response was cut short before usage was reported".into() },
         }
     };

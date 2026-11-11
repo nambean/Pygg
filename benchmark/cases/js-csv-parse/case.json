@@ -1,0 +1,13 @@
+{
+  "id": "js-csv-parse",
+  "title": "Parse CSV with quoted fields",
+  "category": "feature",
+  "complexity": "high",
+  "prompt": "Implement parseCSV(text) in csv.js, returning an array of rows, each an array of strings. Fields are separated by commas and rows by \\n or \\r\\n. A field may be quoted with double quotes; a quoted field can contain commas, line breaks and doubled quotes (\"\" stands for one \"). Empty fields are kept, whitespace is kept as is, and a line break at the very end does not add an empty row. Empty input returns []. An unterminated quoted field throws a SyntaxError. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

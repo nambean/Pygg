@@ -1,0 +1,13 @@
+{
+  "id": "js-merge-intervals",
+  "title": "Merge overlapping intervals",
+  "category": "feature",
+  "complexity": "medium",
+  "prompt": "Implement mergeIntervals(list) in intervals.js. list is an array of [start, end] pairs with start <= end, in any order. Return a new array of merged pairs sorted by start, where pairs that overlap or touch (one ends where the next starts) are merged into one. Do not modify the input array or its pairs, and do not return the input's pair arrays themselves. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

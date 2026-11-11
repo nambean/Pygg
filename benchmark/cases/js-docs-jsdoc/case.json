@@ -1,0 +1,15 @@
+{
+  "id": "js-docs-jsdoc",
+  "title": "Add JSDoc to every exported function",
+  "category": "docs",
+  "complexity": "medium",
+  "prompt": "Add a JSDoc comment directly above every function in text.js. Each needs a description line, an @param tag with a type in braces for every parameter, named as in the code (a parameter with a default value written as [name=default]), and an @returns tag with a type. Do not change what the functions do. Do not change test.js or check-jsdoc.js.",
+  "checks": [
+    "node test.js",
+    "node check-jsdoc.js"
+  ],
+  "protected": [
+    "test.js",
+    "check-jsdoc.js"
+  ]
+}

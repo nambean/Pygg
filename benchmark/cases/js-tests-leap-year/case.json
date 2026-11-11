@@ -1,0 +1,14 @@
+{
+  "id": "js-tests-leap-year",
+  "title": "Write tests that catch wrong leap-year rules",
+  "category": "test_writing",
+  "complexity": "medium",
+  "prompt": "leap.js exports isLeapYear(year). Write test.js: a Node script that requires ./leap.js, checks its behaviour with node:assert, and exits with a non-zero code when any check fails. The tests must pass on leap.js as it is and must catch implementations that get the Gregorian rules wrong (every 4th year, except every 100th, except every 400th), and one that accepts a non-integer or non-number year, which must throw a TypeError. Do not change leap.js or check-tests.js.",
+  "checks": [
+    "node check-tests.js"
+  ],
+  "protected": [
+    "leap.js",
+    "check-tests.js"
+  ]
+}

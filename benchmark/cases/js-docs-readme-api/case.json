@@ -1,0 +1,14 @@
+{
+  "id": "js-docs-readme-api",
+  "title": "Document a module's API in a README",
+  "category": "docs",
+  "complexity": "low",
+  "prompt": "Write README.md for the module in stats.js. It needs a section for every function stats.js exports, each with a heading of the form '### name(params)' using the function's real parameter names, one sentence on what it returns (including what it does for an empty array), and a fenced js example that calls it. Do not change stats.js or check-readme.js.",
+  "checks": [
+    "node check-readme.js"
+  ],
+  "protected": [
+    "stats.js",
+    "check-readme.js"
+  ]
+}

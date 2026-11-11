@@ -1,0 +1,15 @@
+{
+  "id": "js-refactor-email-validation",
+  "title": "Extract duplicated validation",
+  "category": "refactor",
+  "complexity": "medium",
+  "prompt": "users.js repeats the same email check in three functions. Move it into a new module validate.js that exports isValidEmail(email), and make all three functions in users.js use it. The regular expression must then appear only in validate.js. Behaviour must not change. Do not change test.js or check-structure.js.",
+  "checks": [
+    "node test.js",
+    "node check-structure.js"
+  ],
+  "protected": [
+    "test.js",
+    "check-structure.js"
+  ]
+}

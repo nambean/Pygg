@@ -1,0 +1,14 @@
+{
+  "id": "js-refactor-callback-to-async",
+  "title": "Turn a callback API into async",
+  "category": "refactor",
+  "complexity": "medium",
+  "prompt": "readConfig(name, cb) in config.js takes a Node-style callback. Change it to an async function readConfig(name) that returns a promise of the same result, and rejects where it used to call back with an error. store.js keeps its callback API: do not change store.js or test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js",
+    "store.js"
+  ]
+}

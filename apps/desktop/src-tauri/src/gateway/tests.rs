@@ -982,6 +982,44 @@ fn a_strict_limit_needs_a_stated_maximum_output_and_holds_it() {
     });
 }
 
+/// Found by the benchmark (ROADMAP C3): auto ranked a subscription model at $0, but admission skipped it for any
+/// client with a spending limit because it had no price, so the request went on to a paid model.
+#[test]
+fn a_subscription_model_is_used_under_a_spending_limit_and_holds_nothing() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.shared.with_db(|db| store::set_client_budget(db, &rig.client_id, Some(1_000))).unwrap();
+        rig.shared.with_db(|db| {
+            let _ = store::add_model(db, "main", "steady");
+            store::update_model(db, "main", "steady", None, Some("subscription"), None)
+        }).unwrap();
+        for strict in [false, true] {
+            rig.shared.with_db(|db| store::set_client_strict_budget(db, &rig.client_id, strict)).unwrap();
+            let before = rig.fake.count("steady");
+            let response = rig.post("/v1/chat/completions", chat("main/steady")).await;
+            let status = response.status();
+            assert_eq!(status, 200, "strict: {strict}: {}", response.text().await.unwrap());
+            assert_eq!(rig.fake.count("steady"), before + 1);
+        }
+        // Its ledger entries cost no money, so the tiny limit is untouched.
+        let spent = rig.shared.with_db(|db| store::usage_summary(db, 0, 10)).unwrap().total.known_micro_usd;
+        assert_eq!(spent, 0);
+    });
+}
+
+/// Also found by the benchmark: a subscription request that failed or was cut short was recorded as money of
+/// unknown amount, so a money limit treated it as possible spend.
+#[test]
+fn a_failed_subscription_request_is_quota_not_money() {
+    use crate::gateway::pricing::Cost;
+    let failed = super::quota_not_money("subscription", Cost::Unknown { source: "HTTP 503: the provider may have run the request".into() });
+    assert!(failed.source().starts_with("subscription: counts against a quota, not money"), "{}", failed.source());
+    let paid = super::quota_not_money("paid", Cost::Unknown { source: "HTTP 503".into() });
+    assert_eq!(paid.source(), "HTTP 503");
+    let zero = super::quota_not_money("subscription", Cost::Estimated { micro_usd: 0, source: "rejected".into() });
+    assert_eq!(zero.micro_usd(), Some(0));
+}
+
 // ---------- ROADMAP B4: circuit breaker and probe ----------
 
 #[test]

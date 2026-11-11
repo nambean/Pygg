@@ -1,0 +1,13 @@
+{
+  "id": "js-money-split",
+  "title": "Split an amount without losing cents",
+  "category": "bug_fix",
+  "complexity": "medium",
+  "prompt": "splitAmount(cents, n) in money.js should split an integer amount of cents into n integer parts that add up to exactly cents and differ by at most one, with the larger parts (in absolute value) first: splitAmount(100, 3) is [34, 33, 33] and splitAmount(-100, 3) is [-34, -33, -33]. It currently loses or invents cents. Fix it; n that is not a positive integer, or cents that is not an integer, throws a RangeError. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

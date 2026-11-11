@@ -27,6 +27,24 @@ pub struct CaseFile {
     /// Folder with the fixture files, relative to the case folder.
     #[serde(default = "default_repo")]
     pub repo: String,
+    /// Fixture files the agent must leave as they are (the tests, the check scripts). An attempt that
+    /// changes or deletes one fails without running its checks, since the checks would prove nothing.
+    #[serde(default)]
+    pub protected: Vec<String>,
+}
+
+/// The protected files an attempt changed or deleted, compared with the fixture.
+pub fn changed_protected(case: &Case, worktree: &Path) -> Vec<String> {
+    case.file.protected.iter().filter(|path| {
+        let original = std::fs::read(case.fixture.join(path.as_str()));
+        let now = std::fs::read(worktree.join(path.as_str()));
+        // Git may have changed line endings on checkout; compare the text without them.
+        let strip = |bytes: Vec<u8>| bytes.into_iter().filter(|b| *b != b'\r').collect::<Vec<_>>();
+        match (original, now) {
+            (Ok(a), Ok(b)) => strip(a) != strip(b),
+            _ => true,
+        }
+    }).cloned().collect()
 }
 
 fn default_repo() -> String {
@@ -95,6 +113,70 @@ pub struct Config {
     /// Hard cap on estimated spend across the whole run, in micro-USD. With a cap, no attempt starts once
     /// the cap is reached, and the run stops after any attempt whose cost is unknown.
     pub budget_micro_usd: Option<u64>,
+    /// The store of the gateway the agent is routed through. Each attempt runs with its own session key in
+    /// `PYGG_BENCH_SESSION` (the agent's configuration sends it as `x-smarttaskrouter-session`), and the
+    /// attempt's cost is what that gateway's ledger recorded for the session, at the prices set there.
+    pub gateway_db: Option<PathBuf>,
+}
+
+/// The environment variable that carries an attempt's session key to the agent's configuration.
+pub const SESSION_ENV: &str = "PYGG_BENCH_SESSION";
+
+/// What the gateway's ledger recorded for one attempt's session.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GatewayUsage {
+    pub requests: usize,
+    pub failed: usize,
+    /// Known cost (estimated at the gateway's prices, or reported by the provider).
+    pub known_micro_usd: u64,
+    /// Requests whose money cost is unknown: no price, or a failure the provider may have billed.
+    pub unknown_money: usize,
+    /// Requests on a subscription: they use a quota, not money.
+    pub quota: usize,
+    /// `connection/model` of each target that answered, in first-use order.
+    pub models: Vec<String>,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+}
+
+/// Reads the ledger of the gateway at `db` for `session`. The store is opened read-only; the gateway keeps
+/// serving it.
+pub fn gateway_usage(db: &Path, session: &str) -> Result<GatewayUsage, String> {
+    use rusqlite::OpenFlags;
+    let conn = rusqlite::Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
+        .map_err(|e| format!("{}: {e}", db.display()))?;
+    conn.busy_timeout(Duration::from_secs(5)).map_err(|e| e.to_string())?;
+    let mut statement = conn.prepare(
+        "SELECT provider, model, outcome, input_tokens, output_tokens, cache_tokens, cache_write_tokens, cost_micro_usd, \
+         cost_status, source FROM usage_events WHERE session_key = ?1 ORDER BY created_at").map_err(|e| e.to_string())?;
+    let mut rows = statement.query([session]).map_err(|e| e.to_string())?;
+    let mut usage = GatewayUsage::default();
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        let get_u = |i: usize| row.get::<_, Option<i64>>(i).ok().flatten().unwrap_or(0).max(0) as u64;
+        let target = format!("{}/{}", row.get::<_, String>(0).unwrap_or_default(), row.get::<_, String>(1).unwrap_or_default());
+        let outcome: String = row.get(2).unwrap_or_default();
+        let status: String = row.get(8).unwrap_or_default();
+        let source: String = row.get(9).unwrap_or_default();
+        usage.requests += 1;
+        if outcome == "ok" {
+            if !usage.models.contains(&target) { usage.models.push(target); }
+        } else {
+            usage.failed += 1;
+        }
+        usage.input_tokens += get_u(3);
+        usage.output_tokens += get_u(4);
+        usage.cache_read_tokens += get_u(5);
+        usage.cache_write_tokens += get_u(6);
+        match status.as_str() {
+            "unknown" if source.starts_with("subscription") => usage.quota += 1,
+            "unknown" => usage.unknown_money += 1,
+            _ => usage.known_micro_usd += get_u(7),
+        }
+    }
+    Ok(usage)
 }
 
 /// Running total for a benchmark run, shared by every case.
@@ -211,6 +293,8 @@ pub struct AttemptRecord {
     /// An error the agent reported, such as an unavailable model. Such an attempt says nothing about the
     /// model's ability, and the summary counts it separately.
     pub agent_error: Option<String>,
+    /// What the gateway recorded for this attempt, when the run goes through one.
+    pub gateway: Option<GatewayUsage>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -244,7 +328,7 @@ pub fn run_label(rungs: &[Rung], cascade: bool) -> String {
     if cascade {
         format!("cascade:{}", rungs.iter().map(|r| format!("T{}", r.tier)).collect::<Vec<_>>().join(">"))
     } else {
-        format!("single:T{}", rungs[0].tier)
+        format!("single:T{}={}", rungs[0].tier, rungs[0].model)
     }
 }
 
@@ -281,18 +365,41 @@ pub async fn run_case(case: &Case, rungs: &[Rung], cascade: bool, config: &Confi
         let mut spec = Spec::shell(&command, &worktree.path, config.agent_timeout);
         // Event streams include tool output; keep enough that usage events are not cut from the middle.
         spec.output_limit = 32 * 1024 * 1024;
+        let session = format!("bench-{}", uuid::Uuid::new_v4().simple());
+        spec.env.push((SESSION_ENV.into(), session.clone()));
         let agent = process::run(&spec, std::future::pending()).await;
         let report = read_agent_events(&agent.stdout);
-        match report.cost_micro_usd {
-            // A truncated stream may have lost usage events, so its total is a floor, not an estimate.
-            Some(cost) if !agent.truncated => ledger.spent_micro_usd += cost,
-            Some(cost) => {
-                ledger.spent_micro_usd += cost;
-                ledger.unknown_attempts += 1;
+        let gateway = match &config.gateway_db {
+            Some(db) => {
+                // The last request is settled as its response ends; give the gateway a moment to write it.
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+                Some(gateway_usage(db, &session)?)
             }
-            None => ledger.unknown_attempts += 1,
-        }
-        let cost_known = report.cost_micro_usd.is_some() && !agent.truncated;
+            None => None,
+        };
+        // Traffic through the gateway is costed from its ledger; the agent cannot know which model a route
+        // chose, nor the gateway's prices. An attempt that sent nothing there is costed from the agent.
+        let routed = gateway.as_ref().filter(|g| g.requests > 0);
+        let (cost_known, cost_micro_usd, cost_source) = match routed {
+            Some(g) => {
+                ledger.spent_micro_usd += g.known_micro_usd;
+                if g.unknown_money > 0 { ledger.unknown_attempts += 1; }
+                (g.unknown_money == 0, Some(g.known_micro_usd), "gateway ledger at the gateway's prices")
+            }
+            None => {
+                match report.cost_micro_usd {
+                    // A truncated stream may have lost usage events, so its total is a floor, not an estimate.
+                    Some(cost) if !agent.truncated => ledger.spent_micro_usd += cost,
+                    Some(cost) => {
+                        ledger.spent_micro_usd += cost;
+                        ledger.unknown_attempts += 1;
+                    }
+                    None => ledger.unknown_attempts += 1,
+                }
+                (report.cost_micro_usd.is_some() && !agent.truncated, report.cost_micro_usd,
+                    "agent-reported, catalog list price")
+            }
+        };
         let agent_exit = match &agent.exit {
             Exit::Code(code) => format!("exited {code}"),
             Exit::Abnormal => "ended abnormally".into(),
@@ -304,7 +411,12 @@ pub async fn run_case(case: &Case, rungs: &[Rung], cascade: bool, config: &Confi
         // Checks run even when the agent exits non-zero: some agents do, after writing a correct change.
         // They stop at the first failure.
         let mut results = Vec::new();
-        for check in &case.file.checks {
+        let tampered = changed_protected(case, &worktree.path);
+        if !tampered.is_empty() {
+            results.push(CheckResult { command: "protected files unchanged".into(), passed: false,
+                detail: format!("changed {}", tampered.join(", ")), output_tail: String::new(), duration_ms: 0 });
+        }
+        for check in case.file.checks.iter().filter(|_| tampered.is_empty()) {
             let result = checks::run(check, &worktree.path, config.check_timeout, &[], std::future::pending()).await;
             let failed = !result.passed;
             results.push(result);
@@ -312,7 +424,7 @@ pub async fn run_case(case: &Case, rungs: &[Rung], cascade: bool, config: &Confi
                 break;
             }
         }
-        let passed = results.len() == case.file.checks.len() && results.iter().all(|r| r.passed);
+        let passed = tampered.is_empty() && results.len() == case.file.checks.len() && results.iter().all(|r| r.passed);
         let stat = isolation::changes(&worktree).unwrap_or(DiffStat::default());
         isolation::discard(&worktree).map_err(|e| e.to_string())?;
         attempts.push(AttemptRecord {
@@ -327,11 +439,12 @@ pub async fn run_case(case: &Case, rungs: &[Rung], cascade: bool, config: &Confi
             insertions: stat.insertions,
             deletions: stat.deletions,
             cost_status: if cost_known { "estimated" } else { "unknown" },
-            cost_micro_usd: report.cost_micro_usd.filter(|_| cost_known),
-            cost_source: cost_known.then_some("agent-reported, catalog list price"),
+            cost_micro_usd: cost_micro_usd.filter(|_| cost_known),
+            cost_source: cost_known.then_some(cost_source),
             tokens: report.tokens,
             agent_steps: report.steps,
             agent_error: report.error.map(|e| crate::redact::redact(&e, &[])),
+            gateway,
         });
         if passed {
             passing_tier = Some(rung.tier);
@@ -438,7 +551,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (cases, agent) = setup(dir.path());
         let config = Config { agent, agent_timeout: Duration::from_secs(60), check_timeout: Duration::from_secs(60),
-            scratch: dir.path().join("scratch"), budget_micro_usd: None };
+            scratch: dir.path().join("scratch"), budget_micro_usd: None, gateway_db: None };
         let rungs = vec![Rung::parse("T0=bad").unwrap(), Rung::parse("T1=good").unwrap()];
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let mut ledger = Ledger::default();
@@ -474,7 +587,7 @@ mod tests {
         // Every attempt reports $0.50; the cap is $0.40, so the cascade stops after its first attempt.
         let config = Config { agent: format!("{agent} 0.5"), agent_timeout: Duration::from_secs(60),
             check_timeout: Duration::from_secs(60), scratch: dir.path().join("scratch"),
-            budget_micro_usd: Some(400_000) };
+            budget_micro_usd: Some(400_000), gateway_db: None };
         let rungs = vec![Rung::parse("T0=bad").unwrap(), Rung::parse("T1=good").unwrap()];
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let mut ledger = Ledger::default();
@@ -506,6 +619,56 @@ mod tests {
         let failed = read_agent_events(r#"{"type":"error","error":{"name":"APIError","data":{"message":"Model is unavailable."}}}"#);
         assert_eq!(failed.cost_micro_usd, None);
         assert_eq!(failed.error.as_deref(), Some("APIError: Model is unavailable."));
+    }
+
+    #[test]
+    fn an_attempt_that_edits_a_protected_file_fails() {
+        if !node_available() {
+            eprintln!("skipped: node is not installed");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        setup(dir.path());
+        fs::write(dir.path().join("cases/sum-bug/case.json"), r#"{"id":"sum-bug","title":"Fix sum","category":"bug_fix",
+            "complexity":"low","prompt":"Make sum add.","checks":["node test.js"],"protected":["test.js"]}"#).unwrap();
+        let cases = load_cases(&dir.path().join("cases")).unwrap();
+        // Empties the test instead of fixing the code: the check would pass.
+        let cheat = dir.path().join("cheat.js");
+        fs::write(&cheat, "require('fs').writeFileSync('test.js', '// nothing\\n');\n").unwrap();
+        let config = Config { agent: format!("node \"{}\"", cheat.display()), agent_timeout: Duration::from_secs(60),
+            check_timeout: Duration::from_secs(60), scratch: dir.path().join("scratch"), budget_micro_usd: None, gateway_db: None };
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let record = rt.block_on(run_case(&cases[0], &[Rung::parse("T0=x").unwrap()], false, &config, &mut Ledger::default())).unwrap();
+        assert!(!record.passed);
+        assert_eq!(record.attempts[0].checks.len(), 1);
+        assert_eq!(record.attempts[0].checks[0].detail, "changed test.js");
+    }
+
+    #[test]
+    fn reads_an_attempts_cost_from_the_gateway_ledger() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.sqlite3");
+        let conn = crate::db::open(&path).unwrap();
+        let insert = |id: &str, session: &str, model: &str, outcome: &str, cost: Option<i64>, status: &str, source: &str| {
+            conn.execute("INSERT INTO usage_events (id, provider, model, input_tokens, output_tokens, cache_tokens, \
+                cache_write_tokens, cost_micro_usd, cost_status, source, created_at, session_key, outcome) \
+                VALUES (?1, 'anthropic', ?2, 1000, 50, 800, 100, ?3, ?4, ?5, 1, ?6, ?7)",
+                rusqlite::params![id, model, cost, status, source, session, outcome]).unwrap();
+        };
+        insert("a", "s1", "claude-haiku-5-5", "ok", Some(120), "estimated", "price: user");
+        insert("b", "s1", "claude-haiku-5-5", "ok", Some(80), "estimated", "price: user");
+        insert("c", "s1", "qwen3.8-flash", "ok", None, "unknown", "subscription: counts against a quota, not money");
+        insert("d", "s1", "claude-sonnet-5-5", "error", Some(0), "estimated", "rejected by the provider (HTTP 400)");
+        insert("e", "s2", "claude-haiku-5-5", "ok", None, "unknown", "no price recorded for this model");
+        drop(conn);
+
+        let one = gateway_usage(&path, "s1").unwrap();
+        assert_eq!((one.requests, one.failed, one.known_micro_usd, one.unknown_money, one.quota), (4, 1, 200, 0, 1));
+        assert_eq!(one.models, vec!["anthropic/claude-haiku-5-5", "anthropic/qwen3.8-flash"]);
+        assert_eq!((one.input_tokens, one.cache_read_tokens, one.cache_write_tokens), (4000, 3200, 400));
+        let two = gateway_usage(&path, "s2").unwrap();
+        assert_eq!((two.requests, two.unknown_money), (1, 1));
+        assert_eq!(gateway_usage(&path, "none").unwrap().requests, 0);
     }
 
     #[test]

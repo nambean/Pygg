@@ -1,0 +1,13 @@
+{
+  "id": "js-add-months",
+  "title": "Add months without overflowing into the next month",
+  "category": "bug_fix",
+  "complexity": "medium",
+  "prompt": "addMonths(date, n) in dates.js adds n months (n may be negative) to a Date, working in UTC. addMonths of January 31, 2024 plus one month returns March 2 instead of February 29: when the day does not exist in the target month, the result must be that month's last day. The time of day is kept, and the input Date is not modified. Fix it. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

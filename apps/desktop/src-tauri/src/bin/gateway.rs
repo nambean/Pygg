@@ -10,7 +10,9 @@
 //!   gateway [--db PATH] combo --name NAME --member CONNECTION/MODEL [--member …]
 //!   gateway [--db PATH] model --model CONNECTION/MODEL [--tier T0-T4] [--context N] [--max-output N]
 //!                             [--tools yes|no] [--vision yes|no] [--price-in USD] [--price-out USD] [--billing TYPE]
+//!                             [--price-cached USD] [--price-cache-write USD] [--price-source WHERE]   (USD per million tokens)
 //!   gateway [--db PATH] client --name NAME [--auto-min-tier T0-T4] [--paid-retries N] [--tasks yes|no] [--no-training yes|no]
+//!                             [--strict yes|no]
 //!   gateway [--db PATH] terms --id CONNECTION --terms no_training|may_train|unknown [--source WHERE]
 //!   gateway [--db PATH] auto --alias auto|auto/cheap [--client NAME] [--anthropic yes] [--tools yes] [--prompt N] [--max-tokens N]
 //!                             [--thinking adaptive|enabled] [--effort low|medium|high|xhigh|max]
@@ -169,8 +171,9 @@ async fn main() {
                     ..store::Capabilities::default() })?;
                 if let (Some(input), Some(output)) = (usd("price-in"), usd("price-out")) {
                     store::update_model(db, provider, model, None, None, Some(Some(gateway::pricing::Price {
-                        input_micro_per_mtok: input, output_micro_per_mtok: output, cached_input_micro_per_mtok: None,
-                        cache_write_micro_per_mtok: None, source: "user".into(), observed_at: db::now_ms() })))?;
+                        input_micro_per_mtok: input, output_micro_per_mtok: output, cached_input_micro_per_mtok: usd("price-cached"),
+                        cache_write_micro_per_mtok: usd("price-cache-write"), source: one("price-source").unwrap_or_else(|| "user".into()),
+                        observed_at: db::now_ms() })))?;
                 }
                 if let Some(billing) = one("billing") {
                     store::update_model(db, provider, model, None, Some(&billing), None)?;
@@ -196,6 +199,7 @@ async fn main() {
                 }
                 if let Some(tasks) = one("tasks") { store::set_client_may_run_tasks(db, &client.id, tasks == "yes")?; }
                 if let Some(only) = one("no-training") { store::set_client_require_no_training(db, &client.id, only == "yes")?; }
+                if let Some(strict) = one("strict") { store::set_client_strict_budget(db, &client.id, strict == "yes")?; }
                 Ok(())
             }).unwrap_or_else(|e| fail(e));
             println!("Updated client {name}");

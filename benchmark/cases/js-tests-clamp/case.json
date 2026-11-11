@@ -1,0 +1,14 @@
+{
+  "id": "js-tests-clamp",
+  "title": "Write tests that catch wrong clamp implementations",
+  "category": "test_writing",
+  "complexity": "low",
+  "prompt": "clamp.js exports clamp(x, lo, hi). Write test.js: a Node script that requires ./clamp.js, checks its behaviour with node:assert, and exits with a non-zero code when any check fails. The tests must pass on clamp.js as it is and catch implementations that get any of its documented behaviour wrong. Do not change clamp.js or check-tests.js.",
+  "checks": [
+    "node check-tests.js"
+  ],
+  "protected": [
+    "clamp.js",
+    "check-tests.js"
+  ]
+}

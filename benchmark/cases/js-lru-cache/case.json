@@ -1,0 +1,13 @@
+{
+  "id": "js-lru-cache",
+  "title": "Least-recently-used cache",
+  "category": "feature",
+  "complexity": "medium",
+  "prompt": "Implement the LRUCache class in lru.js. new LRUCache(capacity) takes a positive integer (otherwise throw a RangeError). get(key) returns the value or undefined and makes the key most recently used. set(key, value) adds or updates the key, makes it most recently used, and when the cache holds more than capacity keys evicts the least recently used one; it returns the cache. has(key) does not change recency. delete(key) returns whether the key was there. size is a getter with the number of keys. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

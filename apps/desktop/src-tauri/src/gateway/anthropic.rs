@@ -326,7 +326,21 @@ pub struct StreamTranslator {
     finish: Option<String>,
     pub usage: Option<Usage>,
     any_tool_call: bool,
-    open_tool_id: Option<String>,
+    /// The tool call being received. Its block starts only once its name is known (found by the benchmark,
+    /// ROADMAP C3: Qwen sends `id: ""` and no name in a call's first chunk, and an Anthropic client rejects a
+    /// `tool_use` block without a name); arguments that arrive before then are held and sent after the start.
+    tool: Option<ToolCall>,
+}
+
+struct ToolCall {
+    /// The OpenAI tool-call index, or its id when the provider sends no index.
+    key: String,
+    id: Option<String>,
+    name: Option<String>,
+    /// Arguments received but not yet sent.
+    held: String,
+    /// The block's index once it has started.
+    index: Option<usize>,
 }
 
 fn event(kind: &str, data: Value) -> String {
@@ -336,7 +350,7 @@ fn event(kind: &str, data: Value) -> String {
 impl StreamTranslator {
     pub fn new(model: &str) -> StreamTranslator {
         StreamTranslator { model: model.into(), started: false, open: None, next_index: 0, finish: None, usage: None,
-            any_tool_call: false, open_tool_id: None }
+            any_tool_call: false, tool: None }
     }
 
     fn start(&mut self, out: &mut Vec<String>) {
@@ -349,7 +363,8 @@ impl StreamTranslator {
     }
 
     fn close(&mut self, out: &mut Vec<String>) {
-        self.open_tool_id = None;
+        // A call that never got a name has no block to close; it is dropped, as no client could run it.
+        self.tool = None;
         if let Some((index, _)) = self.open.take() {
             out.push(event("content_block_stop", json!({ "type": "content_block_stop", "index": index })));
         }
@@ -381,33 +396,51 @@ impl StreamTranslator {
             let key = call["index"].as_u64().map(|i| i.to_string())
                 .or_else(|| call["id"].as_str().map(String::from))
                 .unwrap_or_else(|| position.to_string());
-            // A fragment continues the open call when it has the same key and no id, or repeats the same id.
-            let same_key = matches!(&self.open, Some((_, Some(open))) if *open == key);
-            let same_id = match call["id"].as_str() {
-                None => true,
-                Some(id) => self.open_tool_id.as_deref() == Some(id),
+            // An empty id or name is the same as none.
+            let id = call["id"].as_str().filter(|s| !s.is_empty());
+            let name = call["function"]["name"].as_str().filter(|s| !s.is_empty());
+            // A fragment continues the current call when it has the same key, unless both carry ids that differ
+            // (some providers send every whole call at index 0).
+            let continues = match &self.tool {
+                Some(current) if current.key == key => match (id, current.id.as_deref()) {
+                    (Some(new), Some(old)) => new == old,
+                    _ => true,
+                },
+                _ => false,
             };
-            if !(same_key && same_id) {
+            if !continues {
                 self.close(&mut out);
-                let index = self.next_index;
-                self.next_index += 1;
-                self.open = Some((index, Some(key)));
-                self.any_tool_call = true;
-                let id = call["id"].as_str().map(String::from)
-                    .unwrap_or_else(|| format!("toolu_{}", uuid::Uuid::new_v4().simple()));
-                self.open_tool_id = Some(id.clone());
-                out.push(event("content_block_start", json!({ "type": "content_block_start", "index": index,
-                    "content_block": { "type": "tool_use", "id": id, "name": call["function"]["name"], "input": {} } })));
+                self.tool = Some(ToolCall { key: key.clone(), id: None, name: None, held: String::new(), index: None });
             }
             let fragment = match &call["function"]["arguments"] {
                 Value::String(s) => s.clone(),
                 Value::Object(_) => call["function"]["arguments"].to_string(),
                 _ => String::new(),
             };
-            if !fragment.is_empty() {
-                let index = self.open.as_ref().map(|(i, _)| *i).unwrap_or(0);
+            let Some(current) = self.tool.as_mut() else { continue };
+            if current.id.is_none() {
+                current.id = id.map(String::from);
+            }
+            if current.name.is_none() {
+                current.name = name.map(String::from);
+            }
+            current.held.push_str(&fragment);
+            if current.index.is_none() {
+                let Some(name) = current.name.clone() else { continue };
+                let index = self.next_index;
+                self.next_index += 1;
+                current.index = Some(index);
+                let id = current.id.clone().unwrap_or_else(|| format!("toolu_{}", uuid::Uuid::new_v4().simple()));
+                current.id = Some(id.clone());
+                self.open = Some((index, Some(key)));
+                self.any_tool_call = true;
+                out.push(event("content_block_start", json!({ "type": "content_block_start", "index": index,
+                    "content_block": { "type": "tool_use", "id": id, "name": name, "input": {} } })));
+            }
+            if let (Some(index), false) = (current.index, current.held.is_empty()) {
+                let partial = std::mem::take(&mut current.held);
                 out.push(event("content_block_delta", json!({ "type": "content_block_delta", "index": index,
-                    "delta": { "type": "input_json_delta", "partial_json": fragment } })));
+                    "delta": { "type": "input_json_delta", "partial_json": partial } })));
             }
         }
         if let Some(finish) = choice["finish_reason"].as_str() {
@@ -718,5 +751,33 @@ mod tests {
         let starts = events.iter().filter(|e| e.starts_with("event: content_block_start")).count();
         assert_eq!(starts, 2);
         assert!(events.iter().any(|e| e.contains("\"stop_reason\":\"tool_use\"")));
+    }
+
+    /// Found by the benchmark (ROADMAP C3) with Qwen's token plan: a call's first chunk has `id: ""`, no name and
+    /// part of the arguments; the id and name come in the next one. The block must start once, with the name.
+    #[test]
+    fn a_tool_call_whose_name_comes_later_starts_once_with_it() {
+        let mut t = StreamTranslator::new("m");
+        let mut events = t.push(&json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0, "id": "", "type": "function",
+            "function": { "arguments": "{\"pa" } }] } }] }));
+        assert!(!events.iter().any(|e| e.starts_with("event: content_block_start")), "no block before the name");
+        events.extend(t.push(&json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0, "id": "call_7",
+            "function": { "name": "read", "arguments": "th\":" } }] } }] })));
+        events.extend(t.push(&json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0,
+            "function": { "arguments": "1}" } }] }, "finish_reason": "tool_calls" }] })));
+        events.extend(t.finish());
+        let starts: Vec<&String> = events.iter().filter(|e| e.starts_with("event: content_block_start")).collect();
+        assert_eq!(starts.len(), 1);
+        assert!(starts[0].contains("\"id\":\"call_7\"") && starts[0].contains("\"name\":\"read\""), "{}", starts[0]);
+        let partial: String = events.iter().filter(|e| e.contains("input_json_delta"))
+            .map(|e| serde_json::from_str::<Value>(e.lines().nth(1).unwrap().trim_start_matches("data: ")).unwrap()
+                ["delta"]["partial_json"].as_str().unwrap().to_string()).collect();
+        assert_eq!(partial, "{\"path\":1}");
+        // A call that never gets a name opens no block.
+        let mut nameless = StreamTranslator::new("m");
+        let mut events = nameless.push(&json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0,
+            "function": { "arguments": "{}" } }] } }] }));
+        events.extend(nameless.finish());
+        assert!(!events.iter().any(|e| e.contains("tool_use\"") && e.starts_with("event: content_block_start")));
     }
 }

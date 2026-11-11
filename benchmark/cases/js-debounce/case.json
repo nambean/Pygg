@@ -1,0 +1,13 @@
+{
+  "id": "js-debounce",
+  "title": "Debounce with cancel and flush",
+  "category": "feature",
+  "complexity": "medium",
+  "prompt": "Implement debounce(fn, wait, timers) in debounce.js. timers is an object with setTimeout and clearTimeout (default: the global ones). The returned function, when called, schedules fn to run wait ms after the latest call, with that latest call's arguments and this. It also has: cancel(), which drops a pending call; flush(), which runs a pending call at once and returns fn's result (or undefined when nothing is pending); and pending(), true while a call is scheduled. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

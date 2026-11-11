@@ -1,9 +1,8 @@
-# Phase 0 benchmark
+# Benchmark
 
-> **Update 2026-11-11:** `bench.rs` now reads agent cost events and stops at a hard `--budget-usd` cap, so the cost section below is out of date; agent runs through their own sign-in are still recorded as unknown. 2 of the planned 20-40 cases exist. The baselines are the ones in [ROADMAP](../docs/ROADMAP.md) "P0 release proof", plus the check-driven cascade (ROADMAP C3).
+> **Status:** Current · the benchmark harness and its cases · reviewed 2026-11-11 · order: [ROADMAP](../docs/ROADMAP.md) · built: [Implementation Status](../docs/IMPLEMENTATION-STATUS.md)
 
-
-Tests the product's core idea (ADR-013): does a cascade that climbs model tiers on check failure reach a comparable pass rate at a lower cost per success than always using one model?
+Tests the product's core idea (ADR-013): does a cascade that climbs model tiers on check failure reach a comparable pass rate at a lower cost per success than always using one model? It also compares the baselines in [ROADMAP](../docs/ROADMAP.md) "P0 release proof": a pinned premium model, a pinned inexpensive capable one, a static combo and Auto. Paid traffic is capped at **$5 in total** (ADR-028). Results: [the first pass](reports/2026-11-11-c3-first-pass.md) (every arm but Qwen passed every case, so a harder suite is next).
 
 ## Layout
 
@@ -24,13 +23,18 @@ benchmark/
   "category": "bug_fix",
   "complexity": "low",
   "prompt": "What the agent is asked to do.",
-  "checks": ["node test.js"]
+  "checks": ["node test.js"],
+  "protected": ["test.js"]
 }
 ```
 
-Every case needs at least one deterministic check. A check passes only if it exits 0, and all of a case's checks must pass. Categories in use: `bug_fix`, `feature`, `refactor`, `test_writing`, `docs`. Complexity is `low`, `medium` or `high`.
+- Every case needs at least one deterministic check. A check passes only if it exits 0, and all of a case's checks must pass.
+- `protected` lists fixture files the agent must leave alone: the tests and the check scripts. An attempt that changes or deletes one fails before its checks run, since a check the agent rewrote proves nothing.
+- Categories: `bug_fix`, `feature`, `refactor`, `test_writing` (the agent writes tests; a script runs them against the real code, which must pass, and against altered versions, each of which must fail), and `docs` (a script checks the README or JSDoc for what the prompt asks). Complexity is `low`, `medium` or `high`.
+- The fixtures need only Node.js.
+- Each case was checked when written: its fixture as given fails, and with a reference solution (not in the repository, so no agent can read it) it passes.
 
-The fixtures need only Node.js, so they run anywhere the app is developed.
+There are 24 cases: 5 bug fixes, 13 features, 2 refactors, 2 test-writing cases and 2 docs cases; 7 low, 13 medium and 4 high complexity.
 
 ## Running
 
@@ -42,32 +46,51 @@ cargo run --release --bin bench -- `
   --out ../../../benchmark/runs `
   --agent '<agent command>' `
   --rung T0=<model> --rung T2=<model> --rung T4=<model> `
-  --mode all
+  --mode all --budget-usd 1 [--gateway-db <gateway store>]
 ```
 
 - `--agent` is a command line run through the shell inside each attempt's worktree. It can use three placeholders: `{prompt_file}` (the task text, kept outside the worktree), `{model}` and `{workdir}`.
-- `--mode single` runs each rung alone (the baselines), `--mode cascade` climbs the rungs in tier order, and `--mode all` does both.
-- `--only <id>` runs one case.
-- `--agent-timeout` and `--check-timeout` set limits in seconds.
+- `--mode single` runs each rung alone (the baselines), `--mode cascade` climbs the rungs in tier order, and `--mode all` does both. The tier only orders the rungs.
+- `--budget-usd` is a hard cap on the run's estimated spend: no attempt starts once it is reached, and the run stops after an attempt whose money cost is unknown.
+- `--only <id>` runs one case; `--agent-timeout` and `--check-timeout` set limits in seconds.
 
 Each attempt runs in its own Git worktree and is discarded afterwards. Checks run even when the agent exits with an error.
 
-### OpenCode
+### Through the gateway
 
-OpenCode 1.18.4 has a non-interactive `run` command with `-m provider/model`, `-f` to attach files, `--dir`, `--format json` and `--auto`. A candidate template, **not yet tried against a real model**:
+With `--gateway-db`, each attempt runs with its own session key in `PYGG_BENCH_SESSION`. The agent's configuration sends it as `x-smarttaskrouter-session`, and the attempt's cost is what the gateway's ledger recorded for that session, at the gateway's prices: the agent cannot know which model a route chose. Requests on a subscription count as quota, not money. An attempt that sent nothing through the gateway (a model the agent reaches directly) is costed from the agent's own report. Put a spending limit on the gateway client too, and make it strict (Clients → Limits): the gateway then holds each request at the most it could cost, so the limit cannot be passed.
 
-```text
-opencode run --pure --auto -m {model} -f "{prompt_file}" --dir "{workdir}" "Do the task in the attached file. Edit files in this directory only."
+OpenCode (1.18.4) through the gateway's Anthropic surface: a provider in the file `OPENCODE_CONFIG` points to.
+
+```json
+{
+  "provider": {
+    "pygg": {
+      "npm": "@ai-sdk/anthropic",
+      "options": {
+        "baseURL": "http://127.0.0.1:<port>/v1",
+        "apiKey": "{file:<file with the client token>}",
+        "headers": { "x-smarttaskrouter-session": "{env:PYGG_BENCH_SESSION}" }
+      },
+      "models": {
+        "auto": { "tool_call": true, "limit": { "context": 128000, "output": 32000 } },
+        "anthropic/claude-haiku-5-5": { "tool_call": true, "limit": { "context": 200000, "output": 32000 } }
+      }
+    }
+  }
+}
 ```
 
-`--auto` approves the agent's file edits without asking. That is acceptable here only because every attempt runs in a throwaway worktree. `--format json` may expose token usage, which would let the harness record costs; this is still to be checked.
+The agent template (on Windows; `--title` avoids an extra request for a session title, and `-f` comes last because it takes several files):
+
+```text
+opencode run "Do the task described in the attached file. Edit files in this directory only." --pure --format json --title bench -m {model} --dir "{workdir}" -f "{prompt_file}"
+```
+
+A rung is then `pygg/auto`, `pygg/<combo>` or `pygg/<connection>/<model>`; OpenCode's own models (`opencode/<model>`) go direct. OpenCode sends `cache_control`, so Anthropic's prompt cache works through the gateway.
 
 ## Cost
 
-Agent CLIs report no usage the harness can trust yet, so every attempt is recorded with `cost_status: "unknown"`, and the summary says so. Do not read a missing cost as $0. Real costs come once agent traffic goes through the Phase 1 gateway, or once OpenCode's JSON events prove reliable.
+Costs are estimates at list price (the gateway's prices, or the agent's catalog), not provider bills. An agent run through its own sign-in, or an attempt whose cost could not be read, is recorded as `unknown`, never as $0.
 
-**Running against paid models costs money and needs a budget agreed with the project owner first.**
-
-## Status
-
-There are 2 seed cases so far. The plan calls for 20–40 across all categories before baselines are worth running.
+**Running against paid models costs money.** The owner's budget for the benchmark is under $5 in total (ADR-028); anything beyond it needs a new decision.

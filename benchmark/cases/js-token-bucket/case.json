@@ -1,0 +1,13 @@
+{
+  "id": "js-token-bucket",
+  "title": "Token bucket rate limiter",
+  "category": "feature",
+  "complexity": "high",
+  "prompt": "Implement the TokenBucket class in bucket.js. new TokenBucket({ capacity, refillPerSecond, now }) starts full; now is a function returning the current time in milliseconds (default Date.now). Tokens refill continuously at refillPerSecond (fractions count) up to capacity. take(n = 1) removes n tokens and returns true if at least n are available, otherwise removes nothing and returns false. The tokens getter returns the current number, fractions included. capacity must be a positive number and refillPerSecond a non-negative number, otherwise throw a RangeError; take with n that is not a positive number throws a RangeError too. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}
