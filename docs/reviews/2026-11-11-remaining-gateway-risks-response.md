@@ -1,5 +1,7 @@
 # Response to the follow-up review: remaining gateway risks, 2026-11-11
 
+> **Later (2026-11-11):** the 1-hour TTL, other models (ROADMAP C1) and data-use terms (B2) named as open below are done; see [Implementation Status](../IMPLEMENTATION-STATUS.md).
+
 Responds to [Remaining Gateway Risks](2026-11-11-remaining-gateway-risks.md). Each finding was checked against the source before it was decided. Every accepted change is in the commit that adds this note, with the tests named below. `cargo test`: 87 passed, 1 ignored (84 before); three new end-to-end tests, and four existing ones now opt in to retries explicitly.
 
 **Result:** FR-01, FR-02, FR-03 and FR-04 are accepted. Two parts are deferred, with reasons below. The review's three objections to the earlier response (privacy, paid retries, admission while degraded) were right: in each case the earlier answer described a property the code did not enforce.

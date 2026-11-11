@@ -1,8 +1,10 @@
 # Connection presets and their sources
 
+> **Status:** Current · connection presets and their sources · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+
 Each preset in `apps/desktop/src-tauri/src/gateway/presets.rs` fills in a provider's endpoint, API format and default billing type. The user can change any of them when connecting, for example a token plan's or a regional endpoint. Every endpoint below comes from the provider's own documentation, checked on 2026-11-11. OmniRoute's provider reference was used only to decide which providers to look at (see [OMNIROUTE_FEATURE_RESEARCH.md](OMNIROUTE_FEATURE_RESEARCH.md#provider-reference-review-2026-11-11)).
 
-"Live" means a real request went through the gateway (see [Implementation Status](IMPLEMENTATION-STATUS.md)). Everything else is configured from the docs and not yet tried.
+"Live" means a real request went through the gateway (see [Implementation Status](IMPLEMENTATION-STATUS.md)). Everything else is configured from the docs and not yet tried; OpenRouter, OpenAI, Groq, DeepSeek and Mistral have only had their answer to an invalid key recorded, as error fixtures.
 
 ## Cloud, API key
 

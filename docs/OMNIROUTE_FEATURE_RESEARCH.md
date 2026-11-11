@@ -1,9 +1,11 @@
-# OmniRoute Feature Research — SmartTaskRouter Adoption Decision
+# OmniRoute Feature Research — Pygg Adoption Decision
+
+> **Status:** Reference · OmniRoute research and adopt/reject decisions · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
 
 > **Update 2026-11-11:** built since this research: OR-01/OR-02 as `auto` and `auto/cheap` (`gateway/auto.rs`, the reason stored in the ledger rather than an `auto_route_decisions` table), OR-05 as cooldowns and quota groups (`gateway/policy.rs`). The `/api/routing/*` endpoints in section 9 are superseded by Tauri commands, `gateway auto` and `/pygg/v1/*`. Consumer Auto Chat (section 3) is dropped (ADR-028). No classifier is used (P0-5); compression is P1, not P0. A narrow, task-only MCP server ships under ADR-027 (cf. OR-18). Credential or session bridges stay rejected (ADR-026). Current plan: [ROADMAP](ROADMAP.md#revised-plan-after-adr-026-and-adr-027-2026-11-11-docs-review).
 
 
-> Decision record v1.0 · 2026-11-11 · Research and implementation plan only. No OmniRoute runtime or new SmartTaskRouter feature was implemented by this commit.
+> Decision record v1.0 · 2026-11-11 · Research and implementation plan only. No OmniRoute runtime or new Pygg feature was implemented by this commit.
 >
 > Primary project objective: **AI Cost Optimizer** for everyday conversations and developer workflows. Default UX: user asks normally and the system selects an authorized, capable model with the best expected total cost, preserving continuity across providers.
 
@@ -29,7 +31,7 @@ Reference documentation:
 - [Repository README and feature catalog](https://github.com/cheaper-inference/OmniRoute/blob/release/v3.8.54/README.md)
 - [autoCombo services directory](https://github.com/cheaper-inference/OmniRoute/tree/release/v3.8.54/open-sse/services/autoCombo)
 
-**Evidence distinction:** documentation explicitly describes auto routes, composition, quota strategies, compression modes and resilience. Individual referenced source modules are **code review targets**, not independently executed/verified here; no local OmniRoute test suite was run. Marketing statements such as high token-saving percentages, provider/model counts or total free token capacity are upstream claims, not performance guarantees for SmartTaskRouter. Open issues, unmerged PRs and docs-only proposals must never be equated with released, tested features. Validate license and dependencies before reuse; prefer reimplementing small contracts in Rust to wholesale code transfer.
+**Evidence distinction:** documentation explicitly describes auto routes, composition, quota strategies, compression modes and resilience. Individual referenced source modules are **code review targets**, not independently executed/verified here; no local OmniRoute test suite was run. Marketing statements such as high token-saving percentages, provider/model counts or total free token capacity are upstream claims, not performance guarantees for Pygg. Open issues, unmerged PRs and docs-only proposals must never be equated with released, tested features. Validate license and dependencies before reuse; prefer reimplementing small contracts in Rust to wholesale code transfer.
 
 ### Feature groups observed upstream
 
@@ -45,7 +47,7 @@ Reference documentation:
 
 | ID | Upstream pattern | Decision | Priority | Reason and product guardrail |
 | --- | --- | --- | --- | --- |
-| OR-01 | Auto aliases and zero-configuration model choice | **ADAPT** | P0 | Expose `auto`, `auto/cheap`, `auto/fast`, `auto/coding`, but map each to policy + verified eligibility; everyday Auto Chat needs no alias entry |
+| OR-01 | Auto aliases and zero-configuration model choice | **ADAPT** | P0 | Expose `auto`, `auto/cheap`, `auto/fast`, `auto/coding`, but map each to policy + verified eligibility. **Built:** `auto` and `auto/cheap`; `auto/fast` and `auto/coding` are not planned (ROADMAP E) |
 | OR-02 | Dynamic candidate factory from connected accounts | **ADOPT** | P0 | Builds candidates from actual user entitlements, capability and available quota; no hard-coded best model |
 | OR-03 | Free Tier catalog / shared quota pool accounting | **ADOPT** | P0 | Accurate account-model tier, pooled limits, resets, expiry, source/date and terms; source data must be refreshed and never fabricate allowance |
 | OR-04 | Quota-aware account routing | **ADAPT** | P0 | Headroom / fill-first / RR / sticky; only across authorized accounts and respecting shared organization-level limits |
@@ -54,7 +56,7 @@ Reference documentation:
 | OR-07 | Prompt/context deduplication and lite cleanup | **ADOPT** | P0 | Canonical event IDs, dedup exact repeated chunks, don't delete system/tool schema; benchmark actual token savings |
 | OR-08 | Cache-affinity routing | **ADAPT** | P1 | Combined with Shared Memory + account/model affinity and cache observations; no cross-provider cache reuse claims |
 | OR-09 | Auto-Combo 16-factor weighted scoring | **ADAPT** | P1 | Start with deterministic hard filters + small explainable rule set; introduce empirically calibrated weights only after sufficient observations |
-| OR-10 | Context relay | **ADAPT** | P1 | Our Universal Shared Memory is canonical history + versioned summary + relevant facts + context package, not a proprietary tool state bridge |
+| OR-10 | Context relay | ~~ADAPT~~ withdrawn (ADR-028) | — | Was: our Universal Shared Memory as canonical history + summary + context package. What survives is the bounded failure summary between task steps |
 | OR-11 | Semantic caching | **DEFER** | P2 | Risk of incorrect near-match reuse, privacy leaks and stale facts; require scope isolation, confidence tests and user controls |
 | OR-12 | Advanced natural-language compaction | **DEFER** | P2 | Needs task-specific quality/continuity benchmarks and rollback; no aggressive global default |
 | OR-13 | Broad 20-strategy selector UI | **REJECT** | — | Product serves general users; present Auto/Save More/Balanced/Quality, and advanced strategy controls only for power users |
@@ -70,7 +72,7 @@ Reference documentation:
 
 ### Provider reference review (2026-11-11)
 
-Owner request: use OmniRoute's [provider reference](https://github.com/cheaper-inference/OmniRoute/blob/release/v3.8.54/docs/reference/PROVIDER_REFERENCE.md) to decide which providers SmartTaskRouter should offer. The reference lists over 300 entries in these groups: no-auth, OAuth, web cookie, API key, local, search, audio and proxies. It states no license, and gives no base URL for most entries. Decisions:
+Owner request: use OmniRoute's [provider reference](https://github.com/cheaper-inference/OmniRoute/blob/release/v3.8.54/docs/reference/PROVIDER_REFERENCE.md) to decide which providers Pygg should offer. The reference lists over 300 entries in these groups: no-auth, OAuth, web cookie, API key, local, search, audio and proxies. It states no license, and gives no base URL for most entries. Decisions:
 
 - **Used as a list of names only.** Every preset's endpoint, auth and free-tier note is taken from that provider's own documentation, with the source URL recorded. Nothing is copied from OmniRoute's data.
 - **Rejected categories (OR-16):** web cookie or session bridges (ChatGPT Web, Claude Web, Gemini Web, Copilot Web and the like); OAuth bridges into other products' subscriptions (Cursor, Copilot, Kiro, Antigravity, Codex and the like); "no-auth" scrapers; upstream proxies. These use accounts in ways the providers do not offer as an API, or evade their limits.
@@ -99,7 +101,7 @@ Owner request: use OmniRoute's [provider reference](https://github.com/cheaper-i
 - `Connections > Providers / Models / Accounts / Integrations`; account-model entitlements and quota pool aggregation.
 - `Policies > Auto Routing / Account Pools / Cost & Cache / Compression / Budgets`; power-user only, UI initially uses four top-level strategies.
 - `Usage > Savings / Token Breakdown / Cache / Account Utilization / Verification Outcomes`.
-- `Settings > Memory & Context` continues the universal memory design; no separate provider-specific user memory.
+- ~~`Settings > Memory & Context` continues the universal memory design~~ (withdrawn, ADR-028).
 
 ## 4. Reference algorithm (hard filters before ranking)
 
@@ -231,7 +233,7 @@ Aliases are conceptual; no endpoint or package is published just by these docs. 
 - B1: static cheapest capable model, no context optimization.
 - B2: Auto routing with hard filters and no compression.
 - B3: Auto routing + safe deterministic compression.
-- B4: Auto routing + Shared Memory and cache-aware affinity.
+- B4: Auto routing + cache-aware affinity (Shared Memory withdrawn, ADR-028).
 
 **Test categories:** short factual questions, rewriting/translation, long multi-turn references, contradictory updated facts, JSON/structured tool outputs, code edits with deterministic checks, image+text (if supported), high-risk requests requiring quality escalation and sensitive-workspace restrictions.
 
@@ -256,7 +258,7 @@ Aliases are conceptual; no endpoint or package is published just by these docs. 
 | OR-P0-4 | Tool output dedup + conservative compression in shadow/opt-in | P0 experiment | Zero protected content lost, pre/post tokens accounted |
 | OR-P1-1 | Model affinity + cache telemetry + universal context handoff | P1 memory | Continuity benchmark and verified cost of switching |
 | OR-P1-2 | Context-aware task classifier + calibrated score profiles | P1 routing | Better or equivalent quality with lower measured cost |
-| OR-P1-3 | Auto Chat integration, route explanations, account/cost inspector | P1 UX | User sends normal messages with no model-selection prompt |
+| OR-P1-3 | ~~Auto Chat integration~~ (withdrawn, ADR-028), route explanations, account/cost inspector | P1 UX | User sends normal messages with no model-selection prompt |
 | OR-P2-1 | Optional semantic caching, advanced compaction, MCP read-only diagnostics | P2 optional | Explicit opt-in, independent quality and security gates |
 
 **Interaction with existing ADR-016:** Gateway remains first. Integration is incremental; no rewrite of desktop shell, SQLite base, keychain, worktree runner or current task list. Existing CLI/IDE plan, account rotation and memory specs stay authoritative for their domains.

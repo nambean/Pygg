@@ -1,5 +1,7 @@
 # Agents: official agent CLIs with their own sign-in
 
+> **Status:** Current · agent CLIs, the task engine and the MCP server · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+
 **Decision (owner, 2026-11-11):** to let people use the subscriptions and free tiers they already have, Pygg runs the vendors' own agent CLIs as executors. It does not bridge web sessions, cookies or another product's OAuth tokens (see [OMNIROUTE_FEATURE_RESEARCH.md](OMNIROUTE_FEATURE_RESEARCH.md#provider-reference-review-2026-11-11)). Code: `apps/desktop/src-tauri/src/agents.rs`. The app's screen is Agents; the headless CLI is `cargo run --bin agent`.
 
 ## Contract
@@ -30,7 +32,7 @@ A scratch repository with `add()` returning `a - b`; the task was to make it `a 
 | OpenCode 1.18.4 | its free model `opencode/deepseek-v4.1-flash-free` | Fixed in 25.4 s, diff +1 −1, agent's estimate $0.0000 |
 | OpenCode 1.18.4 | its default model | Failed: the model's server answered "Unexpected server error". Recorded as an error |
 | Gemini CLI 0.66.0 | Google account | Failed. Google answered "This client is no longer supported for Gemini Code Assist for individuals" and points to Antigravity. A Gemini API key set in Gemini CLI is the remaining way; not tested. The headless trust prompt is handled |
-| Claude Code | — | Not on PATH on this machine (only inside the Claude desktop app); not tested here |
+| Claude Code | — | Not on PATH at the time; tested later from its native install in `~/.local/bin` (2.1.322, Team plan), see From the IDE below |
 
 Every run, including the failed ones, has a ledger entry under `agent:<id>`.
 

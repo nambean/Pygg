@@ -1,5 +1,7 @@
 # Decisions
 
+> **Status:** Current · architecture decision records (ADR-001 to ADR-028) · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+
 Architecture decision records, in the style of DownFetch's `docs/DECISIONS.md`. Each decision says what was chosen, why, and what it costs. The product plan is [SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md); the screen design is [design/SCREENS.md](design/SCREENS.md).
 
 ## ADR-001 — Windows first, macOS next
@@ -44,7 +46,7 @@ Architecture decision records, in the style of DownFetch's `docs/DECISIONS.md`. 
 
 ## ADR-006 — Rule-based routing in v1
 
-**Decision:** v1 uses a curated tier table (T0–T4) plus minimum-tier rules per task category and complexity, with hard eligibility filters. Measured cost-per-success ranking comes in Phase 3, and only above a minimum sample size.
+**Decision:** v1 uses a curated tier table (T0–T4) plus minimum-tier rules per task category and complexity, with hard eligibility filters. Measured cost-per-success ranking comes later, and only above a minimum sample size. **Update 2026-11-11:** the curated table is built (`gateway/tiers.rs`, `curated:v1`, ROADMAP B3); minimum-tier rules per category and complexity are not.
 
 **Why:** There is no measured data at the start. Inventing quality scores would violate the plan's principles.
 
@@ -61,7 +63,7 @@ Architecture decision records, in the style of DownFetch's `docs/DECISIONS.md`. 
 
 ## ADR-008 — A Git worktree per attempt; Git-only writes in MVP
 
-**Decision:** Each attempt runs in its own Git worktree created from a recorded base revision. Failed attempts are discarded. Workspaces that are not Git repositories get read-only planning in MVP.
+**Decision:** Each attempt runs in its own Git worktree created from a recorded base revision. Failed attempts are discarded. Workspaces that are not Git repositories get read-only planning in MVP. **Update 2026-11-11:** not built; workspaces must be Git repositories (AGENTS.md).
 
 **Why:** Isolation is what makes trying a cheap model first harmless. Snapshot isolation for non-Git folders is possible later, but it is not worth the risk in MVP.
 
@@ -107,7 +109,7 @@ Architecture decision records, in the style of DownFetch's `docs/DECISIONS.md`. 
 
 **Why:** The product's core idea is unproven. A benchmark is the cheapest way to find out.
 
-**Note:** Running the benchmark against paid models needs an explicit budget from the owner.
+**Note:** Running the benchmark against paid models needs an explicit budget from the owner: under $5 in total (ADR-028).
 
 ## ADR-014 — Sample data is always labeled
 
@@ -127,15 +129,15 @@ Architecture decision records, in the style of DownFetch's `docs/DECISIONS.md`. 
 
 **Decision:** The multi-provider gateway is built before the task orchestrator (2026-11-11, owner's choice). It works in the spirit of tools like 9router:
 - Clients the user already has (Codex, Cursor, OpenCode, scripts) point at one local base URL.
-- Each connection is an OpenAI-compatible provider account. Its key is kept in the OS credential store.
+- Each connection is a provider account (OpenAI-compatible, or Anthropic's own API). Its key is kept in the OS credential store.
 - A **combo** is a named, ordered list of models. The gateway falls back down the list on hard errors, but only before any output has reached the client (ADR-003).
 - Every request is written to the usage ledger, and each cost carries its provenance.
 
-The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the gateway, and the Phase 0 benchmark is deferred until that layer is built.
+The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the gateway, and the Phase 0 benchmark is deferred until that layer is built. **Update 2026-11-11:** that layer is built, and the benchmark runs (ROADMAP C3).
 
 **Why:** Clients that already exist can use the gateway on day one, and the orchestrator needs the gateway anyway. The benchmark only tests the orchestrator's premise, so it can wait for it.
 
-**Cost:** For now, routing happens per request and is chosen by the client through the model name. Routing by task comes back with the orchestrator.
+**Cost:** For now, routing happens per request and is chosen by the client through the model name. Routing by task comes back with the orchestrator. **Update 2026-11-11:** it did, as a fixed ladder of agent steps per task (task engine v1); a task is not yet analysed into a proposed plan.
 
 
 ## ADR-017 — Universal, provider-independent conversation memory (proposed)
@@ -158,13 +160,13 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Decision:** ADR-016's gateway-first sequence is current. ADR-013's benchmark-first order is retained as historical rationale but is superseded **for implementation order**. Validate model selection, conversation handoff and coding cascades in reproducible experiments before public savings claims.
 
-**Status:** ADR-016 roadmap clarification. The gateway is now **implemented**, but the memory engine/auto cost optimizer remain proposed. Refer to [Implementation Status](IMPLEMENTATION-STATUS.md).
+**Status:** ADR-016 roadmap clarification. The gateway is now **implemented**, and rule-based `auto` is built (P0-5); the memory engine is withdrawn (ADR-028). Refer to [Implementation Status](IMPLEMENTATION-STATUS.md).
 
 ## ADR-020 — Five entitlement tiers per account-model (proposed)
 
 **Decision:** UI groups accounts and models under Free, Subscription, API Paid, Local and Unknown, while keeping connection/auth method separate. A provider can have models in multiple tiers. Capability, pricing and quota are recorded per account-model with provenance and timestamps. Unknown is not free. Subscription entitlements are only used through verified provider-supported methods.
 
-**Status:** specified; implementation pending. See [CLI / IDE / npm / tiers](CLI_IDE_NPM_PROVIDER_TIERS.md).
+**Status:** partly built: billing (Free, Local, Subscription, Paid, Unknown) is set per connection and per model, with its source; the tier-grouped Providers views and an account-model entitlement schema are not (ROADMAP E). See [CLI / IDE / npm / tiers](CLI_IDE_NPM_PROVIDER_TIERS.md).
 
 ## ADR-021 — Headless Rust CLI and npm launcher (proposed)
 
@@ -184,11 +186,11 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Safety:** do not use account/key/IP rotation to circumvent bans, quotas, subscription terms, shared tenant limits or user authorization. Do not silently change an active agent attempt, tool call or stream. 401 and 403 are not normal transient errors.
 
-**Status:** specified, not implemented. See [ACCOUNT_API_ROTATION.md](ACCOUNT_API_ROTATION.md).
+**Status:** partly built: client allowlists, quota groups, spend reservations, cooldowns and a circuit breaker with a probe; account pools are not (ROADMAP E). See [ACCOUNT_API_ROTATION.md](ACCOUNT_API_ROTATION.md).
 
 ## ADR-024 — OmniRoute feature shortlist and validation gates (2026-11-11)
 
-**Decision:** Adapt OmniRoute-style dynamic Auto-Combo candidate construction, verified Free Tier Intelligence with quota-group deduplication, explainable hard filters, bounded pre-stream failover/circuit breakers and conservative tool-output compression. Build on existing Account Pool and Universal Shared Memory designs rather than copying the upstream gateway. Later evaluate cache-aware affinity, quality-calibrated scoring, and opt-in semantic caching.
+**Decision:** Adapt OmniRoute-style dynamic Auto-Combo candidate construction, verified Free Tier Intelligence with quota-group deduplication, explainable hard filters, bounded pre-stream failover/circuit breakers and conservative tool-output compression. Build on the existing Account Pool design rather than copying the upstream gateway (Universal Shared Memory is withdrawn, ADR-028). Later evaluate cache-aware affinity, quality-calibrated scoring, and opt-in semantic caching.
 
 **Rejected for default product:** multi-model fusion/chaos, dozens of surfaced strategies, unsafe credential or TLS/browser impersonation, aggressive lossy context compression without independent benchmarks, and marketing claims derived solely from upstream benchmarks.
 
@@ -197,15 +199,15 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 **Implementation gate:** provider-verified entitlements, no privacy or budget bypass, safe rollback and controlled quality/cost-per-success evaluation. See [research and detailed adoption matrix](OMNIROUTE_FEATURE_RESEARCH.md).
 
 
-## ADR-025 — Cost-safe gateway parity and owned vs external memory boundary (accepted design, code pending)
+## ADR-025 — Cost-safe gateway parity and owned vs external memory boundary (accepted; P0 built)
 
 **Decision:** Review reconciliation ([Claude review](reviews/2026-11-11-architecture-review.md), [response](reviews/2026-11-11-review-response.md)) sets **[ROADMAP.md](ROADMAP.md)** as the single delivery-order authority. First priority is not adding new router features; it is preventing the gateway from increasing cost or violating provider rules: native same-format Anthropic passthrough/cache parity, safe error-scoped fallback, atomic budget/usage accounting, explicit session affinity, then explainable rule-based Auto aliases.
 
-**Memory ownership:** app-owned Auto Chat may build scoped context/summary/memory packages at controlled cache-stable checkpoints. External CLI/IDE clients own their own prompts, history and compaction: gateway **never silently inserts memory or rewrites those prompts**. Only explicitly supplied authenticated session IDs may support persistent affinity; do not derive them from a hash of prompt content.
+**Memory ownership:** ~~app-owned Auto Chat may build scoped context/summary/memory packages at controlled cache-stable checkpoints~~ (withdrawn, ADR-028). External CLI/IDE clients own their own prompts, history and compaction: gateway **never silently inserts memory or rewrites those prompts**. Only explicitly supplied authenticated session IDs may support persistent affinity; do not derive them from a hash of prompt content.
 
 **User scope:** initial benchmark/market wedge is developers with metered API workloads because financial outcomes are measurable; **long-term product vision remains cost optimization for everyday users as well**. This does not authorize claiming cash savings for fixed subscription chat plans.
 
-**Evidence:** code-backed findings were reviewed; synthetic multiplier examples are not real provider measurements. No code implementation is claimed by this ADR. **Update 2026-11-11:** P0-1 to P0-4 are implemented and tested against fake providers, with a live Gemini check; see [Implementation Status](IMPLEMENTATION-STATUS.md) and [architect decisions](reviews/2026-11-11-architect-decisions.md). Native Anthropic parity against a real endpoint is still open. Other proposed ADRs remain proposals until accepted as architecture and implemented/tested separately.
+**Evidence:** code-backed findings were reviewed; synthetic multiplier examples are not real provider measurements. No code implementation is claimed by this ADR. **Update 2026-11-11:** P0-1 to P0-4 are implemented and tested against fake providers, with a live Gemini check; see [Implementation Status](IMPLEMENTATION-STATUS.md) and [architect decisions](reviews/2026-11-11-architect-decisions.md). Native Anthropic parity against a real endpoint was measured later (Implementation Status: Provider parity). Other proposed ADRs remain proposals until accepted as architecture and implemented/tested separately.
 
 ## ADR-026 — Official agent CLIs with their own sign-in; no session or OAuth bridges (2026-11-11)
 
@@ -219,7 +221,7 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Decision:** Most people will not treat a router app as an IDE. Smart tasks are started where people already work: their coding agent calls Pygg's MCP server (`<app> mcp`), which forwards to the gateway's task API. The app runs the tasks and is where they are watched, paid steps are approved, and results are reviewed; New Task in the app stays as a manual fallback. A client needs the user's **May start tasks** permission, sees only its own tasks, and cannot approve a paid step (ADR-010).
 
-**Supersedes:** the parts of [SCREENS.md](design/SCREENS.md) and the [functional plan](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md) that assume the user composes and plans tasks in the app first (Analyze Task, Plan/Run/Result as the primary path). Status: built and verified from a real Codex session. See [AGENTS.md](AGENTS.md#from-the-ide-pygg-mcp-and-the-task-api).
+**Supersedes:** the parts of [SCREENS.md](design/SCREENS.md) and the [functional plan](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md) that assume the user composes and plans tasks in the app first (Analyze Task, Plan/Run/Result as the primary path). Status: built and verified from real Codex and Claude Code sessions. See [AGENTS.md](AGENTS.md#from-the-ide-pygg-mcp-and-the-task-api).
 
 ## ADR-028 — MIT licence, a $5 benchmark budget, and no Auto Chat in the app (2026-11-11)
 
@@ -232,4 +234,5 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 ## Open decisions (not yet finalized)
 
-- **First agent benchmark client and model matrix**, within the $5 budget (ADR-028). OpenCode is a candidate; version, CLI flags and measurable usage are checked against the installed version.
+- ~~First agent benchmark client and model matrix~~: settled by the C3 first pass (OpenCode 1.18.4 through the gateway; see the [report](../benchmark/reports/2026-11-11-c3-first-pass.md)).
+- A code-signing certificate (ROADMAP D3) and the npm package name (D2), before distribution.

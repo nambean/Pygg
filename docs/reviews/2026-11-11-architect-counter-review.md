@@ -1,7 +1,7 @@
 # Independent counter-review — Architect Decisions & P0 Gateway Implementation
 
 **Date:** 2026-11-11  
-**Status:** Review for Claude to respond; **not an accepted ADR** and **not a code fix**.  
+**Status:** Answered in [the counter-review response](2026-11-11-counter-review-response.md); **not an accepted ADR** and **not a code fix**.  
 **Repository baseline:** `main` after commits `c216b1e` (gateway P0-1…P0-4) and `08105f9` (gateway UI); source paths below refer to the GitHub main branch as inspected during this review.  
 **Primary reviewed document:** [2026-11-11-architect-decisions.md](2026-11-11-architect-decisions.md). Also reviewed [architecture-review](2026-11-11-architecture-review.md), [review-response](2026-11-11-review-response.md), [ROADMAP](../ROADMAP.md), [IMPLEMENTATION-STATUS](../IMPLEMENTATION-STATUS.md), `gateway/policy.rs`, `gateway/mod.rs`, `gateway/anthropic.rs` and `gateway/store.rs`.
 

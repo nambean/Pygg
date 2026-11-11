@@ -1,25 +1,29 @@
-# SmartTaskRouter — UI/UX & Functional Implementation Plan
+# Pygg — UI/UX & Functional Implementation Plan
+
+> **Status:** Historical · the v1.2 functional plan; superseded where ROADMAP and ADR-026 to ADR-028 say so · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
 
 > **Update 2026-11-11 (ADR-026, ADR-027):** agents run with their own sign-in, and tasks are started from the user's IDE agent through MCP. The analyze-then-plan flow (§2.2, §3.2), `POST /api/routes/analyze` and the tasks API in §6 are superseded; the built task API is `/pygg/v1/tasks` ([AGENTS.md](AGENTS.md#from-the-ide-pygg-mcp-and-the-task-api)). Auto Chat and app-owned conversation memory are dropped (ADR-028). See [ROADMAP](ROADMAP.md#revised-plan-after-adr-026-and-adr-027-2026-11-11-docs-review).
 
 
-> Version: 1.2 addendum | Date: 2026-11-11 | Status: design plus early implementation; shared memory is proposed, not built
+> Version: 1.2 addendum | Date: 2026-11-11 | Status: design plus implementation; shared memory and Auto Chat are withdrawn (ADR-028)
 >
 > Reference direction: 9Router-style provider/quota/endpoint management, extended with task-level routing that is checked by deterministic verification.
 
-> **CURRENT DELIVERY PRIORITIES (2026-11-11):** [ROADMAP.md](ROADMAP.md) is authoritative; [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) is authoritative for implemented code. The gateway, headless `gateway serve` CLI and gateway-first desktop screens have been built; older Phase 0–4 ordering, six-destination/task-first descriptions and mock-up colors below are retained as historical design. [Review response](reviews/2026-11-11-review-response.md) addresses the Claude findings. No Smart Memory, Auto Router or cost savings are claimed as implemented.
+> **CURRENT DELIVERY PRIORITIES (2026-11-11):** [ROADMAP.md](ROADMAP.md) is authoritative; [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) is authoritative for implemented code. The gateway, headless `gateway serve` CLI and gateway-first desktop screens have been built; older Phase 0–4 ordering, six-destination/task-first descriptions and mock-up colors below are retained as historical design. [Review response](reviews/2026-11-11-review-response.md) addresses the Claude findings. Rule-based Auto routing (P0-5) is built; no Smart Memory (withdrawn, ADR-028) and no cost savings are claimed.
 
 ## Update — AI Cost Optimizer + Universal Shared Memory (2026-11-11)
 
-**Product north star:** SmartTaskRouter serves everyday AI users **and** developers. Its primary value is automatically choosing a capable model from connected providers to reduce **total cost per quality-preserving answer or completed task**, not merely providing gateway routing or a coding agent runner. For normal chat, user sends a message in Auto mode without selecting a model or answering a complexity questionnaire.
+> **Withdrawn in part (ADR-028):** the normal-chat Auto mode and Universal Shared Memory below are not pursued; everyday users are reached through the clients they already use, pointed at the gateway (ROADMAP north star). The cost-optimizer goal stands.
+
+**Product north star:** Pygg serves everyday AI users **and** developers. Its primary value is automatically choosing a capable model from connected providers to reduce **total cost per quality-preserving answer or completed task**, not merely providing gateway routing or a coding agent runner. For normal chat, user sends a message in Auto mode without selecting a model or answering a complexity questionnaire.
 
 **Universal Shared Memory** is a new core design: preserve a portable raw conversation record; use compact summaries, recent turns, retrieval of relevant facts, explicit work checkpoints and model-specific context packages. Model Affinity compares keeping the current model (including cache advantage) to switching (rehydration/compaction/validation costs), and only switches when it is beneficial and policy-allowed. Never assume cross-provider reuse of hidden reasoning, KV cache, tool state or provider-specific session artifacts.
 
-**Open-source references:** Mem0 (fact extraction/retrieval), OpenCode (compaction/continuity), Letta (persistent shared memory), LangGraph (checkpoints/store), Aider (token-budgeted repo context), Graphiti (temporal facts, later). External benchmark claims are not SmartTaskRouter measurements.
+**Open-source references:** Mem0 (fact extraction/retrieval), OpenCode (compaction/continuity), Letta (persistent shared memory), LangGraph (checkpoints/store), Aider (token-budgeted repo context), Graphiti (temporal facts, later). External benchmark claims are not Pygg measurements.
 
 **Source of truth:** [Universal Shared Memory technical proposal](UNIVERSAL_SHARED_MEMORY.md) covers architecture, scopes, schema, cache-aware handoff, privacy, UI and A/B/C/D/E benchmarks. Existing Git-worktree verification remains mandatory for automatic coding cascades; consumer chat has its own quality and consent rules.
 
-**Roadmap synchronization:** ADR-016 overrides the earlier benchmark-first delivery order in ADR-013. Build the gateway and ledger first, then portable conversation history/context handoff and model affinity, followed by Auto Chat and long-term memory; benchmark both switching/continuity and coding cascade before claiming savings. Current screens remain task-list-first until the new consumer chat flow is designed and reviewed.
+**Roadmap synchronization:** ADR-016 overrides the earlier benchmark-first delivery order in ADR-013. Build the gateway and ledger first, then model affinity (portable conversation history, Auto Chat and long-term memory are withdrawn, ADR-028); benchmark both switching/continuity and coding cascade before claiming savings. Current screens remain task-list-first until the new consumer chat flow is designed and reviewed.
 
 ## Update — CLI / IDE, npm and provider tiers (2026-11-11)
 
@@ -27,11 +31,11 @@ The gateway-first release will support terminal CLI and IDE integrations through
 
 ## Update — Authorized account/API rotation (2026-11-11)
 
-Add Account Pools with Fill First, Round Robin, Sticky Round Robin, Weighted and Cost-Aware strategies; verified account-model entitlements; quota/reset-aware cooldown, per-client allowlists, circuit breakers, atomic concurrency reservations and safe pre-stream failover. Persist conversation affinity to avoid cache loss and unintentional context changes. No credential/IP rotation to evade provider restrictions or bypass shared quotas. Full authoritative proposal: [ACCOUNT_API_ROTATION.md](ACCOUNT_API_ROTATION.md). Gateway-first G1–G2 includes basic selection; cost-aware rotation builds on Universal Shared Memory and measurement. This is not implemented yet.
+Add Account Pools with Fill First, Round Robin, Sticky Round Robin, Weighted and Cost-Aware strategies; verified account-model entitlements; quota/reset-aware cooldown, per-client allowlists, circuit breakers, atomic concurrency reservations and safe pre-stream failover. Persist conversation affinity to avoid cache loss and unintentional context changes. No credential/IP rotation to evade provider restrictions or bypass shared quotas. Full authoritative proposal: [ACCOUNT_API_ROTATION.md](ACCOUNT_API_ROTATION.md). Gateway-first G1–G2 includes basic selection; cost-aware rotation builds on measurement. **Update 2026-11-11:** allowlists, quota groups, reservations and a circuit breaker are built; account pools are not (ROADMAP E).
 
 ## Update — OmniRoute evaluated and feature scope locked (2026-11-11)
 
-[OMNIROUTE_FEATURE_RESEARCH.md](OMNIROUTE_FEATURE_RESEARCH.md) defines the feature decisions and evidence boundaries: **P0** dynamic connected-model candidate factory, Free Tier Intelligence with shared quota groups, strict eligibility and `auto` aliases, account-health cooldown/circuit breaker, safe pre-stream failover, and opt-in/shadow-tested deterministic compression; **P1** memory/cache-aware model affinity, calibrated routing scores and general-user Auto Chat; **P2** optional semantic caching and advanced compaction only after independent quality tests. Default UX remains automatic model selection without extra questions. Reject default multi-model fusion, chaos routing, session spoofing and unverifiable savings numbers. The existing gateway-first ADR-016 remains current; these modules extend rather than replace the codebase.
+[OMNIROUTE_FEATURE_RESEARCH.md](OMNIROUTE_FEATURE_RESEARCH.md) defines the feature decisions and evidence boundaries: **P0** dynamic connected-model candidate factory, Free Tier Intelligence with shared quota groups, strict eligibility and `auto` aliases, account-health cooldown/circuit breaker, safe pre-stream failover, and opt-in/shadow-tested deterministic compression; **P1** cache-aware model affinity and calibrated routing scores (memory and general-user Auto Chat withdrawn, ADR-028); **P2** optional semantic caching and advanced compaction only after independent quality tests. Default UX remains automatic model selection without extra questions. Reject default multi-model fusion, chaos routing, session spoofing and unverifiable savings numbers. The existing gateway-first ADR-016 remains current; these modules extend rather than replace the codebase.
 
 ## Changes in 1.1
 
@@ -41,36 +45,36 @@ Add Account Pools with Fill First, Round Robin, Sticky Round Robin, Weighted and
 - **Cost model corrected:** adds a `Subscription` billing type and records where each quota figure comes from. Records whether a provider's terms allow training on submitted data and treats that as a privacy constraint.
 - **Benchmark first:** a new Phase 0 tests the core idea (cascade vs. always using one model) before the UI is built.
 - **Scope cut:** navigation goes from 12 items to 6 destinations. The Skills Hub moves to Phase 4.
-- **Stack and design aligned with DownFetch:** one Tauri 2 app with a Rust core (gateway, router, agent runner) and a React 19 + Vite interface styled with semantic CSS tokens after Apple's HIG. Design reviews use the `apple-design` skill. This replaces the earlier Node/Fastify + Tailwind/shadcn proposal and the 9Router-style web-dashboard look; orange stays as the accent color (§1, §4).
+- **Stack and design aligned with DownFetch:** one Tauri 2 app with a Rust core (gateway, router, agent runner) and a React 19 + Vite interface styled with semantic CSS tokens after Apple's HIG. Design reviews use the `apple-design` skill. This replaces the earlier Node/Fastify + Tailwind/shadcn proposal and the 9Router-style web-dashboard look; the accent was later changed to green (see SCREENS and Implementation Status).
 - **Target users and competitive landscape added;** model tiers are now defined; broken mockup references are fixed.
 - **Screen design agreed** ([docs/design/SCREENS.md](design/SCREENS.md)). Navigation is list-first with six destinations and no Overview. Workspaces get their own settings. A passing result is handed off as a kept Git branch. Approvals are durable and cover exactly one attempt. MVP writes only to Git workspaces, and crash recovery moves into Phase 1.
 
 ## 0. Product scope and principles
 
-**Goal:** optimize quality-adjusted total cost per accepted AI answer or completed task across connected and authorized providers, without requiring the user to choose a model every turn. Initial measurable release targets developer/API agent workflows; consumer Auto Chat remains in the product vision. Developer task-stage routing is one mode, not the entire product. Cheaper models are tried first only where the result can be verified automatically. Escalation is explained and, when paid, approved by the user.
+**Goal:** optimize quality-adjusted total cost per accepted AI answer or completed task across connected and authorized providers, without requiring the user to choose a model every turn. Initial measurable release targets developer/API agent workflows; everyday users are served through their own clients pointed at the gateway, not an Auto Chat in the app (ADR-028). Developer task-stage routing is one mode, not the entire product. Cheaper models are tried first only where the result can be verified automatically. Escalation is explained and, when paid, approved by the user.
 
 **Initial developer MVP users:** individual developers who already use two or more coding agents or providers. They typically mix subscriptions, free tiers, pay-per-token APIs and local models, and want to spend less without losing quality or control. Small teams and hosted multi-user mode are out of scope until after Phase 4.
 
 **Principles:** connected-model-first; free-first only when the output can be verified; user confirmation on paid escalation; transparent routing; minimum necessary context; security-first handling of third-party content; usage-based optimization; reversible settings.
 
-**Non-goals for initial developer MVP:** full IDE replacement; arbitrary website agent browsing; GitHub skill marketplace; learned/ML router; cloud orchestration at scale; guaranteed free execution or guaranteed savings. Everyday Auto Chat and shared conversation continuity are a planned expansion, not a claim of current implementation.
+**Non-goals for initial developer MVP:** full IDE replacement; arbitrary website agent browsing; GitHub skill marketplace; learned/ML router; cloud orchestration at scale; guaranteed free execution or guaranteed savings. Everyday Auto Chat and shared conversation continuity are withdrawn (ADR-028).
 
-### 0.1 Gateway implemented first; orchestrator and app-owned Auto Chat follow (ADR-016, ROADMAP)
+### 0.1 Gateway implemented first, then the orchestrator (ADR-016, ROADMAP; app-owned Auto Chat withdrawn, ADR-028)
 
 The plan supports two modes with distinct semantics:
 
 | Mode | Who sends requests | Routing unit | Model switching |
 | --- | --- | --- | --- |
-| **Task orchestration** (primary) | SmartTaskRouter launches an agent CLI for each stage | Task / stage | Chosen once per stage attempt; a new attempt may use a higher tier |
+| **Task orchestration** (primary) | Pygg launches an agent CLI for each stage | Task / stage | Chosen once per stage attempt; a new attempt may use a higher tier |
 | **Gateway-only** | Any OpenAI/Anthropic-compatible client | Single request via a policy-routed model alias | Model is pinned per conversation; fallback happens only on hard errors before any output is streamed, is logged, and goes to a model with the same capabilities |
 
 **Why not route each request inside an agent loop:** switching models mid-session invalidates prompt caches, can break tool-call formats and conversation state, and makes outcomes hard to reproduce. The gateway sees single requests without task context, so it cannot judge task difficulty anyway.
 
-In orchestration mode the agent CLI's base URL points at the local gateway where the agent supports it. That lets the gateway enforce budgets and record usage for every request. Agents that use their own subscription login run with their native authentication (see §3.7).
+Agents run with their own sign-in, outside the gateway (ADR-026): Pygg records the usage they report and enforces task budgets and approvals, not per-request gateway limits.
 
 ### 0.2 Competitive landscape
 
-| Product | What it does (summary) | Gap SmartTaskRouter targets |
+| Product | What it does (summary) | Gap Pygg targets |
 | --- | --- | --- |
 | 9Router | Provider connections, quota tracking, model combos with fallback, compatible endpoints | No task understanding or verification-driven escalation |
 | claude-code-router | Rule-based routing of Claude Code requests to other providers (e.g. background, long-context, reasoning) | Per-request rules inside one agent, no outcome validation or cost-per-success |
@@ -89,7 +93,7 @@ The interface follows the same approach as DownFetch (`F:\2026\DownFetch\apps\de
 - **Platform:** Tauri 2 window with DownFetch's traffic-light window controls on every platform (a deliberate departure on Windows; see SCREENS.md D12); Windows first, macOS next. Desktop-first at 1440×900, usable down to 1024px.
 - **Styling:** plain CSS with semantic tokens on `:root` (`--window`, `--sidebar`, `--surface`, `--control`, `--field`, `--label`, `--secondary`, `--separator`, `--hover`, `--selection`, `--accent`, `--accent-text`, `--green`, `--orange`, `--red`, `--focus`…). No Tailwind or shadcn.
 - **Appearance:** follows the system light/dark setting through `prefers-color-scheme`, with `prefers-contrast: more` overrides. There is no in-app theme switch, matching DownFetch.
-- **Accent:** SmartTaskRouter keeps orange as its brand color, tuned for contrast like DownFetch's tokens. Proposed values: fill `#C2410C` (white text on it about 5:1) and text `#B93A0A` in light mode; `--accent-text` `#FB923C` in dark mode. Verify every pair with a contrast checker before use.
+- **Accent (superseded: the app uses green, see SCREENS):** Pygg keeps orange as its brand color, tuned for contrast like DownFetch's tokens. Proposed values: fill `#C2410C` (white text on it about 5:1) and text `#B93A0A` in light mode; `--accent-text` `#FB923C` in dark mode. Verify every pair with a contrast checker before use.
 - **Type:** system font stack (`-apple-system`, `SF Pro Text`, `Segoe UI Variable Text`, `Segoe UI`, `system-ui`) and a system monospace stack for model IDs, tokens and logs. Both cover Vietnamese.
 - **Icons:** `lucide-react`, always paired with a text label or an accessible name.
 - **Shell:** sidebar, toolbar with gateway status and workspace, command palette `Ctrl/Cmd+K`, sheets for confirmations (approval, paid escalation), tray icon so the gateway keeps running when the window is closed.
@@ -196,16 +200,16 @@ Each row has controls to change the model (chosen from eligible candidates only)
 | --- | --- |
 | `provider_api` | Returned by an official quota/credit endpoint |
 | `response_headers` | Derived from rate-limit headers on real responses |
-| `ledger_estimate` | Calculated from SmartTaskRouter's own usage ledger against a user-entered limit |
+| `ledger_estimate` | Calculated from Pygg's own usage ledger against a user-entered limit |
 | `unknown` | No reliable source; routing treats remaining quota as unknown |
 
 Most providers do not expose remaining quota through an API, so `ledger_estimate` and `unknown` will be common and the UI should design for them.
 
-**Data-use terms** per provider/plan: whether the provider may train on submitted data, the source link and the date checked. This is set by the user or pre-filled from a curated default, and is marked stale after a configurable period.
+**Data-use terms** per provider/plan: whether the provider may train on submitted data, the source link and the date checked. The user records them, with where they read them and when; Pygg does not fill terms in (ROADMAP B2).
 
 **Models tab:** filters (provider, billing, tier, data use, price, tool calling, structured output, reasoning, context length, vision, streaming, availability); details (exact ID, capability provenance, price/quota freshness, measured reliability/latency once available); actions (favorite, disable, test with consent, assign tier override, compare).
 
-**Agents tab (Phase 2):** registered agent CLIs (Claude Code, Codex, OpenCode, others explicitly supported). Shows version, auth mode (gateway-routed or native subscription), whether the agent accepts a custom base URL, capabilities, and a connectivity test.
+**Agents tab (built, see AGENTS.md):** registered agent CLIs (Claude Code, Codex, OpenCode, others explicitly supported). Shows version, auth mode (gateway-routed or native subscription), whether the agent accepts a custom base URL, capabilities, and a connectivity test.
 
 **Acceptance:** tests never expose secrets; a provider outage is distinguishable from invalid credentials; stale pricing is labeled; a model with unknown capabilities is not assumed to support tool calls.
 
@@ -339,7 +343,7 @@ Repository retrieval scoped to relevant paths, hash-based caching, compact task 
 ### 3.7 Cost and quota model
 
 - **Paid:** cost from provider-reported usage × verified price; estimates labeled until actuals arrive.
-- **Subscription:** measured as consumption of the plan's usage window, not money. Subscription-backed agents (e.g. a coding CLI logged in with a personal plan) run with their native authentication. SmartTaskRouter does not proxy, extract or share subscription credentials, and routes to such agents only in ways the provider's terms permit.
+- **Subscription:** measured as consumption of the plan's usage window, not money. Subscription-backed agents (e.g. a coding CLI logged in with a personal plan) run with their native authentication. Pygg does not proxy, extract or share subscription credentials, and routes to such agents only in ways the provider's terms permit.
 - **Free:** may have rate limits and data-use terms. Both are recorded and enforced (§3.3).
 - **Local:** no API cost; optional user-entered operating cost; resource usage (time, memory) recorded.
 - **Unknown:** never treated as free; blocked or gated by policy.
@@ -365,6 +369,8 @@ flowchart TD
   RUN --> LED
 ```
 
+**Update 2026-11-11 (ADR-026):** the task engine runs agents with their own sign-in, not through the gateway's base URL; an agent can still be pointed at the gateway by its own configuration (the benchmark does this with OpenCode), and is then metered there.
+
 ### Stack (decided: same as DownFetch)
 
 The stack reuses what DownFetch (`F:\2026\DownFetch`) already ships, so its tooling, patterns and lessons carry over.
@@ -384,11 +390,11 @@ The stack reuses what DownFetch (`F:\2026\DownFetch`) already ships, so its tool
 | i18n | `t()` with English keys, lazy-loaded locales (`vi` first) | `src/lib/i18n.ts`, `src/locales/` |
 | Design skill | `apple-design` pinned in `skills-lock.json`, installed under `.agents/skills/` | `skills-lock.json` |
 | Dev preview | `.claude/launch.json` entry running the UI on a fixed port (`--strictPort`), plus a mock data mode for screens without the native core | `desktop-ui`, `desktop-mock` |
-| Docs | `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` (ADRs), `docs/IMPLEMENTATION-STATUS.md`, `docs/ROADMAP.md`, `docs/SECURITY.md` | `docs/` |
+| Docs | `docs/DECISIONS.md` (ADRs), `docs/IMPLEMENTATION-STATUS.md`, `docs/ROADMAP.md` (`ARCHITECTURE.md` and `SECURITY.md` not written yet; ROADMAP housekeeping) | `docs/` |
 
 **Provider adapters:** native OpenAI-compatible and Anthropic Messages formats first; OpenRouter, Gemini and Ollama through their compatible endpoints where these are complete enough, native adapters otherwise. Capability metadata is kept explicitly per provider. Rust has fewer ready-made multi-provider libraries than Node or Python, so adapters are written in-house against recorded fixtures, as DownFetch did with its own HTTP engine (ADR-008).
 
-**Where this project differs from DownFetch:** DownFetch talks to its browser extension through Native Messaging and avoids a localhost API (ADR-003). SmartTaskRouter needs a localhost HTTP gateway, because SDKs and agent CLIs can only reach a model through a base URL. The gateway therefore binds to `127.0.0.1` only, requires a scoped client token on every request, and refuses non-loopback binding unless the user turns it on explicitly.
+**Where this project differs from DownFetch:** DownFetch talks to its browser extension through Native Messaging and avoids a localhost API (ADR-003). Pygg needs a localhost HTTP gateway, because SDKs and agent CLIs can only reach a model through a base URL. The gateway therefore binds to `127.0.0.1` only, requires a scoped client token on every request, and refuses non-loopback binding unless the user turns it on explicitly.
 
 ### Key technical risk: format translation
 
@@ -493,7 +499,7 @@ Version the contracts; validate all request schemas; keep cancellation safe; sup
 
 - After the gateway foundation is available, build a benchmark suite of 20–40 reproducible coding tasks on small fixture repos. Each task has a deterministic pass check (typecheck/tests/build), across categories such as bug fix, small feature, refactor, test writing and docs.
 - Write the harness as a CLI binary in the Rust crate (`src-tauri/src/bin/bench.rs`). It runs each task with an agent CLI and a chosen model in a worktree, and records pass/fail, tokens, cost/quota and latency. The worktree, process-supervision and ledger code it needs is the same code the app uses later.
-- Compare three baselines: always-T4, always-T2, and a T0/T1 → T2 → T3 cascade driven by checks.
+- Compare the baselines of ROADMAP C3: a pinned premium model, a pinned inexpensive capable one, a static combo, Auto, and a cascade driven by checks.
 - Seed the default tier table and minimum tier rules from the results.
 
 **Exit:** a written report of pass rate and cost per success for each baseline. If the cascade does not reach comparable pass rates at lower cost per success, revisit the product's core idea before Phase 1.
@@ -598,8 +604,10 @@ package.json, pnpm-workspace.yaml, skills-lock.json
 | Benchmark not representative of real tasks | Add opt-in, redacted local task outcomes to measured stats (Phase 3) |
 | Non-git workspaces cannot be isolated cheaply | Snapshot copy for small workspaces; otherwise read-only or explicit warning |
 
-**Current project state:** The gateway, basic combo routing, headless CLI and gateway-first desktop screens exist per [Implementation Status](IMPLEMENTATION-STATUS.md). Auto routing, shared memory and optimization have **not** been implemented. Historical wireframe values are illustrative, not product telemetry.
+**Current project state:** The gateway, basic combo routing, headless CLI and gateway-first desktop screens exist per [Implementation Status](IMPLEMENTATION-STATUS.md). Rule-based Auto routing is implemented; shared memory is withdrawn (ADR-028), and no optimization is claimed before the benchmark. Historical wireframe values are illustrative, not product telemetry.
 
 ## 13. Universal Memory integration dependency
+
+> **Withdrawn (ADR-028):** not pursued; kept for reference.
 
 The authoritative specification is [UNIVERSAL_SHARED_MEMORY.md](UNIVERSAL_SHARED_MEMORY.md). Add `conversation`, `memory`, `context`, `handoff`, `affinity` and `checkpoint` modules only according to the staged roadmap and passing adapter contract tests. Extend the SQLite schema and UI with user-consented memory review/delete/export and per-provider context disclosure. Never count provider cache savings unless confirmed by usage observations, and separately report token savings and monetary savings.

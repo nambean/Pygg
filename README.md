@@ -1,10 +1,14 @@
-# Pygg (SmartTaskRouter)
+<p><img src="branding/pygg-logo.svg" alt="Pygg — One Flow. Many Agents." width="420"></p>
 
-**One Flow. Many Agents.**
+# Pygg
 
-**AI Cost Optimizer**: automatically selects a suitable connected AI model for each everyday chat turn or developer task, minimizing total cost while preserving context, privacy and answer quality.
+**One Flow. Many Agents.** AI task and agent routing orchestration.
 
-> Status: the local multi-provider gateway works and the desktop app manages it (gateway first, [ADR-016](docs/DECISIONS.md)). On top of it, the vendors' own agent CLIs run with their own sign-in, a first task engine runs checked tasks across agent steps, and IDE agents start those tasks through MCP. Universal Shared Memory, account pools and the `str`/npm launcher are designed, not built. See [implementation status](docs/IMPLEMENTATION-STATUS.md) and the [roadmap](docs/ROADMAP.md).
+The repository and its technical identifiers keep the engineering name SmartTaskRouter. Documentation index: [docs/README.md](docs/README.md). Brand assets: [branding](branding/README.md).
+
+**AI Cost Optimizer**: automatically selects a suitable connected AI model for each request from the clients you already use, and for each developer task, minimizing total cost while preserving context, privacy and answer quality. The app hosts no chat of its own (ADR-028).
+
+> Status: the local multi-provider gateway works and the desktop app manages it (gateway first, [ADR-016](docs/DECISIONS.md)). On top of it, the vendors' own agent CLIs run with their own sign-in, a first task engine runs checked tasks across agent steps, and IDE agents start those tasks through MCP. Account pools and the `str`/npm launcher are designed, not built; Universal Shared Memory is not pursued (ADR-028). See [implementation status](docs/IMPLEMENTATION-STATUS.md) and the [roadmap](docs/ROADMAP.md).
 
 ## Product vision
 
@@ -17,7 +21,7 @@ Pygg is a desktop-first AI Cost Optimizer for people who connect several provide
 - **Official agents, their own sign-in** ([ADR-026](docs/DECISIONS.md)): Claude Code, Codex CLI, Gemini CLI and OpenCode run as themselves. Pygg never reads their sign-in and never bridges web sessions or other products' OAuth.
 - **Free-first only with verification:** a cheaper step is tried first only against deterministic checks you approved (typecheck, tests, build). Each attempt runs in its own Git worktree.
 - **Honest costs:** billing is `Free`, `Local`, `Subscription`, `Paid` or `Unknown`. Every figure shows its source, and unknown is never treated as free.
-- **Privacy-aware (planned):** record whether a provider may train on submitted data and enforce it for sensitive work.
+- **Privacy-aware:** record per connection whether the provider may train on submitted data, with where you read it; a client can require providers that do not.
 - **Measurable:** cost is measured per successful task, against a reproducible benchmark baseline, before any savings claim.
 
 ## What works today
@@ -38,7 +42,7 @@ Pygg is a desktop-first AI Cost Optimizer for people who connect several provide
   - **Unknown:** no source; never shown as $0. Agent runs are unknown, because their cost depends on how the agent is signed in.
 - **Agents:** finds the agent CLIs on this computer and runs one on a repository in a worktree; the result is kept as a branch or discarded ([AGENTS.md](docs/AGENTS.md)).
 - **Smart tasks:** a task is a ladder of agent steps judged by the workspace's approved checks. A failed check hands what failed to the next step; a paid step waits for your approval; a passing result waits for you to keep it as a branch or discard it. Tasks survive a restart as interrupted, with Retry.
-- **From your IDE:** register `<app> mcp` as an MCP server in Claude Code, Codex or Cursor, and your agent gets `pygg_run_task` and friends. Verified from a real Codex session.
+- **From your IDE:** register `<app> mcp` as an MCP server in Claude Code, Codex or an IDE that takes JSON MCP configuration (Cursor and others), and your agent gets `pygg_run_task` and friends. Verified from real Codex and Claude Code sessions; other clients not yet.
 
 ## Universal Shared Memory (not pursued)
 
@@ -67,7 +71,7 @@ From a focused subset of OmniRoute, dynamic `auto` candidates, quota groups and 
 | | Usage | Costs (actual, estimated, unknown) by model, by client, and per request |
 | Agents | Agents | Agent CLIs on this computer, IDE (MCP) setup, and a single run |
 | Smart Tasks | Tasks, Policies | Tasks from your IDE or the app, approvals and results; Policies is not built yet |
-| App | Settings | Language |
+| App | Workspaces, Settings | Workspaces: checks, privacy, budget. Settings: language, background (tray), task budgets |
 
 See the [screen design](docs/design/SCREENS.md).
 
@@ -116,8 +120,8 @@ The design review skill is pinned in `skills-lock.json` and installed under `.ag
 
 ## Licence
 
-MIT, see [LICENSE](LICENSE). Code ported from other MIT-licensed projects keeps its notice in `THIRD_PARTY_NOTICES.md`.
+MIT, see [LICENSE](LICENSE). Nothing has been ported from other projects yet; code that is will keep its notice in `THIRD_PARTY_NOTICES.md`.
 
 ## Roadmap
 
-The [roadmap](docs/ROADMAP.md) is the single authority for order. In short: make the IDE task flow usable every day (notifications, approvals with estimates, task budgets, workspace settings), then gateway correctness (request-feature filters for `auto`, data-use terms, a sourced tier table), then evidence (a live cascade and the benchmark) before any savings claim, then distribution. Reviews and their answers are in [docs/reviews](docs/reviews).
+The [roadmap](docs/ROADMAP.md) is the single authority for order; [docs/README.md](docs/README.md) lists every document and its status. In short: the everyday IDE task flow (A) and gateway correctness B1–B4 are built, the live verification debt (C1) and a live cascade (C2) are done, and the benchmark (C3) is running now, before any savings claim; then the remaining translation gaps (B5, B6) and distribution (D). Reviews and their answers are in [docs/reviews](docs/reviews).

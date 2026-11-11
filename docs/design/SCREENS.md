@@ -1,4 +1,6 @@
-# SmartTaskRouter — Screen Design
+# Pygg — Screen Design
+
+> **Status:** Historical · the v0.1 screen design; the built screens are in Implementation Status · reviewed 2026-11-11 · order: [ROADMAP](../ROADMAP.md) · built: [Implementation Status](../IMPLEMENTATION-STATUS.md)
 
 > **Update 2026-11-11 (ADR-027):** tasks are started from the user's IDE agent through MCP; the app monitors, approves and reviews. New Task → Analyze → Plan → Run as the main path, "Needs Revalidation" and the first-run screens that end in analyzing a task are superseded. See [ROADMAP](../ROADMAP.md#revised-plan-after-adr-026-and-adr-027-2026-11-11-docs-review).
 
@@ -9,7 +11,7 @@
 
 The app should feel like a task runner with an auditable route, not a provider dashboard. Its signature element is the **attempt sequence**: chosen model → check → outcome → next decision.
 
-> **Design status note (2026-11-11):** Gateway-first Overview, Connections, Combos, Clients, Usage and Smart Tasks Preview screens are implemented per [Implementation Status](../IMPLEMENTATION-STATUS.md). The task-first/six-destination design in this file is a historical concept, **not current implementation**. Future priority follows [ROADMAP.md](../ROADMAP.md) and the [review reconciliation](../reviews/2026-11-11-review-response.md). Current local gateway port is **8741**; older `4318` examples below are superseded.
+> **Design status note (2026-11-11):** Gateway-first Overview, Connections, Combos, Clients, Usage, Agents, Tasks and Workspaces screens are implemented per [Implementation Status](../IMPLEMENTATION-STATUS.md). The task-first/six-destination design in this file is a historical concept, **not current implementation**. Future priority follows [ROADMAP.md](../ROADMAP.md) and the [review reconciliation](../reviews/2026-11-11-review-response.md). Current local gateway port is **8741**; older `4318` examples below are superseded.
 
 ## 1. Decisions
 
@@ -25,7 +27,7 @@ The app should feel like a task runner with an auditable route, not a provider d
 | D8 | **An approval is durable, covers exactly one attempt, and is never automatic.** | Notifications never contain task names or paths |
 | D9 | **Each fact carries its own provenance**, with no generic `Live` badge | Unknown, estimated and stale are separate properties |
 | D10 | **One no-check rule:** without a deterministic check there is no automatic cheap-first cascade. The user can review a direct run at the strategy's normal tier instead. | Manual acceptance is never shown as "Checks Passed" |
-| D11 | **MVP writes only to Git workspaces** that can be isolated. | Other workspaces get read-only planning |
+| D11 | **MVP writes only to Git workspaces** that can be isolated. | Other workspaces get read-only planning (not built: workspaces must be Git repositories) |
 | D12 | **Traffic-light window controls on Windows too**, as in DownFetch (`WindowControls.tsx`). | Chosen by the team on 2026-11-10 so its apps look alike |
 
 ### D12: a deliberate platform departure
@@ -46,7 +48,7 @@ Codex recommended native Windows controls instead. The team chose traffic lights
 
 ```text
 +----------------------+--------------------------------------------------------------+
-| ● ● ●  SmartTaskRouter| [◧] All Tasks · smarttaskrouter            [New Task] [...]  |
+| ● ● ●  Pygg           | [◧] All Tasks · smarttaskrouter            [New Task] [...]  |
 |                      |     2 running · 1 waiting · $3.42 recorded + $0.30 reserved  |
 | Tasks                |     / $10 today                                              |
 | > All Tasks      18  +--------------------------------------------------------------+
@@ -122,20 +124,20 @@ Banners sit under the toolbar, using DownFetch's `banner` / `copied-banner` patt
 | Another sheet is open | The approval is queued; only one sheet is shown at a time |
 | App restarted | Pending approvals are recovered and revalidated; if anything changed, a fresh decision is required |
 
-Notification: title **Task Waiting for Approval**, body *A task is paused before a paid attempt.* There is no task name or path, and no approve button in the notification. Clicking it opens that task.
+Notification: title **Task Waiting for Approval**, body *A task is paused before a paid attempt.* There is no task name or path, and no approve button in the notification. Clicking it opens that task (not built yet, ROADMAP A1).
 
 Tray menu:
 
 ```text
-SmartTaskRouter
+Pygg
 Gateway Running
 2 Tasks Running
 1 Task Waiting for Approval
 ─────────────────────────
-Open SmartTaskRouter
+Open Pygg
 Review Waiting Task
 ─────────────────────────
-Quit SmartTaskRouter…
+Quit Pygg…
 ```
 
 Closing the window keeps the core running when **Keep Running When Window Closes** is on; this is explained once, at the first close. **Quit** with active work warns that quitting stops execution and may leave billable partial requests.
@@ -174,7 +176,7 @@ Each fact carries its own source and time:
 | --- | --- |
 | `Provider API · checked 14:32` | From an official endpoint |
 | `Response headers · observed 14:28` | From rate-limit headers |
-| `Ledger estimate · since Nov 1` | Computed from SmartTaskRouter's own ledger |
+| `Ledger estimate · since Nov 1` | Computed from Pygg's own ledger |
 | `Unknown · provider does not report this` | No reliable source |
 | `Stale · last checked Nov 3` | Older than the freshness window; shown with a clock icon |
 
@@ -210,7 +212,7 @@ Reuse DownFetch's semantic tokens (`--window`, `--sidebar`, `--surface`, `--labe
 
 These are DownFetch's own values and contrast notes: white semibold text on `#0B7A4B` 5.4:1 (light) and on `#0D8551` 4.7:1 (dark), light accent text 6.6:1 on the surface, dark accent text 9.6:1 on the surface. `--accent-icon` is the one token DownFetch doesn't have; it reuses the accent text color in dark mode so sidebar icons stay legible. Re-check these ratios with a contrast tool before release.
 
-**Gateway first (ADR-016):** the sidebar now leads with **Gateway** (Overview, Connections, Combos, Clients, Usage); the task screens sit under **Smart Tasks · Preview**. Endpoints (§5.7) became Overview plus Clients, and Connections (§5.4) has the Providers part with models and prices inline. Agents and Models-as-a-tab wait for the orchestrator.
+**Gateway first (ADR-016):** the sidebar now leads with **Gateway** (Overview, Connections, Combos, Clients, Usage); the task screens sit under **Smart Tasks** (Tasks, Policies), with Agents and Workspaces beside them. Endpoints (§5.7) became Overview plus Clients, and Connections (§5.4) has the Providers part with models and prices inline. Agents is built (and Tasks with it); Models-as-a-tab is not.
 
 - Type: 13px body, 11–12px supporting text, 15px toolbar title, 17px section emphasis; 12px monospace for IDs, checks, paths and output. Use tabular figures for money and tokens.
 - Controls are 26–32px high; grouped boxes have 8–10px corners; content margins are 20–24px.
@@ -395,7 +397,7 @@ One screen with four phases. The toolbar title becomes the task title and the su
 
 ### 5.3 Workspaces
 
-**Add Workspace…** opens a sheet: choose a folder → detect Git and isolation readiness → detect checks → choose privacy class → **Add Workspace**. A folder without Git can be added for read-only planning only.
+**Add Workspace…** opens a sheet: choose a folder → detect Git and isolation readiness → detect checks → choose privacy class → **Add Workspace**. A folder without Git can be added for read-only planning only (not built: a workspace must be a Git repository).
 
 **Workspace Settings** is a page opened from the toolbar or the task list, with a back button to the list.
 
@@ -433,7 +435,7 @@ One screen with four phases. The toolbar title becomes the task title and the su
 
 - Uses DownFetch's `SettingsView` group boxes.
 - Changes apply to new plans; existing tasks keep their snapshots; unexecuted plans need revalidation.
-- **Remove Workspace…** explains that it removes the workspace from SmartTaskRouter only and leaves files and kept branches untouched.
+- **Remove Workspace…** explains that it removes the workspace from Pygg only and leaves files and kept branches untouched.
 
 ### 5.4 Connections
 
@@ -730,7 +732,7 @@ Build these screens in `apps/desktop` with mock data, following DownFetch's `des
 
 > **Dropped 2026-11-11 (ADR-028):** the app hosts no chat of its own. This section is kept for reference only.
 
-The six-destination, list-first **developer task UI remains the current implemented design**. A consumer-first Auto Chat flow is an additional product direction and needs a separate review rather than silently replacing the shell.
+~~The six-destination, list-first developer task UI remains the current implemented design. A consumer-first Auto Chat flow is an additional product direction.~~ Superseded: the app is gateway-first (see the status note at the top), and Auto Chat is withdrawn (ADR-028).
 
 **Auto Chat:** chat history/sidebar, message composer with attachments, an `Auto` strategy default; no per-turn model selection. A quiet expandable "Why this model?" inspector shows provider, routed model, usage, rationale, cache and optional switch history. Only privacy, cost-over-limit and sensitive tool actions interrupt normal chat.
 
@@ -760,7 +762,7 @@ The **Pool Editor** lists explicitly authorized accounts and models, priority/we
 
 ## 13. Approved OmniRoute-inspired feature surfacing (planned)
 
-**Consumer Auto Chat:** preserve Auto as the default; user can optionally pick Save More, Balanced or Quality. Do not show 20 routing strategies, ask a model-selection question each turn, or imply estimated savings are actual.
+**Consumer Auto Chat** (withdrawn, ADR-028): preserve Auto as the default; user can optionally pick Save More, Balanced or Quality. Do not show 20 routing strategies, ask a model-selection question each turn, or imply estimated savings are actual.
 
 **Connections > Free Intelligence:** model and account entitlements, free vs promotional quotas, pooled limit/reset, terms, source and freshness; show potentially free catalog separately from personally usable free entitlement.
 

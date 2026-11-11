@@ -1,5 +1,7 @@
 # CLI, IDE Integrations, npm Distribution & Provider Tiers
 
+> **Status:** Reference · CLI, IDE, npm and billing-tier specification; partly built · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+
 > **Update 2026-11-11 (ADR-026, ADR-027):** no "Supported OAuth" connections or OAuth callbacks into other products; subscriptions are reached through the vendors' agent CLIs. IDE integration for tasks is the MCP server (`<app> mcp`, [AGENTS.md](AGENTS.md#from-the-ide-pygg-mcp-and-the-task-api)). Consumer Auto Chat is dropped (ADR-028).
 
 
@@ -9,19 +11,19 @@
 
 ## Current gateway versus future CLI package (review reconciliation)
 
-**Implemented (per [Implementation Status](IMPLEMENTATION-STATUS.md)):** Rust headless binary `gateway serve` and local base URL `http://127.0.0.1:8741`, plus gateway-first desktop client/connection/usage views. **Not implemented:** `str start`, verified npm/npx publication, broad IDE compatibility, tier-aware rotation, Universal Memory and intelligent Auto Router. The command examples below are **design targets only** and any `4318` value below is historical, not the live default.
+**Implemented (per [Implementation Status](IMPLEMENTATION-STATUS.md)):** Rust headless binary `gateway serve` and local base URL `http://127.0.0.1:8741`, plus gateway-first desktop client/connection/usage views. Also built: rule-based `auto` (P0-5), the `agent` CLI and the MCP server (`<app> mcp`). **Not implemented:** `str start`, verified npm/npx publication, broad IDE compatibility and tier-aware rotation; Universal Memory is withdrawn (ADR-028). The command examples below are **design targets only** and any `4318` value below is historical, not the live default.
 
 All client integrations need version-specific base URL, tool, streaming, cache and session-ID tests. Transparent same-format passthrough is preferred; a subscription/CLI login must not be treated as fungible API access.
 
 ## 1. Product intent and relationship to AI Cost Optimizer
 
-SmartTaskRouter should work in two complementary ways:
+Pygg should work in two complementary ways:
 
 - **Consumer Auto Chat:** user types normally; application chooses a capable connected model without unnecessary selection prompts, preserving conversation memory.
-- **Developer CLI/IDE gateway:** users keep using their preferred terminal agent or IDE; SmartTaskRouter exposes a local authenticated API, policy-routed aliases, quota management, model usage accounting and optional opt-in task intelligence where the client supplies sufficient context.
+- **Developer CLI/IDE gateway:** users keep using their preferred terminal agent or IDE; Pygg exposes a local authenticated API, policy-routed aliases, quota management, model usage accounting and optional opt-in task intelligence where the client supplies sufficient context.
 - **Agent orchestration:** the application launches a supported CLI in an isolated workspace and makes choices at stage boundaries, without changing the model mid-stream or mid-agent attempt.
 
-Gateway-only routing cannot infer complete intent from arbitrary request payloads, and must **not claim** task-level cost optimization when required context is missing. An explicitly enabled `auto` alias can classify each independent new chat/task or evaluate eligible model candidates within a pinned conversation; provider/model switching and caching follow [Universal Shared Memory](UNIVERSAL_SHARED_MEMORY.md).
+Gateway-only routing cannot infer complete intent from arbitrary request payloads, and must **not claim** task-level cost optimization when required context is missing. An explicitly enabled `auto` alias can classify each independent new chat/task or evaluate eligible model candidates within a pinned conversation; provider/model switching keeps to explicit sessions (P0-4); Universal Shared Memory is withdrawn (ADR-028).
 
 ## 2. Provider tiers (9Router-inspired, not mutually exclusive per provider)
 
@@ -216,15 +218,15 @@ GET /api/cli/doctor
 
 | Phase | Deliverable | Priority |
 | --- | --- | --- |
-| G1 | Provider account registry + tier/entitlement schema and categorized Providers UI | P0 |
-| G2 | Verified OpenAI/Anthropic-compatible gateway, streaming, scoped client keys, quotas and ledger | P0 |
-| G3 | Terminal CLI client setup for OpenCode, Aider and verified Claude Code/Codex routes | P0 |
+| G1 | Provider account registry + tier/entitlement schema and categorized Providers UI | Later (ROADMAP E) |
+| G2 | Verified OpenAI/Anthropic-compatible gateway, streaming, scoped client keys, quotas and ledger | Built (P0-1 to P0-5) |
+| G3 | Terminal CLI client setup for OpenCode, Aider and verified Claude Code/Codex routes | Partly built: setup snippets for Claude Code and OpenCode, verified live; Aider not |
 | G4 | Rust headless `str` binary, separate npm/npx launcher, release CI and integrity checks | P1 |
 | G5 | IDE integration guides/setup for Cline/Roo, Continue, Cursor where supported | P1 |
 | G6 | Integration diagnostics, config backup/restore and compatibility test matrix | P1 |
 | G7 | More clients, platform coverage and subscription adapters only through supported interfaces | P2 |
 
-Dependencies with memory: first deliver G1–G2; Universal Shared Memory M1–M3 can then consume unified gateway events and consistent model IDs. The consumer Auto Chat UI and Skills Hub can follow without being coupled to the CLI setup.
+Order follows [ROADMAP](ROADMAP.md); Universal Shared Memory and the consumer Auto Chat UI are withdrawn (ADR-028).
 
 ## Account Pool Rotation dependency
 

@@ -1,7 +1,7 @@
 # Gateway lifecycle counter-review after 2f4c9a8 — start/stop, detached work, journal recovery
 
 **Date:** 2026-11-11  
-**Status:** Open review for Claude. This is **not** a code fix or an accepted ADR.  
+**Status:** Answered in [the lifecycle response](2026-11-11-gateway-lifecycle-response.md). This is **not** a code fix or an accepted ADR.  
 **Code baseline:** `main` commit `2f4c9a84f567a095b8c20fb4f7f3d1ae5156d870`.  
 **Inspected:** `apps/desktop/src-tauri/src/gateway/mod.rs`, `gateway/store.rs`, `gateway/tests.rs`, `tests/two_gateways.rs`, [previous response](2026-11-11-post-d518438-response.md), [Implementation Status](../IMPLEMENTATION-STATUS.md), [ROADMAP](../ROADMAP.md).
 

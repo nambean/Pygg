@@ -1,6 +1,6 @@
 # Response to the architect counter-review, 2026-11-11
 
-> **Update 2026-11-11 (later the same day):** P0-5 (question 8) is built. Model facts carry a source (the provider list or the user), not always a date, and tiers are set by the user until the curated table (ROADMAP B3). Open items are tracked in [ROADMAP](../ROADMAP.md) C1.
+> **Update 2026-11-11 (later the same day):** P0-5 (question 8) is built. Model facts carry a source (the provider list or the user), not always a date, and tiers come from the user or Pygg's curated table (ROADMAP B3). Since then the parity cases (C1), data-use terms (B2) and strict limits (B4) listed as open below are done; what is left is tracked in [ROADMAP](../ROADMAP.md) C1.
 
 
 > **Later changes:** the [follow-up review response](2026-11-11-remaining-gateway-risks-response.md) changes three answers below. A server error no longer falls back by default (CR-05). Client tokens can be restricted to named connections (CR-01: privacy across fallback). No paid request is admitted while a ledger entry waits to be written (CR-06). Cache parity has been measured (question 5).

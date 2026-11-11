@@ -41,7 +41,7 @@ Ký hiệu: **Accept** = đồng ý; **Partial** = đồng ý mục tiêu nhưng
 | GW-11 | Low | **Accept** | Read schema version within `BEGIN IMMEDIATE`; test concurrent CLI+desktop first start |
 | GW-12 | Low | **Accept** | Provider-native token counter if supported; estimated results labeled prominently, cross-model compatibility checked |
 | OSS-1 | High | **Accept** | Same-format native passthrough first, translation only on tested pairs; evaluate TensorZero integration fit and rust-genai limits before coding many adapters |
-| OSS-2 | Medium | **Accept** | License project chưa chốt: chỉ ghi nguồn/link, chưa import upstream code, databases hoặc dataset cho đến khi owner quyết định license và thẩm định terms |
+| OSS-2 | Medium | **Accept** | (Sau đó owner chốt MIT, ADR-028.) License project chưa chốt: chỉ ghi nguồn/link, chưa import upstream code, databases hoặc dataset cho đến khi owner quyết định license và thẩm định terms |
 | OSS-3 | Low | **Accept** | Convert demo policy logic to recorded backend snapshots eventually; sample behavior must not be mistaken for production |
 | RM-1 | High | **Accept** | Gateway/desktop/headless CLI **đã có** theo Implementation Status; documents must no longer assert "planning only" for entire app |
 | RM-2 | Medium | **Partial** | Canonical current **gateway port = 8741**. Current binary `gateway` and command `serve` are **implemented**; prospective `str start` is **planned alias/packaging**, not rename immediately |

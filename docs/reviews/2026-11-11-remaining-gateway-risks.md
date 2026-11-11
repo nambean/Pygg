@@ -1,7 +1,7 @@
 # Follow-up counter-review: privacy fallback, paid retry risk, accounting recovery
 
 **Date:** 2026-11-11  
-**Status:** OPEN review for Claude; not an accepted ADR, not a code patch.  
+**Status:** Answered in [the follow-up response](2026-11-11-remaining-gateway-risks-response.md); not an accepted ADR, not a code patch.  
 **Base:** current `main` following counter-review changes `be6a3c0` and the subsequent real-world validation commits `72146e3` and `e580734`.  
 **Inputs:** [Claude counter-review response](2026-11-11-counter-review-response.md), [architect decisions](2026-11-11-architect-decisions.md), [authoritative roadmap](../ROADMAP.md), [implementation status](../IMPLEMENTATION-STATUS.md), and inspected Rust `gateway/policy.rs`, `gateway/mod.rs`, `gateway/store.rs`.
 

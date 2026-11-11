@@ -1,4 +1,6 @@
-# SmartTaskRouter UI/UX design
+# Pygg UI/UX design
+
+> **Status:** Historical · index of the original design sketches · reviewed 2026-11-11 · order: [ROADMAP](../ROADMAP.md) · built: [Implementation Status](../IMPLEMENTATION-STATUS.md)
 
 > **Update 2026-11-11:** the app has an Overview and an Agents screen besides the six task destinations, and the screens these SVGs sketched are built; the SVGs are kept as the original concept only. Current layout: [SCREENS.md](SCREENS.md) and the root README.
 
@@ -12,7 +14,7 @@
 - [Model Combos & Policies](model-combos.svg)
 
 These predate plan v1.1 and SCREENS.md:
-- They show 12 navigation items; the design now has 6 destinations and no Overview.
+- They show 12 navigation items; the current layout is in SCREENS.md and the root README.
 - They show separate "Task Breakdown" and "Routing Recommendation" panels; the design now uses one route list with reasons and exclusions.
 - They use a web-dashboard style; the design now follows DownFetch's macOS-native token style.
 

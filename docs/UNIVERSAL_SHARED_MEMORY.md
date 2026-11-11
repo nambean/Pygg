@@ -1,24 +1,26 @@
 # Universal Shared Memory & Memory-Aware Cost Routing
 
+> **Status:** Withdrawn · not pursued (ADR-028); kept for reference · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+
 > **Not pursued (owner, 2026-11-11, ADR-028):** the app hosts no chat of its own, so the app-owned conversation store, Memory & Context screen and per-turn model affinity below are not planned. Kept for reference. What tasks need is built: the bounded failure summary handed to the next step, and gateway session affinity (P0-4).
 
 
 > Design proposal v1.0 — 2026-11-11. **Not implemented.** Complements the current gateway-first decision (ADR-016), not a replacement for it.
 >
-> Product goal: **SmartTaskRouter is an AI Cost Optimizer for everyday users**, not merely a coding agent runner. People should ask a question normally; SmartTaskRouter chooses a connected model automatically and preserves continuity across providers without asking users to select a model each turn.
+> Product goal: **Pygg is an AI Cost Optimizer for everyday users**, not merely a coding agent runner. People should ask a question normally; Pygg chooses a connected model automatically and preserves continuity across providers without asking users to select a model each turn.
 
 ## Review correction — ownership boundary and cache-stable epochs (2026-11-11)
 
 **Authoritative boundary:** two modes have different ownership contracts, as agreed in [Claude review reconciliation](reviews/2026-11-11-review-response.md):
 
-1. **App-owned Auto Chat:** SmartTaskRouter owns raw conversation events and is permitted, under user privacy controls, to build scoped memory/context packages and hand off at **clean turn boundaries**. Keep already-sent cache-eligible prefix byte/token-stable within a pinned model/account epoch; append new messages. Versioned compaction may occur **at explicit checkpoints** only, with cache reset/rehydration cost measured. Never silently regenerate/reorder stable prefix each turn.
+1. **App-owned Auto Chat:** Pygg owns raw conversation events and is permitted, under user privacy controls, to build scoped memory/context packages and hand off at **clean turn boundaries**. Keep already-sent cache-eligible prefix byte/token-stable within a pinned model/account epoch; append new messages. Versioned compaction may occur **at explicit checkpoints** only, with cache reset/rehydration cost measured. Never silently regenerate/reorder stable prefix each turn.
 2. **Opaque external CLI/IDE gateway:** client owns its own history/compaction/tool IDs. Gateway **does not automatically inject memory, rewrite history, compact existing client prompts or synthesize a conversation**. It can record route metadata/usage, pass compatible messages transparently and maintain affinity only when there is an **explicit authenticated session identifier**. If no supported session ID is present, avoid inventing one from system-prompt hashes and do not claim cross-turn continuity.
 
 **Selective memory extraction budgets:** no LLM call after every turn by default; batch incremental new events only with user consent, configurable input/token/spend cap and a separate ledger category `memory_extraction`. Any model classifier is absent from P0; later classifier input <=2k tokens per decision, run at meaningful classification boundaries (start, explicit topic change, failure), not full context per turn.
 
 **Cache test gate:** native same-format Anthropic passthrough and real provider cache read/write observations come **before** claiming compression or handoff savings. Unknown costs remain unknown.
 
-Read the current [Roadmap](ROADMAP.md) for priority; this entire memory design remains **planned**.
+Read the current [Roadmap](ROADMAP.md) for priority; this memory design is **not pursued** (see the note at the top).
 
 ## 1. Problem and invariants
 
@@ -33,7 +35,7 @@ Read the current [Roadmap](ROADMAP.md) for priority; this entire memory design r
 
 ## 2. Proven open-source designs to study
 
-These are engineering references, **not measured evidence of savings inside SmartTaskRouter**. Check current licenses and upstream revisions before copying code.
+These are engineering references, **not measured evidence of savings inside Pygg**. Check current licenses and upstream revisions before copying code.
 
 | Project | Source | Mechanism worth learning | Adoption approach |
 | --- | --- | --- | --- |
@@ -45,7 +47,7 @@ These are engineering references, **not measured evidence of savings inside Smar
 | Graphiti | https://github.com/getzep/graphiti | Temporal facts, changing relationships, validity windows | Later stage; only if temporal retrieval benchmarks justify complexity |
 | Mem0 benchmarks | https://github.com/mem0ai/memory-benchmarks | LoCoMo, LongMemEval and BEAM-style memory evaluation | Adapt test cases and record exact task definitions, models, graders and pricing |
 
-**Evidence tiers:** (1) source code/mechanism exists, (2) tests and reproductions run locally, (3) benchmark methodology is reproducible, (4) improvement measured in SmartTaskRouter. Upstream vendor-reported benchmark numbers must not be advertised as our performance. Neither automated checks nor an LLM judge alone prove semantic correctness.
+**Evidence tiers:** (1) source code/mechanism exists, (2) tests and reproductions run locally, (3) benchmark methodology is reproducible, (4) improvement measured in Pygg. Upstream vendor-reported benchmark numbers must not be advertised as our performance. Neither automated checks nor an LLM judge alone prove semantic correctness.
 
 ## 3. Architecture
 

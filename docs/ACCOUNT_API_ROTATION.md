@@ -1,15 +1,17 @@
 # Multi-Account and API Key Rotation — Account Pool Router
 
-> **Update 2026-11-11 (ADR-026):** account pools apply to API-key and token-plan connections only. Subscriptions are used through the vendors' agent CLIs with their own sign-in, which Pygg never reads, so subscription sessions are not pooled or rotated. References to consumer Auto Chat no longer apply (ADR-028); pools would serve gateway clients.
+> **Status:** Reference · account pool specification; partly built, pools are ROADMAP E · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+
+> **Update 2026-11-11 (ADR-026):** account pools apply to API-key and token-plan connections only. Subscriptions are used through the vendors' agent CLIs with their own sign-in, which Pygg never reads, so subscription sessions are not pooled or rotated. References to consumer Auto Chat, and to Universal Shared Memory context packages and handoff (§3, §6), no longer apply (ADR-028); pools would serve gateway clients, under the gateway's explicit session affinity (P0-4).
 
 
-> Specification v1.0 · 2026-11-11 · **Proposed, not implemented**.
+> Specification v1.0 · 2026-11-11 · **Partly built:** client allowlists, quota groups, error-scoped fallback, cooldowns, spend reservations and a circuit breaker with a probe; account pools and rotation strategies are not (ROADMAP E).
 >
 > Product: AI Cost Optimizer. Account rotation is an **availability, entitlement usage and cost-control mechanism** for authorized connections, not a way to evade provider quotas, bans, account restrictions, subscriptions or terms.
 
 ## Architecture review correction — failure scopes and current implementation (2026-11-11)
 
-The existing gateway can fallback for 401/403/429 and connection/read errors across any combo member; this is **not yet the safe account rotation design**. The [review triage](reviews/2026-11-11-review-response.md) and [ROADMAP.md](ROADMAP.md) put this in P0-2.
+When this was written the gateway fell back on 401/403/429 and connection errors across any combo member. P0-2 replaced that with error-scoped fallback, quota-group holds and per-client allowlists, and B4 added the circuit breaker and probe; account pools are still not built (ROADMAP E).
 
 - 401: authentication invalid on this credential; do not blindly retry through other identities.
 - 403: classify model permission, organization policy or account suspension by provider response; block at the **correct scope** (not all accounts sharing provider name indiscriminately).
@@ -53,7 +55,7 @@ Account affinity requires a **client-supplied, authenticated session key**. Do n
 | `sticky_round_robin` | Round-robin on session start; pin selected account for session or bounded turn count | Cache reuse and stable conversations | A turn-count cap cannot force a mid-tool call switch |
 | `weighted` | Assign new sessions by configured weights, price and permitted capacity | Heterogeneous accounts and budgets | Weight is not entitlement; never use unavailable capacity |
 | `least_used` | Prefer lowest measured share of permitted capacity in relevant window | Smooth legitimate throughput | Only calculate with comparable, verified quota units |
-| `cost_aware` | Among eligible accounts optimize predicted verified cost, continuity, latency and reliability | SmartTaskRouter default in Auto mode | Include cache miss and context handoff overhead |
+| `cost_aware` | Among eligible accounts optimize predicted verified cost, continuity, latency and reliability | Pygg default in Auto mode | Include cache miss and context handoff overhead |
 | `pinned` | Always use designated account for explicit client/model mapping | Stable tools, strict enterprise policy | No silent fallback outside pin |
 | `failover_only` | Use primary until genuine transient failure; fail over only when safe | Simplicity / stable cache | No fallback after stream has started |
 
@@ -92,7 +94,7 @@ Never pool accounts owned by unrelated users or borrowed credentials. Never rota
 
 ## 6. Session affinity and Universal Memory
 
-- Canonical conversation ID belongs to SmartTaskRouter, not an upstream provider.
+- Canonical conversation ID belongs to Pygg, not an upstream provider.
 - Pin account/model for an active turn, streaming response and ongoing tool call; for coding agents pin for the entire attempt.
 - Persist affinity with account/model, last-used, TTL, prior-success metadata and cache observations.
 - A fallback prior to first emitted byte may update affinity after a confirmed successful response. A failed/pre-stream attempt may be billed; record it.
@@ -196,7 +198,7 @@ Client permission boundary applies to every retry/fallback, including direct acc
 
 ## 10. Integration order and QA
 
-**P0** — account registry, model entitlement and quota groups, health states, `fill_first`, `round_robin`, basic safe pre-stream failover, per-client allowlists, ledger with account ID.
+**P0 (as proposed; the order now follows ROADMAP, where pools are E)** — account registry, model entitlement and quota groups, health states, `fill_first`, `round_robin`, basic safe pre-stream failover, per-client allowlists, ledger with account ID.
 
 **P1** — `sticky_round_robin`, durable affinity, cost-aware candidate scoring, Retry-After/backoff, reservation concurrency, Pools UI, simulation and quota provenance.
 

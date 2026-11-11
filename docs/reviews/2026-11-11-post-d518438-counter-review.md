@@ -1,7 +1,7 @@
 # Post-d518438 counter-review — cross-process accounting and Free/Local replay safety
 
 **Date:** 2026-11-11  
-**Status:** Open technical review for Claude; **not** an accepted ADR or implemented fix.  
+**Status:** Answered in [the post-d518438 response](2026-11-11-post-d518438-response.md); **not** an accepted ADR or implemented fix.  
 **Baseline:** `main` at `d5184386c3ffb786b90a3c7504812454937361b1`.  
 **Reviewed:** [follow-up response](2026-11-11-remaining-gateway-risks-response.md), [Implementation Status](../IMPLEMENTATION-STATUS.md), [ROADMAP](../ROADMAP.md), `apps/desktop/src-tauri/src/gateway/{mod,store,policy}.rs`.  
 **Method:** source inspection; no new Rust test, multi-process run, provider call or paid benchmark was performed.
