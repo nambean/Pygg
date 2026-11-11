@@ -48,6 +48,14 @@ An Anthropic-format endpoint is written as the base an Anthropic SDK takes plus 
 | Docker Model Runner | `http://localhost:12434/engines/v1` | TCP access must be enabled | https://docs.docker.com/ai/model-runner/api-reference/ |
 | Jan | `http://127.0.0.1:1337/v1` | optional key | https://docs.jan.ai/desktop/api-server |
 
+## Providers outside the list
+
+**Custom (OpenAI-compatible)** and **Custom (Anthropic-compatible)** take any endpoint the user enters, for a provider that has no preset. Billing starts as unknown and the user sets it; `/models` is read when the endpoint offers it, otherwise model names are added by hand. Headless, the key comes from an environment variable, for example:
+
+```
+gateway add-connection --preset custom --label "My provider" --endpoint https://api.example.com/v1 --key-env CUSTOM_API_KEY
+```
+
 ## Left out
 
 - **GitHub Models**: fully retired as of July 30, 2026, per GitHub's docs.

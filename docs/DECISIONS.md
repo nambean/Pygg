@@ -115,6 +115,8 @@ Architecture decision records, in the style of DownFetch's `docs/DECISIONS.md`. 
 
 **Why:** An empty list would look like a real, empty configuration, and unlabeled sample numbers would look like measurements.
 
+**Update 2026-11-11:** the task engine exists, so the desktop app shows real tasks. Sample tasks remain only in the browser preview (`pnpm dev`), under its demo banner.
+
 ## ADR-015 — Commit the pnpm lockfile
 
 **Decision:** `pnpm-lock.yaml` is committed. DownFetch ignores its lockfile; this project does not.
@@ -204,6 +206,20 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 **User scope:** initial benchmark/market wedge is developers with metered API workloads because financial outcomes are measurable; **long-term product vision remains cost optimization for everyday users as well**. This does not authorize claiming cash savings for fixed subscription chat plans.
 
 **Evidence:** code-backed findings were reviewed; synthetic multiplier examples are not real provider measurements. No code implementation is claimed by this ADR. **Update 2026-11-11:** P0-1 to P0-4 are implemented and tested against fake providers, with a live Gemini check; see [Implementation Status](IMPLEMENTATION-STATUS.md) and [architect decisions](reviews/2026-11-11-architect-decisions.md). Native Anthropic parity against a real endpoint is still open. Other proposed ADRs remain proposals until accepted as architecture and implemented/tested separately.
+
+## ADR-026 — Official agent CLIs with their own sign-in; no session or OAuth bridges (2026-11-11)
+
+**Decision:** To use the subscriptions and free tiers people already have, Pygg runs the vendors' own agent CLIs (Claude Code, Codex CLI, Gemini CLI, OpenCode) headless, each with the sign-in the user gave it, in a worktree per attempt (ADR-008). Pygg never reads, stores or forwards that sign-in, never exposes it to other clients through the gateway, and does not bridge web sessions, cookies or other products' OAuth tokens, even where an MIT-licensed project does.
+
+**Why:** Owner choice after reviewing OmniRoute's provider list. Bridges depend on terms the user did not agree to with Pygg and break without notice; the official CLIs are supported, and their cost stays honest (ADR-011: recorded as unknown, with the agent's own estimate in the source).
+
+**Cost:** Pygg cannot see which plan an agent uses, so tier and billing of an agent step are the user's classing. Status: built. See [AGENTS.md](AGENTS.md).
+
+## ADR-027 — Tasks start from the user's IDE agent; the app monitors (2026-11-11)
+
+**Decision:** Most people will not treat a router app as an IDE. Smart tasks are started where people already work: their coding agent calls Pygg's MCP server (`<app> mcp`), which forwards to the gateway's task API. The app runs the tasks and is where they are watched, paid steps are approved, and results are reviewed; New Task in the app stays as a manual fallback. A client needs the user's **May start tasks** permission, sees only its own tasks, and cannot approve a paid step (ADR-010).
+
+**Supersedes:** the parts of [SCREENS.md](design/SCREENS.md) and the [functional plan](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md) that assume the user composes and plans tasks in the app first (Analyze Task, Plan/Run/Result as the primary path). Status: built and verified from a real Codex session. See [AGENTS.md](AGENTS.md#from-the-ide-pygg-mcp-and-the-task-api).
 
 ## Open decisions (not yet finalized)
 

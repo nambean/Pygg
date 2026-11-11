@@ -1,5 +1,8 @@
 # SmartTaskRouter — UI/UX & Functional Implementation Plan
 
+> **Update 2026-11-11 (ADR-026, ADR-027):** agents run with their own sign-in, and tasks are started from the user's IDE agent through MCP. The analyze-then-plan flow (§2.2, §3.2), `POST /api/routes/analyze` and the tasks API in §6 are superseded; the built task API is `/pygg/v1/tasks` ([AGENTS.md](AGENTS.md#from-the-ide-pygg-mcp-and-the-task-api)). See [ROADMAP](ROADMAP.md#revised-plan-after-adr-026-and-adr-027-2026-11-11-docs-review).
+
+
 > Version: 1.2 addendum | Date: 2026-11-11 | Status: design plus early implementation; shared memory is proposed, not built
 >
 > Reference direction: 9Router-style provider/quota/endpoint management, extended with task-level routing that is checked by deterministic verification.

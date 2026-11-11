@@ -1,5 +1,8 @@
 # Multi-Account and API Key Rotation — Account Pool Router
 
+> **Update 2026-11-11 (ADR-026):** account pools apply to API-key and token-plan connections only. Subscriptions are used through the vendors' agent CLIs with their own sign-in, which Pygg never reads, so subscription sessions are not pooled or rotated.
+
+
 > Specification v1.0 · 2026-11-11 · **Proposed, not implemented**.
 >
 > Product: AI Cost Optimizer. Account rotation is an **availability, entitlement usage and cost-control mechanism** for authorized connections, not a way to evade provider quotas, bans, account restrictions, subscriptions or terms.

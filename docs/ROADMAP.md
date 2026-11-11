@@ -6,7 +6,7 @@
 
 ## Current built foundation (as reported by Implementation Status, not independently rerun here)
 
-A local Rust gateway at `127.0.0.1:8741`, OpenAI Chat Completions and Anthropic Messages *translation* surfaces, a few provider presets, static combos with fallback, client tokens, a cost-provenance ledger, a headless `gateway serve` binary and desktop Overview/Connections/Combos/Clients/Usage screens exist. Live verification: Gemini (routing, fallback, ledger), Anthropic (native passthrough, with cache parity measured direct versus gateway on claude-haiku-4-5) and a headless Claude Code session (session header on every request). No claim of parity for other models, the 1-hour cache TTL, OpenRouter's cache, or an interactive Claude Code session. Client tokens can be restricted to named connections; a server error does not move to another model unless the client allows it; only one gateway serves a store at a time. Rule-based `auto` and `auto/cheap` exist and were tried live on Gemini, Anthropic and Claude Code; they make no savings claim until the optimization benchmark has run. [Implementation Status](IMPLEMENTATION-STATUS.md) is authoritative, including the verification level of each P0 item.
+A local Rust gateway at `127.0.0.1:8741` with OpenAI Chat Completions and Anthropic Messages surfaces (native passthrough to Anthropic, translation elsewhere), 26 provider presets and 6 local runtimes plus custom OpenAI- and Anthropic-compatible endpoints for providers outside the list, combos with error-scoped fallback, client tokens with limits, a cost-provenance ledger, `auto` routing, a headless `gateway serve`, and desktop Overview/Connections/Combos/Clients/Usage screens. On top of it: official agent CLIs run with their own sign-in (ADR-026), task engine v1 with checks and a cascade across agent steps, and tasks started from IDE agents through MCP (ADR-027). Live verification: Gemini (routing, fallback, ledger), Anthropic (native passthrough, with cache parity measured direct versus gateway on claude-haiku-4-5) and a headless Claude Code session (session header on every request). No claim of parity for other models, the 1-hour cache TTL, OpenRouter's cache, or an interactive Claude Code session. Client tokens can be restricted to named connections; a server error does not move to another model unless the client allows it; only one gateway serves a store at a time. Rule-based `auto` and `auto/cheap` exist and were tried live on Gemini, Anthropic and Claude Code; they make no savings claim until the optimization benchmark has run. [Implementation Status](IMPLEMENTATION-STATUS.md) is authoritative, including the verification level of each P0 item.
 
 > **Independent counter-review (2026-11-11):** [Architect counter-review](reviews/2026-11-11-architect-counter-review.md) challenges error/quota scope, budget guarantee, accounting durability, Retry-After HTTP-date, HTTP 408/409/425 retry, session isolation and native Anthropic parity. **Answered item by item** in the [counter-review response](reviews/2026-11-11-counter-review-response.md): six accepted, three in part, with the code and tests that implement them. Since then P0-1 has measured cache parity on one Anthropic model, and P0-4 a headless Claude Code run; see the status table below.
 
@@ -54,6 +54,40 @@ Details and verification: [Implementation Status](IMPLEMENTATION-STATUS.md). Dec
 3. **Cache-aware route scoring:** account/model affinity, measured cache read/write, cost to rebuild and quality consequences. Prefer staying when switching adds cost.
 4. **Token reduction:** only deterministic, reversible dedup/noisy new tool-output filtering in **shadow and opt-in** first; verify prefix hash/cache parity before enabling defaults. Never silently rewrite external agent history.
 5. **Benchmarks and quality feedback:** measured cost per accepted result, failures, user revisions and manual time estimates. LLM classifiers only with a strict input/cost budget and only at explicit classification boundaries.
+
+## Revised plan after ADR-026 and ADR-027 (2026-11-11 docs review)
+
+A review of every planning doc against the build ([DECISIONS](DECISIONS.md), the [functional plan](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md), [SCREENS](design/SCREENS.md), [Account Rotation](ACCOUNT_API_ROTATION.md), [CLI/IDE/npm/Tiers](CLI_IDE_NPM_PROVIDER_TIERS.md), [Universal Memory](UNIVERSAL_SHARED_MEMORY.md)). In order:
+
+**A. Make the IDE flow usable every day**
+1. Tray and notifications for a paid step waiting, a task finished or failed (SCREENS §2.5). Per ADR-010, no task names or paths, and no approve button, in a notification.
+2. Approvals as ADR-010 specifies: an estimate and a cap, invalidated when the policy, catalog or budget changes (SCREENS §6.3).
+3. Task budgets per day and per workspace (functional plan §2.4).
+4. Workspace Settings in the app: approve the checks of workspaces created from an IDE folder, privacy class, a folder picker (SCREENS §5.3).
+5. Export Patch next to Keep as Branch (ADR-009).
+6. Claude Code through MCP, verified like Codex.
+
+**B. Gateway correctness**
+1. `auto` filters by request features (adaptive thinking, effort), from the provider's model list.
+2. Data-use terms per provider (GW-10) and the workspace privacy class as hard filters.
+3. A curated tier table with sources (P0-5), replacing tiers that only the user sets.
+4. Circuit-breaker health probing (Account Rotation §5) and a strict budget mode.
+
+**C. Evidence before any savings claim**
+1. A live cascade where a real failed check escalates to the next agent.
+2. The benchmark: 20–40 cases, three baselines, a report (functional plan §9). Needs the owner's paid-test budget.
+
+**D. Distribution**
+1. An NSIS installer tried on a clean machine.
+2. The integrations hub with config backup and restore (ADR-022), then the `str` CLI and npm launcher (ADR-021).
+3. Signing, which needs a certificate the owner pays for.
+
+**E. Later, after data or reconfirmation**
+- Account pools, for API-key and token-plan connections only: agents keep their own sign-in, so subscriptions cannot be pooled (ADR-026).
+- The Policies page with strategies and a simulator; multi-stage plans.
+- Auto Chat and shared memory (ADR-017, ADR-018): the app as a place to compose chats needs reconfirming against ADR-027.
+
+**Superseded by ADR-027:** the New Task → Analyze → Plan → Run flow as the main path, `POST /api/routes/analyze`, the tasks API in the functional plan §6 (the built one is `/pygg/v1/tasks`), "Needs Revalidation", and first-run screens that end in analyzing a task. **Superseded by ADR-026:** "Supported OAuth" connections and rotation of subscription sessions.
 
 ## P2: only after data demonstrates incremental benefit
 

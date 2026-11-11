@@ -1,5 +1,8 @@
 # SmartTaskRouter — Screen Design
 
+> **Update 2026-11-11 (ADR-027):** tasks are started from the user's IDE agent through MCP; the app monitors, approves and reviews. New Task → Analyze → Plan → Run as the main path, "Needs Revalidation" and the first-run screens that end in analyzing a task are superseded. See [ROADMAP](../ROADMAP.md#revised-plan-after-adr-026-and-adr-027-2026-11-11-docs-review).
+
+
 > Version: 0.1 | Date: 2026-11-10 | Status: historical task-first design; gateway-first screens now implemented (see Implementation Status)
 >
 > Inputs: [plan v1.1](../SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md), the DownFetch desktop UI (`F:\2026\DownFetch\apps\desktop\src`), and the `apple-design` skill (Apple HIG). Claude and Codex each designed the screens independently, then settled their differences in a second round. All model names, prices, quotas and results below are illustrative.
