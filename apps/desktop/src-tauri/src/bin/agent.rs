@@ -40,7 +40,8 @@ async fn task(db_path: PathBuf, flags: &HashMap<String, String>) {
         tasks::Step { agent: agent.into(), model, tier: 2, billing: "unknown".into() }
     }).collect();
     let new = tasks::NewTask { workspace_id: workspace.id.clone(), title: None, prompt: need("prompt"), strategy: "free_first".into(),
-        steps, allow_shell: flags.get("shell").map(String::as_str) == Some("yes"), timeout_secs: flags.get("timeout").and_then(|t| t.parse().ok()) };
+        steps, allow_shell: flags.get("shell").map(String::as_str) == Some("yes"), timeout_secs: flags.get("timeout").and_then(|t| t.parse().ok()),
+        handoff: flags.get("handoff").cloned() };
     let id = tasks::create_task(&conn, &new).unwrap_or_else(|e| fail(e));
     let db = Arc::new(Mutex::new(conn));
     let runner = tasks::Runner::new(db.clone(), worktrees, tasks::agent_executor());

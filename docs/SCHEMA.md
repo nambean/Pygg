@@ -1,6 +1,6 @@
 # Store schema
 
-> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v16
+> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v18
 
 The local SQLite store (`db.rs`): every table after all migrations, in order. Credentials are never here: a
 connection holds only a reference to its key in the OS credential store (ADR-002). Client tokens are stored as
@@ -51,6 +51,8 @@ References: `attempt_id` → `attempts.id` (on delete cascade).
 | `summary` | TEXT | yes |  |  | 0008_task_engine |
 | `log_tail` | TEXT | yes |  |  | 0008_task_engine |
 | `agent_estimate_micro_usd` | INTEGER | yes |  |  | 0010_approval_estimates |
+| `handoff_sent` | TEXT | yes |  |  | 0017_task_handoff |
+| `changed_paths_json` | TEXT | yes |  |  | 0017_task_handoff |
 
 References: `stage_id` → `task_stages.id` (on delete cascade).
 
@@ -224,6 +226,16 @@ References: `provider_id` → `providers.id` (on delete cascade).
 | `quota_confirmed_at` | INTEGER | yes |  |  | 0004_counter_review |
 
 4 CHECK constraints (see the migrations).
+
+## `rate_limits`
+
+| Column | Type | Null | Default | Key | Added in |
+| --- | --- | --- | --- | --- | --- |
+| `provider_id` | TEXT | no |  | primary | 0018_rate_limits |
+| `model_id` | TEXT | no |  | primary | 0018_rate_limits |
+| `headers_json` | TEXT | no |  |  | 0018_rate_limits |
+| `http_status` | INTEGER | yes |  |  | 0018_rate_limits |
+| `observed_at` | INTEGER | no |  |  | 0018_rate_limits |
 
 ## `route_decisions`
 

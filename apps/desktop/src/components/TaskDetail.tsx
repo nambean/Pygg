@@ -214,6 +214,8 @@ function AttemptRow({attempt: a}: {attempt: AttemptView}) {
           <span className="mono">{c.command}</span><small className="secondary">{c.detail} · {t('{s} s', {s: (c.durationMs / 1000).toFixed(1)})}</small>
         </li>)}
       </ul>}
+      {a.handoffSent && <details><summary>{t('What it was told about earlier attempts')}</summary>
+        <pre className="log-tail selectable">{a.handoffSent}</pre></details>}
       {failedCheck?.outputTail && <details><summary>{t('Check output')}</summary><pre className="log-tail">{failedCheck.outputTail}</pre></details>}
       {a.logTail && <details><summary>{t('Agent output')}</summary><pre className="log-tail">{a.logTail}</pre></details>}
     </div>

@@ -886,6 +886,13 @@ fn a_native_request_keeps_its_key_order_and_the_providers_limit_headers() {
         let claude = rig.post("/v1/messages", claude_request(false)).await;
         assert_eq!(claude.headers()["anthropic-ratelimit-requests-remaining"], "99");
         assert_eq!(claude.headers()["request-id"], "req_a1");
+
+        // PV-06: the limit headers are also kept, per model, as the provider sent them; request ids are not.
+        let limits = rig.shared.with_db(|db| store::list_limits(db, "main")).unwrap();
+        let keyorder = limits.iter().find(|l| l.model_id == "keyorder").expect("kept for the model that answered");
+        assert_eq!(keyorder.headers.get("x-ratelimit-remaining-requests").map(String::as_str), Some("41"));
+        assert!(!keyorder.headers.contains_key("x-request-id"));
+        assert_eq!(keyorder.http_status, Some(200));
     });
 }
 

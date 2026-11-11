@@ -105,6 +105,13 @@ fn describe(task: &Value) -> String {
             out.push_str(&format!(" ({files} files, +{} −{})", a["insertions"], a["deletions"]));
         }
         out.push('\n');
+        // What that attempt was told about earlier ones (ADR-030), so the calling agent sees the same as the user.
+        if let Some(sent) = a["handoffSent"].as_str() {
+            out.push_str("     It was given, after the task:\n");
+            for line in sent.lines() {
+                out.push_str(&format!("     | {line}\n"));
+            }
+        }
     }
     let next = match task["state"].as_str().unwrap_or("") {
         "running" => "Still running. Call pygg_task_status with wait_seconds to wait for it.".to_string(),

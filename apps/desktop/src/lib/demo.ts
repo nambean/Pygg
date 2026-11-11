@@ -261,7 +261,11 @@ export function demoApi(): GatewayApi {
     return {...rest, quotaGroup: quotaGroup(c), presetName: preset?.name ?? c.kind, hasKey: key, needsKey: preset?.needsKey ?? false,
       models: models.filter(m => m.providerId === c.id).length,
       health: health.filter(h => h.providerId === c.id && (h.untilMs === null || h.untilMs > Date.now())),
-      sharesQuotaWith: connections.filter(o => o.id !== c.id && quotaGroup(o) === quotaGroup(c)).map(o => o.label)};
+      sharesQuotaWith: connections.filter(o => o.id !== c.id && quotaGroup(o) === quotaGroup(c)).map(o => o.label),
+      // Illustrative: what Anthropic's API sends with an answer.
+      limits: c.kind === 'anthropic' ? [{modelId: 'claude-sonnet-4-5', httpStatus: 200, observedAt: Date.now() - 6 * 60_000, headers: {
+        'anthropic-ratelimit-requests-limit': '50', 'anthropic-ratelimit-requests-remaining': '49',
+        'anthropic-ratelimit-tokens-remaining': '39000', 'anthropic-ratelimit-tokens-reset': '2026-11-12T02:31:00Z'}}] : []};
   }
   function find(id: string): Stored {
     const c = connections.find(x => x.id === id);
@@ -558,6 +562,10 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'worksp
       open: a.outcome === 'passed' && (s.state === 'checks_passed'),
       agentEstimateUsd: a.outcome === 'passed' || a.outcome === 'failed' ? (a.billing === 'paid' ? 0.04 : 0) : null,
       capUsd: a.billing === 'paid' && a.outcome !== 'waiting' ? 0.5 : null,
+      handoffSent: i > 0 && s.attempts[i - 1].outcome === 'failed' ? 'A previous attempt at this task, started from the same code, did not pass '
+        + 'the workspace\'s checks. You start again from the original code.\nThe check `pnpm test` exited 1 on that attempt\'s changes. '
+        + 'The end of its output:\nFAIL src/timeout.test.ts\n  expected 50 ms, got 5000 ms' : null,
+      changedPaths: a.outcome === 'failed' ? ['src/timeout.ts'] : [],
     }));
     const waiting = attempts.find(a => a.outcome === 'waiting');
     return {...s, prompt: s.title, strategy: 'free_first', reason: s.state === 'interrupted'

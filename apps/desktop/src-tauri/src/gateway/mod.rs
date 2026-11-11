@@ -927,6 +927,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 last = Some(Refusal::new(StatusCode::BAD_GATEWAY, "api_error", message));
             }
             Ok(response) if response.status().is_success() => {
+                note_limits(shared, &provider.id, &model_id, response.status().as_u16(), response.headers());
                 let _ = shared.with_db(|db| store::mark_healthy(db, &provider.id, &model_id));
                 let pinned = pinned_target.as_ref().is_some_and(|p| p.provider_id == provider.id && p.model_id == model_id);
                 let auto_header = auto_plan.as_ref().and_then(|plan| plan.ranked.iter()
@@ -946,6 +947,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             Ok(response) => {
                 let status = response.status();
                 let headers = response.headers().clone();
+                note_limits(shared, &provider.id, &model_id, status.as_u16(), &headers);
                 let content_type = headers.get(header::CONTENT_TYPE).cloned();
                 let bytes = read_limited(response, MAX_ERROR_BODY).await;
                 let error = policy::ProviderError::from_response(status.as_u16(), &headers, &bytes);
@@ -1100,6 +1102,18 @@ pub fn record_success(shared: &Shared, mut forwarded: Forwarded, usage: Option<&
     if let Some(session) = &forwarded.session {
         let target = Target { provider_id: forwarded.provider.id.clone(), model_id: forwarded.model_id.clone() };
         let _ = shared.with_db(|db| store::pin(db, &forwarded.client_id, session, &forwarded.requested, &target));
+    }
+}
+
+/// Keeps the rate-limit headers a provider sent with an answer, to show as "as the provider last said" (PV-06,
+/// ADR-030). Recording is best effort: a failed write never fails the request.
+fn note_limits(shared: &Shared, provider_id: &str, model_id: &str, status: u16, headers: &HeaderMap) {
+    let pairs: Vec<(String, String)> = headers.iter()
+        .filter(|(n, _)| store::is_limit_header(n.as_str()))
+        .filter_map(|(n, v)| v.to_str().ok().map(|v| (n.as_str().to_string(), v.to_string())))
+        .collect();
+    if !pairs.is_empty() {
+        let _ = shared.with_db(|db| store::record_limits(db, provider_id, model_id, status, &pairs));
     }
 }
 

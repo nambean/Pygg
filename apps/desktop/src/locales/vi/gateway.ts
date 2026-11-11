@@ -476,6 +476,9 @@ export const gateway: Record<string, string> = {
   'Looking for agents…': 'Đang tìm agent…',
   'Show all {n}': 'Hiện tất cả {n}',
   'Requests ({n})': 'Yêu cầu ({n})',
+  'Rate limits, as the provider last said': 'Giới hạn tốc độ, theo lời nhà cung cấp lần gần nhất',
+  'Copied from the headers of its last answer for each model. Pygg does not route on them, and a provider that sends none shows nothing here.':
+    'Chép từ header của lần trả lời gần nhất cho từng model. Pygg không định tuyến dựa vào chúng; nhà cung cấp nào không gửi thì ở đây trống.',
   'See it in Usage': 'Xem trong Mức dùng',
   'No request yet. Start the client with these settings; its first request shows here within seconds.':
     'Chưa có yêu cầu nào. Chạy client với cấu hình này; yêu cầu đầu tiên sẽ hiện ở đây sau vài giây.',

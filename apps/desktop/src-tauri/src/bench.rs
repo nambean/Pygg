@@ -120,6 +120,8 @@ pub struct Config {
     /// Keep going after an attempt whose cost could not be read (a timed-out free model, say). Only for runs whose
     /// paid routes all go through a gateway client with a strict limit, which then bounds the spend.
     pub allow_unknown: bool,
+    /// The task engine's handoff mode for `--engine` runs: none, tail or evidence (H1, ADR-030). None: the default.
+    pub handoff: Option<String>,
 }
 
 /// The environment variable that carries an attempt's session key to the agent's configuration.
@@ -505,7 +507,7 @@ pub async fn run_case_engine(case: &Case, rungs: &[Rung], cascade: bool, agent: 
         billing: "unknown".into() }).collect();
     let new = tasks::NewTask { workspace_id: workspace.id.clone(), title: Some(case.file.title.clone()),
         prompt: case.file.prompt.clone(), strategy: "free_first".into(), steps, allow_shell: false,
-        timeout_secs: Some(config.agent_timeout.as_secs()) };
+        timeout_secs: Some(config.agent_timeout.as_secs()), handoff: config.handoff.clone() };
     let id = tasks::create_task(&conn, &new)?;
     let db = Arc::new(Mutex::new(conn));
     let runner = tasks::Runner::new(db.clone(), slot.join("worktrees"), tasks::agent_executor());
@@ -657,7 +659,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (cases, agent) = setup(dir.path());
         let config = Config { agent, agent_timeout: Duration::from_secs(60), check_timeout: Duration::from_secs(60),
-            scratch: dir.path().join("scratch"), budget_micro_usd: None, gateway_db: None, allow_unknown: false };
+            scratch: dir.path().join("scratch"), budget_micro_usd: None, gateway_db: None, allow_unknown: false, handoff: None };
         let rungs = vec![Rung::parse("T0=bad").unwrap(), Rung::parse("T1=good").unwrap()];
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let mut ledger = Ledger::default();
@@ -693,7 +695,7 @@ mod tests {
         // Every attempt reports $0.50; the cap is $0.40, so the cascade stops after its first attempt.
         let config = Config { agent: format!("{agent} 0.5"), agent_timeout: Duration::from_secs(60),
             check_timeout: Duration::from_secs(60), scratch: dir.path().join("scratch"),
-            budget_micro_usd: Some(400_000), gateway_db: None, allow_unknown: false };
+            budget_micro_usd: Some(400_000), gateway_db: None, allow_unknown: false, handoff: None };
         let rungs = vec![Rung::parse("T0=bad").unwrap(), Rung::parse("T1=good").unwrap()];
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let mut ledger = Ledger::default();
@@ -742,7 +744,7 @@ mod tests {
         let cheat = dir.path().join("cheat.js");
         fs::write(&cheat, "require('fs').writeFileSync('test.js', '// nothing\\n');\n").unwrap();
         let config = Config { agent: format!("node \"{}\"", cheat.display()), agent_timeout: Duration::from_secs(60),
-            check_timeout: Duration::from_secs(60), scratch: dir.path().join("scratch"), budget_micro_usd: None, gateway_db: None, allow_unknown: false };
+            check_timeout: Duration::from_secs(60), scratch: dir.path().join("scratch"), budget_micro_usd: None, gateway_db: None, allow_unknown: false, handoff: None };
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let record = rt.block_on(run_case(&cases[0], &[Rung::parse("T0=x").unwrap()], false, &config, &mut Ledger::default())).unwrap();
         assert!(!record.passed);

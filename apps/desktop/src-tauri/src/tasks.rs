@@ -227,6 +227,13 @@ pub struct Policy {
     pub checks: Vec<PolicyCheck>,
     pub allow_shell: bool,
     pub timeout_secs: u64,
+    /// What the next step is told after a failed attempt (handoff.rs, ADR-030): `none`, `tail` or `evidence`.
+    #[serde(default = "default_handoff")]
+    pub handoff: String,
+}
+
+fn default_handoff() -> String {
+    crate::handoff::DEFAULT_MODE.into()
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -242,6 +249,9 @@ pub struct NewTask {
     pub allow_shell: bool,
     #[serde(default)]
     pub timeout_secs: Option<u64>,
+    /// `none`, `tail` (the default) or `evidence` (H1, off unless asked for).
+    #[serde(default)]
+    pub handoff: Option<String>,
 }
 
 fn title_of(prompt: &str) -> String {
@@ -282,6 +292,10 @@ pub fn create_task_for(conn: &Connection, new: &NewTask, client_id: Option<&str>
             return Err(format!("Unknown billing {}", step.billing));
         }
     }
+    let handoff = new.handoff.as_deref().map(str::trim).filter(|h| !h.is_empty()).unwrap_or(crate::handoff::DEFAULT_MODE);
+    if !crate::handoff::MODES.contains(&handoff) {
+        return Err(format!("Unknown handoff {handoff}: use none, tail or evidence"));
+    }
     let ws = workspace(conn, &new.workspace_id)?;
     let base = isolation::head(Path::new(&ws.path)).map_err(|e| e.to_string())?;
     let steps = new.steps.iter().map(|s| Step {
@@ -293,6 +307,7 @@ pub fn create_task_for(conn: &Connection, new: &NewTask, client_id: Option<&str>
             .map(|c| PolicyCheck { command: c.command.clone(), source: c.source.clone() }).collect(),
         allow_shell: new.allow_shell,
         timeout_secs: new.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS).clamp(60, 3600),
+        handoff: handoff.into(),
     };
     let title = new.title.as_deref().map(str::trim).filter(|t| !t.is_empty()).map(String::from).unwrap_or_else(|| title_of(prompt));
     let id = new_id();
@@ -379,6 +394,10 @@ pub struct AttemptView {
     pub agent_estimate_usd: Option<f64>,
     /// The cap the user approved, for a paid step.
     pub cap_usd: Option<f64>,
+    /// What was added to this attempt's prompt about earlier attempts (H1); None: the task alone.
+    pub handoff_sent: Option<String>,
+    /// Paths this attempt changed, recorded before a discarded worktree is removed.
+    pub changed_paths: Vec<String>,
     #[serde(skip)]
     worktree: Option<String>,
     #[serde(skip)]
@@ -452,7 +471,7 @@ fn task_row(conn: &Connection, id: &str) -> Result<TaskRow> {
             title: r.get(0)?, workspace_id: r.get(1)?, workspace_name: r.get(2)?, workspace_path: r.get(3)?, prompt: r.get(4)?,
             strategy: r.get(5)?, state: r.get(6)?, phase: r.get(7)?, reason: r.get(8)?, result: r.get(9)?,
             result_branch: r.get(10)?, base_revision: r.get(11)?,
-            policy: Policy { steps: vec![], checks: vec![], allow_shell: false, timeout_secs: DEFAULT_TIMEOUT_SECS },
+            policy: Policy { steps: vec![], checks: vec![], allow_shell: false, timeout_secs: DEFAULT_TIMEOUT_SECS, handoff: default_handoff() },
             stage_id: r.get(13)?, created_at: r.get(14)?, updated_at: r.get(15)?, client_id: r.get(16)?, client_name: r.get(17)?,
         }, r.get::<_, String>(12)?)),
     ).optional().map_err(err)?;
@@ -468,7 +487,8 @@ fn attempts_of(conn: &Connection, task_id: &str) -> Result<Vec<AttemptView>> {
                 (SELECT SUM(input_tokens) FROM usage_events u WHERE u.attempt_id = a.id), \
                 (SELECT SUM(output_tokens) FROM usage_events u WHERE u.attempt_id = a.id), \
                 a.started_at, a.finished_at, a.worktree_path, a.base_revision, a.agent_estimate_micro_usd, \
-                (SELECT cap_micro_usd FROM approvals p WHERE p.attempt_id = a.id AND p.state = 'approved' ORDER BY p.created_at DESC LIMIT 1) \
+                (SELECT cap_micro_usd FROM approvals p WHERE p.attempt_id = a.id AND p.state = 'approved' ORDER BY p.created_at DESC LIMIT 1), \
+                a.handoff_sent, a.changed_paths_json \
          FROM attempts a JOIN task_stages s ON s.id = a.stage_id WHERE s.task_id = ?1 ORDER BY a.number").map_err(err)?;
     let rows = statement.query_map([task_id], |r| {
         let checks: Option<String> = r.get(11)?;
@@ -483,6 +503,8 @@ fn attempts_of(conn: &Connection, task_id: &str) -> Result<Vec<AttemptView>> {
             open: worktree.is_some(), worktree, base: r.get(22)?,
             agent_estimate_usd: r.get::<_, Option<i64>>(23)?.map(|m| m as f64 / 1e6),
             cap_usd: r.get::<_, Option<i64>>(24)?.filter(|c| *c > 0).map(|c| c as f64 / 1e6),
+            handoff_sent: r.get(25)?,
+            changed_paths: r.get::<_, Option<String>>(26)?.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
         })
     }).map_err(err)?;
     rows.collect::<rusqlite::Result<Vec<_>>>().map_err(err)
@@ -890,6 +912,37 @@ fn handoff_of(attempt: &AttemptView) -> Option<String> {
     attempt.checks.iter().find(|c| !c.passed).map(handoff)
 }
 
+/// H1's evidence block (handoff.rs) from a task's recorded attempts.
+fn evidence_of(attempts: &[AttemptView]) -> Option<String> {
+    let rows: Vec<crate::handoff::Attempt> = attempts.iter().map(|a| crate::handoff::Attempt {
+        number: a.number, label: &a.label, outcome: &a.outcome, detail: a.detail.as_deref(),
+        escalation_reason: a.escalation_reason.as_deref(),
+        failed_check: a.checks.iter().find(|c| !c.passed).map(|c| (c.command.as_str(), c.detail.as_str(), c.output_tail.as_str())),
+        summary: a.summary.as_deref(), changed_paths: a.changed_paths.clone(), no_changes: a.detail.as_deref() == Some(NO_CHANGES),
+    }).collect();
+    crate::handoff::evidence(&rows)
+}
+
+/// What an attempt is told about earlier ones, by the task's handoff mode: nothing, the last failure's tail
+/// (`carried`, today's behaviour), or H1's evidence from every earlier attempt.
+fn handoff_for(mode: &str, carried: Option<&str>, attempts: &[AttemptView]) -> Option<String> {
+    match mode {
+        "none" => None,
+        "evidence" => evidence_of(attempts).map(|e| format!("{e}\n\nYou start again from the original code. Use what was \
+            verified; treat the agents' own accounts as unconfirmed.")),
+        _ => carried.map(|why| format!("A previous attempt at this task, started from the same code, did not pass the \
+            workspace's checks. You start again from the original code.\n{why}")),
+    }
+}
+
+/// The prompt for an attempt: the task, then what it is told about earlier attempts, if anything.
+fn compose_with(prompt: &str, handoff: Option<&str>) -> String {
+    match handoff {
+        None => prompt.to_string(),
+        Some(text) => format!("{prompt}\n\n---\n{text}"),
+    }
+}
+
 /// The prompt for an attempt: the task, plus why the previous attempt failed its checks.
 pub fn compose(prompt: &str, handoff: Option<&str>) -> String {
     match handoff {
@@ -1200,9 +1253,13 @@ impl Runner {
             };
             self.with_db(|c| set_phase(c, id, "generating")).map_err(err)?;
             let cap = self.with_db(|c| approved_cap(c, &attempt)).map_err(err)?;
+            // What this attempt is told about earlier ones, recorded as sent so the user can see it.
+            let earlier = if row.policy.handoff == "evidence" { self.with_db(|c| attempts_of(c, id))? } else { Vec::new() };
+            let given = handoff_for(&row.policy.handoff, carried.as_deref(), &earlier);
+            self.with_db(|c| c.execute("UPDATE attempts SET handoff_sent = ?2 WHERE id = ?1", params![attempt, given])).map_err(err)?;
             let request = ExecRequest {
                 agent: step.agent.clone(), model: step.model.clone(), workspace: PathBuf::from(&row.workspace_path),
-                base: base.clone(), prompt: compose(&row.prompt, carried.as_deref()), allow_shell: row.policy.allow_shell,
+                base: base.clone(), prompt: compose_with(&row.prompt, given.as_deref()), allow_shell: row.policy.allow_shell,
                 timeout_secs: row.policy.timeout_secs, max_budget_usd: cap.map(usd), attempt_id: attempt.clone(),
             };
             let name = agents::find(&step.agent).map(|a| a.name).unwrap_or(step.agent.as_str());
@@ -1236,6 +1293,12 @@ impl Runner {
                 .then(|| format!("{name} reported no cost, so your cap for this step could not be checked")));
             halt = over_cap;
             let worktree = Worktree { repo: PathBuf::from(&row.workspace_path), path: PathBuf::from(&run.worktree), base: run.base.clone() };
+            // Which paths it changed, kept after a discarded worktree is gone, so a later step can be told (H1).
+            if run.files_changed > 0 {
+                let changed = isolation::changed_files(&worktree).unwrap_or_default();
+                let json = serde_json::to_string(&changed).map_err(|e| e.to_string())?;
+                self.with_db(|c| c.execute("UPDATE attempts SET changed_paths_json = ?2 WHERE id = ?1", params![attempt, json])).map_err(err)?;
+            }
             let drop_worktree = |runner: &Runner| {
                 let _ = isolation::discard(&worktree);
                 runner.with_db(|c| forget_worktree(c, &attempt)).map_err(err)
@@ -1596,7 +1659,7 @@ mod tests {
 
     fn create(rig: &Rig, steps: Vec<Step>) -> String {
         let new = NewTask { workspace_id: rig.workspace.clone(), title: None, prompt: "Make result.txt say good".into(),
-            strategy: "free_first".into(), steps, allow_shell: false, timeout_secs: None };
+            strategy: "free_first".into(), steps, allow_shell: false, timeout_secs: None, handoff: None };
         create_task(&lock(&rig.db), &new).unwrap()
     }
 
@@ -1607,6 +1670,45 @@ mod tests {
 
     fn detail(rig: &Rig, id: &str) -> TaskDetail {
         task_detail(&lock(&rig.db), id).unwrap()
+    }
+
+    #[tokio::test]
+    async fn the_handoff_mode_decides_what_the_next_step_is_told_and_it_is_recorded_as_sent() {
+        for (mode, expect) in [("none", None), ("tail", Some("did not pass the")), ("evidence", Some(crate::handoff::VERSION))] {
+            let rig = rig(&[good_check()]);
+            let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
+                fake(vec![Act::Write("result.txt", "bad\n"), Act::Write("result.txt", "good\n")], rig.prompts.clone()));
+            let new = NewTask { workspace_id: rig.workspace.clone(), title: None, prompt: "Make result.txt say good".into(),
+                strategy: "free_first".into(), steps: vec![step("opencode", "free", 1), step("codex", "subscription", 3)],
+                allow_shell: false, timeout_secs: None, handoff: Some(mode.into()) };
+            let id = create_task(&lock(&rig.db), &new).unwrap();
+            runner.start(&id).unwrap().await.unwrap();
+
+            let task = detail(&rig, &id);
+            assert_eq!(task.summary.state, "checks_passed", "{mode}: {:?}", task.reason);
+            assert_eq!(task.policy.handoff, mode);
+            let second = rig.prompts.lock().unwrap()[1].clone();
+            let sent = task.attempt_details[1].handoff_sent.clone();
+            assert!(task.attempt_details[0].handoff_sent.is_none(), "the first step is given the task alone");
+            assert_eq!(task.attempt_details[0].changed_paths, ["result.txt"], "kept after its worktree was removed");
+            match expect {
+                None => { assert_eq!(second, "Make result.txt say good"); assert!(sent.is_none()); }
+                Some(marker) => {
+                    let sent = sent.unwrap_or_else(|| panic!("{mode}: nothing recorded"));
+                    assert!(sent.contains(marker), "{mode}: {sent}");
+                    assert!(second.ends_with(&sent), "{mode}: what was recorded is what was sent");
+                }
+            }
+            if mode == "evidence" {
+                let sent = task.attempt_details[1].handoff_sent.clone().unwrap();
+                assert!(sent.contains(&format!("Verified by the check `{}`", good_check())), "{sent}");
+                assert!(sent.contains("Changed in that discarded attempt, and not in your copy: result.txt"), "{sent}");
+            }
+        }
+        let rig = rig(&[good_check()]);
+        let bad = NewTask { workspace_id: rig.workspace.clone(), title: None, prompt: "x".into(), strategy: "free_first".into(),
+            steps: vec![step("codex", "subscription", 3)], allow_shell: false, timeout_secs: None, handoff: Some("memory".into()) };
+        assert!(create_task(&lock(&rig.db), &bad).unwrap_err().contains("Unknown handoff"));
     }
 
     #[tokio::test]
@@ -1988,7 +2090,7 @@ mod tests {
         let rig = rig(&[good_check()]);
         let conn = lock(&rig.db);
         let base = NewTask { workspace_id: rig.workspace.clone(), title: None, prompt: "  ".into(), strategy: "free_first".into(),
-            steps: vec![step("codex", "subscription", 3)], allow_shell: false, timeout_secs: None };
+            steps: vec![step("codex", "subscription", 3)], allow_shell: false, timeout_secs: None, handoff: None };
         assert_eq!(create_task(&conn, &base).unwrap_err(), "Describe the task");
         let prompt = "Fix it".to_string();
         assert!(create_task(&conn, &NewTask { prompt: prompt.clone(), steps: vec![], ..base.clone() }).is_err());

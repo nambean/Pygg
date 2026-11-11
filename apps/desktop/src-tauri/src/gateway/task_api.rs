@@ -118,6 +118,9 @@ struct StartTask {
     allow_shell: bool,
     #[serde(default)]
     timeout_secs: Option<u64>,
+    /// none, tail (the default) or evidence (H1, ADR-030).
+    #[serde(default)]
+    handoff: Option<String>,
 }
 
 async fn start(State(shared): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
@@ -146,7 +149,7 @@ async fn start(State(shared): State<Shared>, headers: HeaderMap, body: Bytes) ->
     let created = blocking(&shared, move |db| {
         let workspace = tasks::workspace_for_folder(db, &request.workspace)?;
         let new = NewTask { workspace_id: workspace.id, title: request.title, prompt: request.prompt, strategy, steps,
-            allow_shell: request.allow_shell, timeout_secs: request.timeout_secs };
+            allow_shell: request.allow_shell, timeout_secs: request.timeout_secs, handoff: request.handoff };
         let id = tasks::create_task_for(db, &new, Some(&client_id))?;
         tasks::task_detail_for(db, &id, Some(&client_id))
     }).await;

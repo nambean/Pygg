@@ -869,6 +869,48 @@ pub fn mark_healthy(conn: &Connection, provider_id: &str, model_id: &str) -> Res
     .map_err(err)
 }
 
+/// The rate-limit headers a provider last sent for a model (PV-06, ADR-030), as sent.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimits {
+    pub model_id: String,
+    pub headers: std::collections::BTreeMap<String, String>,
+    pub http_status: Option<u16>,
+    pub observed_at: i64,
+}
+
+/// Whether a header is one a provider uses to say how much is left, or when to come back.
+pub fn is_limit_header(name: &str) -> bool {
+    name.starts_with("anthropic-ratelimit-") || name.starts_with("x-ratelimit-") || name == "retry-after"
+}
+
+/// Keeps the provider's rate-limit headers from one answer; does nothing when it sent none.
+pub fn record_limits(conn: &Connection, provider_id: &str, model_id: &str, status: u16,
+    headers: &[(String, String)]) -> Result<()> {
+    let kept: std::collections::BTreeMap<&str, &str> = headers.iter()
+        .filter(|(n, _)| is_limit_header(n)).map(|(n, v)| (n.as_str(), v.as_str())).collect();
+    if kept.is_empty() {
+        return Ok(());
+    }
+    let json = serde_json::to_string(&kept).map_err(|e| e.to_string())?;
+    conn.execute("INSERT INTO rate_limits (provider_id, model_id, headers_json, http_status, observed_at) \
+                  VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (provider_id, model_id) DO UPDATE SET \
+                  headers_json = excluded.headers_json, http_status = excluded.http_status, observed_at = excluded.observed_at",
+        params![provider_id, model_id, json, status as i64, now_ms()]).map(|_| ()).map_err(err)
+}
+
+pub fn list_limits(conn: &Connection, provider_id: &str) -> Result<Vec<RateLimits>> {
+    let mut stmt = conn.prepare("SELECT model_id, headers_json, http_status, observed_at FROM rate_limits \
+        WHERE provider_id = ?1 ORDER BY observed_at DESC").map_err(err)?;
+    let rows = stmt.query_map([provider_id], |r| Ok(RateLimits {
+        model_id: r.get(0)?,
+        headers: serde_json::from_str(&r.get::<_, String>(1)?).unwrap_or_default(),
+        http_status: r.get::<_, Option<i64>>(2)?.map(|v| v as u16),
+        observed_at: r.get(3)?,
+    })).map_err(err)?;
+    rows.collect::<rusqlite::Result<_>>().map_err(err)
+}
+
 pub fn clear_health(conn: &Connection, provider_id: &str) -> Result<()> {
     conn.execute("DELETE FROM connection_health WHERE provider_id = ?1", [provider_id]).map(|_| ()).map_err(err)
 }

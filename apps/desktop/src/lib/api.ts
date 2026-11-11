@@ -44,7 +44,11 @@ export type Connection = {
   termsSource: string | null; termsCheckedAt: number | null;
   wire: Wire; quotaGroup: string; separateQuota: boolean; quotaConfirmedAt: number | null;
   presetName: string; hasKey: boolean; needsKey: boolean; models: number; health: Health[]; sharesQuotaWith: string[];
+  /** The rate-limit headers its provider last sent, per model (PV-06): as the provider said them. */
+  limits?: RateLimits[];
 };
+
+export type RateLimits = {modelId: string; headers: Record<string, string>; httpStatus: number | null; observedAt: number};
 
 export type Price = {
   inputMicroPerMtok: number; outputMicroPerMtok: number; cachedInputMicroPerMtok: number | null;

@@ -215,6 +215,17 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
           : c.health.length ? t('See below') : t('No problems seen')}</span>
       </div>
       {c.health.length > 0 && <div className="group-row stacked"><HealthList connection={c}/></div>}
+      {(c.limits?.length ?? 0) > 0 && <div className="group-row stacked">
+        <span className="group-label">{t('Rate limits, as the provider last said')}
+          <small>{t('Copied from the headers of its last answer for each model. Pygg does not route on them, and a provider that sends none shows nothing here.')}</small></span>
+        <ul className="limit-list">
+          {c.limits!.map(l => <li key={l.modelId}>
+            <span className="mono">{l.modelId}</span>
+            <small className="secondary">{ago(l.observedAt)}{l.httpStatus && l.httpStatus !== 200 ? ` · HTTP ${l.httpStatus}` : ''}</small>
+            <span className="limit-values mono">{Object.entries(l.headers).map(([k, v]) => `${k.replace(/^(anthropic-ratelimit-|x-ratelimit-)/, '')}: ${v}`).join(' · ')}</span>
+          </li>)}
+        </ul>
+      </div>}
       <div className="group-row">
         <span className="group-label"><label htmlFor={`quota-${c.id}`}>{t('Independent quota confirmed')}</label>
           <small>{c.separateQuota

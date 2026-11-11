@@ -158,6 +158,8 @@ pub struct ConnectionView {
     pub health: Vec<store::Health>,
     /// Other connections that share this one's quota group.
     pub shares_quota_with: Vec<String>,
+    /// The rate-limit headers its provider last sent, per model (PV-06): as the provider said, never estimated.
+    pub limits: Vec<store::RateLimits>,
 }
 
 fn view(state: &AppState, provider: Provider) -> ConnectionView {
@@ -167,7 +169,9 @@ fn view(state: &AppState, provider: Provider) -> ConnectionView {
     let health = state.shared.with_db(|db| store::list_health(db, Some(&provider.id))).unwrap_or_default();
     let shares_quota_with = state.shared.with_db(store::list_providers).unwrap_or_default().into_iter()
         .filter(|p| p.id != provider.id && p.quota_group == provider.quota_group).map(|p| p.label).collect();
+    let limits = state.shared.with_db(|db| store::list_limits(db, &provider.id)).unwrap_or_default();
     ConnectionView {
+        limits,
         preset_name: preset.map(|p| p.name.to_string()).unwrap_or_else(|| provider.kind.clone()),
         needs_key: preset.map(|p| p.needs_key).unwrap_or(false),
         has_key,

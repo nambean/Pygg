@@ -91,6 +91,10 @@ export type AttemptView = {
   agentEstimateUsd: number | null;
   /** The cap the user approved, for a paid step. */
   capUsd: number | null;
+  /** What this attempt was told about earlier ones, after the task (ADR-030); null: the task alone. */
+  handoffSent?: string | null;
+  /** Paths this attempt changed, kept after a discarded worktree is gone. */
+  changedPaths?: string[];
 };
 
 /** What earlier runs of the agent and model cost by its own report; null without history. */

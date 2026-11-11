@@ -98,6 +98,7 @@ export const tasks: Record<string, string> = {
   'Loading tasks…': 'Đang tải tác vụ…',
   'Review Changes': 'Xem thay đổi',
   'Copy Diff': 'Sao chép diff',
+  'What it was told about earlier attempts': 'Những gì agent được báo về các lần thử trước',
   'Loading changes…': 'Đang tải thay đổi…',
   'No changes.': 'Không có thay đổi.',
   'Binary file; not shown.': 'File nhị phân, không hiển thị.',

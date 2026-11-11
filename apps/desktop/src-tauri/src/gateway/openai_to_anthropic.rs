@@ -60,7 +60,7 @@ pub fn to_anthropic(request: &Value) -> (Value, Vec<String>) {
     let mut dropped: Vec<String> = Vec::new();
     let mut system = Vec::new();
     let mut turns: Vec<(String, Vec<Value>)> = Vec::new();
-    let mut push = |turns: &mut Vec<(String, Vec<Value>)>, role: &str, blocks: Vec<Value>| {
+    let push = |turns: &mut Vec<(String, Vec<Value>)>, role: &str, blocks: Vec<Value>| {
         if blocks.is_empty() {
             return;
         }

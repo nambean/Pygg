@@ -7,6 +7,7 @@ pub mod checks;
 pub mod commands;
 pub mod db;
 pub mod gateway;
+pub mod handoff;
 pub mod integrations;
 pub mod isolation;
 pub mod mcp;

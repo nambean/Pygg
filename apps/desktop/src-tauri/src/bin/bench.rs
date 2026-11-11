@@ -27,11 +27,13 @@ struct Args {
     /// Runs of each case per arm, for a pass rate with bounds (ROADMAP N2).
     repeat: usize,
     allow_unknown: bool,
+    /// The task engine's handoff after a failed step (ADR-030): none, tail or evidence.
+    handoff: Option<String>,
 }
 
 fn usage() -> ! {
     eprintln!("usage: bench --cases DIR --agent COMMAND --rung TIER=MODEL [--rung …] \
-        [--mode all|single|cascade] [--only CASE] [--out DIR] [--agent-timeout SECONDS] [--check-timeout SECONDS] [--budget-usd N] [--gateway-db STORE] [--engine AGENT] [--repeat N] [--allow-unknown yes]");
+        [--mode all|single|cascade] [--only CASE] [--out DIR] [--agent-timeout SECONDS] [--check-timeout SECONDS] [--budget-usd N] [--gateway-db STORE] [--engine AGENT] [--repeat N] [--allow-unknown yes] [--handoff none|tail|evidence]");
     std::process::exit(2);
 }
 
@@ -50,6 +52,7 @@ fn parse() -> Args {
     let mut engine = None;
     let mut repeat = 1usize;
     let mut allow_unknown = false;
+    let mut handoff = None;
     while let Some(flag) = args.next() {
         let mut value = || args.next().unwrap_or_else(|| usage());
         match flag.as_str() {
@@ -69,6 +72,7 @@ fn parse() -> Args {
             "--gateway-db" => gateway_db = Some(PathBuf::from(value())),
             "--engine" => engine = Some(value()),
             "--allow-unknown" => allow_unknown = value() == "yes",
+            "--handoff" => handoff = Some(value()).filter(|h| ["none", "tail", "evidence"].contains(&h.as_str())).or_else(|| usage()),
             "--repeat" => repeat = value().parse().ok().filter(|n| (1..=10).contains(n)).unwrap_or_else(|| usage()),
             "-h" | "--help" => usage(),
             other => { eprintln!("unknown argument {other}"); usage() }
@@ -80,7 +84,7 @@ fn parse() -> Args {
     Args {
         cases: cases.unwrap_or_else(|| usage()),
         agent: agent.or_else(|| engine.as_ref().map(|_| String::new())).unwrap_or_else(|| usage()),
-        rungs, mode, only, out, agent_timeout, check_timeout, budget_micro_usd, gateway_db, engine, repeat, allow_unknown,
+        rungs, mode, only, out, agent_timeout, check_timeout, budget_micro_usd, gateway_db, engine, repeat, allow_unknown, handoff,
     }
 }
 
@@ -110,7 +114,7 @@ async fn main() {
     let scratch = std::env::temp_dir().join(format!("str-bench-{}", uuid::Uuid::new_v4().simple()));
     let config = Config { agent: args.agent.clone(), agent_timeout: args.agent_timeout,
         check_timeout: args.check_timeout, scratch: scratch.clone(), budget_micro_usd: args.budget_micro_usd,
-        gateway_db: args.gateway_db.clone(), allow_unknown: args.allow_unknown };
+        gateway_db: args.gateway_db.clone(), allow_unknown: args.allow_unknown, handoff: args.handoff.clone() };
     let mut ledger = bench::Ledger::default();
     std::fs::create_dir_all(&args.out).expect("cannot create the output folder");
     let stamp = smarttaskrouter_desktop_lib::db::now_ms();
@@ -119,7 +123,8 @@ async fn main() {
 
     let mut records: Vec<CaseRecord> = Vec::new();
     let label_of = |rungs: &[bench::Rung], cascade: bool| match &args.engine {
-        Some(_) => format!("engine:{}", bench::run_label(rungs, cascade)),
+        Some(_) => format!("engine:{}{}", bench::run_label(rungs, cascade),
+            args.handoff.as_deref().map(|h| format!(":handoff={h}")).unwrap_or_default()),
         None => bench::run_label(rungs, cascade),
     };
     for (run_rungs, cascade) in &runs {
