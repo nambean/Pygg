@@ -29,12 +29,31 @@ pub struct Preset {
     /// default; otherwise the preset's own id is the group.
     #[serde(skip)]
     pub family: Option<&'static str>,
+    /// What the provider's own docs say about getting started without paying, for grouping in Connect:
+    /// `free` (an ongoing free tier or free models), `credits` (trial or granted credit), `paid`, `local` or
+    /// `custom`. A hint for choosing, not a promise about any account (docs/PROVIDERS.md).
+    pub offer: &'static str,
+    /// The free tier or credit in a few words, as the docs state it.
+    pub offer_note: Option<&'static str>,
 }
 
 const fn preset(id: &'static str, name: &'static str, endpoint: Option<&'static str>, needs_key: bool,
     default_billing: &'static str, wire: &'static str) -> Preset {
+    let offer = match (endpoint, default_billing.as_bytes()) {
+        (None, _) => "custom",
+        (_, b"local") => "local",
+        _ => "paid",
+    };
     Preset { id, name, endpoint, needs_key, default_billing, wire, strip_model_prefix: None, accepts_cache_control: false,
-        family: None }
+        family: None, offer, offer_note: None }
+}
+
+const fn free(p: Preset, note: &'static str) -> Preset {
+    Preset { offer: "free", offer_note: Some(note), ..p }
+}
+
+const fn credits(p: Preset, note: &'static str) -> Preset {
+    Preset { offer: "credits", offer_note: Some(note), ..p }
 }
 
 /// The default quota group for a connection of this preset kind.
@@ -46,36 +65,36 @@ pub fn quota_family(kind: &str) -> &str {
 /// docs/PROVIDERS.md. An Anthropic-format endpoint is given as the base an Anthropic SDK takes plus `/v1`,
 /// since the gateway appends `/messages`.
 pub const PRESETS: &[Preset] = &[
-    Preset { strip_model_prefix: Some("models/"),
-        ..preset("gemini", "Google Gemini", Some("https://generativelanguage.googleapis.com/v1beta/openai"), true, "unknown", "openai") },
+    free(Preset { strip_model_prefix: Some("models/"),
+        ..preset("gemini", "Google Gemini", Some("https://generativelanguage.googleapis.com/v1beta/openai"), true, "unknown", "openai") }, "Free tier in Google AI Studio"),
     preset("anthropic", "Anthropic", Some("https://api.anthropic.com/v1"), true, "paid", "anthropic"),
-    Preset { accepts_cache_control: true,
-        ..preset("openrouter", "OpenRouter", Some("https://openrouter.ai/api/v1"), true, "paid", "openai") },
+    free(Preset { accepts_cache_control: true,
+        ..preset("openrouter", "OpenRouter", Some("https://openrouter.ai/api/v1"), true, "paid", "openai") }, "Free models (:free)"),
     preset("openai", "OpenAI", Some("https://api.openai.com/v1"), true, "paid", "openai"),
-    preset("groq", "Groq", Some("https://api.groq.com/openai/v1"), true, "unknown", "openai"),
-    Preset { family: Some("deepseek"), ..preset("deepseek", "DeepSeek", Some("https://api.deepseek.com"), true, "paid", "openai") },
-    Preset { family: Some("deepseek"),
-        ..preset("deepseek-anthropic", "DeepSeek (Anthropic API)", Some("https://api.deepseek.com/anthropic/v1"), true, "paid", "anthropic") },
+    free(preset("groq", "Groq", Some("https://api.groq.com/openai/v1"), true, "unknown", "openai"), "Free plan"),
+    credits(Preset { family: Some("deepseek"), ..preset("deepseek", "DeepSeek", Some("https://api.deepseek.com"), true, "paid", "openai") }, "Granted balance"),
+    credits(Preset { family: Some("deepseek"),
+        ..preset("deepseek-anthropic", "DeepSeek (Anthropic API)", Some("https://api.deepseek.com/anthropic/v1"), true, "paid", "anthropic") }, "Granted balance"),
     // Alibaba Cloud Model Studio's OpenAI-compatible mode (international). Plans with their own endpoint, such
     // as a token plan, set it when connecting.
     preset("qwen", "Qwen (Alibaba Model Studio)", Some("https://dashscope-intl.aliyuncs.com/compatible-mode/v1"), true, "unknown", "openai"),
-    preset("mistral", "Mistral", Some("https://api.mistral.ai/v1"), true, "unknown", "openai"),
-    preset("cerebras", "Cerebras", Some("https://api.cerebras.ai/v1"), true, "paid", "openai"),
+    free(preset("mistral", "Mistral", Some("https://api.mistral.ai/v1"), true, "unknown", "openai"), "Free mode, lowest limits"),
+    credits(preset("cerebras", "Cerebras", Some("https://api.cerebras.ai/v1"), true, "paid", "openai"), "$5 trial credit, card needed"),
     preset("together", "Together AI", Some("https://api.together.ai/v1"), true, "paid", "openai"),
-    preset("fireworks", "Fireworks AI", Some("https://api.fireworks.ai/inference/v1"), true, "paid", "openai"),
+    credits(preset("fireworks", "Fireworks AI", Some("https://api.fireworks.ai/inference/v1"), true, "paid", "openai"), "Small starting credit"),
     preset("xai", "xAI (Grok)", Some("https://api.x.ai/v1"), true, "paid", "openai"),
-    preset("nvidia", "NVIDIA (build.nvidia.com)", Some("https://integrate.api.nvidia.com/v1"), true, "unknown", "openai"),
-    preset("sambanova", "SambaNova Cloud", Some("https://api.sambanova.ai/v1"), true, "unknown", "openai"),
-    preset("huggingface", "Hugging Face (Inference Providers)", Some("https://router.huggingface.co/v1"), true, "paid", "openai"),
+    free(preset("nvidia", "NVIDIA (build.nvidia.com)", Some("https://integrate.api.nvidia.com/v1"), true, "unknown", "openai"), "Developer Program access"),
+    free(preset("sambanova", "SambaNova Cloud", Some("https://api.sambanova.ai/v1"), true, "unknown", "openai"), "Free tier without a card"),
+    credits(preset("huggingface", "Hugging Face (Inference Providers)", Some("https://router.huggingface.co/v1"), true, "paid", "openai"), "Monthly credit with PRO"),
     preset("deepinfra", "DeepInfra", Some("https://api.deepinfra.com/v1/openai"), true, "paid", "openai"),
     preset("siliconflow", "SiliconFlow", Some("https://api.siliconflow.com/v1"), true, "unknown", "openai"),
     Preset { family: Some("moonshot"), ..preset("moonshot", "Kimi (Moonshot)", Some("https://api.moonshot.ai/v1"), true, "paid", "openai") },
     Preset { family: Some("moonshot"),
         ..preset("moonshot-anthropic", "Kimi (Anthropic API)", Some("https://api.moonshot.ai/anthropic/v1"), true, "paid", "anthropic") },
-    Preset { family: Some("zai"), ..preset("zai", "Z.AI (GLM)", Some("https://api.z.ai/api/paas/v4"), true, "unknown", "openai") },
-    Preset { family: Some("zai"),
-        ..preset("zai-anthropic", "Z.AI (Anthropic API)", Some("https://api.z.ai/api/anthropic/v1"), true, "unknown", "anthropic") },
-    preset("cohere", "Cohere", Some("https://api.cohere.ai/compatibility/v1"), true, "unknown", "openai"),
+    free(Preset { family: Some("zai"), ..preset("zai", "Z.AI (GLM)", Some("https://api.z.ai/api/paas/v4"), true, "unknown", "openai") }, "Some free Flash models"),
+    free(Preset { family: Some("zai"),
+        ..preset("zai-anthropic", "Z.AI (Anthropic API)", Some("https://api.z.ai/api/anthropic/v1"), true, "unknown", "anthropic") }, "Some free Flash models"),
+    free(preset("cohere", "Cohere", Some("https://api.cohere.ai/compatibility/v1"), true, "unknown", "openai"), "Trial key, 1,000 calls a month"),
     Preset { family: Some("minimax"), ..preset("minimax", "MiniMax", Some("https://api.minimax.io/v1"), true, "paid", "openai") },
     Preset { family: Some("minimax"),
         ..preset("minimax-anthropic", "MiniMax (Anthropic API)", Some("https://api.minimax.io/anthropic/v1"), true, "paid", "anthropic") },
@@ -92,4 +111,27 @@ pub const PRESETS: &[Preset] = &[
 
 pub fn find(id: &str) -> Option<&'static Preset> {
     PRESETS.iter().find(|p| p.id == id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn presets_are_consistent() {
+        let mut ids: Vec<&str> = PRESETS.iter().map(|p| p.id).collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), PRESETS.len(), "ids are unique");
+        for p in PRESETS {
+            assert!(["free", "credits", "paid", "local", "custom"].contains(&p.offer), "{}", p.id);
+            assert_eq!(p.offer == "local", p.default_billing == "local", "{}", p.id);
+            assert_eq!(p.offer == "custom", p.endpoint.is_none(), "{}", p.id);
+            assert_eq!(p.offer_note.is_some(), matches!(p.offer, "free" | "credits"), "{}", p.id);
+            assert!(matches!(p.wire, "openai" | "anthropic"));
+            if let Some(family) = p.family {
+                assert!(PRESETS.iter().filter(|q| q.family == Some(family)).count() == 2, "{family} pairs two formats");
+            }
+        }
+    }
 }

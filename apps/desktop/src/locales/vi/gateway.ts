@@ -440,6 +440,23 @@ export const gateway: Record<string, string> = {
   'Change it if the server runs on another address or port.': 'Đổi nếu server chạy ở địa chỉ hoặc cổng khác.',
   'Leave empty for the provider’s standard endpoint. Change it if your plan has its own, such as a token plan or a regional endpoint.':
     'Để trống để dùng endpoint chuẩn của nhà cung cấp. Đổi nếu gói của bạn có endpoint riêng, ví dụ token plan hoặc endpoint theo vùng.',
+  'Search connections': 'Tìm kết nối',
+  'Needs attention': 'Cần xử lý',
+  'Anthropic API': 'API Anthropic',
+  'No connection matches.': 'Không có kết nối nào khớp.',
+  'Free tier': 'Có gói miễn phí',
+  'An ongoing free tier or free models, per the provider’s docs. Limits apply.':
+    'Có gói miễn phí lâu dài hoặc model miễn phí, theo tài liệu của nhà cung cấp. Có giới hạn sử dụng.',
+  'Trial credits': 'Có credit dùng thử',
+  'Starting credit or a granted balance, then paid.': 'Có credit ban đầu hoặc số dư được tặng, sau đó trả phí.',
+  'Billed per token from the start.': 'Tính phí theo token ngay từ đầu.',
+  'On this computer': 'Chạy trên máy này',
+  'Runs locally: no key, no per-token cost.': 'Chạy local: không cần key, không tính phí theo token.',
+  'Any other OpenAI- or Anthropic-compatible endpoint.': 'Bất kỳ endpoint nào tương thích OpenAI hoặc Anthropic.',
+  'Search providers': 'Tìm nhà cung cấp',
+  'Free or credits': 'Miễn phí hoặc có credit',
+  'No provider matches. Custom (OpenAI) connects any compatible endpoint.':
+    'Không có nhà cung cấp nào khớp. Custom (OpenAI) kết nối được với mọi endpoint tương thích.',
   // Auto routing (ROADMAP P0-5)
   'Auto routing': 'Định tuyến auto',
   'list price': 'giá niêm yết',

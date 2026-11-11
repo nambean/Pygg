@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Cpu, KeyRound, Plug, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { KeyRound, Plug, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { BILLINGS, TIERS, call, errorText, gatewayChanged, type Billing, type Connection, type Health, type Model, type Preset,
   type Tier } from '../../lib/api';
 import { ago } from '../../lib/format';
@@ -7,7 +7,8 @@ import { plural, t } from '../../lib/i18n';
 import { billingLabel, parseUsd, priceText } from '../../lib/money';
 import { isMac } from '../../lib/platform';
 import { useGateway } from '../../hooks/useGateway';
-import { Badge, ConfirmSheet, Empty, ErrorNote, FormRow, Sheet, Spinner, Switch } from '../ui';
+import { Badge, ConfirmSheet, Empty, ErrorNote, FormRow, Segmented, Sheet, Spinner, Switch } from '../ui';
+import { ProviderLogo } from './ProviderLogo';
 
 const STORE = isMac ? 'Keychain' : 'Windows Credential Manager';
 
@@ -31,8 +32,15 @@ export function Connections({intent, onIntentDone}: {intent?: 'connect'; onInten
   const [connecting, setConnecting] = useState(intent === 'connect');
   useEffect(() => { if (intent === 'connect') { setConnecting(true); onIntentDone(); } }, [intent, onIntentDone]);
 
+  const [query, setQuery] = useState('');
+  const [show, setShow] = useState<'all' | 'attention' | 'local' | 'anthropic'>('all');
   const connections = list.data ?? [];
-  const selected = connections.find(c => c.id === selectedId) ?? connections[0];
+  const q = query.trim().toLowerCase();
+  const visible = connections.filter(c =>
+    (!q || c.label.toLowerCase().includes(q) || c.id.includes(q) || c.presetName.toLowerCase().includes(q))
+    && (show === 'all' || (show === 'attention' ? connectionState(c).tone !== 'ok'
+      : show === 'local' ? c.defaultBilling === 'local' : c.wire === 'anthropic')));
+  const selected = connections.find(c => c.id === selectedId) ?? visible[0] ?? connections[0];
 
   if (list.loading && !list.data) return <div className="page"><Spinner label={t('Loading connections…')}/></div>;
   return <div className="page">
@@ -44,10 +52,26 @@ export function Connections({intent, onIntentDone}: {intent?: 'connect'; onInten
         </Empty>
       : <>
         <section className="group">
-          <h2>{t('Providers')}</h2>
+          <div className="group-heading">
+            <h2>{t('Providers')}</h2>
+            {connections.length > 3 && <span className="heading-actions">
+              <span className="search-field small">
+                <Search size={12} aria-hidden/>
+                <input type="search" placeholder={t('Search connections')} value={query} onChange={e => setQuery(e.target.value)}
+                  aria-label={t('Search connections')}/>
+              </span>
+              <select className="popup-button" value={show} onChange={e => setShow(e.target.value as typeof show)} aria-label={t('Show')}>
+                <option value="all">{t('All connections')}</option>
+                <option value="attention">{t('Needs attention')}</option>
+                <option value="local">{t('Local')}</option>
+                <option value="anthropic">{t('Anthropic API')}</option>
+              </select>
+            </span>}
+          </div>
           <ul className="group-box select-list" aria-label={t('Providers')}>
-            {connections.map(c => <ConnectionRow key={c.id} connection={c} selected={c.id === selected?.id}
+            {visible.map(c => <ConnectionRow key={c.id} connection={c} selected={c.id === selected?.id}
               onSelect={() => setSelectedId(c.id)}/>)}
+            {visible.length === 0 && <li className="table-empty">{t('No connection matches.')}</li>}
           </ul>
         </section>
         {selected && <ConnectionDetail key={selected.id} connection={selected} onRemoved={() => setSelectedId(null)}/>}
@@ -113,7 +137,7 @@ function ConnectionRow({connection: c, selected, onSelect}: {connection: Connect
   const toggle = (enabled: boolean) => call(api => api.updateConnection(c.id, {enabled})).then(gatewayChanged);
   return <li className={selected ? 'select-row selected' : 'select-row'}>
     <button type="button" className="select-row-main" onClick={onSelect} aria-current={selected ? 'true' : undefined}>
-      <span className="avatar" aria-hidden>{c.kind === 'ollama' ? <Cpu size={15}/> : c.label.slice(0, 1).toUpperCase()}</span>
+      <ProviderLogo kind={c.kind} name={c.label} size={17}/>
       <span className="select-row-text">
         <span className="select-row-title">{c.label} <span className="mono secondary">{c.id}/…</span></span>
         <small>{c.presetName} · {billingLabel(c.defaultBilling)} · {plural(c.models, '{n} model', '{n} models')}</small>
@@ -300,6 +324,64 @@ function ModelRow({model: m, health, onPrice, onCaps, onChange}: {model: Model; 
   </tr>;
 }
 
+type PresetFilter = 'all' | 'free' | 'local' | 'anthropic';
+
+/** The order and headings of preset groups in Connect: what it takes to start using each. */
+const OFFER_GROUPS: {offer: Preset['offer']; title: () => string; hint: () => string}[] = [
+  {offer: 'free', title: () => t('Free tier'), hint: () => t('An ongoing free tier or free models, per the provider’s docs. Limits apply.')},
+  {offer: 'credits', title: () => t('Trial credits'), hint: () => t('Starting credit or a granted balance, then paid.')},
+  {offer: 'paid', title: () => t('Paid'), hint: () => t('Billed per token from the start.')},
+  {offer: 'local', title: () => t('On this computer'), hint: () => t('Runs locally: no key, no per-token cost.')},
+  {offer: 'custom', title: () => t('Custom'), hint: () => t('Any other OpenAI- or Anthropic-compatible endpoint.')},
+];
+
+function presetName(p: Preset): string {
+  return p.id === 'custom' ? t('Custom (OpenAI)') : p.id === 'custom-anthropic' ? t('Custom (Anthropic)') : p.name;
+}
+
+/** Providers grouped by how to start (free tier, credits, paid, local, custom), with search and filters. */
+function PresetPicker({presets, selected, onSelect}: {presets: Preset[]; selected: string; onSelect: (id: string) => void}) {
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<PresetFilter>('all');
+  const q = query.trim().toLowerCase();
+  const shown = presets.filter(p =>
+    (!q || presetName(p).toLowerCase().includes(q) || p.id.includes(q))
+    && (filter === 'all' || (filter === 'free' ? p.offer === 'free' || p.offer === 'credits'
+      : filter === 'local' ? p.offer === 'local' : p.wire === 'anthropic')));
+  return <div className="preset-picker">
+    <div className="preset-tools">
+      <span className="search-field">
+        <Search size={13} aria-hidden/>
+        <input type="search" placeholder={t('Search providers')} value={query} onChange={e => setQuery(e.target.value)}
+          aria-label={t('Search providers')} autoFocus/>
+      </span>
+      <Segmented<PresetFilter> label={t('Show')} value={filter} onChange={setFilter} options={[
+        {value: 'all', label: t('All')}, {value: 'free', label: t('Free or credits')},
+        {value: 'local', label: t('Local')}, {value: 'anthropic', label: t('Anthropic API')}]}/>
+    </div>
+    {shown.length === 0 && <p className="secondary preset-empty">{t('No provider matches. Custom (OpenAI) connects any compatible endpoint.')}</p>}
+    {OFFER_GROUPS.map(group => {
+      const members = shown.filter(p => p.offer === group.offer);
+      if (members.length === 0) return null;
+      return <section key={group.offer} className="preset-group" aria-label={group.title()}>
+        <h3>{group.title()}<span className="secondary"> · {group.hint()}</span></h3>
+        <div className="preset-grid" role="radiogroup" aria-label={group.title()}>
+          {members.map(p => <button key={p.id} type="button" role="radio" aria-checked={p.id === selected}
+            className={p.id === selected ? 'preset selected' : 'preset'} onClick={() => onSelect(p.id)}
+            title={p.offerNote ?? undefined}>
+            <ProviderLogo kind={p.id} name={p.name}/>
+            <span className="preset-text">
+              <span className="preset-name">{presetName(p)}</span>
+              {(p.offerNote || p.wire === 'anthropic') && <small className="secondary">
+                {[p.wire === 'anthropic' ? t('Anthropic API') : null, p.offerNote].filter(Boolean).join(' · ')}</small>}
+            </span>
+          </button>)}
+        </div>
+      </section>;
+    })}
+  </div>;
+}
+
 function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected: (id: string) => void}) {
   const presets = useGateway(api => api.presets());
   const [presetId, setPresetId] = useState('gemini');
@@ -344,14 +426,8 @@ function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected:
       <button type="button" className="button prominent" onClick={connect} disabled={busy || !canConnect}>
         {busy && <Spinner/>}{busy ? t('Connecting…') : t('Connect Provider')}</button>
     </>}>
-    <div className="preset-grid" role="radiogroup" aria-label={t('Provider')}>
-      {(presets.data ?? []).map(p => <button key={p.id} type="button" role="radio" aria-checked={p.id === presetId}
-        className={p.id === presetId ? 'preset selected' : 'preset'}
-        onClick={() => { setPresetId(p.id); setBilling(null); setEndpoint(''); }}>
-        <span className="avatar" aria-hidden>{p.id === 'ollama' ? <Cpu size={15}/> : p.id.startsWith('custom') ? '…' : p.name.slice(0, 1)}</span>
-        <span>{p.id === 'custom' ? t('Custom (OpenAI)') : p.id === 'custom-anthropic' ? t('Custom (Anthropic)') : p.name}</span>
-      </button>)}
-    </div>
+    <PresetPicker presets={presets.data ?? []} selected={presetId}
+      onSelect={id => { setPresetId(id); setBilling(null); setEndpoint(''); }}/>
     {preset && <div className="form">
       <FormRow label={t('Name')} htmlFor="connection-label" hint={t('Also the first part of model names, e.g. {id}/model.',
         {id: (label.trim() || preset.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'connection'})}>

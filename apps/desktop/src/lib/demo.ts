@@ -8,7 +8,8 @@ import type { AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client,
   Health, Model, Preset, Target, Tier, UsageEvent, UsageGroup, UsageSummary, Wire } from './api';
 import { TIERS } from './api';
 
-const PRESETS: Preset[] = [
+type BasePreset = Omit<Preset, 'offer' | 'offerNote'>;
+const BASE_PRESETS: BasePreset[] = [
   {id: 'gemini', name: 'Google Gemini', endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai', needsKey: true, defaultBilling: 'unknown', wire: 'openai'},
   {id: 'anthropic', name: 'Anthropic', endpoint: 'https://api.anthropic.com/v1', needsKey: true, defaultBilling: 'paid', wire: 'anthropic'},
   {id: 'openrouter', name: 'OpenRouter', endpoint: 'https://openrouter.ai/api/v1', needsKey: true, defaultBilling: 'paid', wire: 'openai'},
@@ -37,7 +38,7 @@ const PRESETS: Preset[] = [
     ['minimax', 'MiniMax', 'https://api.minimax.io/v1', 'paid', 'openai'],
     ['minimax-anthropic', 'MiniMax (Anthropic API)', 'https://api.minimax.io/anthropic/v1', 'paid', 'anthropic'],
     ['nebius', 'Nebius Token Factory', 'https://api.tokenfactory.nebius.com/v1', 'paid', 'openai'],
-  ] as const).map(([id, name, endpoint, defaultBilling, wire]): Preset => ({id, name, endpoint, needsKey: true, defaultBilling, wire})),
+  ] as const).map(([id, name, endpoint, defaultBilling, wire]): BasePreset => ({id, name, endpoint, needsKey: true, defaultBilling, wire})),
   ...([
     ['ollama', 'Ollama', 'http://127.0.0.1:11434/v1'],
     ['lmstudio', 'LM Studio', 'http://localhost:1234/v1'],
@@ -45,10 +46,25 @@ const PRESETS: Preset[] = [
     ['vllm', 'vLLM', 'http://localhost:8000/v1'],
     ['docker-model-runner', 'Docker Model Runner', 'http://localhost:12434/engines/v1'],
     ['jan', 'Jan', 'http://127.0.0.1:1337/v1'],
-  ] as const).map(([id, name, endpoint]): Preset => ({id, name, endpoint, needsKey: false, defaultBilling: 'local', wire: 'openai'})),
+  ] as const).map(([id, name, endpoint]): BasePreset => ({id, name, endpoint, needsKey: false, defaultBilling: 'local', wire: 'openai'})),
   {id: 'custom', name: 'Custom (OpenAI-compatible)', endpoint: null, needsKey: false, defaultBilling: 'unknown', wire: 'openai'},
   {id: 'custom-anthropic', name: 'Custom (Anthropic-compatible)', endpoint: null, needsKey: false, defaultBilling: 'unknown', wire: 'anthropic'},
 ];
+/** What gateway/presets.rs says about starting with each provider. */
+const OFFERS: Record<string, [Preset['offer'], string]> = {
+  gemini: ['free', 'Free tier in Google AI Studio'], openrouter: ['free', 'Free models (:free)'], groq: ['free', 'Free plan'],
+  mistral: ['free', 'Free mode, lowest limits'], nvidia: ['free', 'Developer Program access'],
+  sambanova: ['free', 'Free tier without a card'], zai: ['free', 'Some free Flash models'],
+  'zai-anthropic': ['free', 'Some free Flash models'], cohere: ['free', 'Trial key, 1,000 calls a month'],
+  deepseek: ['credits', 'Granted balance'], 'deepseek-anthropic': ['credits', 'Granted balance'],
+  cerebras: ['credits', '$5 trial credit, card needed'], fireworks: ['credits', 'Small starting credit'],
+  huggingface: ['credits', 'Monthly credit with PRO'],
+};
+const PRESETS: Preset[] = BASE_PRESETS.map(p => {
+  const offer = OFFERS[p.id];
+  return {...p, offer: offer?.[0] ?? (p.endpoint === null ? 'custom' : p.defaultBilling === 'local' ? 'local' : 'paid'),
+    offerNote: offer?.[1] ?? null};
+});
 
 const DEMO_MODELS: Record<string, string[]> = {
   anthropic: ['claude-haiku-4-5', 'claude-sonnet-4-5'],

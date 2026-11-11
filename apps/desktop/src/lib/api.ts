@@ -21,7 +21,12 @@ export type GatewayStatus = {
 };
 
 export type Wire = 'openai' | 'anthropic';
-export type Preset = { id: string; name: string; endpoint: string | null; needsKey: boolean; defaultBilling: Billing; wire: Wire };
+export type Preset = {
+  id: string; name: string; endpoint: string | null; needsKey: boolean; defaultBilling: Billing; wire: Wire;
+  /** How to start using it, per the provider's docs (docs/PROVIDERS.md). */
+  offer: 'free' | 'credits' | 'paid' | 'local' | 'custom';
+  offerNote: string | null;
+};
 
 export type HealthState = 'invalid_credentials' | 'forbidden' | 'payment_required' | 'rate_limited' | 'model_unavailable'
   | 'server_error' | 'unreachable';
