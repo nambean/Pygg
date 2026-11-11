@@ -128,7 +128,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
     <aside className="sidebar" aria-label={t('Sidebar')} hidden={!sidebarOpen}>
       <div className="sidebar-header" data-tauri-drag-region>
         <img src={brandMark} alt="" width={20} height={20}/>
-        <span>SmartTaskRouter</span>
+        <span>Pygg</span>
       </div>
       <nav>
         <SidebarGroup title={t('Gateway')}>

@@ -7,7 +7,7 @@
 //!   PYGG_TOKEN  a client token from Pygg → Clients, allowed to start tasks (Limits… → Smart tasks)
 //!   PYGG_URL    the gateway, default http://127.0.0.1:8741
 //!
-//! Example: claude mcp add pygg -e PYGG_TOKEN=str-… -- "C:\path\to\SmartTaskRouter.exe" mcp
+//! Example: claude mcp add pygg -e PYGG_TOKEN=str-… -- "C:\path\to\Pygg.exe" mcp
 //! The app's own program serves it, so the installer ships nothing extra; `pygg-mcp` is the same server for
 //! development and for machines with only the headless tools.
 //!

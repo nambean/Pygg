@@ -1,4 +1,4 @@
-//! SmartTaskRouter desktop core. One crate with modules (docs/DECISIONS.md, ADR-005): the interface
+//! Pygg desktop core (repository: SmartTaskRouter). One crate with modules (docs/DECISIONS.md, ADR-005): the interface
 //! talks to it through Tauri commands (src/commands.rs), and the local gateway runs in the same process.
 
 pub mod agents;
@@ -32,7 +32,7 @@ pub struct HealthStatus {
 #[tauri::command]
 async fn health_check(state: tauri::State<'_, AppState>) -> Result<HealthStatus, String> {
     let gateway = commands::gateway_status(state).await?.state;
-    Ok(HealthStatus { app: "SmartTaskRouter", version: env!("CARGO_PKG_VERSION"), gateway })
+    Ok(HealthStatus { app: "Pygg", version: env!("CARGO_PKG_VERSION"), gateway })
 }
 
 /// The configured 1440×900 is a preference, not a requirement: on a smaller or scaled screen the window
@@ -161,5 +161,5 @@ pub fn run() {
             commands::usage_summary,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running SmartTaskRouter");
+        .expect("error while running Pygg");
 }

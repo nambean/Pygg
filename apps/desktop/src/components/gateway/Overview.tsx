@@ -168,7 +168,7 @@ function ConfigureSheet({status, onStatus, onClose}: {status: GatewayStatus; onS
       <FormRow label={t('Port')} htmlFor="gateway-port" hint={valid ? `http://127.0.0.1:${number}` : t('A number from 1024 to 65535.')}>
         <input id="gateway-port" className="text-input narrow-input" inputMode="numeric" value={port} onChange={e => setPort(e.target.value)} autoFocus/>
       </FormRow>
-      <FormRow label={t('Start with the app')} hint={t('Clients work as soon as SmartTaskRouter is open.')}>
+      <FormRow label={t('Start with the app')} hint={t('Clients work as soon as Pygg is open.')}>
         <Switch checked={autostart} onChange={setAutostart} label={t('Start with the app')}/>
       </FormRow>
       <FormRow label={t('Address')} hint={t('The gateway listens on 127.0.0.1 only. Sharing it with other devices isn’t offered.')}>
@@ -239,7 +239,7 @@ export function snippetFor(kind: ClientKind, shell: Shell, baseUrl: string, mode
   if (kind === 'opencode') {
     return JSON.stringify({
       $schema: 'https://opencode.ai/config.json',
-      provider: {smarttaskrouter: {npm: '@ai-sdk/openai-compatible', name: 'SmartTaskRouter',
+      provider: {smarttaskrouter: {npm: '@ai-sdk/openai-compatible', name: 'Pygg',
         options: {baseURL: v1, apiKey: '{env:SMARTTASKROUTER_TOKEN}', headers: {'x-smarttaskrouter-session': 'opencode'}},
         models: {[model]: {name: model}}}},
       model: `smarttaskrouter/${model}`,

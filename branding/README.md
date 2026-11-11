@@ -26,4 +26,6 @@
 
 Raster assets are derived from `pygg-icon.svg`. Run `python scripts/export-pygg-branding.py` after installing `cairosvg` and `Pillow` to regenerate the complete PNG icon scale, ICO, and horizontal logo PNG locally.
 
-These brand exports are not automatically wired into the existing Tauri runtime icons; that integration requires its own packaging verification.
+The app's icons (`apps/desktop/src-tauri/icons`) are generated from `pygg-icon.svg` with `pnpm tauri icon ../../branding/pygg-icon.svg` (run in `apps/desktop`; the Android and iOS sets it also writes are not kept). Checked 2026-11-11 on a debug build: the window is titled Pygg, the executable carries the Pygg icon, and `/health` reports `"app": "Pygg"`. The installer takes its name from `productName` (Pygg); it is checked on a clean machine in ROADMAP N9.
+
+Kept on purpose: the identifier `app.smarttaskrouter.desktop` (it names the folder that holds the user's store) and the credential service name `SmartTaskRouter` (keys already stored under it must stay readable).

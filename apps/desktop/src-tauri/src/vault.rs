@@ -1,6 +1,7 @@
 //! Provider credentials in the OS credential store (Windows Credential Manager, macOS Keychain). The
 //! database keeps only a reference; the secret never crosses into the interface (plan §2.3, ADR-002).
 
+// The engineering name, kept when the product became Pygg: keys already stored under it must stay readable.
 const SERVICE: &str = "SmartTaskRouter";
 
 #[derive(Debug)]

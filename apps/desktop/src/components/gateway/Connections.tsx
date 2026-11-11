@@ -440,7 +440,7 @@ function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected:
           onChange={e => setEndpoint(e.target.value)} spellCheck={false}/>
       </FormRow>
       {preset.id !== 'ollama' && <FormRow label={t('API Key')} htmlFor="connection-key"
-        hint={t('Stored in {store}. SmartTaskRouter never shows it again.', {store: STORE})}>
+        hint={t('Stored in {store}. Pygg never shows it again.', {store: STORE})}>
         <input id="connection-key" className="text-input mono" type="password" value={apiKey} autoComplete="off" spellCheck={false}
           placeholder={keyRequired ? t('Required') : t('Optional')} onChange={e => setApiKey(e.target.value)}/>
       </FormRow>}

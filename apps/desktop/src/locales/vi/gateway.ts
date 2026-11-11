@@ -95,7 +95,7 @@ export const gateway: Record<string, string> = {
   'Port': 'Cổng',
   'A number from 1024 to 65535.': 'Một số từ 1024 đến 65535.',
   'Start with the app': 'Bật cùng ứng dụng',
-  'Clients work as soon as SmartTaskRouter is open.': 'Client dùng được ngay khi SmartTaskRouter đang mở.',
+  'Clients work as soon as Pygg is open.': 'Client dùng được ngay khi Pygg đang mở.',
   'Address': 'Địa chỉ',
   'The gateway listens on 127.0.0.1 only. Sharing it with other devices isn’t offered.':
     'Gateway chỉ lắng nghe trên 127.0.0.1. Không có tùy chọn chia sẻ cho thiết bị khác.',
@@ -176,7 +176,7 @@ export const gateway: Record<string, string> = {
   'The base URL before /chat/completions, e.g. https://api.example.com/v1': 'Base URL đứng trước /chat/completions, ví dụ https://api.example.com/v1',
   'Change it if Ollama runs elsewhere.': 'Đổi nếu Ollama chạy ở chỗ khác.',
   'API Key': 'API key',
-  'Stored in {store}. SmartTaskRouter never shows it again.': 'Lưu trong {store}. SmartTaskRouter không bao giờ hiển thị lại.',
+  'Stored in {store}. Pygg never shows it again.': 'Lưu trong {store}. Pygg không bao giờ hiển thị lại.',
   'Replace Key for {name}': 'Thay key cho {name}',
   'Add Key for {name}': 'Thêm key cho {name}',
   'The new key replaces the old one in {store} right away.': 'Key mới thay key cũ trong {store} ngay lập tức.',

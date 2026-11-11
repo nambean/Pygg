@@ -122,7 +122,7 @@ fn claim_store(store: &std::path::Path) -> std::io::Result<std::fs::File> {
     match file.try_lock() {
         Ok(()) => Ok(file),
         Err(std::fs::TryLockError::WouldBlock) => Err(std::io::Error::new(std::io::ErrorKind::ResourceBusy,
-            "Another gateway is already serving this store: the SmartTaskRouter app or `gateway serve`, or one \
+            "Another gateway is already serving this store: the Pygg app or `gateway serve`, or one \
              that was stopped and is still finishing requests. Stop that one first, or wait for it to finish; only \
              one gateway may write the usage ledger at a time.")),
         Err(std::fs::TryLockError::Error(e)) => Err(e),
@@ -158,7 +158,7 @@ impl Shared {
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(15))
             .read_timeout(read_timeout)
-            .user_agent(concat!("SmartTaskRouter/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("Pygg/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("HTTP client");
         Shared { db, secrets, http, signatures: Arc::default(), inflight: Arc::default(), accounting: Arc::default(),
@@ -384,7 +384,7 @@ pub fn router(shared: Shared, port: u16) -> Router {
     Router::new()
         .route("/health", get(|State(shared): State<Shared>| async move {
             let accounting = shared.accounting_error();
-            Json(json!({ "ok": true, "app": "SmartTaskRouter",
+            Json(json!({ "ok": true, "app": "Pygg",
                 "accounting": if accounting.is_some() { "degraded" } else { "ok" }, "accountingError": accounting }))
         }))
         .route("/v1/models", get(list_models))
@@ -483,7 +483,7 @@ pub fn bearer(headers: &HeaderMap) -> Option<&str> {
 pub fn authenticate(shared: &Shared, headers: &HeaderMap) -> Result<Client, Refusal> {
     let Some(token) = bearer(headers) else {
         return Err(Refusal::new(StatusCode::UNAUTHORIZED, "authentication_error",
-            "Missing client token. Create one in SmartTaskRouter → Clients."));
+            "Missing client token. Create one in Pygg → Clients."));
     };
     let client = shared.with_db(|db| store::authenticate(db, token)).map_err(|e| {
         Refusal::new(StatusCode::INTERNAL_SERVER_ERROR, "api_error", e)
@@ -789,7 +789,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         // gateway was stopped and its last work has finished), nothing new is sent.
         let Some(owner) = shared.current_owner() else {
             return Err(Refusal::new(StatusCode::SERVICE_UNAVAILABLE, "api_error",
-                "The gateway has stopped, so nothing was sent. Start it again in SmartTaskRouter."));
+                "The gateway has stopped, so nothing was sent. Start it again in Pygg."));
         };
         // Journaled before anything is sent (counter-review CR-06); nothing is sent that the ledger could not
         // account for.

@@ -177,7 +177,7 @@ pub fn keep_as_branch(worktree: &Worktree, branch: &str, message: &str) -> Resul
     let has_identity = git(&worktree.path, &["config", "user.email"]).map(|e| !e.is_empty()).unwrap_or(false);
     let mut args: Vec<&str> = Vec::new();
     if !has_identity {
-        args.extend(["-c", "user.name=SmartTaskRouter", "-c", "user.email=smarttaskrouter@localhost"]);
+        args.extend(["-c", "user.name=Pygg", "-c", "user.email=pygg@localhost"]);
     }
     args.extend(["commit", "--allow-empty", "--no-verify", "-m", message]);
     git(&worktree.path, &args)?;
@@ -190,7 +190,7 @@ pub fn keep_as_branch(worktree: &Worktree, branch: &str, message: &str) -> Resul
 /// never for a user's workspace. Returns the commit.
 pub fn init_repository(dir: &Path, message: &str) -> Result<String, IsolationError> {
     git(dir, &["init", "--quiet", "--initial-branch=main"])?;
-    git(dir, &["config", "user.name", "SmartTaskRouter Bench"])?;
+    git(dir, &["config", "user.name", "Pygg Bench"])?;
     git(dir, &["config", "user.email", "bench@smarttaskrouter.localhost"])?;
     // Fixtures compare byte-for-byte across platforms.
     git(dir, &["config", "core.autocrlf", "false"])?;

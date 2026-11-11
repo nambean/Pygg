@@ -1,7 +1,7 @@
 [package]
 name = "smarttaskrouter-desktop"
 version = "0.1.0"
-description = "SmartTaskRouter desktop app: task routing core, local gateway and interface shell"
+description = "Pygg desktop app: task routing core, local gateway and interface shell"
 edition = "2021"
 publish = false
 license = "MIT"

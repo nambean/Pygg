@@ -165,7 +165,7 @@ function IdeSetup() {
   const setup = useGateway(api => api.mcpSetup());
   const [target, setTarget] = useState<'claude' | 'codex' | 'json'>('claude');
   // The app's own program serves MCP when started with `mcp`.
-  const path = setup.data?.path ?? 'SmartTaskRouter.exe';
+  const path = setup.data?.path ?? 'Pygg.exe';
   const args = setup.data?.args ?? ['mcp'];
   const url = setup.data && setup.data.url !== 'http://127.0.0.1:8741' ? setup.data.url : null;
   const code = target === 'claude'

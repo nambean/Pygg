@@ -1,4 +1,4 @@
-/* SmartTaskRouter — macOS-native look, same token set and green accent as DownFetch
+/* Pygg — macOS-native look, same token set and green accent as DownFetch
    (docs/design/SCREENS.md §4). Semantic tokens follow the system appearance; there is no in-app theme switch. */
 :root {
   color-scheme: light dark;
