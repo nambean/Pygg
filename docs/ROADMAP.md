@@ -57,10 +57,10 @@ Details and verification: [Implementation Status](IMPLEMENTATION-STATUS.md). Dec
 
 ## Revised plan after ADR-026 and ADR-027 (2026-11-11 docs review)
 
-A review of every planning doc against the build ([DECISIONS](DECISIONS.md), the [functional plan](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md), [SCREENS](design/SCREENS.md), [Account Rotation](ACCOUNT_API_ROTATION.md), [CLI/IDE/npm/Tiers](CLI_IDE_NPM_PROVIDER_TIERS.md), [Universal Memory](UNIVERSAL_SHARED_MEMORY.md)). In order:
+A review of every planning doc against the build ([DECISIONS](DECISIONS.md), the [functional plan](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md), [SCREENS](design/SCREENS.md), [Account Rotation](ACCOUNT_API_ROTATION.md), [CLI/IDE/npm/Tiers](CLI_IDE_NPM_PROVIDER_TIERS.md), [Universal Memory](UNIVERSAL_SHARED_MEMORY.md), the [OmniRoute research](OMNIROUTE_FEATURE_RESEARCH.md), the [benchmark README](../benchmark/README.md), the root README and every file in [reviews](reviews)). In order:
 
 **A. Make the IDE flow usable every day**
-1. Tray and notifications for a paid step waiting, a task finished or failed (SCREENS §2.5). Per ADR-010, no task names or paths, and no approve button, in a notification.
+1. Tray and notifications for a paid step waiting, a task finished or failed (SCREENS §2.5). Per ADR-010, no task names or paths, and no approve button, in a notification. Closing the window keeps the gateway and tasks running from the tray (review GW-9).
 2. Approvals as ADR-010 specifies: an estimate and a cap, invalidated when the policy, catalog or budget changes (SCREENS §6.3).
 3. Task budgets per day and per workspace (functional plan §2.4).
 4. Workspace Settings in the app: approve the checks of workspaces created from an IDE folder, privacy class, a folder picker (SCREENS §5.3).
@@ -72,10 +72,14 @@ A review of every planning doc against the build ([DECISIONS](DECISIONS.md), the
 2. Data-use terms per provider (GW-10) and the workspace privacy class as hard filters.
 3. A curated tier table with sources (P0-5), replacing tiers that only the user sets.
 4. Circuit-breaker health probing (Account Rotation §5) and a strict budget mode.
+5. Translation gaps: OpenAI → Anthropic (refused today), and Qwen's `reasoning_content`.
+6. Smaller deferred review items: Gemini thought signatures kept across a restart (GW-8); a combo-editor warning for two connections of one provider (GW-1); idempotency keys (CR-05). Held until an adapter can fill them: provider-verified organization and quota scope (CR-02), and reconciliation against the provider's own usage (FR-03). GW-7 (fallback before the first token) stays held.
 
 **C. Evidence before any savings claim**
-1. A live cascade where a real failed check escalates to the next agent.
-2. The benchmark: 20–40 cases, three baselines, a report (functional plan §9). Needs the owner's paid-test budget.
+1. Verification debt, live: the parity cases still open (1-hour cache TTL, a multi-turn tool round trip, other Claude models, Anthropic-compatible endpoints other than Anthropic's own); OpenRouter `cache_control` on translated requests; an interactive Claude Code session through the gateway, with `count_tokens`; error fixtures per real provider (401, 403, 429, timeouts, quota groups); OpenRouter, OpenAI, Groq, DeepSeek, Ollama and the OpenCode snippet with its session header.
+2. A live cascade where a real failed check escalates to the next agent.
+3. The benchmark: 20–40 cases (2 exist) and a report, on the baselines of "P0 release proof" above (pinned premium, pinned inexpensive capable, static combo, Auto) plus the check-driven cascade for tasks. Needs the owner's paid-test budget.
+4. Quality signals from behaviour (a retry, "use a better model", a cancel) logged per result, and human rework in the cost per success (review RE-3); a one-day TensorZero evaluation before building more of this (review OSS-1).
 
 **D. Distribution**
 1. An NSIS installer tried on a clean machine.
@@ -86,6 +90,11 @@ A review of every planning doc against the build ([DECISIONS](DECISIONS.md), the
 - Account pools, for API-key and token-plan connections only: agents keep their own sign-in, so subscriptions cannot be pooled (ADR-026).
 - The Policies page with strategies and a simulator; multi-stage plans.
 - Auto Chat and shared memory (ADR-017, ADR-018): the app as a place to compose chats needs reconfirming against ADR-027.
+- Quota tracking for free tiers and subscriptions, where a provider or agent states it (OmniRoute OR-03 §6).
+- Compression, deduplication and cache-aware scoring (P1-3, P1-4; OmniRoute OR-06 to OR-08), shadow and opt-in first.
+- More `auto` aliases (`auto/fast`, `auto/coding`, `auto/local`, `auto/available`, `auto/quality`; OmniRoute OR-01, OR-20): **not planned** until the benchmark shows `auto` and `auto/cheap` are not enough.
+
+**Housekeeping:** a CONTRIBUTING file with the review's rules (RM-1); one schema reference generated from the migrations (RM-4); demo data replaying recorded snapshots instead of copying the core's rules (OSS-3); the licence, the owner's decision, before importing outside code or data (OSS-2).
 
 **Superseded by ADR-027:** the New Task → Analyze → Plan → Run flow as the main path, `POST /api/routes/analyze`, the tasks API in the functional plan §6 (the built one is `/pygg/v1/tasks`), "Needs Revalidation", and first-run screens that end in analyzing a task. **Superseded by ADR-026:** "Supported OAuth" connections and rotation of subscription sessions.
 

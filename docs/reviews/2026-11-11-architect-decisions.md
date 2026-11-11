@@ -1,5 +1,8 @@
 # Architect decisions on the review response, 2026-11-11
 
+> **Update 2026-11-11 (later the same day):** of the items listed as not done below, P0-5, the Anthropic parity benchmark and the single-store lock are done; see [Implementation Status](../IMPLEMENTATION-STATUS.md). GW-8 and the tray part of GW-9 are planned in [ROADMAP](../ROADMAP.md) (B6, A1).
+
+
 Inputs: [the architecture review](2026-11-11-architecture-review.md), the owner's [triage and response](2026-11-11-review-response.md), and the [roadmap](../ROADMAP.md). This note records what was accepted, what was decided while building P0-1 to P0-4, and what is left open. What runs and how it was verified is in [Implementation Status](../IMPLEMENTATION-STATUS.md).
 
 ## The response is accepted, including its corrections to the review

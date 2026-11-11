@@ -1,5 +1,8 @@
 # Phase 0 benchmark
 
+> **Update 2026-11-11:** `bench.rs` now reads agent cost events and stops at a hard `--budget-usd` cap, so the cost section below is out of date; agent runs through their own sign-in are still recorded as unknown. 2 of the planned 20-40 cases exist. The baselines are the ones in [ROADMAP](../docs/ROADMAP.md) "P0 release proof", plus the check-driven cascade (ROADMAP C3).
+
+
 Tests the product's core idea (ADR-013): does a cascade that climbs model tiers on check failure reach a comparable pass rate at a lower cost per success than always using one model?
 
 ## Layout

@@ -4,75 +4,69 @@
 
 **AI Cost Optimizer**: automatically selects a suitable connected AI model for each everyday chat turn or developer task, minimizing total cost while preserving context, privacy and answer quality.
 
-> Status: the local multi-provider gateway works and the desktop app manages it (gateway first, [ADR-016](docs/DECISIONS.md)). Smart task routing, Universal Shared Memory, account pools and the CLI/npm launcher are designed, not built; task screens run on labeled sample data. See [implementation status](docs/IMPLEMENTATION-STATUS.md).
+> Status: the local multi-provider gateway works and the desktop app manages it (gateway first, [ADR-016](docs/DECISIONS.md)). On top of it, the vendors' own agent CLIs run with their own sign-in, a first task engine runs checked tasks across agent steps, and IDE agents start those tasks through MCP. Universal Shared Memory, account pools and the `str`/npm launcher are designed, not built. See [implementation status](docs/IMPLEMENTATION-STATUS.md) and the [roadmap](docs/ROADMAP.md).
 
 ## Product vision
 
-**Market entry versus long-term vision:** initial validation prioritizes users with metered API/agent workloads where cost-per-success is measurable; SmartTaskRouter's broader goal remains automatic model optimization for everyday users too. Saving tokens is not equivalent to saving subscription money.
+**Market entry versus long-term vision:** initial validation prioritizes users with metered API/agent workloads where cost-per-success is measurable; the broader goal remains automatic model optimization for everyday users too. Saving tokens is not equivalent to saving subscription money.
 
-SmartTaskRouter is a desktop-first AI Cost Optimizer for everyday AI users and developers who connect multiple providers. The goal is to let people ask normally without choosing a model on every message. Provider, quota and endpoint management are inspired by 9Router. The difference is that SmartTaskRouter routes whole tasks and stages, not single requests: it tries cheaper models first where the result can be verified automatically, and escalates with an explanation.
+Pygg is a desktop-first AI Cost Optimizer for people who connect several providers and agents. Provider, quota and endpoint management are inspired by 9Router. The difference is that Pygg can also route whole tasks: it tries cheaper agents first where the result can be verified automatically, and escalates with an explanation.
 
-- **Orchestrator first:** routing happens at task/stage boundaries. The local gateway enforces policy and records usage, and never switches models silently within an agent session.
-- **Connected-model-first:** routes only to providers, models and agents the user connected.
-- **Free-first only with verification:** a cheaper tier is tried first only when the stage has a deterministic check (typecheck, tests, build). Each attempt runs in an isolated worktree.
-- **Honest costs:** billing is `Free`, `Local`, `Subscription`, `Paid` or `Unknown`. Every quota figure shows its source, and unknown is never treated as free.
-- **Privacy-aware:** records whether a provider may train on submitted data and enforces it for sensitive workspaces.
-- **Measurable:** cost is measured per successful task, against a reproducible benchmark baseline.
+- **Your IDE starts tasks, the app watches** ([ADR-027](docs/DECISIONS.md)): your coding agent hands a subtask to Pygg through MCP; the app runs it, and is where you see it, approve paid steps and review results. The gateway never switches models silently within an agent session.
+- **Connected-model-first:** routes only to providers, models and agents you connected.
+- **Official agents, their own sign-in** ([ADR-026](docs/DECISIONS.md)): Claude Code, Codex CLI, Gemini CLI and OpenCode run as themselves. Pygg never reads their sign-in and never bridges web sessions or other products' OAuth.
+- **Free-first only with verification:** a cheaper step is tried first only against deterministic checks you approved (typecheck, tests, build). Each attempt runs in its own Git worktree.
+- **Honest costs:** billing is `Free`, `Local`, `Subscription`, `Paid` or `Unknown`. Every figure shows its source, and unknown is never treated as free.
+- **Privacy-aware (planned):** record whether a provider may train on submitted data and enforce it for sensitive work.
+- **Measurable:** cost is measured per successful task, against a reproducible benchmark baseline, before any savings claim.
 
 ## What works today
 
 - **Gateway on `127.0.0.1:8741`:**
   - Serves the OpenAI Chat Completions API and the Anthropic Messages API.
   - Streams responses and passes tool calls in both directions.
-  - Refuses requests addressed to anything but loopback.
-- **Connections:** presets for Gemini, OpenRouter, OpenAI, Groq, DeepSeek, Ollama and any OpenAI-compatible endpoint. Keys are kept in the OS credential store.
+  - Refuses requests addressed to anything but loopback. Only one gateway serves a store at a time.
+- **Connections:** 26 provider presets and 6 local runtimes ([PROVIDERS.md](docs/PROVIDERS.md)), plus custom OpenAI- and Anthropic-compatible endpoints for any provider outside the list. Keys are kept in the OS credential store.
 - **Same-format passthrough:** an Anthropic request (Claude Code) to an Anthropic connection goes through unchanged, so its prompt cache keeps working; other pairs are translated and report what they drop.
-- **Combos:** a model name such as `coding` stands for an ordered list of models, tried only before any of the answer has reached the client. Rate limits and refusals cool a model down (honouring `Retry-After`) and never move to another key of the same organization; an ambiguous timeout is not retried elsewhere.
+- **Combos:** a model name such as `coding` stands for an ordered list of models, tried only before any of the answer has reached the client. Rate limits and refusals cool a model down (honouring `Retry-After`) and never move to another key of the same organization; an ambiguous timeout is not retried elsewhere, and a server error is not retried on another model unless the client allows it.
 - **Automatic routing:** `auto` picks the lowest eligible tier at or above the client's minimum. `auto/cheap` picks the lowest estimated cost. Both pick only among connected models known to support what the request needs; unknown counts as missing. Rules decide, not a classifier, and the response says why. A simulator in the Combos screen shows the route and every model left out.
 - **Sessions:** a client that sends `x-smarttaskrouter-session` stays on the model that answered it, so its cache survives.
-- **Client tokens:** one per app, stored only as a hash, each with an optional monthly limit (reserved atomically, so concurrent requests cannot pass it), a cap on requests in flight, and a policy for models without a price.
+- **Client tokens:** one per app, stored only as a hash. Each has an optional monthly limit (checked against an estimate before each request, so the provider's bill can end up higher), a cap on requests in flight, a policy for models without a price, an optional list of the only connections it may use, and permission to start tasks.
 - **Usage ledger:** every attempt is recorded with its cost and that cost's source.
   - **Actual:** the provider reported the charge.
   - **Estimated:** computed from a price you entered, or the connection is free or local.
-  - **Unknown:** no source; never shown as $0.
+  - **Unknown:** no source; never shown as $0. Agent runs are unknown, because their cost depends on how the agent is signed in.
+- **Agents:** finds the agent CLIs on this computer and runs one on a repository in a worktree; the result is kept as a branch or discarded ([AGENTS.md](docs/AGENTS.md)).
+- **Smart tasks:** a task is a ladder of agent steps judged by the workspace's approved checks. A failed check hands what failed to the next step; a paid step waits for your approval; a passing result waits for you to keep it as a branch or discard it. Tasks survive a restart as interrupted, with Retry.
+- **From your IDE:** register `<app> mcp` as an MCP server in Claude Code, Codex or Cursor, and your agent gets `pygg_run_task` and friends. Verified from a real Codex session.
 
 ## Universal Shared Memory (planned)
 
-Cross-provider conversations will share a **local, canonical conversation history** with versioned compact summaries, scoped long-term facts and tool/task checkpoints. A **memory-aware cost router** will decide whether to stay on the current model or switch, accounting for cache loss, context rebuilding, quality, privacy and actual usage. It will never switch automatically during an active agent attempt or an unresolved tool call.
+Cross-provider conversations would share a **local, canonical conversation history** with versioned compact summaries, scoped long-term facts and tool/task checkpoints, and a **memory-aware cost router** would decide whether to stay on the current model or switch. Read the [detailed design](docs/UNIVERSAL_SHARED_MEMORY.md). This is a design proposal; whether the app hosts its own Auto Chat is to be reconfirmed against ADR-027.
 
-Read the [detailed design, OSS references and benchmark plan](docs/UNIVERSAL_SHARED_MEMORY.md). This is a design proposal, not implemented functionality. Consumer Auto Chat is planned alongside the existing developer Tasks mode.
+## CLI, IDE and provider tiers (partly built)
 
-## CLI, IDE and provider tiers (planned)
-
-SmartTaskRouter will also offer a **headless terminal CLI and npm/npx launcher** for the same Rust gateway, alongside guided integration with compatible Claude Code, Codex, OpenCode, Aider, Cline, Roo, Continue and selected IDEs. Provider/model access will be grouped as **Free, Subscription, API Paid, Local, Unknown**; account connection method is separate from billing eligibility. Supported integration combinations require contract tests and official permitted interfaces.
-
-See [CLI / IDE Integrations, npm & Provider Tiers](docs/CLI_IDE_NPM_PROVIDER_TIERS.md). A first headless `gateway` binary exists (below); no npm publication or integration compatibility is claimed yet.
+Built: the headless `gateway` and `agent` binaries, and the MCP server for IDE agents. Planned: a `str` CLI and npm/npx launcher for the same Rust core, and guided, version-tested setup with config backup and restore for more clients. See [CLI / IDE Integrations, npm & Provider Tiers](docs/CLI_IDE_NPM_PROVIDER_TIERS.md). No npm publication is claimed.
 
 ## Multi-account / API key rotation (planned)
 
-Authorized accounts and API connections can be grouped into **Account Pools** with Fill First, Round Robin, Sticky Round Robin, Cost-Aware and bounded failover policies. Session affinity preserves provider prompt caches and Shared Memory continuity; quota resets, provider policy, per-client allowlists and spend caps are hard constraints. See [Account/API Rotation specification](docs/ACCOUNT_API_ROTATION.md). This feature is designed, **not implemented**.
+API-key and token-plan connections could be grouped into **Account Pools** with Fill First, Round Robin, Sticky Round Robin and cost-aware policies, under session affinity, quota groups, allowlists and spend caps. Subscriptions are not pooled: they are used through the vendors' agent CLIs (ADR-026). See [Account/API Rotation](docs/ACCOUNT_API_ROTATION.md). Designed, **not implemented**.
 
-## OmniRoute-inspired feature decisions (planned)
+## OmniRoute-inspired feature decisions
 
-Adopt or adapt a focused subset of OmniRoute, in this order:
-1. Dynamic Auto candidate discovery.
-2. An accurate Free Tier catalog and shared quota groups.
-3. Safe account-aware failover.
-4. Minimal prompt and tool-output deduplication.
-5. Cache-aware affinity and quality-adjusted scoring.
-
-Reject default model fusion, a broad 20-strategy UI, credential/session impersonation and misleading token-saving claims. See the [research, adoption matrix and acceptance gates](docs/OMNIROUTE_FEATURE_RESEARCH.md). These are scope decisions, not implemented features.
+From a focused subset of OmniRoute, dynamic `auto` candidates, quota groups and error-scoped failover with cooldowns are built. Prompt and tool-output deduplication and cache-aware scoring are planned. Model fusion, a 20-strategy UI, credential or session impersonation and token-saving claims without a benchmark are rejected. See the [research and adoption matrix](docs/OMNIROUTE_FEATURE_RESEARCH.md).
 
 ## Navigation
 
 | Group | Screen | Purpose |
 | --- | --- | --- |
 | Gateway | Overview | Gateway state and port, first-run checklist, client setup snippets, the last 24 hours |
-| | Connections | Providers, keys, models and their prices |
-| | Combos | Ordered model lists with fallback |
-| | Clients | Client tokens and monthly limits |
+| | Connections | Providers, keys, models, prices and what `auto` knows about each model |
+| | Combos | Ordered model lists with fallback, and the `auto` simulator |
+| | Clients | Client tokens, limits and permissions |
 | | Usage | Costs (actual, estimated, unknown) by model, by client, and per request |
-| Smart Tasks · Preview | Tasks, Policies | The task orchestrator's design, on sample data |
+| Agents | Agents | Agent CLIs on this computer, IDE (MCP) setup, and a single run |
+| Smart Tasks | Tasks, Policies | Tasks from your IDE or the app, approvals and results; Policies is not built yet |
 | App | Settings | Language |
 
 See the [screen design](docs/design/SCREENS.md).
@@ -80,7 +74,7 @@ See the [screen design](docs/design/SCREENS.md).
 ## Tech stack
 
 The stack is the same as DownFetch's:
-- Tauri 2 with a Rust core: gateway, SQLite store, OS keychain and process supervision.
+- Tauri 2 with a Rust core: gateway, task engine, SQLite store, OS keychain and process supervision.
 - A React 19 + Vite + TypeScript interface, styled with semantic CSS tokens after Apple's HIG, with DownFetch's green accent.
 - A pnpm workspace.
 - Design reviews with the `apple-design` skill.
@@ -100,10 +94,10 @@ pnpm dev                                              # interface in a browser a
 pnpm --filter @smarttaskrouter/desktop tauri:dev     # the desktop app with the real gateway
 pnpm typecheck
 pnpm build
-cd apps/desktop/src-tauri; cargo test                 # core and gateway tests
+cd apps/desktop/src-tauri; cargo test                 # core, gateway and task engine tests
 ```
 
-### Headless gateway
+### Headless
 
 The `gateway` binary uses the same store as the app. Without `--db`, that is the app's own store. API keys are read from an environment variable, so they never appear on a command line.
 
@@ -113,26 +107,13 @@ cargo run --bin gateway -- add-connection --preset gemini --key-env GEMINI_API_K
 cargo run --bin gateway -- refresh-models --id google-gemini
 cargo run --bin gateway -- combo --name coding --member google-gemini/gemini-3.1-flash-lite --member google-gemini/gemini-2.5-flash
 cargo run --bin gateway -- create-client --name "Claude Code"
-cargo run --bin gateway -- serve
+cargo run --bin gateway -- serve                      # add --tasks yes to run smart tasks where the app is not open
 ```
 
-Without `--label`, a preset's connection is named after the provider, so the Gemini connection's id is `google-gemini`.
+Without `--label`, a preset's connection is named after the provider, so the Gemini connection's id is `google-gemini`. `cargo run --bin agent -- detect` lists the agent CLIs; `agent --db STORE task …` runs a smart task headless ([AGENTS.md](docs/AGENTS.md)).
 
 The design review skill is pinned in `skills-lock.json` and installed under `.agents/skills/`, which is git-ignored. Decisions are recorded in [docs/DECISIONS.md](docs/DECISIONS.md).
 
-## Architecture review reconciliation (2026-11-11)
-
-Claude's [architecture review](docs/reviews/2026-11-11-architecture-review.md) and the [independent response](docs/reviews/2026-11-11-review-response.md) identified cache, fallback, budget, session identity and roadmap risks. **The [single authoritative roadmap](docs/ROADMAP.md) now puts cost-safe gateway parity ahead of new optimizer features.** The gateway and desktop screens already exist; read [Implementation Status](docs/IMPLEMENTATION-STATUS.md) before treating a proposed capability as shipped. The `gateway serve` binary and port `8741` are implemented; proposed `str start` / npm distribution are not.
-
 ## Roadmap
 
-0. **Gateway first (ADR-016), in progress:**
-   - Done: provider adapters, compatible endpoints, client tokens and the usage ledger.
-   - Next: quotas, then a benchmark of task routing as the orchestrator is built.
-1. **MVP:** providers, gateway, rule-based router, Route screen, single-stage tasks with one agent.
-2. **Multi-stage and multiple agents.**
-3. **Measured routing and context optimization.**
-4. **Distribution and Skills Hub.**
-5. **Universal Memory & Auto Chat:** canonical history → compaction/context handoff → cache-aware model affinity → optional long-term facts and memory settings; see the linked design and the revised release priorities.
-
-See the [full implementation plan](docs/SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md).
+The [roadmap](docs/ROADMAP.md) is the single authority for order. In short: make the IDE task flow usable every day (notifications, approvals with estimates, task budgets, workspace settings), then gateway correctness (request-feature filters for `auto`, data-use terms, a sourced tier table), then evidence (a live cascade and the benchmark) before any savings claim, then distribution. Reviews and their answers are in [docs/reviews](docs/reviews).

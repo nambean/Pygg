@@ -1,5 +1,8 @@
 # OmniRoute Feature Research — SmartTaskRouter Adoption Decision
 
+> **Update 2026-11-11:** built since this research: OR-01/OR-02 as `auto` and `auto/cheap` (`gateway/auto.rs`, the reason stored in the ledger rather than an `auto_route_decisions` table), OR-05 as cooldowns and quota groups (`gateway/policy.rs`). The `/api/routing/*` endpoints in section 9 are superseded by Tauri commands, `gateway auto` and `/pygg/v1/*`. Consumer Auto Chat (section 3) is a proposal to reconfirm, not committed. No classifier is used (P0-5); compression is P1, not P0. A narrow, task-only MCP server ships under ADR-027 (cf. OR-18). Credential or session bridges stay rejected (ADR-026). Current plan: [ROADMAP](ROADMAP.md#revised-plan-after-adr-026-and-adr-027-2026-11-11-docs-review).
+
+
 > Decision record v1.0 · 2026-11-11 · Research and implementation plan only. No OmniRoute runtime or new SmartTaskRouter feature was implemented by this commit.
 >
 > Primary project objective: **AI Cost Optimizer** for everyday conversations and developer workflows. Default UX: user asks normally and the system selects an authorized, capable model with the best expected total cost, preserving continuity across providers.

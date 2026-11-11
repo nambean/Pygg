@@ -1,5 +1,8 @@
 # SmartTaskRouter UI/UX design
 
+> **Update 2026-11-11:** the app has an Overview and an Agents screen besides the six task destinations, and the screens these SVGs sketched are built; the SVGs are kept as the original concept only. Current layout: [SCREENS.md](SCREENS.md) and the root README.
+
+
 **[SCREENS.md](SCREENS.md) is the current screen design.** It covers the shell, value conventions, tokens, every screen and sheet as ASCII wireframes, the reuse map from DownFetch components, and Phase 1 scope. Claude and Codex each designed the screens independently, then settled their differences in a second round.
 
 ## Old SVG wireframes (out of date)

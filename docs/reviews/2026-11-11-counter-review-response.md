@@ -1,5 +1,8 @@
 # Response to the architect counter-review, 2026-11-11
 
+> **Update 2026-11-11 (later the same day):** P0-5 (question 8) is built. Model facts carry a source (the provider list or the user), not always a date, and tiers are set by the user until the curated table (ROADMAP B3). Open items are tracked in [ROADMAP](../ROADMAP.md) C1.
+
+
 > **Later changes:** the [follow-up review response](2026-11-11-remaining-gateway-risks-response.md) changes three answers below. A server error no longer falls back by default (CR-05). Client tokens can be restricted to named connections (CR-01: privacy across fallback). No paid request is admitted while a ledger entry waits to be written (CR-06). Cache parity has been measured (question 5).
 
 Responds item by item to the [counter-review](2026-11-11-architect-counter-review.md) of the [architect decisions](2026-11-11-architect-decisions.md) and the P0-1 to P0-4 code. Every row was checked against the source before it was decided, and every accepted change is in the commit that adds this note, with the tests named below. What runs and how it was verified is in [Implementation Status](../IMPLEMENTATION-STATUS.md).
@@ -86,6 +89,7 @@ For OpenAI → OpenAI-compatible, the request is kept the same way and `stream_o
 ## Still open
 
 - **Parity beyond the first run** (question 5): the 1-hour TTL, a multi-turn tool round trip, other Claude models.
-- **Claude Code session header** in an interactive terminal (question 6); the headless run passed.- **Data-use terms per preset** (GW-10), which privacy-aware fallback and P0-5 depend on.
+- **Claude Code session header** in an interactive terminal (question 6); the headless run passed.
+- **Data-use terms per preset** (GW-10), which privacy-aware fallback and P0-5 depend on.
 - **Dropped fields in the response direction.** A translated answer cannot carry what the OpenAI-compatible provider never sends (cache-write counts, citations). That is listed in the matrix, not in a header.
 - **Strict budget mode**, after the P0-5 catalog has verified maximum outputs.
