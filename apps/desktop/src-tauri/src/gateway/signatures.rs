@@ -33,8 +33,9 @@ impl SignatureCache {
         self.by_id.get(id).map(String::as_str)
     }
 
-    /// Remembers the signatures in a response or stream chunk.
-    pub fn capture(&mut self, value: &Value) {
+    /// Remembers the signatures in a response or stream chunk, and returns them (to be stored).
+    pub fn capture(&mut self, value: &Value) -> Vec<(String, String)> {
+        let mut found = Vec::new();
         for choice in value["choices"].as_array().into_iter().flatten() {
             for part in ["message", "delta"] {
                 for call in choice[part]["tool_calls"].as_array().into_iter().flatten() {
@@ -42,10 +43,22 @@ impl SignatureCache {
                         (call["id"].as_str(), call["extra_content"]["google"]["thought_signature"].as_str())
                     {
                         self.insert(id, signature);
+                        found.push((id.to_string(), signature.to_string()));
                     }
                 }
             }
         }
+        found
+    }
+
+    /// The tool-call ids in a request whose signature is not in memory.
+    pub fn missing(&self, body: &Value) -> Vec<String> {
+        body["messages"].as_array().into_iter().flatten()
+            .flat_map(|m| m["tool_calls"].as_array().into_iter().flatten())
+            .filter(|c| c["extra_content"]["google"]["thought_signature"].is_null())
+            .filter_map(|c| c["id"].as_str())
+            .filter(|id| !id.is_empty() && self.get(id).is_none())
+            .map(String::from).collect()
     }
 
     /// Prepares a request body for one target: Gemini gets every tool call signed, others get no
@@ -71,8 +84,54 @@ impl SignatureCache {
     }
 }
 
+/// How long a stored signature is kept: a conversation picked up after a restart is rarely older.
+pub const KEEP_MS: i64 = 30 * 86_400_000;
+
+/// Stores signatures so they outlast a restart (review GW-8), and forgets those older than `KEEP_MS`.
+pub fn store(conn: &rusqlite::Connection, pairs: &[(String, String)]) -> rusqlite::Result<()> {
+    let now = crate::db::now_ms();
+    for (id, signature) in pairs {
+        conn.execute("INSERT OR IGNORE INTO tool_signatures (call_id, signature, created_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params![id, signature, now])?;
+    }
+    conn.execute("DELETE FROM tool_signatures WHERE created_at < ?1", [now - KEEP_MS])?;
+    Ok(())
+}
+
+/// The stored signatures of `ids`.
+pub fn load(conn: &rusqlite::Connection, ids: &[String]) -> rusqlite::Result<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    let mut statement = conn.prepare("SELECT signature FROM tool_signatures WHERE call_id = ?1")?;
+    for id in ids {
+        if let Some(signature) = rusqlite::OptionalExtension::optional(statement.query_row([id], |r| r.get::<_, String>(0)))? {
+            out.push((id.clone(), signature));
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_signature_outlasts_a_restart() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let mut before = SignatureCache::default();
+        let found = before.capture(&json!({ "choices": [{ "message": { "tool_calls": [{ "id": "call_9",
+            "extra_content": { "google": { "thought_signature": "SIG9" } } }] } }] }));
+        store(&conn, &found).unwrap();
+        // A new process: an empty cache, the same store.
+        let mut after = SignatureCache::default();
+        let mut request = json!({ "messages": [{ "role": "assistant", "tool_calls": [{ "id": "call_9" }, { "id": "call_x" }] }] });
+        let missing = after.missing(&request);
+        assert_eq!(missing, ["call_9", "call_x"]);
+        for (id, signature) in load(&conn, &missing).unwrap() {
+            after.insert(&id, &signature);
+        }
+        after.apply(&mut request, true);
+        assert_eq!(request["messages"][0]["tool_calls"][0]["extra_content"]["google"]["thought_signature"], "SIG9");
+        assert_eq!(request["messages"][0]["tool_calls"][1]["extra_content"]["google"]["thought_signature"], PLACEHOLDER);
+    }
+
     use super::*;
 
     #[test]

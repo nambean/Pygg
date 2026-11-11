@@ -232,9 +232,27 @@ impl Shared {
         f(&conn)
     }
 
-    /// Remembers Gemini tool-call signatures in a response or stream chunk.
+    /// Remembers Gemini tool-call signatures in a response or stream chunk, in memory and in the store, so a
+    /// conversation that goes on after a restart still has them (review GW-8).
     pub fn capture_signatures(&self, value: &Value) {
-        self.signatures.lock().unwrap_or_else(|p| p.into_inner()).capture(value);
+        let found = self.signatures.lock().unwrap_or_else(|p| p.into_inner()).capture(value);
+        if !found.is_empty() {
+            let _ = self.with_db(|db| signatures::store(db, &found).map_err(|e| e.to_string()));
+        }
+    }
+
+    /// Brings back stored signatures that a request to Gemini needs and memory has lost (after a restart).
+    fn restore_signatures(&self, body: &Value) {
+        let missing = self.signatures.lock().unwrap_or_else(|p| p.into_inner()).missing(body);
+        if missing.is_empty() {
+            return;
+        }
+        if let Ok(found) = self.with_db(|db| signatures::load(db, &missing).map_err(|e| e.to_string())) {
+            let mut cache = self.signatures.lock().unwrap_or_else(|p| p.into_inner());
+            for (id, signature) in found {
+                cache.insert(&id, &signature);
+            }
+        }
     }
 
     fn enter(&self, client: &Client) -> Option<InflightGuard> {
@@ -863,6 +881,9 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         let (url, mut body, dropped) = upstream_request(incoming, &provider, &model_id, mode);
         if provider.wire == "openai" {
             // Gemini needs the signatures of earlier tool calls back; others must not see the field.
+            if provider.kind == "gemini" {
+                shared.restore_signatures(&body);
+            }
             shared.signatures.lock().unwrap_or_else(|p| p.into_inner()).apply(&mut body, provider.kind == "gemini");
         }
         let mut request = shared.http.post(url).json(&body);
