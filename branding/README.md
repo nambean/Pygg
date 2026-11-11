@@ -14,6 +14,8 @@
 | `pygg-icon-64.png` | Toolbar/app icon |
 | `pygg-icon-128.png` | Medium icon |
 | `pygg-icon-256.png` | High-resolution icon |
+| `pygg-icon-512.png` | App/store icon |
+| `pygg-logo-full.png` | Horizontal logo and slogan (PNG, 640x178) |
 | `pygg.ico` | Windows favicon/icon (256x256 PNG-compressed entry) |
 | `brand.json` | Names, palette, asset paths |
 
