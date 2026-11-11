@@ -32,6 +32,8 @@ Read them in this order when they disagree:
 | [ACCOUNT_API_ROTATION.md](ACCOUNT_API_ROTATION.md) | Reference | Account pool specification; partly built, pools are ROADMAP E |
 | [CLI_IDE_NPM_PROVIDER_TIERS.md](CLI_IDE_NPM_PROVIDER_TIERS.md) | Reference | CLI, IDE integrations, npm launcher and billing tiers; partly built |
 | [OMNIROUTE_FEATURE_RESEARCH.md](OMNIROUTE_FEATURE_RESEARCH.md) | Reference | What was taken from OmniRoute, what was rejected, and why |
+| [RFC-2026-11-12-ORIGINAL-VISION-GAPS.md](RFC-2026-11-12-ORIGINAL-VISION-GAPS.md) | Reference | Proposed gaps in shared task context, npm/CLI, integrations, routing and evidence; pending owner/Claude reconciliation |
+| [research/2026-11-12-open-source-adoption-study.md](research/2026-11-12-open-source-adoption-study.md) | Reference | Source-linked comparison of Mem0, OpenCode, Letta, LangGraph, Aider, Graphiti, LiteLLM, Semantic Router, OmniRoute and Skills, with Pygg-specific adoption gates |
 | [SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md) | Historical | The v1.2 functional plan; superseded where ROADMAP and ADR-026 to ADR-028 say so |
 | [design/SCREENS.md](design/SCREENS.md) | Historical | The v0.1 screen design; the built screens are listed in Implementation Status |
 | [design/README.md](design/README.md) | Historical | The original SVG sketches |
