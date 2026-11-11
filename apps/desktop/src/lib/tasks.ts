@@ -63,6 +63,8 @@ export type WorkspaceView = Workspace & {
   checks: WorkspaceCheck[]; tasks: number;
   /** This workspace's own daily limit for paid steps, on top of the overall one. */
   dailyBudgetUsd: number | null;
+  /** sensitive: every step asks before it runs. */
+  privacyClass: 'standard' | 'sensitive';
 };
 
 export type Strategy = 'free_first' | 'balanced' | 'quality';
@@ -96,7 +98,10 @@ export type Estimate = { runs: number; lowMicroUsd: number | null; highMicroUsd:
 
 /** A paid step waiting for the user's decision (ADR-010: one attempt, one cap). */
 export type ApprovalView = {
-  step: number; label: string; estimate: Estimate; suggestedCapUsd: number;
+  step: number;
+  /** The step spends (a cap is needed); otherwise it asks only because the workspace is sensitive. */
+  paid: boolean;
+  label: string; estimate: Estimate; suggestedCapUsd: number;
   /** The agent stops at the cap itself (Claude Code); otherwise it is checked against the cost it reports. */
   enforcedByAgent: boolean;
   /** What today's budgets leave for paid steps here; null without a budget. The cap cannot be more. */

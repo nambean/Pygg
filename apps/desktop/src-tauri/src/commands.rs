@@ -572,6 +572,23 @@ fn budget_micro(usd: Option<f64>) -> Option<u64> {
     usd.filter(|u| u.is_finite() && *u > 0.0).map(|u| (u * 1e6).round() as u64)
 }
 
+/// `standard` or `sensitive` (every step asks before it runs).
+#[tauri::command]
+pub fn workspace_set_privacy(state: State<'_, AppState>, id: String, class: String) -> Res<WorkspaceView> {
+    state.shared.with_db(|db| { tasks::set_privacy(db, &id, &class)?; tasks::workspace(db, &id) })
+}
+
+/// The system's folder picker; `None` when the user cancels. Shown from the core, so the interface needs no
+/// file-system permission of its own.
+#[tauri::command]
+pub async fn pick_folder(app: tauri::AppHandle) -> Res<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog().file().set_title("Choose a Git repository").pick_folder(move |folder| { let _ = tx.send(folder); });
+    let folder = rx.await.map_err(|e| e.to_string())?;
+    Ok(folder.and_then(|f| f.into_path().ok()).map(|p| p.to_string_lossy().into_owned()))
+}
+
 /// Today's paid steps against the daily budget, for the toolbar.
 #[tauri::command]
 pub fn task_budget(state: State<'_, AppState>) -> Res<tasks::DayBudget> {

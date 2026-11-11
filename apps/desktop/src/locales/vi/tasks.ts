@@ -67,8 +67,8 @@ export const tasks: Record<string, string> = {
   'Paid steps per day': 'Bước trả phí mỗi ngày',
   'All tasks together. A paid step is refused once it is used, and a cap cannot be more than what is left. Resets at 00:00 UTC.':
     'Tính chung mọi task. Hết ngân sách thì bước trả phí bị từ chối, và mức chi không được vượt phần còn lại. Đặt lại lúc 00:00 UTC.',
-  'Only paid steps count, at the agent’s own estimate, or at their cap when it reported none. Free, local and subscription steps are not billed per request.':
-    'Chỉ tính bước trả phí, theo ước tính của chính agent, hoặc bằng mức chi nếu agent không báo. Bước miễn phí, local và subscription không tính tiền theo request.',
+  'Only paid steps count, at the agent’s own estimate, or at their cap when it reported none. Free, local and subscription steps are not billed per request. A workspace can have its own limit, on the Workspaces screen.':
+    'Chỉ tính bước trả phí, theo ước tính của chính agent, hoặc bằng mức chi nếu agent không báo. Bước miễn phí, local và subscription không tính tiền theo request. Mỗi workspace có thể có giới hạn riêng, ở màn Workspaces.',
   '{recorded} on paid steps today': '{recorded} cho bước trả phí hôm nay',
   'Today’s budget for paid steps': 'Ngân sách hôm nay cho bước trả phí',
   'Runs with unknown cost': 'Lần chạy chưa rõ chi phí',
@@ -143,4 +143,27 @@ export const tasks: Record<string, string> = {
   'Remove step {n}': 'Xoá bước {n}',
   'Add Step': 'Thêm bước',
   'Steps marked paid wait for your approval before they run.': 'Bước đánh dấu trả phí sẽ chờ bạn duyệt trước khi chạy.',
+  // Workspaces (WorkspacesView.tsx)
+  'Tasks from your IDE add their repository here by themselves. Approve its checks so results can be confirmed.':
+    'Task từ IDE tự thêm repository của nó vào đây. Hãy duyệt các check để kết quả được xác nhận.',
+  'Add Workspace…': 'Thêm workspace…',
+  'No Workspaces Yet': 'Chưa có workspace',
+  'Add a Git repository, or start a task from your IDE: its repository is added for you.':
+    'Thêm một repository Git, hoặc bắt đầu task từ IDE: repository sẽ được thêm tự động.',
+  'Checks to review': 'Có check cần duyệt',
+  '1 task': '1 task',
+  '{n} tasks': '{n} task',
+  'Every step asks before an agent sees this code, free ones too: Pygg cannot yet check where an agent sends it.':
+    'Mọi bước, kể cả bước miễn phí, đều hỏi trước khi agent xem code này: Pygg chưa kiểm được agent gửi code đi đâu.',
+  'Free and subscription steps run without asking; paid steps ask.': 'Bước miễn phí và subscription chạy không cần hỏi; bước trả phí sẽ hỏi.',
+  'Privacy': 'Riêng tư',
+  'Standard': 'Tiêu chuẩn',
+  'Sensitive': 'Nhạy cảm',
+  'Paid steps per day here': 'Bước trả phí mỗi ngày ở đây',
+  'On top of the overall limit in Settings. Empty: no limit of its own.': 'Cộng thêm với giới hạn chung trong Settings. Để trống: không có giới hạn riêng.',
+  'Browse…': 'Chọn…',
+  'Sensitive workspace': 'Workspace nhạy cảm',
+  'This step would let the agent read and change this workspace’s code. Pygg cannot yet check where an agent sends it, so it asks first.':
+    'Bước này cho agent đọc và sửa code của workspace này. Pygg chưa kiểm được agent gửi code đi đâu, nên hỏi trước.',
+  'Allow This Step': 'Cho phép bước này',
 };

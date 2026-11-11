@@ -131,6 +131,17 @@ function ApprovalPanel({approval: a, busy, onDecide}: {approval: ApprovalView; b
   const valid = Number.isFinite(amount) && amount > 0;
   const e = a.estimate;
   const money = (micro: number) => `$${(micro / 1e6).toFixed(2)}`;
+  if (!a.paid) return <div className="group-box approval-panel">
+    <div className="agent-result-head"><Badge tone="warn">{t('Sensitive workspace')}</Badge>
+      <span className="mono">{t('Step {n}', {n: a.step + 1})} · {a.label}</span></div>
+    <p className="secondary">{t('This step would let the agent read and change this workspace’s code. Pygg cannot yet check where an agent sends it, so it asks first.')}</p>
+    <div className="form-actions">
+      <button type="button" className="button prominent" disabled={busy} onClick={() => onDecide(true, null)}>
+        <Check size={13} aria-hidden/>{t('Allow This Step')}</button>
+      <button type="button" className="button" disabled={busy} onClick={() => onDecide(false, null)}>
+        <X size={13} aria-hidden/>{t('Decline')}</button>
+    </div>
+  </div>;
   return <div className="group-box approval-panel">
     <div className="agent-result-head"><Badge tone="warn">{t('Paid step')}</Badge>
       <span className="mono">{t('Step {n}', {n: a.step + 1})} · {a.label}</span></div>

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, FolderGit2, Play, Plus, RefreshCw, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Play, Plus, X } from 'lucide-react';
 import { call, errorText, gatewayChanged, type AgentInfo } from '../lib/api';
 import { t } from '../lib/i18n';
 import { MOD } from '../lib/platform';
 import { MAX_STEPS, type Billing, type Step, type Strategy, type Tier, type WorkspaceView } from '../lib/tasks';
 import { useGateway } from '../hooks/useGateway';
 import { billingLabel } from './AttemptSequence';
-import { ErrorNote, FormRow, Spinner } from './ui';
+import { ErrorNote, Spinner } from './ui';
+import { AddWorkspaceForm, WorkspaceChecks } from './WorkspacesView';
 
 /** The order each strategy tries the installed agents in; the user can change every step. */
 const ORDER: Record<Strategy, string[]> = {
@@ -72,7 +73,7 @@ export function NewTaskView({onCreated}: {onCreated: (id: string) => void}) {
 
     <WorkspacePicker workspaces={list} loading={workspaces.loading && !workspaces.data} selected={workspaceId}
       onSelect={setWorkspaceId} onChanged={w => { workspaces.reload(); if (w) setWorkspaceId(w.id); }}/>
-    {workspace && <Checks workspace={workspace} onChanged={workspaces.reload}/>}
+    {workspace && <WorkspaceChecks workspace={workspace} onChanged={workspaces.reload}/>}
 
     <section className="group">
       <h2>{t('Steps')}</h2>
@@ -119,17 +120,7 @@ function WorkspacePicker({workspaces, loading, selected, onSelect, onChanged}: {
   onChanged: (added: WorkspaceView | null) => void;
 }) {
   const [adding, setAdding] = useState(false);
-  const [path, setPath] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const showForm = adding || (!loading && workspaces.length === 0);
-  const add = () => {
-    setBusy(true);
-    setError(null);
-    call(api => api.addWorkspace(path.trim(), null)).then(
-      w => { setPath(''); setAdding(false); setBusy(false); onChanged(w); },
-      e => { setError(errorText(e)); setBusy(false); });
-  };
   return <section className="group">
     <h2>{t('Workspace')}</h2>
     <div className="group-box">
@@ -144,58 +135,9 @@ function WorkspacePicker({workspaces, loading, selected, onSelect, onChanged}: {
           {!adding && <button type="button" className="button" onClick={() => setAdding(true)}><Plus size={13} aria-hidden/>{t('Add…')}</button>}
         </span>
       </div>}
-      {showForm && <div className="form">
-        <FormRow label={t('Folder')} htmlFor="workspace-path"
-          hint={t('A Git repository. Every attempt works on its own worktree of it, so your files and branch are never touched.')}>
-          <span className="input-with-icon"><FolderGit2 size={13} aria-hidden/>
-            <input id="workspace-path" className="text-input mono" value={path} onChange={e => setPath(e.target.value)}
-              placeholder="C:\\path\\to\\repo" spellCheck={false} disabled={busy}/></span>
-        </FormRow>
-        <div className="form-actions">
-          {workspaces.length > 0 && <button type="button" className="button" onClick={() => setAdding(false)} disabled={busy}>{t('Cancel')}</button>}
-          <button type="button" className="button prominent" onClick={add} disabled={busy || !path.trim()}>{t('Add Workspace')}</button>
-        </div>
-        {error && <ErrorNote>{error}</ErrorNote>}
-      </div>}
+      {showForm && <AddWorkspaceForm onAdded={w => { setAdding(false); onChanged(w); }}
+        onCancel={workspaces.length > 0 ? () => setAdding(false) : null}/>}
     </div>
-  </section>;
-}
-
-/** The workspace's checks. Approving one lets it run on every attempt's changes, in that attempt's copy. */
-function Checks({workspace, onChanged}: {workspace: WorkspaceView; onChanged: () => void}) {
-  const [command, setCommand] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const act = (cmd: string, action: 'approve' | 'unapprove' | 'add' | 'remove') => {
-    setError(null);
-    call(api => api.workspaceCheck(workspace.id, cmd, action)).then(() => { if (action === 'add') setCommand(''); onChanged(); },
-      e => setError(errorText(e)));
-  };
-  const approved = workspace.checks.filter(c => c.approved).length;
-  return <section className="group">
-    <h2>{t('Checks')}</h2>
-    <div className="group-box">
-      {workspace.checks.map(c => <div key={c.command} className="group-row">
-        <label className="check-line group-label">
-          <input type="checkbox" checked={c.approved} onChange={e => act(c.command, e.target.checked ? 'approve' : 'unapprove')}/>
-          <span className="mono">{c.command}</span>
-          <small className="secondary">{c.source === 'user' ? t('added by you') : t('found in {file}', {file: c.source})}</small>
-        </label>
-        {c.source === 'user' && <button type="button" className="button small icon-only" aria-label={t('Remove')} title={t('Remove')}
-          onClick={() => act(c.command, 'remove')}><X size={13}/></button>}
-      </div>)}
-      <div className="group-row">
-        <input className="text-input mono" value={command} onChange={e => setCommand(e.target.value)} aria-label={t('Add a check')}
-          placeholder={t('Add a check, e.g. pnpm test')} onKeyDown={e => { if (e.key === 'Enter' && command.trim()) act(command, 'add'); }}/>
-        <button type="button" className="button" disabled={!command.trim()} onClick={() => act(command, 'add')}>{t('Add')}</button>
-        <button type="button" className="button" title={t('Look for checks again')}
-          onClick={() => call(api => api.detectChecks(workspace.id)).then(onChanged, e => setError(errorText(e)))}>
-          <RefreshCw size={13} aria-hidden/>{t('Detect')}</button>
-      </div>
-    </div>
-    {error && <ErrorNote>{error}</ErrorNote>}
-    <p className="group-footnote">{approved === 0
-      ? t('No check is approved: a finished attempt waits for your review instead of being confirmed.')
-      : t('Approved checks run in order on each attempt’s copy, and stop at the first failure. They run the code the agent wrote, on this computer.')}</p>
   </section>;
 }
 

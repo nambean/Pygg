@@ -502,11 +502,11 @@ export function demoApi(): GatewayApi {
 const DEMO_DIFF = 'diff --git a/src/timeout.ts b/src/timeout.ts\n--- a/src/timeout.ts\n+++ b/src/timeout.ts\n@@ -3,3 +3,3 @@\n-  return setTimeout(fn, ms * 100);\n+  return setTimeout(fn, ms);\n';
 
 /** Tasks for the browser preview: the sample tasks, and new ones that "run" for a few seconds. Nothing runs. */
-function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'workspaces' | 'addWorkspace' | 'removeWorkspace' | 'taskBudget' | 'setTaskBudget' | 'setWorkspaceBudget'
+function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'workspaces' | 'addWorkspace' | 'removeWorkspace' | 'taskBudget' | 'setTaskBudget' | 'setWorkspaceBudget' | 'setWorkspacePrivacy' | 'pickFolder'
   | 'detectChecks' | 'workspaceCheck' | 'tasks' | 'task' | 'createTask' | 'cancelTask' | 'decideTask' | 'retryTask' | 'taskDiff'
   | 'finishTask'> {
   let dailyLimit: number | null = 2;
-  const workspaces: WorkspaceView[] = SAMPLE_WORKSPACES.map((w, i) => ({...w, tasks: 0, dailyBudgetUsd: null, checks: i === 0
+  const workspaces: WorkspaceView[] = SAMPLE_WORKSPACES.map((w, i) => ({...w, tasks: 0, dailyBudgetUsd: null, privacyClass: i === 1 ? 'sensitive' as const : 'standard' as const, checks: i === 0
     ? [{command: 'pnpm install --frozen-lockfile', source: 'package.json', approved: true},
        {command: 'pnpm typecheck', source: 'package.json', approved: true}, {command: 'pnpm test', source: 'package.json', approved: true},
        {command: 'cargo test', source: 'Cargo.toml', approved: false}]
@@ -542,7 +542,7 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'worksp
       policy: {steps: s.attempts.map((a, i) => ({agent: attempts[i].agent, model: null, tier: a.tier, billing: a.billing})), checks,
         allowShell: false, timeoutSecs: 900},
       attempts: s.attempts, attemptDetails: attempts,
-      approval: s.state === 'waiting_approval' && waiting ? {step: waiting.step, label: waiting.label,
+      approval: s.state === 'waiting_approval' && waiting ? {step: waiting.step, paid: waiting.billing === 'paid', label: waiting.label,
         estimate: {runs: 4, lowMicroUsd: 20_000, highMicroUsd: 60_000}, suggestedCapUsd: 0.1, enforcedByAgent: waiting.agent === 'claude-code',
         remainingUsd: 1.42} : null};
   }
@@ -559,7 +559,7 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'worksp
       if (!path.trim()) throw 'Choose the workspace folder';
       if (workspaces.some(w => w.path === path.trim())) throw 'That folder is already a workspace';
       const w: WorkspaceView = {id: hex(6), name: name?.trim() || path.trim().split(/[\\/]/).filter(Boolean).pop() || path, path: path.trim(),
-        tasks: 0, dailyBudgetUsd: null, checks: [{command: 'npm ci', source: 'package.json', approved: false}, {command: 'npm run test', source: 'package.json', approved: false}]};
+        tasks: 0, dailyBudgetUsd: null, privacyClass: 'standard', checks: [{command: 'npm ci', source: 'package.json', approved: false}, {command: 'npm run test', source: 'package.json', approved: false}]};
       workspaces.push(w);
       return clone(w);
     },
@@ -614,6 +614,8 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'worksp
     taskDiff: () => touch(DEMO_DIFF),
     taskBudget: () => touch({recordedUsd: 0.48, reservedUsd: 0.1, limitUsd: dailyLimit, unknownCalls: 1}),
     setTaskBudget: async dailyUsd => { dailyLimit = dailyUsd; return touch({recordedUsd: 0.48, reservedUsd: 0.1, limitUsd: dailyLimit, unknownCalls: 1}); },
+    setWorkspacePrivacy: async (id, privacyClass) => { const w = findWorkspace(id); w.privacyClass = privacyClass; return touch(w); },
+    pickFolder: async () => null,
     setWorkspaceBudget: async (id, dailyUsd) => { const w = findWorkspace(id); w.dailyBudgetUsd = dailyUsd; return touch(w); },
     finishTask: async (id, keep, title) => { await sleep(250); const d = get(id);
       const branch = keep ? `str/${(title || d.title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48)}-${id.replace(/\W/g, '').slice(0, 8)}` : null;

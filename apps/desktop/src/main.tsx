@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Bot, ChartColumn, Gauge, KeyRound, ListOrdered, ListTodo, PanelLeft, Plug, Plus, Settings as SettingsIcon,
+import { Bot, ChartColumn, FolderGit2, Gauge, KeyRound, ListOrdered, ListTodo, PanelLeft, Plug, Plus, Settings as SettingsIcon,
   SlidersHorizontal } from 'lucide-react';
 import './styles.css';
 import brandMark from './assets/brand-mark.svg';
@@ -19,6 +19,7 @@ import { PendingView } from './components/PendingView';
 import { SettingsView } from './components/SettingsView';
 import { TaskDetail } from './components/TaskDetail';
 import { TaskList } from './components/TaskList';
+import { needsChecks, WorkspacesView } from './components/WorkspacesView';
 import { WindowControls } from './components/WindowControls';
 import { Segmented } from './components/ui';
 import { Clients } from './components/gateway/Clients';
@@ -34,6 +35,7 @@ type View =
   | {kind: 'task'; id: string; from: TaskFilter}
   | {kind: 'new'}
   | {kind: 'policies'}
+  | {kind: 'workspaces'}
   | {kind: 'agents'}
   | {kind: 'settings'};
 type Intent = 'connect' | 'create';
@@ -115,9 +117,10 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
     : view.kind === 'task' ? openedTask?.title ?? t('Task')
     : view.kind === 'new' ? t('New Task')
     : view.kind === 'policies' ? t('Policies')
+    : view.kind === 'workspaces' ? t('Workspaces')
     : view.kind === 'agents' ? t('Agents')
     : t('Settings');
-  const isTaskScreen = view.kind === 'tasks' || view.kind === 'task' || view.kind === 'new' || view.kind === 'policies';
+  const isTaskScreen = view.kind === 'tasks' || view.kind === 'task' || view.kind === 'new' || view.kind === 'policies' || view.kind === 'workspaces';
   const primary = isGateway(view.kind) ? PRIMARY[view.kind] : undefined;
 
   return <div className={`window${isMac || customChrome ? ' has-lights' : ''}${sidebarOpen ? '' : ' sidebar-hidden'}`}>
@@ -139,6 +142,8 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         <SidebarGroup title={t('Smart Tasks')}>
           <SidebarItem icon={<ListTodo/>} label={t('Tasks')} count={counts.all} shortcut={`${MOD}6`}
             selected={view.kind === 'tasks' || view.kind === 'task' || view.kind === 'new'} onSelect={() => setView({kind: 'tasks', filter: 'all'})}/>
+          <SidebarItem icon={<FolderGit2/>} label={t('Workspaces')} count={workspaces.filter(needsChecks).length} emphasized
+            title={t('Workspaces')} selected={view.kind === 'workspaces'} onSelect={() => setView({kind: 'workspaces'})}/>
           <SidebarItem icon={<SlidersHorizontal/>} label={t('Policies')}
             selected={view.kind === 'policies'} onSelect={() => setView({kind: 'policies'})}/>
         </SidebarGroup>
@@ -196,6 +201,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         </>}
         {view.kind === 'task' && <TaskDetail id={view.id} onBack={() => { taskList.reload(); setView({kind: 'tasks', filter: view.from}); }}/>}
         {view.kind === 'new' && <NewTaskView onCreated={created}/>}
+        {view.kind === 'workspaces' && <WorkspacesView/>}
         {view.kind === 'policies' && <PendingView title={t('Policies')} section="§5.5"
           purpose={t('Strategies, tiers, attempt limits, budgets and when paid steps need your approval.')}/>}
         {view.kind === 'settings' && <SettingsView language={language} onLanguage={onLanguage} onGateway={() => go('overview')}/>}

@@ -20,6 +20,7 @@ tauri = { version = "2", features = ["tray-icon"] }
 # A second launch focuses the running window instead of starting another core (and another gateway).
 tauri-plugin-single-instance = "2"
 tauri-plugin-notification = "2"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 # preserve_order: a request passed through to a provider keeps its keys in the client's order (counter-review
 # CR-08), so a tool schema reaches the model as the client wrote it.

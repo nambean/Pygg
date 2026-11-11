@@ -53,6 +53,7 @@ pub fn run() {
         // First: a second launch only brings the running window forward.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| shell::show_main(app)))
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(shell::Strings::default())
         .setup(|app| {
             // PYGG_DATA_DIR: another store, for trying the app without touching the real one.
@@ -132,6 +133,8 @@ pub fn run() {
             commands::task_finish,
             commands::mcp_setup,
             commands::task_budget,
+            commands::workspace_set_privacy,
+            commands::pick_folder,
             commands::task_set_budget,
             commands::workspace_set_budget,
             shell::app_preferences,

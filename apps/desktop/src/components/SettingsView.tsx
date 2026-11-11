@@ -77,9 +77,8 @@ function Background() {
 /** Daily limits for paid steps (ROADMAP A3): overall, and per workspace on top of it. Empty means no limit. */
 function TaskBudgets() {
   const budget = useGateway(api => api.taskBudget());
-  const workspaces = useGateway(api => api.workspaces());
   const [error, setError] = useState<string | null>(null);
-  const save = (f: () => Promise<unknown>) => { setError(null); f().then(() => { budget.reload(); workspaces.reload(); gatewayChanged(); },
+  const save = (f: () => Promise<unknown>) => { setError(null); f().then(() => { budget.reload(); gatewayChanged(); },
     e => setError(errorText(e))); };
   return <section className="group">
     <h2>{t('Task budgets')}</h2>
@@ -90,15 +89,9 @@ function TaskBudgets() {
         <span className="group-control">{budget.data && <MoneyField id="daily-budget" value={budget.data.limitUsd}
           onSave={v => save(() => call(api => api.setTaskBudget(v)))}/>}</span>
       </div>
-      {(workspaces.data ?? []).map(w => <div key={w.id} className="group-row">
-        <span className="group-label"><label htmlFor={`ws-budget-${w.id}`}>{w.name}</label>
-          <small className="mono">{w.path}</small></span>
-        <span className="group-control"><MoneyField id={`ws-budget-${w.id}`} value={w.dailyBudgetUsd}
-          onSave={v => save(() => call(api => api.setWorkspaceBudget(w.id, v)))}/></span>
-      </div>)}
     </div>
     {error && <ErrorNote>{error}</ErrorNote>}
-    <p className="group-footnote">{t('Only paid steps count, at the agent’s own estimate, or at their cap when it reported none. Free, local and subscription steps are not billed per request.')}</p>
+    <p className="group-footnote">{t('Only paid steps count, at the agent’s own estimate, or at their cap when it reported none. Free, local and subscription steps are not billed per request. A workspace can have its own limit, on the Workspaces screen.')}</p>
   </section>;
 }
 

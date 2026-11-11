@@ -77,6 +77,8 @@ pub struct WorkspaceView {
     pub tasks: u32,
     /// This workspace's own daily limit for paid steps, on top of the overall one.
     pub daily_budget_usd: Option<f64>,
+    /// `standard` or `sensitive`: in a sensitive workspace every step asks before it runs.
+    pub privacy_class: String,
 }
 
 /// Adds a Git repository as a workspace and suggests the checks it already has.
@@ -115,14 +117,16 @@ fn suggest_checks(conn: &Connection, id: &str, dir: &Path) -> Result<()> {
 }
 
 pub fn workspace(conn: &Connection, id: &str) -> Result<WorkspaceView> {
-    let (name, path, budget): (String, String, Option<i64>) = conn.query_row("SELECT name, path, daily_budget_micro_usd FROM workspaces WHERE id = ?1", [id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional().map_err(err)?.ok_or("That workspace no longer exists")?;
+    let (name, path, budget, privacy_class): (String, String, Option<i64>, String) = conn.query_row(
+        "SELECT name, path, daily_budget_micro_usd, privacy_class FROM workspaces WHERE id = ?1", [id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).optional().map_err(err)?.ok_or("That workspace no longer exists")?;
     let mut statement = conn.prepare("SELECT command, source, approved FROM workspace_checks WHERE workspace_id = ?1 ORDER BY rowid")
         .map_err(err)?;
     let checks = statement.query_map([id], |r| Ok(WorkspaceCheck { command: r.get(0)?, source: r.get(1)?, approved: r.get(2)? }))
         .map_err(err)?.collect::<rusqlite::Result<Vec<_>>>().map_err(err)?;
     let tasks: u32 = conn.query_row("SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1", [id], |r| r.get(0)).map_err(err)?;
-    Ok(WorkspaceView { id: id.into(), name, path, checks, tasks, daily_budget_usd: budget.filter(|b| *b > 0).map(|b| b as f64 / 1e6) })
+    Ok(WorkspaceView { id: id.into(), name, path, checks, tasks, daily_budget_usd: budget.filter(|b| *b > 0).map(|b| b as f64 / 1e6),
+        privacy_class })
 }
 
 pub fn list_workspaces(conn: &Connection) -> Result<Vec<WorkspaceView>> {
@@ -165,6 +169,23 @@ pub fn add_check(conn: &Connection, id: &str, command: &str) -> Result<()> {
 pub fn remove_check(conn: &Connection, id: &str, command: &str) -> Result<()> {
     conn.execute("DELETE FROM workspace_checks WHERE workspace_id = ?1 AND command = ?2", params![id, command]).map_err(err)?;
     Ok(())
+}
+
+/// `standard` or `sensitive`. A sensitive workspace's steps all ask before they run: Pygg cannot yet check where an
+/// agent sends the code (data-use terms, ROADMAP B2), so the user decides each time.
+pub fn set_privacy(conn: &Connection, id: &str, class: &str) -> Result<()> {
+    if !matches!(class, "standard" | "sensitive") {
+        return Err(format!("Unknown privacy class {class}"));
+    }
+    let changed = conn.execute("UPDATE workspaces SET privacy_class = ?2 WHERE id = ?1", params![id, class]).map_err(err)?;
+    if changed == 0 {
+        return Err("That workspace no longer exists".into());
+    }
+    audit(conn, "workspace.privacy", id, serde_json::json!({"class": class})).map_err(err)
+}
+
+fn is_sensitive(conn: &Connection, workspace_id: &str) -> rusqlite::Result<bool> {
+    conn.query_row("SELECT privacy_class = 'sensitive' FROM workspaces WHERE id = ?1", [workspace_id], |r| r.get(0))
 }
 
 pub fn remove_workspace(conn: &Connection, id: &str) -> Result<()> {
@@ -389,6 +410,8 @@ pub struct TaskDetail {
 #[serde(rename_all = "camelCase")]
 pub struct ApprovalView {
     pub step: usize,
+    /// The step spends (a cap is needed); otherwise it asks only because the workspace is sensitive.
+    pub paid: bool,
     pub label: String,
     pub estimate: Estimate,
     pub suggested_cap_usd: f64,
@@ -543,7 +566,7 @@ fn approval_of(conn: &Connection, row: &TaskRow, attempts: &[AttemptView]) -> Re
     let estimate = Estimate { runs, low_micro_usd: low.map(|v| v as u64), high_micro_usd: high.map(|v| v as u64) };
     let left = remaining(conn, &row.workspace_id).map_err(err)?;
     let suggested = match left { Some(left) if left > 0 => suggested_cap_micro(&estimate).min(left), _ => suggested_cap_micro(&estimate) };
-    Ok(Some(ApprovalView { step: waiting.step, label: waiting.label.clone(), suggested_cap_usd: usd(suggested),
+    Ok(Some(ApprovalView { step: waiting.step, paid: step.billing == "paid", label: waiting.label.clone(), suggested_cap_usd: usd(suggested),
         enforced_by_agent: agents::enforces_budget(&step.agent), remaining_usd: left.map(usd), estimate }))
 }
 
@@ -575,7 +598,13 @@ enum Opened {
 
 fn open_attempt(conn: &Connection, task_id: &str, stage_id: &str, index: usize, step: &Step) -> rusqlite::Result<Opened> {
     let now = now_ms();
-    if step.billing == "paid" {
+    let paid = step.billing == "paid";
+    let workspace = task_workspace(conn, task_id)?;
+    // A paid step asks because it spends; in a sensitive workspace every step asks, because Pygg cannot yet check
+    // where the agent sends the code.
+    let sensitive = is_sensitive(conn, &workspace)?;
+    let asks = paid || sensitive;
+    if asks {
         let waiting: Option<String> = conn.query_row(
             "SELECT id FROM attempts WHERE stage_id = ?1 AND rung = ?2 AND state = 'waiting' ORDER BY number DESC LIMIT 1",
             params![stage_id, index as i64], |r| r.get(0)).optional()?;
@@ -588,15 +617,13 @@ fn open_attempt(conn: &Connection, task_id: &str, stage_id: &str, index: usize, 
                     Ok(Opened::Run(attempt))
                 }
                 Some("pending") | None => {
-                    set_task(conn, task_id, "waiting_approval", None, Some(&paid_reason(index, step)))?;
+                    set_task(conn, task_id, "waiting_approval", None, Some(&ask_reason(index, step, paid)))?;
                     Ok(Opened::Waiting)
                 }
                 Some(_) => Ok(Opened::Declined),
             };
         }
     }
-    let paid = step.billing == "paid";
-    let workspace = task_workspace(conn, task_id)?;
     if paid {
         if let Some(0) = remaining(conn, &workspace)? {
             set_task(conn, task_id, "blocked", None, Some(&format!(
@@ -609,20 +636,24 @@ fn open_attempt(conn: &Connection, task_id: &str, stage_id: &str, index: usize, 
     let id = new_id();
     conn.execute("INSERT INTO attempts (id, stage_id, number, agent, model_ref, tier, billing, state, started_at, rung) \
                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![id, stage_id, number, step.agent, step_label(step), step.tier, step.billing, if paid { "waiting" } else { "running" },
-            if paid { None } else { Some(now) }, index as i64])?;
-    if paid {
+        params![id, stage_id, number, step.agent, step_label(step), step.tier, step.billing, if asks { "waiting" } else { "running" },
+            if asks { None } else { Some(now) }, index as i64])?;
+    if asks {
         ask_approval(conn, &id, step, &workspace)?;
-        set_task(conn, task_id, "waiting_approval", None, Some(&paid_reason(index, step)))?;
+        set_task(conn, task_id, "waiting_approval", None, Some(&ask_reason(index, step, paid)))?;
         return Ok(Opened::Waiting);
     }
     Ok(Opened::Run(id))
 }
 
-fn paid_reason(index: usize, step: &Step) -> String {
-    format!("Step {} ({}) is marked paid, so it waits for your approval.", index + 1, step_label(step))
+fn ask_reason(index: usize, step: &Step, paid: bool) -> String {
+    if paid {
+        format!("Step {} ({}) is marked paid, so it waits for your approval.", index + 1, step_label(step))
+    } else {
+        format!("Step {} ({}) waits for your approval: the workspace is sensitive, so every step asks before an agent \
+                 sees its code.", index + 1, step_label(step))
+    }
 }
-
 /// What earlier runs of an agent and model cost by the agent's own report (its list-price estimate): the basis of
 /// an approval's estimate. Agents report a cost only after a run, so there is nothing better before one.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -975,12 +1006,10 @@ impl Runner {
     /// names one attempt and a cap). If the step's estimate changed since the approval was asked, the approval is
     /// invalidated, a new one is asked with the new estimate, and this returns an error saying so. Approving
     /// continues the task.
+    ///
+    /// A step that asks only because its workspace is sensitive is not paid, so it needs no cap.
     pub fn decide(&self, id: &str, approve: bool, cap_micro_usd: Option<u64>) -> Result<Option<tokio::task::JoinHandle<()>>> {
-        let cap = match (approve, cap_micro_usd) {
-            (true, Some(cap)) if cap > 0 => Some(cap),
-            (true, _) => return Err("Set a spending cap for this paid step".into()),
-            (false, _) => None,
-        };
+        let cap = cap_micro_usd.filter(|c| *c > 0 && approve);
         self.with_db(|c| {
             let row = task_row(c, id)?;
             if row.state != "waiting_approval" {
@@ -991,6 +1020,9 @@ impl Runner {
                 [&row.stage_id], |r| Ok((r.get(0)?, r.get(1)?))).optional().map_err(err)?
                 .ok_or("This task is not waiting for an approval")?;
             let step = row.policy.steps.get(rung as usize).ok_or("The waiting step is not in the task's policy")?;
+            if approve && step.billing == "paid" && cap.is_none() {
+                return Err("Set a spending cap for this paid step".into());
+            }
             let asked_on: Option<String> = c.query_row(
                 "SELECT policy_version FROM approvals WHERE attempt_id = ?1 AND state = 'pending' ORDER BY created_at DESC LIMIT 1",
                 [&attempt], |r| r.get(0)).optional().map_err(err)?;
@@ -1006,7 +1038,8 @@ impl Runner {
                     return Err("This step's estimate or your budget changed since you were asked. \
                         Check the new estimate and approve again.".into());
                 }
-                if let (Some(cap), Some(left)) = (cap, remaining(&tx, &row.workspace_id).map_err(err)?) {
+                let left = if step.billing == "paid" { remaining(&tx, &row.workspace_id).map_err(err)? } else { None };
+                if let (Some(cap), Some(left)) = (cap, left) {
                     if cap > left {
                         return Err(format!("The cap is more than what is left of today's budget for paid steps (${:.2})", usd(left)));
                     }
@@ -1018,8 +1051,8 @@ impl Runner {
             if approve {
                 set_task(&tx, id, "running", Some("preparing"), None).map_err(err)?;
             } else {
-                close_attempt(&tx, &attempt, "canceled", Some("You declined this paid step")).map_err(err)?;
-                set_task(&tx, id, "blocked", None, Some("You declined the paid step, and no step after it is free to run")).map_err(err)?;
+                close_attempt(&tx, &attempt, "canceled", Some("You declined this step")).map_err(err)?;
+                set_task(&tx, id, "blocked", None, Some("You declined the step it was waiting on")).map_err(err)?;
             }
             audit(&tx, if approve { "approval.approved" } else { "approval.denied" }, id,
                 serde_json::json!({"attempt": attempt, "capMicroUsd": cap})).map_err(err)?;
@@ -1676,6 +1709,25 @@ mod tests {
         runner.decide(&id, true, Some(500_000)).unwrap().unwrap().await.unwrap();
         assert_eq!(detail(&rig, &id).summary.state, "needs_review");
         assert_eq!(workspace(&lock(&rig.db), &rig.workspace).unwrap().daily_budget_usd, Some(2.0));
+    }
+
+    #[tokio::test]
+    async fn in_a_sensitive_workspace_every_step_asks_first() {
+        let rig = rig(&[]);
+        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(), fake(vec![Act::Write("x.txt", "x")], rig.prompts.clone()));
+        assert!(set_privacy(&lock(&rig.db), &rig.workspace, "secret").is_err());
+        set_privacy(&lock(&rig.db), &rig.workspace, "sensitive").unwrap();
+        let id = create(&rig, vec![step("opencode", "free", 1)]);
+        runner.start(&id).unwrap().await.unwrap();
+        let task = detail(&rig, &id);
+        assert_eq!(task.summary.state, "waiting_approval");
+        assert!(task.reason.unwrap().contains("sensitive"));
+        let approval = task.approval.unwrap();
+        assert!(!approval.paid, "a free step asks only because of the workspace");
+        assert!(rig.prompts.lock().unwrap().is_empty(), "no agent saw the code before the user agreed");
+        runner.decide(&id, true, None).unwrap().unwrap().await.unwrap();
+        assert_eq!(detail(&rig, &id).summary.state, "needs_review");
+        assert_eq!(workspace(&lock(&rig.db), &rig.workspace).unwrap().privacy_class, "sensitive");
     }
 
     #[tokio::test]

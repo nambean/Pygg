@@ -204,6 +204,10 @@ export interface GatewayApi {
   taskBudget(): Promise<DayBudget>;
   setTaskBudget(dailyUsd: number | null): Promise<DayBudget>;
   setWorkspaceBudget(id: string, dailyUsd: number | null): Promise<WorkspaceView>;
+  /** `sensitive`: every step asks before it runs. */
+  setWorkspacePrivacy(id: string, privacyClass: 'standard' | 'sensitive'): Promise<WorkspaceView>;
+  /** The system's folder picker (desktop only); null when canceled. */
+  pickFolder(): Promise<string | null>;
 }
 
 const native: GatewayApi = {
@@ -255,6 +259,8 @@ const native: GatewayApi = {
   taskBudget: () => invoke('task_budget'),
   setTaskBudget: dailyUsd => invoke('task_set_budget', {dailyUsd}),
   setWorkspaceBudget: (id, dailyUsd) => invoke('workspace_set_budget', {id, dailyUsd}),
+  setWorkspacePrivacy: (id, privacyClass) => invoke('workspace_set_privacy', {id, class: privacyClass}),
+  pickFolder: () => invoke('pick_folder'),
 };
 
 let demo: Promise<GatewayApi> | null = null;
