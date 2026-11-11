@@ -57,11 +57,18 @@ async fn task(db_path: PathBuf, flags: &HashMap<String, String>) {
     let detail = tasks::task_detail(&db.lock().unwrap(), &id).unwrap_or_else(|e| fail(e));
     println!("task {id}: {}{}", detail.summary.state, detail.reason.as_deref().map(|r| format!(" ({r})")).unwrap_or_default());
     for a in &detail.attempt_details {
-        println!("  #{} step {} {:<40} {:<8} {}  files {:?} +{:?} -{:?}  tokens {:?}/{:?}", a.number, a.step + 1, a.label, a.outcome,
-            a.escalation_reason.as_deref().or(a.detail.as_deref()).unwrap_or(""), a.files_changed, a.insertions, a.deletions,
-            a.input_tokens, a.output_tokens);
+        fn n(v: Option<impl ToString>) -> String { v.map_or("?".to_string(), |v| v.to_string()) }
+        println!("  #{} step {} {:<40} {:<8} {}  files {} +{} -{}  tokens {}/{}", a.number, a.step + 1, a.label, a.outcome,
+            a.escalation_reason.as_deref().or(a.detail.as_deref()).unwrap_or(""), n(a.files_changed), n(a.insertions),
+            n(a.deletions), n(a.input_tokens), n(a.output_tokens));
         for c in &a.checks {
             println!("      check `{}`: {} ({} ms)", c.command, if c.passed { "passed" } else { &c.detail }, c.duration_ms);
+            if !c.passed {
+                // What the next step is handed: the end of the check's (redacted) output.
+                for line in c.output_tail.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev() {
+                    println!("        | {line}");
+                }
+            }
         }
     }
     let conn = db.lock().unwrap();

@@ -52,7 +52,16 @@ Headless: `cargo run --bin agent -- --db STORE task --workspace DIR --prompt TEX
 
 ### Live verification, 2026-11-11
 
-A scratch repository with `add()` returning `a - b`, the check `python test_calc.py`, and two steps: OpenCode with `opencode/deepseek-v4.1-flash-free`, then Codex. Step 1 fixed it (+1 −1, 9,781 input / 356 output tokens), the check passed in its worktree in 157 ms, and the task ended `checks_passed` without reaching Codex. The cascade itself (a failed check handing off to the next step, approvals, stop, interruption and retry) is covered by `tasks.rs` tests with a scripted agent in real worktrees, not live.
+A scratch repository with `add()` returning `a - b`, the check `python test_calc.py`, and two steps: OpenCode with `opencode/deepseek-v4.1-flash-free`, then Codex. Step 1 fixed it (+1 −1, 9,781 input / 356 output tokens), the check passed in its worktree in 157 ms, and the task ended `checks_passed` without reaching Codex. Approvals, stop, interruption and retry are covered by `tasks.rs` tests with a scripted agent in real worktrees, not live.
+
+**The cascade, live (ROADMAP C2).** A scratch repository with `slugify()` that neither lower-cases nor cleans punctuation, and an approved check kept outside the repository, so no agent could read it: three cases, `"Hello World"` → `hello-world`, extra spaces collapsed, punctuation dropped. The prompt named only the lower-casing. Steps: OpenCode with `opencode/deepseek-v4.1-flash-free`, then Codex (ChatGPT plan).
+
+| Run | Step 1, OpenCode | Check | Step 2, Codex | Check |
+| --- | --- | --- | --- | --- |
+| 1 | added `.lower()` (+1 −1, 25,174 / 308 tokens) | exited 1, "1 of 3 passed" | handed the command and its two `FAIL` lines; one-line rewrite (84,124 / 512 tokens) | passed, `checks_passed` |
+| 2 | the same (12,464 / 355) | the same | a `re.sub` rewrite (+2 −1, 91,701 / 747) | passed; discarded, no worktree left |
+
+Codex's own sandbox could not run `python`, so it could not test its change; the check Pygg ran is what passed it. No money was spent: a free model and a subscription. The headless CLI now prints the end of a failed check's output, which is what the next step is handed.
 
 ## From the IDE: `pygg-mcp` and the task API
 
@@ -75,5 +84,3 @@ A scratch repository with `add()` returning `a - b`, the check `python test_calc
 
 - Claude Code's interactive terminal session through the gateway (headless runs pass).
 - Cancelling a single run on the Agents screen (tasks can be stopped).
-- A folder picker for the repository (the path is typed or pasted).
-- A daily budget for tasks, and a cost estimate on the approval for a paid step.
