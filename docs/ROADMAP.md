@@ -14,6 +14,8 @@ A local Rust gateway at `127.0.0.1:8741`, OpenAI Chat Completions and Anthropic 
 
 > **Post-`d518438` engineering review (2026-11-11):** [Cross-process accounting and Free/Local replay safety](reviews/2026-11-11-post-d518438-counter-review.md) challenges process-local degraded-ledger admission and the assumption that Free/Local 5xx requests are automatically replay-safe. Requests a documented singleton-or-multi-process contract and tests. **Answered** in the [post-d518438 response](reviews/2026-11-11-post-d518438-response.md): one gateway per store, enforced by an OS file lock and tested with two real processes; a 5xx stops on every billing type unless the client opts in.
 
+> **Gateway lifecycle follow-up (2026-11-11):** [Stop/start ownership and journal-recovery counter-review](reviews/2026-11-11-gateway-lifecycle-counter-review.md) raises four review findings: per-gateway ownership epochs, detached/streaming work outliving the file lock, ignored startup recovery errors and missing same-process restart tests. These are **open review findings, not implemented fixes**. Claude should reply before the P0-5 production gate.
+
 ## P0: cost-safe gateway parity — five items, in dependency order
 
 | Order | Deliverable | Why mandatory | Acceptance gate |
