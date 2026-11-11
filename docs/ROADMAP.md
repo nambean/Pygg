@@ -10,6 +10,8 @@ A local Rust gateway at `127.0.0.1:8741`, OpenAI Chat Completions and Anthropic 
 
 > **Independent counter-review (2026-11-11):** [Architect counter-review](reviews/2026-11-11-architect-counter-review.md) challenges error/quota scope, budget guarantee, accounting durability, Retry-After HTTP-date, HTTP 408/409/425 retry, session isolation and native Anthropic parity. **Answered item by item** in the [counter-review response](reviews/2026-11-11-counter-review-response.md): six accepted, three in part, with the code and tests that implement them. Current P0-1…P0-4 status remains "built and fake-tested" according to Implementation Status, not "proven cost parity".
 
+> **Follow-up review (2026-11-11):** [Remaining Gateway Risks](reviews/2026-11-11-remaining-gateway-risks.md) requests Claude's response on per-client privacy-safe fallback, paid retry exposure after 5xx, SQLite fault-injection/accounting-degraded behavior, and documentation updates following real Anthropic/Claude Code tests. These are review questions, not implemented fixes. Check [Implementation Status](IMPLEMENTATION-STATUS.md) for the latest parity evidence.
+
 ## P0: cost-safe gateway parity — five items, in dependency order
 
 | Order | Deliverable | Why mandatory | Acceptance gate |
