@@ -30,7 +30,7 @@ All this work is **pattern research**. Pygg already has a local gateway, session
 
 **Proposed H1 contract, derived from those patterns:**
 
-\`\`\`json
+```json
 {
   "schema": "pygg.task-handoff.v1",
   "task_id": "task-id",
@@ -42,15 +42,15 @@ All this work is **pattern research**. Pygg already has a local gateway, session
   "next_move": "Inspect the reported test failure",
   "omitted": [{"kind": "tool-output", "reason": "redacted-or-token-limit"}]
 }
-\`\`\`
+```
 
 The schema is illustrative. **A new worktree starts from the original base commit.** Prior attempt edits do **not** magically exist there. Raw/check events, authenticated workspace scopes and source hashes remain authoritative; summaries are derived and versioned. The receiving agent's official CLI controls its own private conversation/tool state. Only **explicit** task/MCP context transport is permitted; no silent injection by the gateway.
 
 ### H1 implementation as the smallest testable slice
 
-- **Reuse first:** \`tasks.rs\` attempts and \`check_results_json\`, \`summary\`, \`log_tail\`, \`escalation_reason\`, \`base_revision\`, the active policy snapshot, Git diff paths and approved checks. The current previous-failure tail is 1,500 characters. Determine the minimum new storage (likely one handoff snapshot field) after code review, not a suite of new memory tables.
+- **Reuse first:** `tasks.rs` attempts and `check_results_json`, `summary`, `log_tail`, `escalation_reason`, `base_revision`, the active policy snapshot, Git diff paths and approved checks. The current previous-failure tail is 1,500 characters. Determine the minimum new storage (likely one handoff snapshot field) after code review, not a suite of new memory tables.
 - **Compose at a safe attempt boundary:** deterministic sections, explicit evidence labels, source IDs, token cap, known privacy scope, raw references, dedup for repeated check output, exact omission warnings. No LLM extraction by default.
-- **Inspect before use:** preview handoff in Task detail and \`pygg_task_status\`, allow “disable” and optional user note, and track what was actually delivered.
+- **Inspect before use:** preview handoff in Task detail and `pygg_task_status`, allow “disable” and optional user note, and track what was actually delivered.
 - **Experiment with feature flag off:** compare (a) original task alone, (b) current failure tail, (c) H1 handoff; include hard cases where earlier attempts actually discovered useful evidence. Compare tokens, success, time and repeated failures by **paired tasks**. Do not infer from the N2 results alone, which did not test richer handoff.
 - **Abort/rollback:** if omitted facts, prompt-injection contamination, cross-workspace data or higher cost per kept result occurs without quality gain, H1 stays off.
 
@@ -61,7 +61,7 @@ The schema is illustrative. **A new worktree starts from the original base commi
 | Project | Pattern to inspect | What Pygg should adopt | What to reject |
 | --- | --- | --- | --- |
 | **[LiteLLM](https://github.com/BerriAI/litellm)** — [budget fallbacks](https://github.com/BerriAI/litellm-docs/blob/main/docs/proxy/budget_fallbacks.md) | Unified providers, virtual keys, per-model budgets, fallback chains, router health and cost provenance | Compare error taxonomy, capability matrix, budget fallback behavior, price provenance and realistic multi-provider tests with Pygg's Rust gateway. Record any mismatch as fixtures; do **not** bypass Pygg's ledger or replay-safety contract. | Running a second LiteLLM proxy inside Pygg; accepting permissive enterprise assumptions. **License check required** on exact module, since repository has separately licensed enterprise code. |
-| **[vLLM Semantic Router](https://github.com/vllm-project/semantic-router)** — [design](https://github.com/vllm-project/semantic-router/blob/main/website/docs/intro.md) | **Decision layer** separate from harness; policy signals for task type, modality, context, latency, privacy and budget; replay/evaluation | Keep request routing in \`gateway/auto.rs\` and task-level routing in \`tasks.rs\`; add an explainable **policy evaluation harness** rather than a black-box model classifier. Evaluate by cost per verified result. | Full Envoy/service infrastructure, embedding classifier or heavy model server for a local app before benefit is measured. |
+| **[vLLM Semantic Router](https://github.com/vllm-project/semantic-router)** — [design](https://github.com/vllm-project/semantic-router/blob/main/website/docs/intro.md) | **Decision layer** separate from harness; policy signals for task type, modality, context, latency, privacy and budget; replay/evaluation | Keep request routing in `gateway/auto.rs` and task-level routing in `tasks.rs`; add an explainable **policy evaluation harness** rather than a black-box model classifier. Evaluate by cost per verified result. | Full Envoy/service infrastructure, embedding classifier or heavy model server for a local app before benefit is measured. |
 | **[9Router](https://github.com/decolua/9router)** | Developer-first provider/CLI integrations, combo fallback, free-tier discoverability and multi-format routing | UX/workflow reference for **D2 Integrations Hub**: identify client → preview changes → consent → test → restore. Compare quota-source and per-connection state without trusting marketing savings. | Cookie/session/OAuth bridging, blanket “unlimited free”, automatic quota evasion or provider ToS violations. |
 | **[OmniRoute](https://github.com/cheaper-inference/OmniRoute)** — [existing Pygg decision](../OMNIROUTE_FEATURE_RESEARCH.md) | Dynamic candidate factory, quota-group logic, RTK-style compression, safe fallback, client compatibility, free-tier catalog | Reuse its reference patterns **selectively**: per-account eligibility, route-exclusion reasons, quota-source verification, deterministic *owned-log-only* compression and client integration matrix. Existing Pygg review already covers it; **do not duplicate** the whole assessment. | Its advertised large percentage token savings without reproducing them in Pygg, automatic credential rotation, broad account/session bridges, speculative retries, unverified free-provider catalog as guaranteed entitlement. |
 
@@ -77,8 +77,8 @@ The schema is illustrative. **A new worktree starts from the original base commi
 
 | Project / source | Concrete feature | Pygg lesson | Gate |
 | --- | --- | --- | --- |
-| **[Letta Code npm](https://github.com/letta-ai/letta-code)** | \`npm install -g @letta-ai/letta-code\` and \`letta server\` provide a CLI/server workflow with shared agent system | A clear **single public \`pygg\` command** with \`serve\`, \`status\`, \`mcp\`, \`doctor\`, \`integrations\`; one Rust core for desktop and headless, no second Node gateway. | Verify public npm package/scope ownership, release/asset hashes, Windows native binary, clean-machine support. |
-| **[Vercel Skills](https://github.com/vercel-labs/skills)** — [CLI](https://github.com/vercel-labs/skills#install-a-skill) | \`npx skills add\`, \`find\`, \`list\`, \`check\`, \`remove\`; project-scoped installs by default and explicit \`-g\` for global | Copy the **interaction design pattern**, not the code: preview first, workspace default, explicit global opt-in, config backup, actionable doctor/test/restore. For skills, audit \`SKILL.md\` metadata and dependencies before any install. | Start with version-tested Claude Code / Codex / OpenCode integrations and existing MCP. No unverified agent/IDE support claim. |
+| **[Letta Code npm](https://github.com/letta-ai/letta-code)** | `npm install -g @letta-ai/letta-code` and `letta server` provide a CLI/server workflow with shared agent system | A clear **single public `pygg` command** with `serve`, `status`, `mcp`, `doctor`, `integrations`; one Rust core for desktop and headless, no second Node gateway. | Verify public npm package/scope ownership, release/asset hashes, Windows native binary, clean-machine support. |
+| **[Vercel Skills](https://github.com/vercel-labs/skills)** — [CLI](https://github.com/vercel-labs/skills#install-a-skill) | `npx skills add`, `find`, `list`, `check`, `remove`; project-scoped installs by default and explicit `-g` for global | Copy the **interaction design pattern**, not the code: preview first, workspace default, explicit global opt-in, config backup, actionable doctor/test/restore. For skills, audit `SKILL.md` metadata and dependencies before any install. | Start with version-tested Claude Code / Codex / OpenCode integrations and existing MCP. No unverified agent/IDE support claim. |
 | **[Anthropic Agent Skills](https://github.com/anthropics/skills)** | Skill directory/metadata and discipline of task-specific instructions | Catalog metadata and progressive loading reference only. | **Inspect individual license files**; a public repository is not a blanket right to copy prompts/scripts/assets. E.g. [PDF skill LICENSE.txt](https://github.com/anthropics/skills/blob/main/skills/pdf/LICENSE.txt) includes significant reuse restrictions. |
 | **[VoltAgent Awesome Agent Skills](https://github.com/VoltAgent/awesome-agent-skills)** | Cross-agent discovery/index of skills from many authors | Discoverability/reference catalog. Track original origin, commit, declared license and trust review *per skill*, rather than downloading everything. | Maintainers explicitly disclaim security audits of individual entries. No auto-executed downloaded scripts; manual consent and rollback. |
 
@@ -86,7 +86,7 @@ The schema is illustrative. **A new worktree starts from the original base commi
 
 ## 4. What these sources say about Claude's PV-01/PV-02 reply
 
-Claude's [counter-review](../reviews/2026-11-12-original-vision-gaps-response.md) is correct to **avoid a speculative global memory subsystem** before evidence, and correct that today \`pygg_run_task\` already transports the user's *explicit task description*.
+Claude's [counter-review](../reviews/2026-11-12-original-vision-gaps-response.md) is correct to **avoid a speculative global memory subsystem** before evidence, and correct that today `pygg_run_task` already transports the user's *explicit task description*.
 
 But that is **not equivalent to portable context with source lineage**:
 
@@ -113,15 +113,15 @@ No work package is automatically approved. Each should produce a short source-ba
 | **OSS-02** | Vercel Skills setup UX, Letta CLI, official Claude Code/Codex/OpenCode setup docs | Integration version/format matrix, consented config diff/backup/restore, scoped token and active handshake | Idempotent setup, failed config rollback, no credential leakage, one live test/client | D2 first |
 | **OSS-03** | LiteLLM budgets, vLLM SR policies, 9Router/OmniRoute candidate lists | Document gaps in auto/task policy, classify eligibility versus ranking and source of quota facts | Fake-provider policy fixtures and held-out benchmark replay; no new paid calls | After evidence gate |
 | **OSS-04** | Mem0 scoped search, Graphiti temporal facts, Letta versioned memory | Optional task-only FTS5/provenance/supersession *if H1 succeeds* | Compare FTS5 to exact recall; zero unauthorized cross-workspace retrieval; deletion | H2 conditional |
-| **OSS-05** | Letta npm, Vercel \`npx skills\`, Pygg's existing headless binary | Native \`pygg\` subcommands + verified npm launcher for a tested OS | Windows x64 clean install, checksum/tamper test, coexistence with Desktop, update rollback | D2 next |
+| **OSS-05** | Letta npm, Vercel `npx skills`, Pygg's existing headless binary | Native `pygg` subcommands + verified npm launcher for a tested OS | Windows x64 clean install, checksum/tamper test, coexistence with Desktop, update rollback | D2 next |
 | **OSS-06** | Skills catalogs and individual license notices | Read-only Skills preview first, with pinned upstream references | License and supply-chain review, no code execution on discovery | P2 |
 
-**No code-licence shortcut:** MIT-licensed Pygg may *study* MIT/Apache projects. If porting code, audit the **exact source file, dependencies, license, NOTICE obligations, attribution and provider terms**, record origin/commit in \`THIRD_PARTY_NOTICES.md\`. For skills/prompts and enterprise subtrees, individual licenses may be more restrictive than the repository banner. Research links ≠ permission to copy.
+**No code-licence shortcut:** MIT-licensed Pygg may *study* MIT/Apache projects. If porting code, audit the **exact source file, dependencies, license, NOTICE obligations, attribution and provider terms**, record origin/commit in `THIRD_PARTY_NOTICES.md`. For skills/prompts and enterprise subtrees, individual licenses may be more restrictive than the repository banner. Research links ≠ permission to copy.
 
 ## 6. Decision questions to resolve before another architecture rejection
 
 1. **Why did OpenCode need versioned, structured compaction beyond the last failure tail?** Which *owned task evidence* of Pygg is actually lost at a model/agent change, and can a hard-case fixture demonstrate that loss?
-2. Is the present \`attempts\`/audit schema enough for a **source-backed package**, or does a single new column/index make provenance reliable? Show raw source references and exact omitted sections, not a generic “summary” field.
+2. Is the present `attempts`/audit schema enough for a **source-backed package**, or does a single new column/index make provenance reliable? Show raw source references and exact omitted sections, not a generic “summary” field.
 3. What is the **smallest bounded context package** that aids a different agent on a discarded-worktree restart without implying its prior edits exist?
 4. Which aspects of Mem0/Letta/Graphiti should remain out-of-scope until H1 A/B evidence? State SQLite/FTS5 versus vector/graph cost, privacy and test implications.
 5. For PV-02, does current MCP **task dispatch** really satisfy structured **portable context export/import**? If not, defer the latter by name rather than mark it “already built”.
@@ -130,7 +130,7 @@ No work package is automatically approved. Each should produce a short source-ba
 8. Which upstream projects are **templates for patterns** versus legitimate code-import candidates, with exact licenses and security review?
 9. Update the PV-01/PV-02/PV-04/PV-05/PV-11 prioritization **only after** comparison against built code, accepted ADRs and owner decisions. No invented savings, time estimate or provider compatibility.
 
-**Requested Claude deliverable:** A line/commit-backed **source comparison response**, ideally \`docs/reviews/2026-11-12-oss-patterns-response.md\`, with Accept/Partial/Reject/Defer for OSS-01…OSS-06, exact source links and a limited test proposal. **Do not implement / revise ROADMAP or ADR-028 just because this reference study exists.**
+**Requested Claude deliverable:** A line/commit-backed **source comparison response**, ideally `docs/reviews/2026-11-12-oss-patterns-response.md`, with Accept/Partial/Reject/Defer for OSS-01…OSS-06, exact source links and a limited test proposal. **Do not implement / revise ROADMAP or ADR-028 just because this reference study exists.**
 
 ## Verified source links (retrieved 2026-11-12)
 
