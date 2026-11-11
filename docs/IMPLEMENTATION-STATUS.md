@@ -157,6 +157,5 @@ With the owner's go-ahead, Claude Code 2.1.317 ran a headless session (`claude -
 - The Setup Assistant.
 - Quota tracking for subscriptions.
 - Data-use terms per provider.
-- Tray and notifications.
 
 Each is specified in [design/SCREENS.md](design/SCREENS.md).
