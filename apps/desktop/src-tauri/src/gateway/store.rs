@@ -462,6 +462,9 @@ pub struct Client {
     pub may_run_tasks: bool,
     /// Only connections whose recorded terms say the provider does not train on what is sent (review GW-10).
     pub require_no_training: bool,
+    /// A strict monthly limit (ROADMAP B4): each request is held at the most it could cost, and a model whose price
+    /// or maximum output is unknown is not used.
+    pub strict_budget: bool,
 }
 
 impl Client {
@@ -544,11 +547,12 @@ fn client_row(conn: &Connection, row: &rusqlite::Row) -> rusqlite::Result<Client
         auto_min_tier: row.get(11)?,
         may_run_tasks: row.get(12)?,
         require_no_training: row.get(13)?,
+        strict_budget: row.get(14)?,
     })
 }
 
 const CLIENT_COLUMNS: &str = "id, name, token_prefix, monthly_budget_micro_usd, created_at, last_used_at, revoked_at, \
-    max_concurrency, unknown_cost_policy, allowed_connections, paid_retries, auto_min_tier, may_run_tasks, require_no_training";
+    max_concurrency, unknown_cost_policy, allowed_connections, paid_retries, auto_min_tier, may_run_tasks, require_no_training, strict_budget";
 
 pub fn list_clients(conn: &Connection) -> Result<Vec<Client>> {
     let mut stmt = conn
@@ -626,6 +630,16 @@ pub fn set_client_paid_retries(conn: &Connection, id: &str, retries: u32) -> Res
     }
     conn.execute("UPDATE gateway_clients SET paid_retries = ?2 WHERE id = ?1", params![id, retries])
         .map(|_| ()).map_err(err)
+}
+
+pub fn set_client_strict_budget(conn: &Connection, id: &str, strict: bool) -> Result<()> {
+    conn.execute("UPDATE gateway_clients SET strict_budget = ?2 WHERE id = ?1", params![id, strict]).map(|_| ()).map_err(err)
+}
+
+/// The model's maximum output, when it is known.
+pub fn max_output_tokens(conn: &Connection, provider_id: &str, model_id: &str) -> Result<Option<u64>> {
+    conn.query_row("SELECT max_output_tokens FROM models WHERE provider_id = ?1 AND model_id = ?2", params![provider_id, model_id],
+        |r| r.get::<_, Option<i64>>(0)).optional().map(|v| v.flatten().filter(|m| *m > 0).map(|m| m as u64)).map_err(err)
 }
 
 pub fn set_client_require_no_training(conn: &Connection, id: &str, required: bool) -> Result<()> {
@@ -793,16 +807,56 @@ pub struct Health {
     pub updated_at: i64,
 }
 
+/// States whose cooldown grows when they repeat (a circuit breaker, Account Rotation §5): a connection that keeps
+/// failing the same way waits twice as long each time, up to `BACKOFF_CAP_MS`. A success clears the count.
+pub const BACKOFF_STATES: [&str; 2] = ["unreachable", "server_error"];
+pub const BACKOFF_CAP_MS: i64 = 15 * 60 * 1000;
+
 pub fn mark_health(conn: &Connection, provider_id: &str, model_id: &str, state: &str, reason: &str,
     http_status: Option<u16>, until_ms: Option<i64>) -> Result<()> {
+    let now = now_ms();
+    let previous: Option<(String, i64, Option<i64>)> = conn.query_row(
+        "SELECT state, strikes, until_ms FROM connection_health WHERE provider_id = ?1 AND model_id = ?2", params![provider_id, model_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional().map_err(err)?;
+    let strikes = match &previous { Some((s, n, _)) if s == state => n + 1, _ => 1 };
+    let (until_ms, reason) = match until_ms {
+        Some(until) if BACKOFF_STATES.contains(&state) && strikes > 1 => {
+            let base = (until - now).max(1_000);
+            let wait = base.saturating_mul(1i64 << (strikes - 1).min(10)).min(BACKOFF_CAP_MS.max(base));
+            (Some(now + wait), format!("{reason} (failure {strikes} in a row, waiting {} s)", wait / 1000))
+        }
+        other => (other, reason.to_string()),
+    };
     conn.execute(
-        "INSERT INTO connection_health (provider_id, model_id, state, reason, http_status, until_ms, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) ON CONFLICT(provider_id, model_id) DO UPDATE SET state = ?3, reason = ?4, \
-         http_status = ?5, until_ms = ?6, updated_at = ?7",
-        params![provider_id, model_id, state, reason.chars().take(300).collect::<String>(), http_status, until_ms, now_ms()],
+        "INSERT INTO connection_health (provider_id, model_id, state, reason, http_status, until_ms, updated_at, strikes) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) ON CONFLICT(provider_id, model_id) DO UPDATE SET state = ?3, reason = ?4, \
+         http_status = ?5, until_ms = ?6, updated_at = ?7, strikes = ?8",
+        params![provider_id, model_id, state, reason.chars().take(300).collect::<String>(), http_status, until_ms, now, strikes],
     )
     .map(|_| ())
     .map_err(err)
+}
+
+/// Connection-wide `unreachable` entries still in force and not checked for `gap_ms`: what the probe looks at.
+pub fn unreachable_to_probe(conn: &Connection, gap_ms: i64) -> Result<Vec<String>> {
+    let now = now_ms();
+    let mut statement = conn.prepare(
+        "SELECT h.provider_id FROM connection_health h JOIN providers p ON p.id = h.provider_id WHERE h.model_id = '' \
+         AND h.state = 'unreachable' AND p.enabled = 1 AND h.until_ms > ?1 AND h.updated_at <= ?2").map_err(err)?;
+    let rows = statement.query_map(params![now, now - gap_ms], |r| r.get(0)).map_err(err)?;
+    rows.collect::<rusqlite::Result<_>>().map_err(err)
+}
+
+/// The probe reached the provider: its connection-wide outage is over.
+pub fn probe_succeeded(conn: &Connection, provider_id: &str) -> Result<()> {
+    conn.execute("DELETE FROM connection_health WHERE provider_id = ?1 AND model_id = '' AND state = 'unreachable'", [provider_id])
+        .map(|_| ()).map_err(err)
+}
+
+/// The probe did not reach it: remember when it was checked, so it is not checked again for a while.
+pub fn probe_failed(conn: &Connection, provider_id: &str) -> Result<()> {
+    conn.execute("UPDATE connection_health SET updated_at = ?2 WHERE provider_id = ?1 AND model_id = '' AND state = 'unreachable'",
+        params![provider_id, now_ms()]).map(|_| ()).map_err(err)
 }
 
 /// Clears the model's entry, and the connection-wide one unless it needs the user (a rejected key).

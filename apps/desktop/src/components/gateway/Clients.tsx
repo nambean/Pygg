@@ -88,8 +88,9 @@ function policySummary(c: Client): string {
   const retries = c.paidRetries > 0
     ? ` · ${plural(c.paidRetries, 'retries {n} model after a server error', 'retries up to {n} models after a server error')}` : '';
   const tasks = c.mayRunTasks ? ` · ${t('may start smart tasks')}` : '';
+  const strictness = c.strictBudget && c.monthlyBudgetMicroUsd !== null ? ` · ${t('strict limit')}` : '';
   const training = c.requireNoTraining ? ` · ${t('only providers that do not train on its data')}` : '';
-  return plural(c.maxConcurrency, 'up to {n} request at once', 'up to {n} requests at once') + unknown + scope + retries + tasks + training;
+  return plural(c.maxConcurrency, 'up to {n} request at once', 'up to {n} requests at once') + unknown + scope + retries + tasks + training + strictness;
 }
 
 function CreateSheet({onClose}: {onClose: () => void}) {
@@ -160,6 +161,7 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
   const [autoMinTier, setAutoMinTier] = useState<Tier>(c.autoMinTier);
   const [mayRunTasks, setMayRunTasks] = useState(c.mayRunTasks);
   const [noTraining, setNoTraining] = useState(c.requireNoTraining);
+  const [strict, setStrict] = useState(c.strictBudget);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const amount = parseUsd(limit);
@@ -172,7 +174,7 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
       await api.setClientBudget(c.id, amount);
       await api.setClientPolicy(c.id, {maxConcurrency: inFlight, unknownCostPolicy: unknown,
         restrictConnections: restricted, allowedConnections: allowed, paidRetries, autoMinTier, mayRunTasks,
-        requireNoTraining: noTraining});
+        requireNoTraining: noTraining, strictBudget: strict});
     }).then(() => { gatewayChanged(); onClose(); }, e => { setError(errorText(e)); setBusy(false); });
   };
   return <Sheet title={t('Limits for {name}', {name: c.name})}
@@ -190,6 +192,13 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
           <span aria-hidden>$</span>
           <input id="limit" inputMode="decimal" value={limit} onChange={e => setLimit(e.target.value)} placeholder={t('No limit')} autoFocus/>
         </span>
+      </FormRow>
+      <FormRow label={t('Strict limit')} htmlFor="strict-budget"
+        hint={amount === null ? t('Applies once the client has a limit.')
+          : strict ? t('Each request is held at the most it could cost: its own output limit, or all the model can write. Models whose price or maximum output is unknown are not used. The bill can still differ if a provider changes its price.')
+          : t('Off: a request without an output limit is estimated at 4,096 output tokens, so a long answer can take the month past the limit.')}>
+        <label className="check-row"><input id="strict-budget" type="checkbox" checked={strict}
+          onChange={e => setStrict(e.target.checked)}/>{t('Hold the most a request could cost')}</label>
       </FormRow>
       <FormRow label={t('Unknown price')} htmlFor="unknown-policy"
         hint={amount === null ? t('Applies once the client has a limit.')

@@ -647,4 +647,12 @@ export const gateway: Record<string, string> = {
   'Setup': 'Cài đặt',
   'The token ends up in your agent’s configuration file. It can only reach this computer’s gateway, and you can revoke it in Clients.':
     'Token sẽ nằm trong file cấu hình của agent. Nó chỉ dùng được với gateway trên máy này, và bạn có thể thu hồi trong Clients.',
+  // Strict limit (ROADMAP B4)
+  'strict limit': 'giới hạn nghiêm ngặt',
+  'Strict limit': 'Giới hạn nghiêm ngặt',
+  'Each request is held at the most it could cost: its own output limit, or all the model can write. Models whose price or maximum output is unknown are not used. The bill can still differ if a provider changes its price.':
+    'Mỗi request được giữ chỗ bằng mức tối đa nó có thể tốn: giới hạn output của chính nó, hoặc toàn bộ output model có thể viết. Model chưa rõ giá hoặc chưa rõ output tối đa sẽ không được dùng. Hoá đơn vẫn có thể khác nếu nhà cung cấp đổi giá.',
+  'Off: a request without an output limit is estimated at 4,096 output tokens, so a long answer can take the month past the limit.':
+    'Tắt: request không đặt giới hạn output được ước tính 4.096 token output, nên một câu trả lời dài có thể làm tháng vượt giới hạn.',
+  'Hold the most a request could cost': 'Giữ chỗ bằng mức tối đa request có thể tốn',
 };

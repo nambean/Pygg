@@ -100,6 +100,8 @@ export type Client = {
   mayRunTasks: boolean;
   /** Sends only to connections recorded as not training on requests. */
   requireNoTraining: boolean;
+  /** A strict limit: each request held at the most it could cost; unknown price or maximum output not used. */
+  strictBudget: boolean;
 };
 
 export type UsageGroup = {
@@ -184,7 +186,9 @@ export interface GatewayApi {
     /** Lets the client start smart tasks through the task API (pygg-mcp). */
     mayRunTasks?: boolean;
     /** Only connections whose recorded terms say the provider does not train on requests. */
-    requireNoTraining?: boolean}): Promise<void>;
+    requireNoTraining?: boolean;
+    /** Hold each request at the most it could cost, and skip models whose price or maximum output is unknown. */
+    strictBudget?: boolean}): Promise<void>;
   setModelCapabilities(providerId: string, modelId: string, capabilities: Capabilities): Promise<void>;
   /** What an auto alias would choose, from a client's point of view (null: a new client's defaults). Sends nothing. */
   autoSimulate(clientId: string | null, alias: AutoAlias, needs: AutoNeeds): Promise<AutoPlan>;

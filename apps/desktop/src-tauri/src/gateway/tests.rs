@@ -166,6 +166,7 @@ async fn rig_on(read_timeout: Duration, store_path: Option<&std::path::Path>) ->
     let upstream_addr = upstream.local_addr().unwrap();
     let app = Router::new()
         .route("/v1/chat/completions", post(fake_openai))
+        .route("/v1/models", axum::routing::get(|| async { Json(json!({ "data": [{ "id": "fast" }] })) }))
         .route("/anthropic/v1/messages", post(fake_anthropic))
         .with_state(fake.clone());
     tokio::spawn(async move { axum::serve(upstream, app).await.unwrap() });
@@ -947,6 +948,77 @@ fn a_client_that_requires_no_training_reaches_only_connections_recorded_so() {
         assert!(!ids.iter().any(|id| id.starts_with("main/")), "{ids:?}");
         let provider = rig.shared.with_db(store::list_providers).unwrap().into_iter().find(|p| p.id == "backup").unwrap();
         assert_eq!((provider.data_use_terms.as_str(), provider.terms_checked_at.is_some()), ("no_training", true));
+    });
+}
+
+// ---------- ROADMAP B4: a strict limit ----------
+
+#[test]
+fn a_strict_limit_needs_a_stated_maximum_output_and_holds_it() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.shared.with_db(|db| store::set_client_budget(db, &rig.client_id, Some(1_000_000))).unwrap();
+        rig.shared.with_db(|db| store::set_client_strict_budget(db, &rig.client_id, true)).unwrap();
+        // No output limit in the request, none known for the model: not sent.
+        let refused = rig.post("/v1/chat/completions", chat("main/fast")).await;
+        assert_eq!(refused.status(), 502);
+        assert!(refused.text().await.unwrap().contains("limit is strict, and neither the request nor the model states a maximum output"));
+        assert_eq!(rig.fake.count("fast"), 0);
+        // The request's own limit is enough.
+        let mut body = chat("main/fast");
+        body["max_tokens"] = json!(256);
+        assert_eq!(rig.post("/v1/chat/completions", body).await.status(), 200);
+        // So is the model's stated maximum.
+        rig.shared.with_db(|db| store::set_capabilities(db, "main", "fast", &store::Capabilities {
+            max_output_tokens: Some(8_000), ..store::Capabilities::default() })).unwrap();
+        assert_eq!(rig.post("/v1/chat/completions", chat("main/fast")).await.status(), 200);
+        // A model without a price is never used, whatever the unknown-price policy says.
+        rig.shared.with_db(|db| store::set_client_policy(db, &rig.client_id, None, Some("allow"))).unwrap();
+        let unpriced = rig.post("/v1/chat/completions", chat("main/steady")).await;
+        // Refused as a spending-limit matter (429), not sent.
+        assert_eq!(unpriced.status(), 429);
+        assert_eq!(rig.fake.count("steady"), 0);
+        assert!(unpriced.text().await.unwrap().contains("price is unknown"));
+    });
+}
+
+// ---------- ROADMAP B4: circuit breaker and probe ----------
+
+#[test]
+fn repeated_failures_wait_longer_and_a_probe_lifts_an_outage_that_is_over() {
+    rt().block_on(async {
+        let rig = rig().await;
+        let now = crate::db::now_ms();
+        let mark = || rig.shared.with_db(|db| store::mark_health(db, "main", "", "unreachable", "connection refused", None, Some(crate::db::now_ms() + 15_000))).unwrap();
+        let until = || rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap()[0].until_ms.unwrap() - crate::db::now_ms();
+        mark();
+        assert!(until() <= 15_000);
+        mark();
+        assert!(until() > 25_000 && until() <= 30_000, "the second failure in a row waits twice as long");
+        mark();
+        assert!(until() > 55_000, "the third four times as long");
+        assert!(rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap()[0].reason.contains("failure 3 in a row"));
+
+        // Not checked again within a minute of the last failure.
+        assert!(probe::probe_once(&rig.shared).await.is_empty());
+        // A minute later, the provider's model list answers: the outage is lifted.
+        rig.shared.with_db(|db| db.execute("UPDATE connection_health SET updated_at = ?1", [now - 120_000])).unwrap();
+        assert_eq!(probe::probe_once(&rig.shared).await, ["main"]);
+        assert!(rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap().is_empty());
+
+        // A connection whose list does not answer stays out, and is not checked again for a minute.
+        rig.shared.with_db(|db| db.execute("UPDATE providers SET endpoint = 'http://127.0.0.1:9/v1' WHERE id = 'sibling'", [])).unwrap();
+        rig.shared.with_db(|db| store::mark_health(db, "sibling", "", "unreachable", "refused", None, Some(now + 600_000))).unwrap();
+        rig.shared.with_db(|db| db.execute("UPDATE connection_health SET updated_at = ?1 WHERE provider_id = 'sibling'", [now - 120_000])).unwrap();
+        assert!(probe::probe_once(&rig.shared).await.is_empty());
+        assert_eq!(rig.shared.with_db(|db| store::list_health(db, Some("sibling"))).unwrap().len(), 1);
+        assert!(probe::probe_once(&rig.shared).await.is_empty());
+
+        // A rejected key is never lifted by a probe.
+        rig.shared.with_db(|db| store::mark_health(db, "backup", "", "invalid_credentials", "401", Some(401), None)).unwrap();
+        rig.shared.with_db(|db| db.execute("UPDATE connection_health SET updated_at = ?1 WHERE provider_id = 'backup'", [now - 120_000])).unwrap();
+        probe::probe_once(&rig.shared).await;
+        assert_eq!(rig.shared.with_db(|db| store::list_health(db, Some("backup"))).unwrap()[0].state, "invalid_credentials");
     });
 }
 

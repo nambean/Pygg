@@ -26,6 +26,7 @@ pub mod auto;
 pub mod catalog;
 pub mod policy;
 pub mod presets;
+pub mod probe;
 pub mod pricing;
 pub mod signatures;
 pub mod sse;
@@ -311,6 +312,8 @@ pub struct Server {
     pub addr: SocketAddr,
     shutdown: Option<oneshot::Sender<()>>,
     task: tokio::task::JoinHandle<()>,
+    /// The health probe (probe.rs), stopped with the server.
+    probe: (tokio::sync::watch::Sender<bool>, tokio::task::JoinHandle<()>),
     /// This server's hold on the store's ownership. Attempts in flight hold it too (review LC-02).
     _owner: Arc<Owner>,
 }
@@ -327,6 +330,8 @@ impl Server {
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
         }
+        let _ = self.probe.0.send(true);
+        self.probe.1.abort();
         if tokio::time::timeout(grace, &mut self.task).await.is_err() {
             self.task.abort();
         }
@@ -365,12 +370,14 @@ pub async fn start(shared: Shared, port: u16) -> std::io::Result<Server> {
     }
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
     let addr = listener.local_addr()?;
+    let (probe_stop, probe_rx) = tokio::sync::watch::channel(false);
+    let probe = (probe_stop, probe::spawn(shared.clone(), probe_rx));
     let app = router(shared, addr.port());
     let (tx, rx) = oneshot::channel::<()>();
     let task = tokio::spawn(async move {
         let _ = axum::serve(listener, app).with_graceful_shutdown(async { let _ = rx.await; }).await;
     });
-    Ok(Server { addr, shutdown: Some(tx), task, _owner: owner })
+    Ok(Server { addr, shutdown: Some(tx), task, probe, _owner: owner })
 }
 
 pub fn router(shared: Shared, port: u16) -> Router {
@@ -606,10 +613,15 @@ fn estimate_input_tokens(body: &Value) -> u64 {
 /// (a prompt may be written to the cache), plus the output limit the request sets, or 4096 tokens when it
 /// sets none. Settled to the real figure when usage arrives.
 fn estimate_micro(body: &Value, price: &Price) -> u64 {
-    let output_tokens = ["max_tokens", "max_completion_tokens", "max_output_tokens"]
-        .iter()
-        .find_map(|k| body[*k].as_u64())
-        .unwrap_or(DEFAULT_OUTPUT_ESTIMATE);
+    estimate_micro_with(body, price, requested_output(body).unwrap_or(DEFAULT_OUTPUT_ESTIMATE))
+}
+
+/// The output limit a request sets, if any.
+fn requested_output(body: &Value) -> Option<u64> {
+    ["max_tokens", "max_completion_tokens", "max_output_tokens"].iter().find_map(|k| body[*k].as_u64())
+}
+
+fn estimate_micro_with(body: &Value, price: &Price, output_tokens: u64) -> u64 {
     let input_price = price.input_micro_per_mtok.max(price.cache_write_micro_per_mtok.unwrap_or(0));
     let per = |tokens: u64, micro: u64| ((tokens as u128 * micro as u128).div_ceil(1_000_000)) as u64;
     per(estimate_input_tokens(body), input_price) + per(output_tokens, price.output_micro_per_mtok)
@@ -736,8 +748,19 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         let hold = if is_free(&billing) || !has_limit {
             0
         } else if let Some(price) = price.as_ref() {
-            estimate_micro(incoming.body, price)
-        } else if client.unknown_cost_policy == "block" {
+            if client.strict_budget {
+                // The most this request could cost: its own output limit, or all the model can write.
+                let most = requested_output(incoming.body)
+                    .or_else(|| shared.with_db(|db| store::max_output_tokens(db, &provider.id, &model_id)).ok().flatten());
+                let Some(most) = most else {
+                    skipped.push(format!("{name}: this client's limit is strict, and neither the request nor the model states a maximum output"));
+                    continue;
+                };
+                estimate_micro_with(incoming.body, price, most)
+            } else {
+                estimate_micro(incoming.body, price)
+            }
+        } else if client.unknown_cost_policy == "block" || client.strict_budget {
             skipped.push(format!("{name}: its price is unknown, and this client has a spending limit"));
             continue;
         } else {

@@ -285,7 +285,13 @@ fn judge(conn: &Connection, client: &Client, provider: &Provider, model: &Model,
         "subscription" => Ok(Ok((0, "the plan's quota, not money; quota left not tracked".into()))),
         _ => match &model.price {
             Some(price) => {
-                let estimate = needs.estimate_micro(price);
+                // A strict limit holds the most the request could cost, as the gateway's admission does.
+                let strict = client.strict_budget && client.monthly_budget_micro_usd.is_some();
+                let estimate = match (strict, needs.max_tokens, caps.max_output_tokens) {
+                    (true, None, Some(most)) => Needs { max_tokens: Some(most), ..needs.clone() }.estimate_micro(price),
+                    (true, None, None) => return no("this client's limit is strict, and neither the request nor the model states a maximum output".into()),
+                    _ => needs.estimate_micro(price),
+                };
                 let which = if price.source == "user" { "your price" } else { "the provider's list price" };
                 Ok(Ok((estimate, format!("about {} at {which}", money(estimate)))))
             }
@@ -416,6 +422,21 @@ mod tests {
         let plan = plan(&conn, &client, "auto", Strategy::Tier, &Needs { input_tokens: 100, ..Needs::default() }).unwrap();
         let ranked = plan.ranked.iter().find(|r| r.model_id == "gemini-3.5-flash").unwrap();
         assert!(ranked.reason.starts_with("tier T2 from Pygg's table (minimum T2)"), "{}", ranked.reason);
+    }
+
+    #[test]
+    fn a_strict_limit_prices_the_most_a_request_could_cost() {
+        let w = world();
+        store::set_client_budget(&w.conn, &w.client.id, Some(5_000_000)).unwrap();
+        store::set_client_strict_budget(&w.conn, &w.client.id, true).unwrap();
+        let client = store::list_clients(&w.conn).unwrap().into_iter().find(|c| c.id == w.client.id).unwrap();
+        let needs = Needs { input_tokens: 1000, ..Needs::default() };
+        let strict = plan(&w.conn, &client, "auto/cheap", Strategy::Cheap, &needs).unwrap();
+        let loose = plan(&w.conn, &w.client, "auto/cheap", Strategy::Cheap, &needs).unwrap();
+        let cost = |p: &Plan, m: &str| p.ranked.iter().find(|r| r.model_id == m).unwrap().estimate_micro_usd;
+        // 8192 output tokens (the model's maximum) instead of the 4096 a request without a limit is estimated at.
+        assert!(cost(&strict, "mid") > cost(&loose, "mid"), "{} vs {}", cost(&strict, "mid"), cost(&loose, "mid"));
+        assert_eq!(reason(&strict, "unpriced"), "price unknown");
     }
 
     #[test]
