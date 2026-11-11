@@ -255,8 +255,8 @@ export function demoApi(): GatewayApi {
         if (needs.maxTokens > caps.maxOutputTokens) { no(`the request allows ${needs.maxTokens} output tokens; it gives at most ${caps.maxOutputTokens}`); continue; }
       }
       let estimate = 0, cost = `${billing} (as set)`;
-      if (billing === 'subscription') { no('subscription quota is not tracked yet, so its cost cannot be stated'); continue; }
-      if (billing !== 'free' && billing !== 'local') {
+      if (billing === 'subscription') cost = "the plan's quota, not money; quota left not tracked";
+      if (billing !== 'free' && billing !== 'local' && billing !== 'subscription') {
         if (!m.price) { no('price unknown'); continue; }
         const inPrice = Math.max(m.price.inputMicroPerMtok, m.price.cacheWriteMicroPerMtok ?? 0);
         estimate = Math.ceil(needs.inputTokens * inPrice / 1e6) + Math.ceil(output * m.price.outputMicroPerMtok / 1e6);
