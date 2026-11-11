@@ -8,7 +8,7 @@ The levels are cumulative. **Fake-tested** means end-to-end tests against the fa
 
 | Item | Built | Fake-tested | Live-tested | Provider-parity-tested | Release-ready |
 | --- | --- | --- | --- | --- | --- |
-| P0-1 same-format passthrough | Yes | Yes | Translation only (Gemini); native Anthropic not live | No | No |
+| P0-1 same-format passthrough | Yes | Yes | Native Anthropic (claude-haiku-4-5); translation (Gemini) | **Yes for native Anthropic**: cache write and read, streamed and not; thinking with a tool call; citations. Translation: not applicable | No |
 | P0-2 error-scoped fallback | Yes | Yes | 404 cooldown and skip (Gemini) | Not applicable | No |
 | P0-3 budgets and complete ledger | Yes | Yes | Ledger and prices (Gemini); reservations not live | Not applicable | No |
 | P0-4 explicit sessions | Yes | Yes | Pinning (Gemini, direct requests); Claude Code headless session carried the header on 12 of 12 requests | Not applicable | No |
@@ -84,6 +84,23 @@ With the headless gateway on a scratch store and the owner's Gemini key (gemini-
 - An Anthropic request to Gemini was translated, and the response said `x-smarttaskrouter-dropped: cache_control`.
 - Afterwards the connection was removed with its key, and the scratch store deleted.
 
+## Provider parity: Anthropic direct versus through the gateway, 2026-11-11
+
+With the owner's key and go-ahead, `scripts/anthropic-parity.ps1` sent the same requests to `api.anthropic.com` directly and through the headless gateway (connection preset Anthropic, native passthrough), model `claude-haiku-4-5`. Each arm used its own nonce in the system prompt, so neither could read the other's cache.
+
+| Case | Direct | Gateway |
+| --- | --- | --- |
+| Turn 1, not streamed: input / cache write / cache read | 9 / 9011 / 0 | 9 / 9011 / 0 |
+| Turn 2, not streamed | 9 / 0 / 9011 | 9 / 0 / 9011 |
+| Turn 1, streamed | 9 / 9011 / 0 | 9 / 9011 / 0 |
+| Turn 2, streamed | 9 / 0 / 9011 | 9 / 0 / 9011 |
+| Thinking (1024 budget) with a tool | `thinking,tool_use`, signed, `stop_reason: tool_use` | the same |
+| Document with citations enabled | text with citations, `end_turn` | the same |
+
+The token counts are identical, so at the same price the billed amount is identical: on this endpoint the gateway adds no cache cost. The ledger recorded each gateway request with the whole prompt (9020 tokens, cache included) and route `native`. About $0.06 in all. The key was put in the credential store for the run and removed afterwards.
+
+Not covered: the 1-hour cache TTL, a multi-turn tool-result round trip, other Claude models, and an Anthropic-compatible endpoint other than Anthropic's own.
+
 ## Live verification: Claude Code through the gateway, 2026-11-11
 
 With the owner's go-ahead, Claude Code 2.1.317 ran a headless session (`claude -p`, four invocations of one session) against the headless gateway on a scratch store, routed to `gemini/gemini-3.1-flash-lite` through the Anthropic → OpenAI translation:
@@ -95,7 +112,7 @@ With the owner's go-ahead, Claude Code 2.1.317 ran a headless session (`claude -
 
 ## Not verified yet
 
-- **Native Anthropic passthrough against a real Anthropic or Anthropic-compatible endpoint.** It is tested only against a fake endpoint. No Anthropic key is available here. The cache-parity gate in the ROADMAP (direct versus through the gateway, cache read and write) is still open.
+- **Anthropic-compatible endpoints other than Anthropic's own**, and the parity cases listed as not covered above.
 - **OpenRouter's acceptance of `cache_control` on translated content parts.** It follows OpenRouter's documentation but has not been measured.
 
 - **Claude Code in an interactive terminal.** A headless session was run (below); an interactive one may send background requests that `-p` does not, and was not run.

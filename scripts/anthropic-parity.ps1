@@ -5,7 +5,9 @@
 # Needs ANTHROPIC_API_KEY in the environment. Sends 8 paid requests of about 8k prompt tokens each to
 # claude-haiku-4-5, half of them read from the cache: about $0.05 in all.
 # Uses a scratch store; the key is put in the OS credential store for the gateway and removed at the end.
-param([string]$Model = 'claude-haiku-4-5', [int]$Port = 8796)
+#
+# -Features instead compares thinking with a tool call, and citations on a document (4 small requests).
+param([string]$Model = 'claude-haiku-4-5', [int]$Port = 8796, [switch]$Features)
 $ErrorActionPreference = 'Stop'
 if (-not $env:ANTHROPIC_API_KEY) { throw 'Set ANTHROPIC_API_KEY first.' }
 $root = Split-Path $PSScriptRoot -Parent
@@ -47,7 +49,33 @@ try {
     @{ name = 'direct'; url = 'https://api.anthropic.com/v1/messages'; headers = @{ 'x-api-key' = $env:ANTHROPIC_API_KEY } },
     @{ name = 'gateway'; url = "http://127.0.0.1:$Port/v1/messages"; headers = @{ 'x-api-key' = $token } }
   )
-  foreach ($stream in $false, $true) {
+  if ($Features) {
+    $tool = @{ name = 'get_weather'; description = 'Weather for a city'
+      input_schema = @{ type = 'object'; properties = @{ city = @{ type = 'string' } }; required = @('city') } }
+    $cases = @{
+      'thinking+tool' = @{ model = $Model; max_tokens = 1600; thinking = @{ type = 'enabled'; budget_tokens = 1024 }; tools = @($tool)
+        messages = @(@{ role = 'user'; content = 'What is the weather in Hanoi? Use the tool.' }) }
+      'citations' = @{ model = $Model; max_tokens = 200
+        messages = @(@{ role = 'user'; content = @(
+          @{ type = 'document'; title = 'Fact sheet'; citations = @{ enabled = $true }
+             source = @{ type = 'text'; media_type = 'text/plain'; data = 'Planet Zorb has three moons. Its sky is green.' } },
+          @{ type = 'text'; text = 'What colour is the sky on Planet Zorb? Cite the document.' }) }) }
+    }
+    foreach ($name in $cases.Keys) {
+      foreach ($arm in $arms) {
+        $body = $cases[$name].Clone()
+        if ($arm.name -eq 'gateway') { $body.model = "anthropic/$Model" }
+        $r = Post $arm.url $arm.headers $body
+        $j = $r.Body | ConvertFrom-Json
+        $rows += [pscustomobject]@{ case = $name; arm = $arm.name; stop = $j.stop_reason
+          blocks = (($j.content | ForEach-Object { $_.type }) -join ',')
+          cited = [bool]($j.content | Where-Object { $_.citations })
+          signed = [bool]($j.content | Where-Object { $_.type -eq 'thinking' -and $_.signature })
+          error = $j.error.message }
+      }
+    }
+  }
+  foreach ($stream in $(if ($Features) { @() } else { @($false, $true) })) {
     $nonce = Get-Random
     foreach ($arm in $arms) {
       $body = Request "$($arm.name)-$nonce" $stream
