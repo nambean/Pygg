@@ -173,6 +173,10 @@ With the owner's go-ahead, Claude Code 2.1.317 ran a headless session (`claude -
 
 The Overview's OpenCode snippet, as generated, in a scratch `opencode.json` for OpenCode 1.18.4, against the headless gateway on a scratch store with a Gemini connection and a combo of `gemini-2.5-flash-lite` then `gemini-2.5-flash`. `opencode run` completed. The gateway's request log shows the session header on 2 of 2 requests. Flash-Lite answered 404 for this key, so the combo moved to Flash and the ledger says so. Afterwards the connection was removed with its key (no credential entries left) and the scratch store deleted.
 
+## Release build and installer, 2026-11-11
+
+`pnpm tauri:build` (ROADMAP N9) gives `Pygg_0.1.0_x64-setup.exe` (NSIS, 7.2 MB, per-user) and `Pygg_0.1.0_x64_en-US.msi` (15.7 MB) under `src-tauri/target/release/bundle`. Installed silently (`/S`) on the development PC: `%LOCALAPPDATA%\Pygg\Pygg.exe` with a Start-menu shortcut; started from it, the window is titled Pygg, `/health` on 127.0.0.1:8741 answered `"app": "Pygg"`, and `Pygg.exe mcp` answered an MCP `initialize` and listed its eight tools. Uninstall (`uninstall.exe /S`) and reinstall worked. The installer also carries the headless `gateway`, `agent`, `pygg-mcp` and `bench` programs. Not yet: a clean machine, signing (D3), and a screenshot of the installed window (the PC was locked).
+
 ## Live verification: OpenAI format to Claude, 2026-11-11
 
 An OpenAI-format client to `anthropic/claude-haiku-5-5` through a scratch gateway (ROADMAP N8): a plain request ("Paris", `finish_reason: stop`, usage in OpenAI's shape); a forced tool call (`get_weather {"city":"Hanoi"}`, `finish_reason: tool_calls`) followed by its tool result and a final answer; and a stream with `include_usage` (text deltas, a usage chunk, `[DONE]`). Every response said `x-smarttaskrouter-mode: translated:openai->anthropic`; four ledger entries, $0.00014 in all. The key was removed afterwards.

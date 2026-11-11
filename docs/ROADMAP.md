@@ -97,7 +97,7 @@ C3's first pass settled less than it was meant to. All 24 cases passed on OpenCo
 | N6 | **A paid step approved live** | The C2 cascade with a paid last step: estimate, cap, approval, and the cap held | Ledger matches the cap | ≤ $0.50 |
 | N7 | **C4: quality signals, TensorZero check** | Retry, "use a better model" and cancel recorded per result; one day evaluating TensorZero before building more | A written yes or no on TensorZero | $0 |
 | N8 | **B5: OpenAI → Anthropic translation** | Codex, the OpenAI SDK and other OpenAI-format clients reach Claude, and `auto` can rank Claude for them | Contract tests both ways, one live run | ≤ $0.30 |
-| N9 | **D1: installer on a clean machine** | NSIS install, first run, gateway, a task from the IDE, uninstall | Checklist passed on a clean Windows | $0 |
+| N9 | **D1: installer on a clean machine** (2026-11-11: release build, NSIS and MSI installers, installed silently for the current user on the development PC; `Pygg.exe` starts, serves the gateway on 8741 and MCP; a clean machine still to do) | NSIS install, first run, gateway, a task from the IDE, uninstall | Checklist passed on a clean Windows | $0 |
 | N10 | **Housekeeping** | CONTRIBUTING, `ARCHITECTURE.md`, `SECURITY.md`, a schema reference generated from the migrations | Linked from docs/README.md | $0 |
 
 Then D2 (integrations hub, `str` and npm), B6 and E, in the order already set. N5 and N10 can run alongside the others; N2 needs N3 to measure the product's own cascade.
