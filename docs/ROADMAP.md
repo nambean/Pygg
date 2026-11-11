@@ -8,6 +8,8 @@
 
 A local Rust gateway at `127.0.0.1:8741`, OpenAI Chat Completions and Anthropic Messages *translation* surfaces, a few provider presets, static combos with fallback, client tokens, a cost-provenance ledger, a headless `gateway serve` binary and desktop Overview/Connections/Combos/Clients/Usage screens exist. Reported live verification uses Gemini; no claim of full Claude Code/OpenRouter Anthropic cache parity. Native Anthropic passthrough and Auto route do **not** yet exist. [Implementation Status](IMPLEMENTATION-STATUS.md) is authoritative.
 
+> **Independent counter-review (2026-11-11):** [Architect counter-review](reviews/2026-11-11-architect-counter-review.md) challenges error/quota scope, budget guarantee, accounting durability, Retry-After HTTP-date, HTTP 408/409/425 retry, session isolation and native Anthropic parity. These are **review findings, not accepted fixes**. Claude should respond item by item before any release-ready claim. Current P0-1…P0-4 status remains "built" according to Implementation Status, not "proven cost parity".
+
 ## P0: cost-safe gateway parity — five items, in dependency order
 
 | Order | Deliverable | Why mandatory | Acceptance gate |
