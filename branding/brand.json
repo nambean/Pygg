@@ -1,0 +1,18 @@
+{
+  "name": "Pygg",
+  "technicalProject": "SmartTaskRouter",
+  "tagline": "One Flow. Many Agents.",
+  "description": "AI task and agent routing orchestration",
+  "colors": {
+    "accentLight": "#0B7A4B",
+    "accentDark": "#0D8551",
+    "wordmark": "#111827",
+    "tagline": "#667085"
+  },
+  "source": "apps/desktop/src/styles.css",
+  "assets": {
+    "horizontal": "branding/pygg-logo.svg",
+    "icon": "branding/pygg-icon.svg"
+  },
+  "note": "SVG artwork recreates the approved logo using project theme tokens; original approved PNG exports are separate conversation assets."
+}

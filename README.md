@@ -1,4 +1,6 @@
-# SmartTaskRouter
+# Pygg (SmartTaskRouter)
+
+**One Flow. Many Agents.**
 
 **AI Cost Optimizer**: automatically selects a suitable connected AI model for each everyday chat turn or developer task, minimizing total cost while preserving context, privacy and answer quality.
 

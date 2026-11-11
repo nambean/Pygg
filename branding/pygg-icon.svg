@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+<title id="title">Pygg</title>
+<rect width="256" height="256" rx="51" fill="#111827"/>
+<path d="M67 188V74Q67 62 79 62H137C169 62 189 84 189 111C189 143 167 161 137 161H91" fill="none" stroke="#FFF" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="181" cy="78" r="12" fill="#0B7A4B"/>
+<path d="M189 109H207" stroke="#0B7A4B" stroke-width="10" stroke-linecap="round"/>
+<circle cx="207" cy="109" r="8" fill="#0B7A4B"/>
+</svg>

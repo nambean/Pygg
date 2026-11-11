@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 970 270" role="img" aria-labelledby="title desc">
+<title id="title">Pygg — One Flow. Many Agents.</title>
+<desc id="desc">Minimal Pygg wordmark with green routing nodes</desc>
+<rect width="970" height="270" fill="#fff"/>
+<rect x="24" y="24" width="214" height="214" rx="44" fill="#111827"/>
+<path d="M82 185V85Q82 75 92 75H143C170 75 191 94 191 119C191 147 169 161 143 161H104" fill="none" stroke="#fff" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="182" cy="88" r="10" fill="#0B7A4B"/>
+<path d="M192 117H208" stroke="#0B7A4B" stroke-width="8" stroke-linecap="round"/>
+<circle cx="208" cy="117" r="7" fill="#0B7A4B"/>
+<text x="277" y="157" font-family="Inter, Arial, Helvetica, sans-serif" font-weight="750" font-size="129" letter-spacing="-5" fill="#111827">Pygg</text>
+<text x="283" y="209" font-family="Inter, Arial, Helvetica, sans-serif" font-size="32" fill="#667085" letter-spacing=".15">One Flow. Many Agents.</text>
+</svg>
