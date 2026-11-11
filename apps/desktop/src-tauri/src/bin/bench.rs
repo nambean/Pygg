@@ -140,7 +140,9 @@ async fn main() {
             // Each round gets fresh folders: the engine's store and worktrees are per case and label.
             let _ = std::fs::remove_dir_all(&scratch);
             match result {
-                Ok(record) => {
+                Ok(mut record) => {
+                    // The record carries the arm's whole label, the handoff mode included, so arms stay apart.
+                    record.run = label.clone();
                     let cost = record.cost_micro_usd().map(bench::usd).unwrap_or_else(|| "cost unknown".into());
                     let outcome = if record.passed { "passed" }
                         else if record.stopped.is_some() { "STOPPED" }
