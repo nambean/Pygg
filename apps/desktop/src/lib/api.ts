@@ -15,6 +15,7 @@ export type GatewayStatus = {
   baseUrl: string | null;
   error: string | null;
   autostart: boolean;
+  accountingError: string | null;
 };
 
 export type Wire = 'openai' | 'anthropic';
@@ -31,7 +32,7 @@ export type Health = {
 export type Connection = {
   id: string; kind: string; label: string; endpoint: string; enabled: boolean; credentialRef: string | null;
   defaultBilling: Billing; dataUseTerms: string; createdAt: number;
-  wire: Wire; quotaGroup: string; separateQuota: boolean;
+  wire: Wire; quotaGroup: string; separateQuota: boolean; quotaConfirmedAt: number | null;
   presetName: string; hasKey: boolean; needsKey: boolean; models: number; health: Health[]; sharesQuotaWith: string[];
 };
 
@@ -51,6 +52,8 @@ export type Client = {
   id: string; name: string; tokenPrefix: string; monthlyBudgetMicroUsd: number | null; createdAt: number;
   lastUsedAt: number | null; revokedAt: number | null; monthSpendMicroUsd: number; monthUnknownRequests: number;
   maxConcurrency: number; unknownCostPolicy: 'block' | 'allow'; reservedMicroUsd: number;
+  /** Spend that may have been charged but is unknown, counted at the amount held for it. */
+  monthAtRiskMicroUsd: number;
 };
 
 export type UsageGroup = {
@@ -59,13 +62,14 @@ export type UsageGroup = {
 };
 
 export type CostStatus = 'actual' | 'estimated' | 'unknown';
-export type Outcome = 'ok' | 'fallback' | 'error' | 'client_disconnected' | 'stream_error';
+export type Outcome = 'ok' | 'fallback' | 'error' | 'client_disconnected' | 'stream_error' | 'interrupted';
 
 export type UsageEvent = {
   id: string; createdAt: number; client: string | null; provider: string; model: string; requestedModel: string | null;
   inputTokens: number | null; outputTokens: number | null; costMicroUsd: number | null; costStatus: CostStatus;
   costSource: string; outcome: Outcome; httpStatus: number | null; latencyMs: number | null; error: string | null;
   cacheTokens: number | null; cacheWriteTokens: number | null; sessionKey: string | null; routeMode: string | null;
+  atRiskMicroUsd: number | null;
 };
 
 export type UsageSummary = {

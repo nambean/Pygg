@@ -1,16 +1,19 @@
 //! The Anthropic Messages surface (`POST /v1/messages`), so Claude Code and other Anthropic clients can use
 //! any connection, through the same routing, fallback, budgets and ledger as `/v1/chat/completions`.
 //!
-//! - **To an Anthropic connection** the request goes through unchanged (ROADMAP P0-1): cache markers,
-//!   thinking, citations and every other field reach the provider, and its answer comes back byte for byte.
+//! - **To an Anthropic connection** it is a native-format semantic passthrough (ROADMAP P0-1, counter-review
+//!   CR-08): the JSON body is parsed and written again in the same key order with only `model` replaced, so
+//!   cache markers, thinking, citations and every other field reach the provider. `anthropic-version` and
+//!   `anthropic-beta` are forwarded; other client headers are not. The provider's answer body comes back
+//!   unchanged, with its rate-limit and request-id headers.
 //! - **To an OpenAI-compatible connection** it is translated to Chat Completions and back, streamed or not.
 //!   Text, images, tool definitions, tool calls and tool results cross. Thinking does not. Cache markers cross
 //!   only to providers that document accepting them on content parts (OpenRouter); otherwise they are dropped,
 //!   and the response says so in `x-smarttaskrouter-dropped`.
 
 use super::pricing::Usage;
-use super::{authenticate, forward, parse_body, pump, record_success, route_headers, session_key, status_only,
-    stream_response, Incoming, Mode, Refusal, Shared, Surface};
+use super::{authenticate, forward, parse_body, provider_headers, pump, record_success, route_headers, session_key,
+    status_only, stream_response, Incoming, Mode, Refusal, Shared, Surface};
 use axum::body::{Body, Bytes};
 use axum::extract::State;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
@@ -66,6 +69,43 @@ pub fn has_thinking(request: &Value) -> bool {
     !request["thinking"].is_null()
         || request["messages"].as_array().is_some_and(|m| m.iter().any(|m| m["content"].as_array()
             .is_some_and(|blocks| blocks.iter().any(|b| matches!(b["type"].as_str(), Some("thinking" | "redacted_thinking"))))))
+}
+
+/// Everything in a request that `to_openai` does not carry, by name, apart from cache markers (which depend
+/// on the target): thinking, block types other than text, image, tool use and tool result, server tools,
+/// and top-level fields with no Chat Completions counterpart. Reported in `x-smarttaskrouter-dropped`, so
+/// no field is lost without saying so (counter-review CR-08).
+pub fn untranslated(request: &Value) -> Vec<String> {
+    let mut dropped: Vec<String> = Vec::new();
+    let mut add = |name: String| {
+        if !dropped.contains(&name) {
+            dropped.push(name);
+        }
+    };
+    if has_thinking(request) {
+        add("thinking".into());
+    }
+    let carried = ["text", "image", "tool_use", "tool_result", "thinking", "redacted_thinking"];
+    let blocks = request["system"].as_array().into_iter().flatten()
+        .chain(request["messages"].as_array().into_iter().flatten()
+            .flat_map(|m| m["content"].as_array().into_iter().flatten()));
+    for block in blocks {
+        if let Some(kind) = block["type"].as_str().filter(|k| !carried.contains(k)) {
+            add(kind.to_string());
+        }
+        if block.get("citations").is_some_and(|c| !c.is_null()) {
+            add("citations".into());
+        }
+    }
+    if request["tools"].as_array().is_some_and(|t| t.iter().any(|t| t.get("input_schema").is_none())) {
+        add("server_tools".into());
+    }
+    for field in ["top_k", "metadata", "service_tier", "container", "mcp_servers"] {
+        if request.get(field).is_some_and(|v| !v.is_null()) {
+            add(field.into());
+        }
+    }
+    dropped
 }
 
 /// Whether any system, message or tool block carries a prompt-cache marker.
@@ -422,6 +462,7 @@ pub async fn messages(State(shared): State<Shared>, headers: HeaderMap, body: By
 async fn native(shared: Shared, mut forwarded: super::Forwarded, stream: bool) -> Response {
     let status = forwarded.response.status();
     let content_type = forwarded.response.headers().get(header::CONTENT_TYPE).cloned();
+    let upstream_headers = forwarded.response.headers().clone();
     let upstream = std::mem::replace(&mut forwarded.response, status_only(status));
     if !stream {
         return match upstream.bytes().await {
@@ -433,6 +474,7 @@ async fn native(shared: Shared, mut forwarded: super::Forwarded, stream: bool) -
                 if let Some(content_type) = content_type {
                     out.headers_mut().insert(header::CONTENT_TYPE, content_type);
                 }
+                provider_headers(&upstream_headers, out.headers_mut());
                 route_headers(&mut out, &forwarded);
                 record_success(&shared, forwarded, usage.as_ref(), "ok", None);
                 out
@@ -446,6 +488,7 @@ async fn native(shared: Shared, mut forwarded: super::Forwarded, stream: bool) -
     }
     let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(64);
     let mut out = stream_response(rx, status, content_type);
+    provider_headers(&upstream_headers, out.headers_mut());
     route_headers(&mut out, &forwarded);
     tokio::spawn(async move {
         let mut scanner = super::sse::UsageScanner::anthropic();
@@ -614,6 +657,17 @@ mod tests {
         assert!(out["tools"][0]["function"]["parameters"].get("$schema").is_none());
         assert_eq!(out["tool_choice"], "required");
         assert_eq!((out["max_tokens"].as_u64(), out["stream"].as_bool()), (Some(1024), Some(true)));
+    }
+
+    #[test]
+    fn names_everything_the_translation_drops() {
+        let request = json!({ "model": "m", "top_k": 5, "metadata": { "user_id": "u" }, "thinking": { "type": "enabled" },
+            "tools": [{ "type": "web_search_20250305", "name": "web_search" }],
+            "messages": [{ "role": "user", "content": [
+                { "type": "document", "source": { "type": "text", "data": "x" }, "citations": { "enabled": true } },
+                { "type": "text", "text": "hi" }] }] });
+        assert_eq!(untranslated(&request), ["thinking", "document", "citations", "server_tools", "top_k", "metadata"]);
+        assert!(untranslated(&json!({ "messages": [{ "role": "user", "content": "plain" }] })).is_empty());
     }
 
     #[test]

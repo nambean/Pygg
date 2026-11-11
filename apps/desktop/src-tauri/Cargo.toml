@@ -19,7 +19,9 @@ tauri = { version = "2", features = [] }
 # A second launch focuses the running window instead of starting another core (and another gateway).
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# preserve_order: a request passed through to a provider keeps its keys in the client's order (counter-review
+# CR-08), so a tool schema reaches the model as the client wrote it.
+serde_json = { version = "1", features = ["preserve_order"] }
 # Local store: tasks, attempts, ledger, approvals (src/db.rs). Bundled so every platform has the same SQLite.
 rusqlite = { version = "0.32", features = ["bundled"] }
 # Provider credentials live in the OS credential store, never in the database (src/vault.rs, ADR-002).
@@ -34,6 +36,8 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 bytes = "1"
 # Client tokens are stored only as SHA-256 hashes.
 sha2 = "0.10"
+# `Retry-After` as an HTTP date (already in the tree through hyper).
+httpdate = "1"
 
 [target.'cfg(unix)'.dependencies]
 # Ending a whole process group on timeout or cancel.

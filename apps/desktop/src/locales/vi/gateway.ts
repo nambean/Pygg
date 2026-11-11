@@ -277,15 +277,24 @@ export const gateway: Record<string, string> = {
   'For one app, such as Claude Code on this computer.': 'Dành cho một ứng dụng, ví dụ Claude Code trên máy này.',
   'Create Token': 'Tạo token',
   'Monthly limit': 'Hạn mức hằng tháng',
-  'Optional. Requests are refused once this month’s known spend reaches it. Unknown costs can’t be counted.':
-    'Không bắt buộc. Yêu cầu bị từ chối khi chi phí đã biết trong tháng chạm mức này. Chi phí chưa rõ không thể tính vào.',
+  'Optional. Each request is checked against an estimate of its cost before it is sent, and refused once this month’s spend reaches the limit. The estimate isn’t a guarantee: the provider’s bill can be higher.':
+    'Không bắt buộc. Mỗi request được đối chiếu với chi phí ước tính trước khi gửi, và bị từ chối khi chi tiêu trong tháng chạm hạn mức. Ước tính không phải cam kết: hoá đơn của nhà cung cấp có thể cao hơn.',
   'No limit': 'Không giới hạn',
   'Monthly Limit for {name}': 'Hạn mức hằng tháng cho {name}',
   'Spent so far this month: {amount} known.': 'Đã tiêu trong tháng: {amount} đã biết.',
   'Save Limit': 'Lưu hạn mức',
-  'Leave empty for no limit. Resets on the 1st (UTC).': 'Để trống nếu không giới hạn. Đặt lại vào ngày 1 (giờ UTC).',
-  '{n} request this month had an unknown cost and isn’t counted.': '{n} yêu cầu trong tháng chưa rõ chi phí và không được tính.',
-  '{n} requests this month had an unknown cost and aren’t counted.': '{n} yêu cầu trong tháng chưa rõ chi phí và không được tính.',
+  'Leave empty for no limit. Resets on the 1st (UTC). Checked against an estimate before each request, so the provider’s bill can end up higher.':
+    'Để trống nếu không giới hạn. Đặt lại vào ngày 1 (giờ UTC). Mỗi request được đối chiếu với chi phí ước tính, nên hoá đơn của nhà cung cấp vẫn có thể cao hơn.',
+  '{n} request this month had an unknown cost. Only spend held for it counts against the limit.':
+    '{n} request trong tháng chưa rõ chi phí. Chỉ phần tiền đã giữ cho nó được tính vào hạn mức.',
+  '{n} requests this month had an unknown cost. Only spend held for them counts against the limit.':
+    '{n} request trong tháng chưa rõ chi phí. Chỉ phần tiền đã giữ cho chúng được tính vào hạn mức.',
+  'Spent so far this month: {amount} known, {risk} possibly charged.':
+    'Đã tiêu trong tháng: {amount} đã biết, {risk} có thể đã bị tính.',
+  'Over the limit by {amount}': 'Vượt hạn mức {amount}',
+  '+ {amount} possibly charged': '+ {amount} có thể đã bị tính',
+  'Requests that failed or were cut off after reaching the provider. Their cost is unknown, so the amount held for them counts against the limit.':
+    'Request lỗi hoặc bị cắt ngang sau khi đã tới nhà cung cấp. Chi phí chưa rõ, nên phần tiền đã giữ cho chúng được tính vào hạn mức.',
 
   // Usage
   'Period': 'Khoảng thời gian',
@@ -378,13 +387,19 @@ export const gateway: Record<string, string> = {
   'Try Again Now': 'Thử lại ngay',
   'See below': 'Xem bên dưới',
   'No problems seen': 'Chưa thấy vấn đề',
-  'Own organization': 'Tổ chức riêng',
-  'Has its own limits. When another connection is rate-limited or refused, this one may still answer.':
-    'Có giới hạn riêng. Khi kết nối khác bị giới hạn hoặc từ chối, kết nối này vẫn có thể trả lời.',
-  'Shares limits with {names}. After a rate limit or refusal on one, the others aren’t tried for that request; using a second key to get around a limit can break the provider’s terms.':
-    'Dùng chung giới hạn với {names}. Khi một kết nối bị giới hạn hoặc từ chối, các kết nối kia không được thử cho request đó; dùng key thứ hai để lách giới hạn có thể vi phạm điều khoản của nhà cung cấp.',
-  'Assumed to share limits with other {provider} connections you add. Turn on only if it belongs to a different organization or account.':
-    'Được coi là dùng chung giới hạn với các kết nối {provider} khác bạn thêm. Chỉ bật nếu nó thuộc một tổ chức hoặc tài khoản khác.',
+  'Independent quota confirmed': 'Đã xác nhận quota độc lập',
+  'You confirmed on {date} that this connection has its own provider quota. When another connection is rate-limited or refused, this one may still answer. The provider’s own limits still apply.':
+    'Bạn đã xác nhận ngày {date} rằng kết nối này có quota riêng ở nhà cung cấp. Khi kết nối khác bị giới hạn hoặc từ chối, kết nối này vẫn có thể trả lời. Giới hạn của nhà cung cấp vẫn áp dụng.',
+  'Shares limits with {names}. While one is rate-limited or refused, the others aren’t used for the same model; using a second key to get around a limit can break the provider’s terms.':
+    'Dùng chung giới hạn với {names}. Khi một kết nối đang bị giới hạn hoặc từ chối, các kết nối kia không được dùng cho cùng model đó; dùng key thứ hai để lách giới hạn có thể vi phạm điều khoản của nhà cung cấp.',
+  'Assumed to share limits with other {provider} connections you add. Turn on only if the provider gives it a separate quota, for example a different organization.':
+    'Được coi là dùng chung giới hạn với các kết nối {provider} khác bạn thêm. Chỉ bật nếu nhà cung cấp cấp cho nó quota riêng, ví dụ một tổ chức khác.',
+  'Confirm an independent quota for {name}?': 'Xác nhận {name} có quota độc lập?',
+  'Confirm Independent Quota': 'Xác nhận quota độc lập',
+  'A different key is not proof of a different quota. Keys of one organization or project usually share its rate limits and credit.':
+    'Key khác không có nghĩa là quota khác. Các key của cùng một tổ chức hoặc dự án thường dùng chung giới hạn và số dư.',
+  'Confirm only if {provider} gives this connection its own quota, for example a separate organization you are allowed to use. The gateway can’t check this, and the provider’s terms still apply.':
+    'Chỉ xác nhận nếu {provider} cấp cho kết nối này quota riêng, ví dụ một tổ chức riêng mà bạn được phép dùng. Gateway không kiểm tra được điều này, và điều khoản của nhà cung cấp vẫn áp dụng.',
   'Cache write': 'Ghi cache',
   'Optional. Anthropic charges extra to write the cache; without it, writes are priced as input and the ledger says so.':
     'Không bắt buộc. Anthropic tính thêm phí khi ghi cache; nếu bỏ trống, phần ghi được tính như đầu vào và sổ chi phí ghi rõ điều đó.',
@@ -419,4 +434,14 @@ export const gateway: Record<string, string> = {
     'Thêm nhà cung cấp này vào opencode.json trong dự án hoặc trong ~/.config/opencode/. Header session cố định giữ OpenCode trên một model của combo.',
   'Any OpenAI-compatible SDK works the same way: base URL, token, and a route as the model. Send one session header per conversation to keep it on one model.':
     'Mọi SDK tương thích OpenAI đều dùng như nhau: base URL, token, và một tuyến ở chỗ tên model. Gửi một header session cho mỗi hội thoại để giữ nó trên một model.',
+  'Interrupted': 'Bị gián đoạn',
+  'Counted against the limit': 'Tính vào hạn mức',
+  '{amount}, the amount held for it: the provider may have charged for it':
+    '{amount}, phần tiền đã giữ cho nó: nhà cung cấp có thể đã tính phí',
+  'HTTP {status}: the provider may have run the request; billing unknown':
+    'HTTP {status}: nhà cung cấp có thể đã chạy request; chưa rõ có tính phí không',
+  'The gateway stopped before this request was settled; billing unknown':
+    'Gateway dừng trước khi request này được ghi sổ; chưa rõ có tính phí không',
+  'The last usage entry couldn’t be written: {error}. The request stays in the journal and is recorded with an unknown cost when the gateway next starts. Requests are refused while nothing can be written.':
+    'Không ghi được mục chi phí gần nhất: {error}. Request vẫn nằm trong nhật ký và sẽ được ghi với chi phí chưa rõ khi gateway khởi động lại. Khi không ghi được gì, request sẽ bị từ chối.',
 };

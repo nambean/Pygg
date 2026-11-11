@@ -43,16 +43,34 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
         "forbidden" => return (StatusCode::FORBIDDEN, Json(json!({ "error": { "message": "not allowed" } }))).into_response(),
         "broken" => return (StatusCode::BAD_REQUEST, Json(json!({ "error": { "message": "bad field" } }))).into_response(),
         "down" => return (StatusCode::SERVICE_UNAVAILABLE, "overloaded").into_response(),
+        // Overloaded once, and ready again at once (Retry-After: 0, so no cooldown is left behind).
         "flaky" if !fake.flaky_failed.swap(true, Ordering::SeqCst) => {
-            return (StatusCode::REQUEST_TIMEOUT, "try again").into_response();
+            return ([(header::RETRY_AFTER, "0")], (StatusCode::SERVICE_UNAVAILABLE, "try again")).into_response();
         }
+        "timeout408" => return (StatusCode::REQUEST_TIMEOUT, "generation took too long").into_response(),
+        "gateway504" => return (StatusCode::GATEWAY_TIMEOUT, "upstream timed out").into_response(),
+        "broke" => return (StatusCode::INTERNAL_SERVER_ERROR, "boom").into_response(),
+        "noquota" => return (StatusCode::TOO_MANY_REQUESTS, Json(json!({ "error": { "message": "You exceeded your current quota",
+            "type": "insufficient_quota", "code": "insufficient_quota" } }))).into_response(),
+        "daylong" => return ([(header::RETRY_AFTER, "86400")], (StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({ "error": { "message": "daily quota" } })))).into_response(),
         "slow" => tokio::time::sleep(Duration::from_millis(1500)).await,
         "slow-ok" => tokio::time::sleep(Duration::from_millis(300)).await,
         _ => {}
     }
-    let usage = json!({ "prompt_tokens": 1000, "completion_tokens": 500 });
+    // A model that reports more than any estimate held for it: 1M prompt tokens.
+    let usage = if model == "heavy" { json!({ "prompt_tokens": 1_000_000, "completion_tokens": 500 }) }
+        else { json!({ "prompt_tokens": 1000, "completion_tokens": 500 }) };
     // Says whether prompt-cache markers survived the trip, for the translation tests.
     let text = if body.to_string().contains("cache_control") { "pong cache:yes" } else { "pong" };
+    if model == "keyorder" {
+        // Echoes the key order of the first tool's schema properties, for the passthrough test.
+        let order: Vec<String> = body["tools"][0]["function"]["parameters"]["properties"].as_object()
+            .map(|m| m.keys().cloned().collect()).unwrap_or_default();
+        return ([("x-ratelimit-remaining-requests", "41"), ("x-request-id", "req_7")],
+            Json(json!({ "choices": [{ "index": 0, "finish_reason": "stop", "message": { "role": "assistant",
+                "content": order.join(",") } }], "usage": usage }))).into_response();
+    }
     if body["stream"] == true {
         assert_eq!(body["stream_options"]["include_usage"], true, "the gateway asks for usage");
         let mut sse = String::new();
@@ -88,16 +106,17 @@ async fn fake_anthropic(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonB
     let seen = format!("cache_control={} thinking={} beta={}", body.to_string().contains("cache_control"),
         !body["thinking"].is_null(), headers.get("anthropic-beta").and_then(|v| v.to_str().ok()).unwrap_or("-"));
     let usage = json!({ "input_tokens": 10, "cache_read_input_tokens": 900, "cache_creation_input_tokens": 90, "output_tokens": 5 });
+    let limits = [("anthropic-ratelimit-requests-remaining", "99"), ("request-id", "req_a1")];
     if body["stream"] == true {
         let sse = format!(
             "event: message_start\ndata: {}\n\nevent: content_block_delta\ndata: {}\n\nevent: message_delta\ndata: {}\n\nevent: message_stop\ndata: {{\"type\":\"message_stop\"}}\n\n",
             json!({ "type": "message_start", "message": { "id": "msg_1", "usage": usage } }),
             json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": seen } }),
             json!({ "type": "message_delta", "delta": { "stop_reason": "end_turn" }, "usage": { "output_tokens": 7 } }));
-        return ([(header::CONTENT_TYPE, "text/event-stream")], sse).into_response();
+        return ([(header::CONTENT_TYPE, "text/event-stream")], limits, sse).into_response();
     }
-    Json(json!({ "id": "msg_1", "type": "message", "role": "assistant", "model": model,
-        "content": [{ "type": "text", "text": seen }], "stop_reason": "end_turn", "usage": usage })).into_response()
+    (limits, Json(json!({ "id": "msg_1", "type": "message", "role": "assistant", "model": model,
+        "content": [{ "type": "text", "text": seen }], "stop_reason": "end_turn", "usage": usage }))).into_response()
 }
 
 struct Rig {
@@ -186,6 +205,26 @@ impl Rig {
 
     fn set_budget(&self, micro: Option<u64>) {
         self.shared.with_db(|db| store::set_client_budget(db, &self.client_id, micro)).unwrap();
+    }
+
+    fn combo(&self, name: &str, members: &[(&str, &str)]) {
+        let members: Vec<Target> = members.iter().map(|(p, m)| Target { provider_id: p.to_string(), model_id: m.to_string() }).collect();
+        self.shared.with_db(|db| store::save_combo(db, None, name, &members)).unwrap();
+    }
+
+    fn priced(&self, provider: &str, model: &str) {
+        self.shared.with_db(|db| {
+            store::add_model(db, provider, model).unwrap();
+            store::update_model(db, provider, model, None, None, Some(Some(price()))).unwrap();
+        });
+    }
+
+    fn client(&self) -> store::Client {
+        self.shared.with_db(store::list_clients).unwrap().into_iter().find(|c| c.id == self.client_id).unwrap()
+    }
+
+    fn journal_len(&self) -> i64 {
+        self.shared.with_db(|db| db.query_row("SELECT COUNT(*) FROM budget_reservations", [], |r| r.get(0))).unwrap()
     }
 }
 
@@ -413,7 +452,7 @@ fn a_client_that_leaves_early_still_leaves_a_ledger_entry() {
 fn an_explicit_session_stays_on_the_model_that_answered_it() {
     rt().block_on(async {
         let rig = rig().await;
-        // The first model times out once (408, no cooldown), so the session lands on the backup.
+        // The first model is overloaded once (503 with Retry-After: 0), so the session lands on the backup.
         let first = rig.post_session("/v1/chat/completions", "s-1", chat("pinme")).await;
         assert_eq!(first.headers()["x-smarttaskrouter-route"], "backup/steady");
         assert_eq!(first.headers()["x-smarttaskrouter-session"], "new");
@@ -520,5 +559,246 @@ fn anthropic_messages_round_trip_through_translation() {
         assert_eq!(missing.status(), 404);
         let body: Value = missing.json().await.unwrap();
         assert_eq!(body["error"]["type"], "not_found_error");
+    });
+}
+
+// ---------- Counter-review CR-01: quota scope across requests ----------
+
+#[test]
+fn a_cooldown_on_one_key_keeps_its_siblings_off_that_model_in_later_requests() {
+    rt().block_on(async {
+        let rig = rig().await;
+        assert_eq!(rig.post("/v1/chat/completions", chat("main/limited")).await.status(), 429);
+        // A later request straight to the sibling key, same model: skipped without a call.
+        let sibling = rig.post("/v1/chat/completions", chat("sibling/limited")).await;
+        assert_eq!(sibling.status(), 429);
+        assert!(sibling.headers().contains_key(header::RETRY_AFTER));
+        assert!(sibling.text().await.unwrap().contains("shares limits with Main"));
+        assert_eq!(rig.fake.count("limited"), 1);
+        // Another model of the sibling is not covered by a per-model cooldown.
+        assert_eq!(rig.post("/v1/chat/completions", chat("sibling/steady")).await.status(), 200);
+        // A connection confirmed as independent is not held back.
+        rig.shared.with_db(|db| store::update_provider(db, "sibling", None, None, Some(true))).unwrap();
+        assert_eq!(rig.post("/v1/chat/completions", chat("sibling/limited")).await.status(), 429);
+        assert_eq!(rig.fake.count("limited"), 2, "tried, and refused by the provider itself");
+        let sibling = rig.shared.with_db(|db| store::get_provider(db, "sibling")).unwrap().unwrap();
+        assert!(sibling.separate_quota && sibling.quota_confirmed_at.is_some());
+    });
+}
+
+#[test]
+fn an_account_out_of_credit_cools_the_whole_connection_down() {
+    rt().block_on(async {
+        let rig = rig().await;
+        let response = rig.post("/v1/chat/completions", chat("main/noquota")).await;
+        assert_eq!(response.status(), 429);
+        let health = rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap();
+        assert_eq!((health[0].model_id.as_str(), health[0].state.as_str()), ("", "payment_required"));
+        assert!(health[0].until_ms.unwrap() - crate::db::now_ms() > 3_000_000);
+        // Every model of the connection, and of its siblings, waits.
+        assert_eq!(rig.post("/v1/chat/completions", chat("main/fast")).await.status(), 429);
+        assert_eq!(rig.post("/v1/chat/completions", chat("sibling/fast")).await.status(), 429);
+        assert_eq!(rig.fake.count("fast"), 0);
+    });
+}
+
+// ---------- CR-04: stated resets ----------
+
+#[test]
+fn a_reset_a_day_away_is_kept_not_cut_to_hours() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.post("/v1/chat/completions", chat("main/daylong")).await;
+        let health = rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap();
+        let wait = health[0].until_ms.unwrap() - crate::db::now_ms();
+        assert!(wait > 86_000_000 && wait <= 86_400_000, "{wait}");
+    });
+}
+
+// ---------- CR-05: statuses that may come after the provider ran the request ----------
+
+#[test]
+fn a_timeout_status_is_not_retried_elsewhere_and_its_cost_is_unknown() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.combo("t408", &[("main", "timeout408"), ("backup", "steady")]);
+        rig.combo("t504", &[("main", "gateway504"), ("backup", "steady")]);
+        for (combo, status) in [("t408", 408), ("t504", 504)] {
+            let response = rig.post("/v1/chat/completions", chat(combo)).await;
+            assert_eq!(response.status(), status);
+            let event = rig.ledger().pop().unwrap();
+            assert_eq!((event.outcome.as_str(), event.cost_status.as_str()), ("error", "unknown"), "{combo}");
+        }
+        assert_eq!(rig.fake.count("steady"), 0, "no second provider was charged");
+    });
+}
+
+#[test]
+fn a_server_error_counts_against_the_limit_at_the_amount_held() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.priced("main", "broke");
+        rig.priced("main", "broken");
+        rig.set_budget(Some(10_000_000));
+        assert_eq!(rig.post("/v1/chat/completions", chat("main/broke")).await.status(), 500);
+        let event = rig.ledger().pop().unwrap();
+        assert_eq!((event.cost_status.as_str(), event.cost_micro_usd), ("unknown", None));
+        let held = event.at_risk_micro_usd.expect("the held amount is counted");
+        assert!(held > 0);
+        let client = rig.client();
+        assert_eq!((client.month_at_risk_micro_usd, client.counted_micro_usd()), (held, held));
+        // A 4xx rejection is not billed and holds nothing back.
+        rig.post("/v1/chat/completions", chat("main/broken")).await;
+        assert_eq!(rig.ledger().pop().unwrap().at_risk_micro_usd, None);
+    });
+}
+
+// ---------- CR-03: the limit is checked against an estimate ----------
+
+#[test]
+fn spend_above_the_estimate_is_recorded_and_stops_the_next_request() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.priced("main", "heavy");
+        // A tiny prompt holds a few cents; the provider then reports 1M prompt tokens ($0.10).
+        rig.set_budget(Some(50_000));
+        assert_eq!(rig.post("/v1/chat/completions", chat("main/heavy")).await.status(), 200);
+        let client = rig.client();
+        assert_eq!(client.month_spend_micro_usd, 100_200, "the real cost is recorded, above the limit");
+        let refused = rig.post("/v1/chat/completions", chat("main/fast")).await;
+        assert_eq!(refused.status(), 429);
+        assert!(refused.text().await.unwrap().contains("monthly limit"));
+    });
+}
+
+#[test]
+fn the_estimate_counts_non_latin_text_and_cache_writes() {
+    let latin = json!({ "messages": [{ "content": "hello world ".repeat(100) }] });
+    let cjk = json!({ "messages": [{ "content": "你好世界".repeat(100) }] });
+    let vietnamese = json!({ "messages": [{ "content": "không có gì ".repeat(100) }] });
+    // English is about four characters a token; the estimate stays above that.
+    assert!(estimate_input_tokens(&latin) >= 1200 / 4);
+    // CJK is at least a token a character; bytes / 4 would give 300 for these 400 characters.
+    assert!(estimate_input_tokens(&cjk) >= 400);
+    assert!(estimate_input_tokens(&vietnamese) > "không có gì ".repeat(100).len() as u64 / 4);
+    let mut p = price();
+    let plain = estimate_micro(&latin, &p);
+    p.cache_write_micro_per_mtok = Some(125_000);
+    assert!(estimate_micro(&latin, &p) > plain, "a prompt may be written to the cache at the higher price");
+}
+
+// ---------- CR-06: the journal and the ledger ----------
+
+#[test]
+fn every_attempt_is_settled_and_leaves_no_journal_entry() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.set_budget(Some(10_000_000));
+        rig.shared.with_db(|db| store::set_client_policy(db, &rig.client_id, None, Some("allow"))).unwrap();
+        // Two refusals and an answer, a stream, and a native Anthropic answer: five attempts.
+        rig.post("/v1/chat/completions", chat("coding")).await;
+        rig.post("/v1/chat/completions", json!({ "model": "main/fast", "stream": true, "messages": [] })).await.text().await.unwrap();
+        rig.post("/v1/messages", claude_request(false)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(rig.journal_len(), 0);
+        assert_eq!(rig.ledger().len(), 5);
+    });
+}
+
+#[test]
+fn nothing_is_sent_when_the_ledger_cannot_be_written() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.shared.with_db(|db| db.execute_batch("PRAGMA query_only = ON")).unwrap();
+        let refused = rig.post("/v1/chat/completions", chat("main/fast")).await;
+        assert_eq!(refused.status(), 503);
+        assert!(refused.text().await.unwrap().contains("nothing was sent"));
+        assert_eq!(rig.fake.count("fast"), 0);
+        let health: Value = rig.http.get(format!("{}/health", rig.base)).send().await.unwrap().json().await.unwrap();
+        assert_eq!(health["accounting"], "degraded");
+
+        rig.shared.with_db(|db| db.execute_batch("PRAGMA query_only = OFF")).unwrap();
+        assert_eq!(rig.post("/v1/chat/completions", chat("main/fast")).await.status(), 200);
+        let health: Value = rig.http.get(format!("{}/health", rig.base)).send().await.unwrap().json().await.unwrap();
+        assert_eq!(health["accounting"], "ok");
+    });
+}
+
+#[test]
+fn an_attempt_never_settled_becomes_an_interrupted_entry() {
+    let conn = crate::db::open_in_memory().unwrap();
+    let (client, _) = store::create_client(&conn, "Tests", Some(1_000_000)).unwrap();
+    let start = store::AttemptStart { client_id: &client.id, provider_id: "main", model_id: "fast", requested_model: "coding",
+        session_key: Some("s-9"), route_mode: "native", hold_micro: 4_000 };
+    let id = store::open_attempt(&conn, &start).unwrap().unwrap();
+    // A fresh entry may belong to another process that is still waiting on it.
+    assert_eq!(store::settle_interrupted(&conn, None, 60_000).unwrap(), 0);
+    assert_eq!(store::settle_interrupted(&conn, None, -1).unwrap(), 1);
+    let event = store::usage_summary(&conn, 0, 10).unwrap().recent.remove(0);
+    assert_eq!((event.outcome.as_str(), event.cost_status.as_str(), event.at_risk_micro_usd), ("interrupted", "unknown", Some(4_000)));
+    assert_eq!((event.provider.as_str(), event.session_key.as_deref()), ("main", Some("s-9")));
+    // Settling it afterwards writes nothing twice.
+    let cost = pricing::Cost::Estimated { micro_usd: 1, source: "x".into() };
+    store::settle(&conn, &id, &UsageRecord::failed(&client.id, "main", "fast", "coding", &cost, "ok", None, 0, "")).unwrap();
+    assert_eq!(store::usage_summary(&conn, 0, 10).unwrap().recent.len(), 1);
+    assert_eq!(store::list_clients(&conn).unwrap()[0].counted_micro_usd(), 4_000);
+}
+
+// ---------- CR-07: sessions ----------
+
+#[test]
+fn a_session_id_is_scoped_to_its_client_and_validated() {
+    rt().block_on(async {
+        let rig = rig().await;
+        let first = rig.post_session("/v1/chat/completions", "shared-id", chat("pinme")).await;
+        assert_eq!(first.headers()["x-smarttaskrouter-route"], "backup/steady");
+        // Another client naming the same session is not sent to the first client's pin.
+        let (_, other) = rig.shared.with_db(|db| store::create_client(db, "Other", None)).unwrap();
+        let theirs = rig.http.post(format!("{}/v1/chat/completions", rig.base)).bearer_auth(&other)
+            .header(SESSION_HEADER, "shared-id").json(&chat("pinme")).send().await.unwrap();
+        assert_eq!(theirs.headers()["x-smarttaskrouter-route"], "main/flaky");
+        assert_eq!(theirs.headers()["x-smarttaskrouter-session"], "new");
+        // An id that is too long is ignored, not truncated into someone else's.
+        let long = rig.post_session("/v1/chat/completions", &"x".repeat(200), chat("main/fast")).await;
+        assert!(long.headers().get("x-smarttaskrouter-session").is_none());
+    });
+    let mut headers = HeaderMap::new();
+    headers.insert(SESSION_HEADER, HeaderValue::from_bytes("phiên-1".as_bytes()).unwrap());
+    assert_eq!(session_key(&headers), None, "non-ASCII ids are ignored");
+    headers.insert(SESSION_HEADER, HeaderValue::from_static("a b"));
+    assert_eq!(session_key(&headers), None);
+}
+
+#[test]
+fn expired_session_pins_are_deleted() {
+    let conn = crate::db::open_in_memory().unwrap();
+    let (client, _) = store::create_client(&conn, "Tests", None).unwrap();
+    let provider = store::add_provider(&conn, &NewProvider { kind: "custom", label: "Main", endpoint: "http://x.test",
+        credential_ref: None, default_billing: "paid", wire: "openai" }).unwrap();
+    let target = Target { provider_id: provider.id.clone(), model_id: "m".into() };
+    store::pin(&conn, &client.id, "old", "m", &target).unwrap();
+    conn.execute("UPDATE session_affinity SET last_used_at = 0", []).unwrap();
+    store::pin(&conn, &client.id, "new", "m", &target).unwrap();
+    let left: i64 = conn.query_row("SELECT COUNT(*) FROM session_affinity", [], |r| r.get(0)).unwrap();
+    assert_eq!(left, 1);
+}
+
+// ---------- CR-08: what a native passthrough keeps ----------
+
+#[test]
+fn a_native_request_keeps_its_key_order_and_the_providers_limit_headers() {
+    rt().block_on(async {
+        let rig = rig().await;
+        let response = rig.post("/v1/chat/completions", json!({ "model": "main/keyorder", "messages": [],
+            "tools": [{ "type": "function", "function": { "name": "f", "parameters": { "type": "object",
+                "properties": { "zeta": {}, "alpha": {}, "mid": {} } } } }] })).await;
+        assert_eq!(response.headers()["x-ratelimit-remaining-requests"], "41");
+        assert_eq!(response.headers()["x-request-id"], "req_7");
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["choices"][0]["message"]["content"], "zeta,alpha,mid");
+
+        let claude = rig.post("/v1/messages", claude_request(false)).await;
+        assert_eq!(claude.headers()["anthropic-ratelimit-requests-remaining"], "99");
+        assert_eq!(claude.headers()["request-id"], "req_a1");
     });
 }

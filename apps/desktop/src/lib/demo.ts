@@ -45,16 +45,17 @@ type Stored = Omit<Connection, 'presetName' | 'hasKey' | 'needsKey' | 'models' |
 
 export function demoApi(): GatewayApi {
   const now = Date.now();
-  let status: GatewayStatus = {state: 'running', port: 8741, baseUrl: 'http://127.0.0.1:8741', error: null, autostart: true};
+  let status: GatewayStatus = {state: 'running', port: 8741, baseUrl: 'http://127.0.0.1:8741', error: null, autostart: true,
+    accountingError: null};
   const connections: Stored[] = [
     {id: 'gemini', kind: 'gemini', label: 'Gemini', endpoint: PRESETS[0].endpoint!, enabled: true, credentialRef: 'provider-demo1',
-      defaultBilling: 'unknown', dataUseTerms: 'unknown', createdAt: now - 6 * 86_400_000, key: true, wire: 'openai', separateQuota: false},
+      defaultBilling: 'unknown', dataUseTerms: 'unknown', createdAt: now - 6 * 86_400_000, key: true, wire: 'openai', separateQuota: false, quotaConfirmedAt: null},
     {id: 'anthropic', kind: 'anthropic', label: 'Anthropic', endpoint: PRESETS[1].endpoint!, enabled: true, credentialRef: 'provider-demo3',
-      defaultBilling: 'paid', dataUseTerms: 'unknown', createdAt: now - 6 * 86_400_000, key: true, wire: 'anthropic', separateQuota: false},
+      defaultBilling: 'paid', dataUseTerms: 'unknown', createdAt: now - 6 * 86_400_000, key: true, wire: 'anthropic', separateQuota: false, quotaConfirmedAt: null},
     {id: 'openrouter', kind: 'openrouter', label: 'OpenRouter', endpoint: PRESETS[1].endpoint!, enabled: true, credentialRef: 'provider-demo2',
-      defaultBilling: 'paid', dataUseTerms: 'unknown', createdAt: now - 5 * 86_400_000, key: true, wire: 'openai', separateQuota: false},
+      defaultBilling: 'paid', dataUseTerms: 'unknown', createdAt: now - 5 * 86_400_000, key: true, wire: 'openai', separateQuota: false, quotaConfirmedAt: null},
     {id: 'ollama', kind: 'ollama', label: 'Ollama', endpoint: PRESETS[5].endpoint!, enabled: true, credentialRef: null,
-      defaultBilling: 'local', dataUseTerms: 'unknown', createdAt: now - 4 * 86_400_000, key: false, wire: 'openai', separateQuota: false},
+      defaultBilling: 'local', dataUseTerms: 'unknown', createdAt: now - 4 * 86_400_000, key: false, wire: 'openai', separateQuota: false, quotaConfirmedAt: null},
   ];
   const models: Model[] = [];
   const addModels = (providerId: string, ids: string[]) => {
@@ -90,10 +91,10 @@ export function demoApi(): GatewayApi {
   const clients: (Client & {spend: number})[] = [
     {id: 'k1', name: 'Claude Code', tokenPrefix: 'str-3f9a1c0b', monthlyBudgetMicroUsd: 20_000_000, createdAt: now - 5 * 86_400_000,
       lastUsedAt: now - 4 * 60_000, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0,
-      maxConcurrency: 8, unknownCostPolicy: 'block', reservedMicroUsd: 412_000},
+      maxConcurrency: 8, unknownCostPolicy: 'block', reservedMicroUsd: 412_000, monthAtRiskMicroUsd: 0},
     {id: 'k2', name: 'Scripts', tokenPrefix: 'str-81d2e7aa', monthlyBudgetMicroUsd: null, createdAt: now - 3 * 86_400_000,
       lastUsedAt: now - 3 * 3_600_000, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0,
-      maxConcurrency: 4, unknownCostPolicy: 'allow', reservedMicroUsd: 0},
+      maxConcurrency: 4, unknownCostPolicy: 'allow', reservedMicroUsd: 0, monthAtRiskMicroUsd: 0},
   ];
 
   // A day and a half of plausible traffic: mostly priced Flash-Lite, some fallbacks, some unknown costs.
@@ -107,7 +108,8 @@ export function demoApi(): GatewayApi {
     const output = Math.round(100 + random() * 2_000);
     const roll = random();
     const base = {createdAt: at, client, requestedModel: 'coding', latencyMs: Math.round(400 + random() * 5_000), error: null,
-      cacheTokens: null, cacheWriteTokens: null, sessionKey: client === 'Claude Code' ? 'shell-7f3a' : null, routeMode: 'native'};
+      cacheTokens: null, cacheWriteTokens: null, sessionKey: client === 'Claude Code' ? 'shell-7f3a' : null, routeMode: 'native',
+      atRiskMicroUsd: null};
     if (roll < 0.05) {
       // Claude Code on Anthropic, passed through unchanged: most of the prompt is read from the cache.
       const read = Math.round(input * 0.9), write = Math.round(input * 0.08);
@@ -120,6 +122,14 @@ export function demoApi(): GatewayApi {
         costMicroUsd: 0, costStatus: 'estimated', costSource: 'rejected by the provider (HTTP 429)', outcome: 'fallback',
         httpStatus: 429, error: 'Gemini answered HTTP 429: Resource has been exhausted (e.g. check quota).'});
       events.push({...base, id: `e${i}b`, createdAt: at + 900, provider: 'openrouter', model: 'qwen/qwen3-coder', inputTokens: input,
+        outputTokens: output, costMicroUsd: Math.round(input * 0.3 + output * 1.2), costStatus: 'actual', costSource: 'provider response',
+        outcome: 'ok', httpStatus: 200});
+    } else if (roll < 0.12) {
+      // An overloaded provider: the request may have run, so the cost is unknown and the held amount counts.
+      events.push({...base, id: `e${i}a`, provider: 'gemini', model: 'gemini-3.1-flash-lite', inputTokens: null, outputTokens: null,
+        costMicroUsd: null, costStatus: 'unknown', costSource: 'HTTP 503: the provider may have run the request', outcome: 'fallback',
+        httpStatus: 503, error: 'Gemini answered HTTP 503: The model is overloaded.', atRiskMicroUsd: 4_800});
+      events.push({...base, id: `e${i}b`, createdAt: at + 1200, provider: 'openrouter', model: 'qwen/qwen3-coder', inputTokens: input,
         outputTokens: output, costMicroUsd: Math.round(input * 0.3 + output * 1.2), costStatus: 'actual', costSource: 'provider response',
         outcome: 'ok', httpStatus: 200});
     } else if (roll < 0.2) {
@@ -151,7 +161,8 @@ export function demoApi(): GatewayApi {
   function clientView(c: Client & {spend: number}): Client {
     const mine = events.filter(e => e.client === c.name && e.createdAt >= monthStart());
     return {...c, monthSpendMicroUsd: mine.reduce((s, e) => s + (e.costMicroUsd ?? 0), 0),
-      monthUnknownRequests: mine.filter(e => e.costStatus === 'unknown').length};
+      monthUnknownRequests: mine.filter(e => e.costStatus === 'unknown').length,
+      monthAtRiskMicroUsd: mine.reduce((s, e) => s + (e.costMicroUsd === null ? e.atRiskMicroUsd ?? 0 : 0), 0)};
   }
   const quotaGroup = (c: Stored) => c.separateQuota ? c.id : c.kind;
   function view(c: Stored): Connection {
@@ -208,7 +219,7 @@ export function demoApi(): GatewayApi {
       while (connections.some(c => c.id === id)) id = `${slug(label)}-${n++}`;
       const stored: Stored = {id, kind: preset.id, label, endpoint, enabled: true, credentialRef: connection.apiKey ? `provider-${hex(8)}` : null,
         defaultBilling: connection.billing, dataUseTerms: 'unknown', createdAt: Date.now(), key: !!connection.apiKey?.trim(),
-        wire: preset.wire as Wire, separateQuota: false};
+        wire: preset.wire as Wire, separateQuota: false, quotaConfirmedAt: null};
       connections.push(stored);
       return view(stored);
     },
@@ -216,7 +227,10 @@ export function demoApi(): GatewayApi {
       const c = find(id);
       if (change.enabled !== undefined) c.enabled = change.enabled;
       if (change.billing) c.defaultBilling = change.billing;
-      if (change.separateQuota !== undefined) c.separateQuota = change.separateQuota;
+      if (change.separateQuota !== undefined) {
+        c.separateQuota = change.separateQuota;
+        c.quotaConfirmedAt = change.separateQuota ? Date.now() : null;
+      }
       return touch(view(c));
     },
     setConnectionKey: async id => {
@@ -291,7 +305,7 @@ export function demoApi(): GatewayApi {
       const client = {id: hex(6), name: name.trim(), tokenPrefix: token.slice(0, 12),
         monthlyBudgetMicroUsd: monthlyBudgetUsd == null ? null : Math.round(monthlyBudgetUsd * 1_000_000), createdAt: Date.now(),
         lastUsedAt: null, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0,
-        maxConcurrency: 8, unknownCostPolicy: 'block' as const, reservedMicroUsd: 0};
+        maxConcurrency: 8, unknownCostPolicy: 'block' as const, reservedMicroUsd: 0, monthAtRiskMicroUsd: 0};
       clients.push(client);
       return touch({client: clientView(client), token});
     },

@@ -15,6 +15,7 @@ export function OutcomeBadge({outcome, status}: {outcome: Outcome; status: numbe
     case 'fallback': return <Badge tone="warn" title={t('Failed; the next model of the combo was tried')}>{t('Fell back')}{code}</Badge>;
     case 'client_disconnected': return <Badge tone="off">{t('Client left')}</Badge>;
     case 'stream_error': return <Badge tone="error">{t('Cut off')}</Badge>;
+    case 'interrupted': return <Badge tone="warn">{t('Interrupted')}</Badge>;
     default: return <Badge tone="error">{t('Failed')}{code}</Badge>;
   }
 }
@@ -134,6 +135,8 @@ function LedgerRow({event: e, open, onToggle}: {event: UsageEvent; open: boolean
         <dt>{t('Asked for')}</dt><dd className="mono">{e.requestedModel ?? '—'}</dd>
         <dt>{t('Answered by')}</dt><dd className="mono">{e.provider}/{e.model}</dd>
         <dt>{t('Cost source')}</dt><dd>{statusLabel(e.costStatus)} · {sourceText(e.costSource)}</dd>
+        {e.atRiskMicroUsd ? <><dt>{t('Counted against the limit')}</dt>
+          <dd>{t('{amount}, the amount held for it: the provider may have charged for it', {amount: microUsd(e.atRiskMicroUsd)})}</dd></> : null}
         {(e.cacheTokens || e.cacheWriteTokens) ? <><dt>{t('Prompt cache')}</dt>
           <dd>{t('{read} read · {write} written', {read: tokens(e.cacheTokens ?? 0), write: tokens(e.cacheWriteTokens ?? 0)})}</dd></> : null}
         {e.routeMode && <><dt>{t('Route')}</dt><dd>{e.routeMode === 'native' ? t('Passed through in the same format')

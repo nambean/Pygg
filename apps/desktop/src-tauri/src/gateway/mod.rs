@@ -5,13 +5,18 @@
 //! - Every request needs a client token (`Authorization: Bearer …` or `x-api-key`); tokens are stored hashed.
 //! - A model name is either `<connection>/<model>` or the name of a combo, whose models are tried in order.
 //! - **Same format is passed through** (ROADMAP P0-1): an Anthropic request to an Anthropic connection keeps
-//!   its cache markers, thinking and every other field. Other pairs are translated only where tested.
+//!   its cache markers, thinking and every other field (a semantic passthrough: the JSON is rewritten with
+//!   only `model` changed, in the same key order). Other pairs are translated only where tested.
 //! - **Fallback is error-scoped** (P0-2, `policy.rs`): only before any byte reaches the client, never after
 //!   an ambiguous failure, and never to a connection that shares the failed one's quota group after a
-//!   credential, payment, permission or rate-limit error. Failing connections cool down.
-//! - **Spend is reserved before sending** (P0-3): a client with a limit holds an estimate atomically, has a
-//!   cap on requests in flight, and by default cannot use a target whose price is unknown. Handlers run
-//!   detached, so a client that disconnects early still leaves a ledger entry.
+//!   credential, payment, permission or rate-limit error, for as long as that refusal lasts. Failing
+//!   connections cool down for as long as the provider says.
+//! - **Every attempt is journaled before it is sent** (P0-3, counter-review CR-06) and settled in one
+//!   transaction with its ledger entry. A client with a limit holds an *estimate* of the attempt's cost, so
+//!   concurrent requests cannot pass the limit together; the estimate is not a bound, and the provider's bill
+//!   can be higher (CR-03). Spend that may have been charged but cannot be stated counts against the limit at
+//!   the amount held. Clients have a cap on requests in flight and by default cannot use a target whose price
+//!   is unknown. Handlers run detached, so a client that disconnects early still leaves a ledger entry.
 //! - **Explicit sessions are pinned** (P0-4): a request with `x-smarttaskrouter-session` goes back to the
 //!   model that last answered that session. Sessions are never guessed from prompt content.
 //! - Every upstream attempt is written to the usage ledger with its cost and that cost's provenance.
@@ -73,6 +78,8 @@ pub struct Shared {
     pub signatures: Arc<Mutex<signatures::SignatureCache>>,
     /// Requests in flight per client id.
     inflight: Arc<Mutex<HashMap<String, u32>>>,
+    /// Why the last settlement could not be written, until one succeeds again (counter-review CR-06).
+    accounting: Arc<Mutex<Option<String>>>,
 }
 
 impl Shared {
@@ -89,7 +96,18 @@ impl Shared {
             .user_agent(concat!("SmartTaskRouter/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("HTTP client");
-        Shared { db, secrets, http, signatures: Arc::default(), inflight: Arc::default() }
+        Shared { db, secrets, http, signatures: Arc::default(), inflight: Arc::default(), accounting: Arc::default() }
+    }
+
+    /// Why the ledger could not be written last time, while that is still the latest outcome. Attempts are
+    /// journaled before they are sent and nothing is sent when the journal cannot be written, so this means
+    /// an entry is waiting to be settled, not that spend went unrecorded.
+    pub fn accounting_error(&self) -> Option<String> {
+        self.accounting.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    fn set_accounting(&self, error: Option<String>) {
+        *self.accounting.lock().unwrap_or_else(|p| p.into_inner()) = error;
     }
 
     /// Runs `f` with the database. Never held across an await.
@@ -129,16 +147,43 @@ impl Drop for InflightGuard {
     }
 }
 
-/// Spend held for one attempt; released when the attempt is settled in the ledger, whatever happens.
-pub struct Reservation {
+/// One upstream attempt, journaled before it was sent, with the spend it holds (counter-review CR-06).
+/// `settle` writes its ledger entry and removes the journal entry in one transaction. An attempt dropped
+/// without being settled (a panic, an aborted task) becomes an entry with an unknown cost; one that cannot
+/// be written at all stays in the journal and is turned into an entry when the gateway next starts.
+pub struct Attempt {
     db: Arc<Mutex<Connection>>,
     id: String,
+    settled: bool,
 }
 
-impl Drop for Reservation {
+impl Attempt {
+    fn settle(mut self, shared: &Shared, record: &UsageRecord) {
+        let mut error = None;
+        // Each try already waits up to the store's busy timeout for another writer.
+        for _ in 0..3 {
+            match shared.with_db(|db| store::settle(db, &self.id, record)) {
+                Ok(()) => {
+                    self.settled = true;
+                    shared.set_accounting(None);
+                    return;
+                }
+                Err(e) => error = Some(e),
+            }
+        }
+        let error = error.unwrap_or_default();
+        eprintln!("gateway: could not write the ledger entry for attempt {}: {error}", self.id);
+        shared.set_accounting(Some(error));
+        // Not settled: dropping it tries once more to record it as interrupted.
+    }
+}
+
+impl Drop for Attempt {
     fn drop(&mut self) {
-        let conn = self.db.lock().unwrap_or_else(|p| p.into_inner());
-        let _ = store::release(&conn, &self.id);
+        if !self.settled {
+            let conn = self.db.lock().unwrap_or_else(|p| p.into_inner());
+            let _ = store::settle_interrupted(&conn, Some(&self.id), 0);
+        }
     }
 }
 
@@ -161,8 +206,11 @@ impl Server {
 }
 
 pub async fn start(shared: Shared, port: u16) -> std::io::Result<Server> {
-    // Reservations a crash left behind would otherwise hold a client's limit forever.
-    let _ = shared.with_db(|db| store::release_stale_reservations(db, 60 * 60 * 1000));
+    // Attempts a crash or a killed process left unsettled become ledger entries with an unknown cost. Only
+    // those older than an hour: the CLI and the app may share the store, and the other one may still be
+    // waiting on its attempts.
+    let _ = shared.with_db(|db| store::settle_interrupted(db, None, 60 * 60 * 1000));
+    let _ = shared.with_db(|db| store::purge_sessions(db, None));
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
     let addr = listener.local_addr()?;
     let app = router(shared, addr.port());
@@ -175,7 +223,11 @@ pub async fn start(shared: Shared, port: u16) -> std::io::Result<Server> {
 
 pub fn router(shared: Shared, port: u16) -> Router {
     Router::new()
-        .route("/health", get(|| async { Json(json!({ "ok": true, "app": "SmartTaskRouter" })) }))
+        .route("/health", get(|State(shared): State<Shared>| async move {
+            let accounting = shared.accounting_error();
+            Json(json!({ "ok": true, "app": "SmartTaskRouter",
+                "accounting": if accounting.is_some() { "degraded" } else { "ok" }, "accountingError": accounting }))
+        }))
         .route("/v1/models", get(list_models))
         .route("/v1/chat/completions", post(|s: State<Shared>, h: HeaderMap, b: Bytes| detached(chat_completions(s, h, b))))
         .route("/v1/messages", post(|s: State<Shared>, h: HeaderMap, b: Bytes| detached(anthropic::messages(s, h, b))))
@@ -273,7 +325,7 @@ pub fn authenticate(shared: &Shared, headers: &HeaderMap) -> Result<Client, Refu
         return Err(Refusal::new(StatusCode::UNAUTHORIZED, "authentication_error", "Unknown or revoked client token"));
     };
     if let Some(budget) = client.monthly_budget_micro_usd {
-        if client.month_spend_micro_usd >= budget {
+        if client.counted_micro_usd() >= budget {
             return Err(Refusal::new(StatusCode::TOO_MANY_REQUESTS, "budget_exceeded", format!(
                 "Client \"{}\" has reached its monthly limit (${:.2}).", client.name, budget as f64 / 1e6)));
         }
@@ -358,30 +410,43 @@ pub struct Forwarded {
     /// How many upstream calls this request made, this one included. Skipped targets are not counted.
     pub attempt: usize,
     pub mode: Mode,
-    /// Cache hints the translation could not carry (empty for native).
-    pub dropped: Vec<&'static str>,
+    /// What the translation could not carry (empty for native).
+    pub dropped: Vec<String>,
     pub session: Option<String>,
     /// The session was already pinned to this target.
     pub pinned: bool,
     pub client_id: String,
     pub requested: String,
-    /// Held until the attempt is settled in the ledger; dropping it releases the reserved spend.
-    _reservation: Option<Reservation>,
+    /// The journaled attempt, settled by `record_success`.
+    journal: Option<Attempt>,
     _inflight: InflightGuard,
 }
 
 const MAX_ERROR_BODY: usize = 64 * 1024;
 
+/// Prompt tokens assumed for a request, for the hold only. An estimate, not a bound (counter-review CR-03):
+/// a tokenizer can split text more finely. It leans high: the whole serialized body counts, ASCII at three
+/// bytes a token where English averages about four, and every other character as a token of its own, which
+/// covers Vietnamese and CJK text better than counting bytes. Base64 images count as text, far above what
+/// providers charge for them.
+fn estimate_input_tokens(body: &Value) -> u64 {
+    let text = body.to_string();
+    let ascii = text.bytes().filter(u8::is_ascii).count() as u64;
+    let other = text.chars().filter(|c| !c.is_ascii()).count() as u64;
+    ascii.div_ceil(3) + other
+}
+
+/// The spend held for an attempt: the estimated prompt at the higher of the input and cache-write prices
+/// (a prompt may be written to the cache), plus the output limit the request sets, or 4096 tokens when it
+/// sets none. Settled to the real figure when usage arrives.
 fn estimate_micro(body: &Value, price: &Price) -> u64 {
-    // Pessimistic on purpose: the serialized body overstates its tokens, and the output limit is the most
-    // the provider may bill. Settled to the real figure as soon as usage arrives.
-    let input_tokens = (body.to_string().len() / 4) as u64;
     let output_tokens = ["max_tokens", "max_completion_tokens", "max_output_tokens"]
         .iter()
         .find_map(|k| body[*k].as_u64())
         .unwrap_or(DEFAULT_OUTPUT_ESTIMATE);
+    let input_price = price.input_micro_per_mtok.max(price.cache_write_micro_per_mtok.unwrap_or(0));
     let per = |tokens: u64, micro: u64| ((tokens as u128 * micro as u128).div_ceil(1_000_000)) as u64;
-    per(input_tokens, price.input_micro_per_mtok) + per(output_tokens, price.output_micro_per_mtok)
+    per(estimate_input_tokens(body), input_price) + per(output_tokens, price.output_micro_per_mtok)
 }
 
 fn is_free(billing: &str) -> bool {
@@ -449,48 +514,66 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             skipped.push(format!("{name}: {} ({})", health.state.replace('_', " "), health.reason));
             continue;
         }
+        // A refusal on another connection of the same quota group keeps this one off the same model too, for as
+        // long as that refusal lasts, not only within the request that hit it (counter-review CR-01).
+        if let Ok(Some((holder, hold))) = shared.with_db(|db| store::group_hold(db, &provider, &model_id)) {
+            if let Some(until) = hold.until_ms {
+                retry_at = Some(retry_at.map_or(until, |r: i64| r.min(until)));
+            }
+            skipped.push(format!("{name}: shares limits with {}, which is {} ({})", holder.label,
+                hold.state.replace('_', " "), hold.reason));
+            continue;
+        }
 
         let (billing, price) = shared.with_db(|db| store::pricing_for(db, &provider, &model_id)).unwrap_or_default();
-        let reservation = if is_free(&billing) || !has_limit {
-            None
+        let hold = if is_free(&billing) || !has_limit {
+            0
         } else if let Some(price) = price.as_ref() {
-            let micro = estimate_micro(incoming.body, price);
-            match shared.with_db(|db| store::reserve(db, &client.id, micro)) {
-                Ok(Ok(id)) => Some(Reservation { db: shared.db.clone(), id }),
-                Ok(Err(over)) => {
-                    skipped.push(format!("{name}: up to ${:.4} would pass the monthly limit (${:.2} spent, ${:.2} held, ${:.2} limit)",
-                        over.wanted as f64 / 1e6, over.spent as f64 / 1e6, over.reserved as f64 / 1e6, over.budget as f64 / 1e6));
-                    continue;
-                }
-                Err(e) => return Err(Refusal::new(StatusCode::INTERNAL_SERVER_ERROR, "api_error", e)),
-            }
+            estimate_micro(incoming.body, price)
         } else if client.unknown_cost_policy == "block" {
             skipped.push(format!("{name}: its price is unknown, and this client has a spending limit"));
             continue;
         } else {
-            None
+            0
+        };
+        // Journaled before anything is sent (counter-review CR-06); nothing is sent that the ledger could not
+        // account for.
+        let start = store::AttemptStart { client_id: &client.id, provider_id: &provider.id, model_id: &model_id,
+            requested_model: requested, session_key: incoming.session, route_mode: mode.label(), hold_micro: hold };
+        let journal = match shared.with_db(|db| store::open_attempt(db, &start)) {
+            Ok(Ok(id)) => Attempt { db: shared.db.clone(), id, settled: false },
+            Ok(Err(over)) => {
+                skipped.push(format!("{name}: up to ${:.4} (estimated) would pass the monthly limit (${:.2} counted, ${:.2} held, ${:.2} limit)",
+                    over.wanted as f64 / 1e6, over.spent as f64 / 1e6, over.reserved as f64 / 1e6, over.budget as f64 / 1e6));
+                continue;
+            }
+            Err(e) => {
+                shared.set_accounting(Some(e.clone()));
+                return Err(Refusal::new(StatusCode::SERVICE_UNAVAILABLE, "api_error",
+                    format!("The usage ledger cannot be written ({e}), so nothing was sent.")));
+            }
         };
 
         let started = Instant::now();
-        let record_failure = |status: Option<u16>, cost: Cost, outcome: &str, error: &str| {
-            let _ = shared.with_db(|db| store::record_usage(db, &UsageRecord {
+        let settle_failure = |journal: Attempt, status: Option<u16>, cost: Cost, outcome: &str, error: &str| {
+            journal.settle(shared, &UsageRecord {
                 session_key: incoming.session, route_mode: Some(mode.label()),
                 ..UsageRecord::failed(&client.id, &provider.id, &model_id, requested, &cost, outcome, status,
                     started.elapsed().as_millis() as u64, error)
-            }));
+            });
         };
-        let mut apply = |failure: &Failure, message: &str, provider: &Provider| -> Next {
+        let mut apply = |failure: &Failure, message: &str, provider: &Provider| -> policy::Decision {
             let decision = policy::decide(failure);
             if let Some(mark) = &decision.mark {
                 let until = mark.cooldown.map(|d| db_now() + d.as_millis() as i64);
                 let model = if mark.model_scope { model_id.as_str() } else { "" };
-                let status = match failure { Failure::Http { status, .. } => Some(*status), _ => None };
+                let status = match failure { Failure::Http(e) => Some(e.status), _ => None };
                 let _ = shared.with_db(|db| store::mark_health(db, &provider.id, model, mark.state, message, status, until));
             }
             if decision.next == Next::OtherGroups {
                 blocked_groups.entry(provider.quota_group.clone()).or_insert_with(|| provider.id.clone());
             }
-            decision.next
+            decision
         };
 
         let key = match &provider.credential_ref {
@@ -498,14 +581,14 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 Ok(Some(key)) => Some(key),
                 Ok(None) => {
                     let message = format!("No key is stored for {}", provider.label);
-                    record_failure(None, Cost::Estimated { micro_usd: 0, source: "not sent".into() }, outcome_if_failed, &message);
+                    settle_failure(journal, None, Cost::Estimated { micro_usd: 0, source: "not sent".into() }, outcome_if_failed, &message);
                     let _ = shared.with_db(|db| store::mark_health(db, &provider.id, "", "invalid_credentials", &message, None, None));
                     last = Some(Refusal::new(StatusCode::BAD_GATEWAY, "api_error", message));
                     continue;
                 }
                 Err(e) => {
                     let message = format!("Could not read the key for {}: {e}", provider.label);
-                    record_failure(None, Cost::Estimated { micro_usd: 0, source: "not sent".into() }, outcome_if_failed, &message);
+                    settle_failure(journal, None, Cost::Estimated { micro_usd: 0, source: "not sent".into() }, outcome_if_failed, &message);
                     last = Some(Refusal::new(StatusCode::BAD_GATEWAY, "api_error", message));
                     continue;
                 }
@@ -544,13 +627,14 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 // A refused or failed connection never reached the provider. Anything else (a timeout while
                 // waiting, a dropped connection) may have run the request: stop, and say the cost is unknown.
                 let failure = if e.is_connect() { Failure::NotSent } else { Failure::Ambiguous };
-                let cost = if failure == Failure::NotSent {
-                    Cost::Estimated { micro_usd: 0, source: "could not connect".into() }
-                } else {
+                let decision = apply(&failure, &message, &provider);
+                let cost = if decision.maybe_billed {
                     pricing::resolve_failure(None)
+                } else {
+                    Cost::Estimated { micro_usd: 0, source: "could not connect".into() }
                 };
-                let next = apply(&failure, &message, &provider);
-                record_failure(None, cost, if next == Next::Stop { "error" } else { outcome_if_failed }, &message);
+                let next = decision.next;
+                settle_failure(journal, None, cost, if next == Next::Stop { "error" } else { outcome_if_failed }, &message);
                 if next == Next::Stop {
                     return Err(Refusal::new(StatusCode::GATEWAY_TIMEOUT, "api_error", format!(
                         "{message}. The provider may still have run the request, so no other model was tried.")));
@@ -563,19 +647,27 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 return Ok(Forwarded {
                     response, provider, model_id, billing, price, started, attempt, mode, dropped,
                     session: incoming.session.map(String::from), pinned, client_id: client.id.clone(),
-                    requested: requested.to_string(), _reservation: reservation, _inflight: inflight,
+                    requested: requested.to_string(), journal: Some(journal), _inflight: inflight,
                 });
             }
             Ok(response) => {
                 let status = response.status();
-                let retry_after = policy::retry_after(response.headers());
-                let content_type = response.headers().get(header::CONTENT_TYPE).cloned();
+                let headers = response.headers().clone();
+                let content_type = headers.get(header::CONTENT_TYPE).cloned();
                 let bytes = read_limited(response, MAX_ERROR_BODY).await;
+                let error = policy::ProviderError::from_response(status.as_u16(), &headers, &bytes);
+                let retry_after = error.retry_after;
                 let secrets: Vec<&str> = key.as_deref().into_iter().collect();
                 let detail = crate::redact::redact(&upstream_message(&bytes), &secrets);
                 let message = format!("{} answered HTTP {}: {detail}", provider.label, status.as_u16());
-                let next = apply(&Failure::Http { status: status.as_u16(), retry_after }, &message, &provider);
-                record_failure(Some(status.as_u16()), pricing::resolve_failure(Some(status.as_u16())),
+                let decision = apply(&Failure::Http(error), &message, &provider);
+                let next = decision.next;
+                let cost = if decision.maybe_billed {
+                    Cost::Unknown { source: format!("HTTP {}: the provider may have run the request", status.as_u16()) }
+                } else {
+                    pricing::resolve_failure(Some(status.as_u16()))
+                };
+                settle_failure(journal, Some(status.as_u16()), cost,
                     if next == Next::Stop { "error" } else { outcome_if_failed }, &message);
                 // The provider's own body is only handed back to a client that speaks its format.
                 let same_format = mode == Mode::Native;
@@ -614,18 +706,15 @@ fn db_now() -> i64 {
     crate::db::now_ms()
 }
 
-/// The URL and body for one target, and which cache hints a translation had to drop.
-fn upstream_request(incoming: &Incoming, provider: &Provider, model_id: &str, mode: Mode) -> (String, Value, Vec<&'static str>) {
+/// The URL and body for one target, and what a translation had to drop.
+fn upstream_request(incoming: &Incoming, provider: &Provider, model_id: &str, mode: Mode) -> (String, Value, Vec<String>) {
     let accepts_cache = presets::find(&provider.kind).is_some_and(|p| p.accepts_cache_control);
     let (mut body, dropped) = match mode {
         Mode::Native => (incoming.body.clone(), Vec::new()),
         Mode::AnthropicToOpenAi => {
-            let mut dropped = Vec::new();
-            if anthropic::has_thinking(incoming.body) {
-                dropped.push("thinking");
-            }
+            let mut dropped = anthropic::untranslated(incoming.body);
             if !accepts_cache && anthropic::has_cache_control(incoming.body) {
-                dropped.push("cache_control");
+                dropped.insert(0, "cache_control".to_string());
             }
             (anthropic::to_openai(incoming.body, accepts_cache), dropped)
         }
@@ -670,9 +759,9 @@ pub(crate) fn upstream_message(body: &[u8]) -> String {
     message.chars().take(300).collect()
 }
 
-/// Ledger entry for a response that succeeded upstream; also pins an explicit session to this target and
-/// releases the attempt's reservation (by consuming `forwarded`).
-pub fn record_success(shared: &Shared, forwarded: Forwarded, usage: Option<&Usage>, outcome: &str, error: Option<&str>) {
+/// Settles a response that succeeded upstream: its ledger entry is written and its journal entry removed in
+/// one transaction. Also pins an explicit session to this target.
+pub fn record_success(shared: &Shared, mut forwarded: Forwarded, usage: Option<&Usage>, outcome: &str, error: Option<&str>) {
     let cost = if outcome == "ok" {
         pricing::resolve(&forwarded.billing, forwarded.price.as_ref(), usage)
     } else {
@@ -682,23 +771,34 @@ pub fn record_success(shared: &Shared, forwarded: Forwarded, usage: Option<&Usag
             _ => Cost::Unknown { source: "the response was cut short before usage was reported".into() },
         }
     };
-    let _ = shared.with_db(|db| -> store::Result<()> {
-        store::record_usage(db, &UsageRecord {
-            client_id: Some(&forwarded.client_id), provider_id: &forwarded.provider.id, model_id: &forwarded.model_id,
-            requested_model: &forwarded.requested, input_tokens: usage.map(|u| u.prompt),
-            output_tokens: usage.map(|u| u.completion), cache_tokens: usage.map(|u| u.cached), cost: &cost, outcome,
-            http_status: Some(forwarded.response.status().as_u16()),
-            latency_ms: forwarded.started.elapsed().as_millis() as u64, error,
-            cache_write_tokens: usage.map(|u| u.cache_write), session_key: forwarded.session.as_deref(),
-            route_mode: Some(forwarded.mode.label()),
-        })?;
-        if let Some(session) = &forwarded.session {
-            store::pin(db, &forwarded.client_id, session, &forwarded.requested,
-                &Target { provider_id: forwarded.provider.id.clone(), model_id: forwarded.model_id.clone() })?;
+    let journal = forwarded.journal.take();
+    let record = UsageRecord {
+        client_id: Some(&forwarded.client_id), provider_id: &forwarded.provider.id, model_id: &forwarded.model_id,
+        requested_model: &forwarded.requested, input_tokens: usage.map(|u| u.prompt),
+        output_tokens: usage.map(|u| u.completion), cache_tokens: usage.map(|u| u.cached), cost: &cost, outcome,
+        http_status: Some(forwarded.response.status().as_u16()),
+        latency_ms: forwarded.started.elapsed().as_millis() as u64, error,
+        cache_write_tokens: usage.map(|u| u.cache_write), session_key: forwarded.session.as_deref(),
+        route_mode: Some(forwarded.mode.label()),
+    };
+    if let Some(journal) = journal {
+        journal.settle(shared, &record);
+    }
+    if let Some(session) = &forwarded.session {
+        let target = Target { provider_id: forwarded.provider.id.clone(), model_id: forwarded.model_id.clone() };
+        let _ = shared.with_db(|db| store::pin(db, &forwarded.client_id, session, &forwarded.requested, &target));
+    }
+}
+
+/// The provider's rate-limit and request-id headers, passed on with a native answer (counter-review CR-08)
+/// so a client that paces itself by them, or reports a request id, still can.
+pub fn provider_headers(from: &HeaderMap, to: &mut HeaderMap) {
+    for (name, value) in from {
+        let n = name.as_str();
+        if n.starts_with("anthropic-ratelimit-") || n.starts_with("x-ratelimit-") || n == "request-id" || n == "x-request-id" {
+            to.insert(name.clone(), value.clone());
         }
-        Ok(())
-    });
-    drop(forwarded);
+    }
 }
 
 pub fn route_headers(response: &mut Response, forwarded: &Forwarded) {
@@ -749,6 +849,7 @@ async fn chat_completions(State(shared): State<Shared>, headers: HeaderMap, body
     };
     let status = forwarded.response.status();
     let content_type = forwarded.response.headers().get(header::CONTENT_TYPE).cloned();
+    let upstream_headers = forwarded.response.headers().clone();
 
     if !stream {
         let mut forwarded = forwarded;
@@ -759,6 +860,7 @@ async fn chat_completions(State(shared): State<Shared>, headers: HeaderMap, body
                 shared.capture_signatures(&parsed);
                 let usage = Usage::from_json(&parsed["usage"]);
                 let mut out = passthrough(status, content_type, bytes);
+                provider_headers(&upstream_headers, out.headers_mut());
                 route_headers(&mut out, &forwarded);
                 record_success(&shared, forwarded, usage.as_ref(), "ok", None);
                 out
@@ -776,6 +878,7 @@ async fn chat_completions(State(shared): State<Shared>, headers: HeaderMap, body
     let mut forwarded = forwarded;
     let upstream = std::mem::replace(&mut forwarded.response, status_only(status));
     let mut out = stream_response(rx, status, content_type);
+    provider_headers(&upstream_headers, out.headers_mut());
     route_headers(&mut out, &forwarded);
     tokio::spawn(async move {
         let mut scanner = sse::UsageScanner::default();

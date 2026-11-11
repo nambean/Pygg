@@ -35,13 +35,16 @@ pub struct Provider {
     /// Connections in the same group share rate limits and terms: after a 401, 402, 403 or 429 on one, the
     /// others are not tried for that request. Defaults to the provider kind.
     pub quota_group: String,
-    /// The user marked this connection as its own organization, with its own limits.
+    /// The user confirmed that this connection has its own provider quota (counter-review CR-02). This is the
+    /// user's statement, not something the gateway verified; the provider's own limits still apply.
     pub separate_quota: bool,
+    /// When the user confirmed it.
+    pub quota_confirmed_at: Option<i64>,
 }
 
 const PROVIDER_COLUMNS: &str =
     "id, kind, account_label, COALESCE(endpoint, ''), enabled, credential_ref, default_billing, data_use_terms, created_at, \
-     wire, COALESCE(quota_group, kind), quota_group IS NOT NULL";
+     wire, COALESCE(quota_group, kind), quota_group IS NOT NULL, quota_confirmed_at";
 
 fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
     Ok(Provider {
@@ -57,6 +60,7 @@ fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
         wire: row.get(9)?,
         quota_group: row.get(10)?,
         separate_quota: row.get::<_, i64>(11)? == 1,
+        quota_confirmed_at: row.get(12)?,
     })
 }
 
@@ -133,7 +137,8 @@ pub fn remove_provider(conn: &Connection, id: &str) -> Result<Option<String>> {
 pub fn update_provider(conn: &Connection, id: &str, enabled: Option<bool>, billing: Option<&str>,
     separate_quota: Option<bool>) -> Result<()> {
     if let Some(separate) = separate_quota {
-        conn.execute("UPDATE providers SET quota_group = CASE WHEN ?2 THEN id END WHERE id = ?1", params![id, separate])
+        conn.execute("UPDATE providers SET quota_group = CASE WHEN ?2 THEN id END, \
+             quota_confirmed_at = CASE WHEN ?2 THEN ?3 END WHERE id = ?1", params![id, separate, now_ms()])
             .map_err(err)?;
     }
     if let Some(enabled) = enabled {
@@ -277,7 +282,20 @@ pub struct Client {
     pub unknown_cost_policy: String,
     /// Spend held for requests still in flight.
     pub reserved_micro_usd: u64,
+    /// Attempts this month that may have been charged but whose cost is unknown, counted at the amount held
+    /// for them (counter-review CR-03). Part of what the limit is checked against.
+    pub month_at_risk_micro_usd: u64,
 }
+
+impl Client {
+    /// What the monthly limit is checked against: known spend plus spend at risk.
+    pub fn counted_micro_usd(&self) -> u64 {
+        self.month_spend_micro_usd + self.month_at_risk_micro_usd
+    }
+}
+
+/// Known spend and spend at risk, as one sum: what a monthly limit is checked against.
+const COUNTED_SPEND: &str = "COALESCE(SUM(COALESCE(cost_micro_usd, at_risk_micro_usd, 0)), 0)";
 
 pub fn hash_token(token: &str) -> String {
     Sha256::digest(token.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
@@ -300,11 +318,12 @@ pub fn month_start(now: i64) -> i64 {
 fn client_row(conn: &Connection, row: &rusqlite::Row) -> rusqlite::Result<Client> {
     let id: String = row.get(0)?;
     let since = month_start(now_ms());
-    let (spend, unknown): (i64, i64) = conn.query_row(
-        "SELECT COALESCE(SUM(cost_micro_usd), 0), COALESCE(SUM(cost_status = 'unknown'), 0) FROM usage_events \
+    let (spend, unknown, at_risk): (i64, i64, i64) = conn.query_row(
+        "SELECT COALESCE(SUM(cost_micro_usd), 0), COALESCE(SUM(cost_status = 'unknown'), 0), \
+         COALESCE(SUM(CASE WHEN cost_micro_usd IS NULL THEN at_risk_micro_usd END), 0) FROM usage_events \
          WHERE client_id = ?1 AND created_at >= ?2",
         params![id, since],
-        |r| Ok((r.get(0)?, r.get(1)?)),
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
     let reserved: i64 = conn.query_row(
         "SELECT COALESCE(SUM(reserved_micro), 0) FROM budget_reservations WHERE client_id = ?1", [&id], |r| r.get(0))?;
@@ -321,6 +340,7 @@ fn client_row(conn: &Connection, row: &rusqlite::Row) -> rusqlite::Result<Client
         max_concurrency: row.get::<_, i64>(7)?.max(1) as u32,
         unknown_cost_policy: row.get(8)?,
         reserved_micro_usd: reserved.max(0) as u64,
+        month_at_risk_micro_usd: at_risk.max(0) as u64,
     })
 }
 
@@ -394,34 +414,14 @@ pub struct OverBudget {
     pub wanted: u64,
 }
 
-/// Holds `micro` of a client's monthly limit for a request in flight. Atomic across threads and processes:
-/// the check and the insert happen under one `BEGIN IMMEDIATE`, so two requests cannot both take the last
-/// dollar. A client without a limit always succeeds. Returns the reservation id.
-pub fn reserve(conn: &Connection, client_id: &str, micro: u64) -> Result<std::result::Result<String, OverBudget>> {
+/// Runs `f` inside `BEGIN IMMEDIATE`: it commits when `f` returns `Ok(true)`, rolls back on `Ok(false)` or an
+/// error. Immediate, so a writer in another process (the CLI next to the app) waits instead of interleaving.
+fn immediate<T>(conn: &Connection, f: impl FnOnce() -> rusqlite::Result<(T, bool)>) -> Result<T> {
     conn.execute_batch("BEGIN IMMEDIATE").map_err(err)?;
-    let outcome = (|| -> rusqlite::Result<std::result::Result<String, OverBudget>> {
-        let budget: Option<i64> = conn.query_row(
-            "SELECT monthly_budget_micro_usd FROM gateway_clients WHERE id = ?1", [client_id], |r| r.get(0))?;
-        if let Some(budget) = budget.map(|b| b.max(0) as u64) {
-            let spent: i64 = conn.query_row(
-                "SELECT COALESCE(SUM(cost_micro_usd), 0) FROM usage_events WHERE client_id = ?1 AND created_at >= ?2",
-                params![client_id, month_start(now_ms())], |r| r.get(0))?;
-            let reserved: i64 = conn.query_row(
-                "SELECT COALESCE(SUM(reserved_micro), 0) FROM budget_reservations WHERE client_id = ?1", [client_id], |r| r.get(0))?;
-            let (spent, reserved) = (spent.max(0) as u64, reserved.max(0) as u64);
-            if spent + reserved + micro > budget || spent >= budget {
-                return Ok(Err(OverBudget { spent, reserved, budget, wanted: micro }));
-            }
-        }
-        let id = uuid::Uuid::new_v4().to_string();
-        conn.execute("INSERT INTO budget_reservations (id, client_id, reserved_micro, created_at) VALUES (?1, ?2, ?3, ?4)",
-            params![id, client_id, micro as i64, now_ms()])?;
-        Ok(Ok(id))
-    })();
-    match outcome {
-        Ok(result) => {
-            conn.execute_batch(if result.is_ok() { "COMMIT" } else { "ROLLBACK" }).map_err(err)?;
-            Ok(result)
+    match f() {
+        Ok((value, commit)) => {
+            conn.execute_batch(if commit { "COMMIT" } else { "ROLLBACK" }).map_err(err)?;
+            Ok(value)
         }
         Err(e) => {
             let _ = conn.execute_batch("ROLLBACK");
@@ -430,13 +430,85 @@ pub fn reserve(conn: &Connection, client_id: &str, micro: u64) -> Result<std::re
     }
 }
 
-pub fn release(conn: &Connection, reservation_id: &str) -> Result<()> {
-    conn.execute("DELETE FROM budget_reservations WHERE id = ?1", [reservation_id]).map(|_| ()).map_err(err)
+/// An upstream attempt about to be sent (counter-review CR-06). It is journaled before the request leaves,
+/// so the ledger can account for it whatever happens next.
+pub struct AttemptStart<'a> {
+    pub client_id: &'a str,
+    pub provider_id: &'a str,
+    pub model_id: &'a str,
+    pub requested_model: &'a str,
+    pub session_key: Option<&'a str>,
+    pub route_mode: &'a str,
+    /// Spend held against the client's limit; 0 for free targets and clients without a limit.
+    pub hold_micro: u64,
 }
 
-/// Reservations left behind by a crash or a killed process, older than `max_age_ms`.
-pub fn release_stale_reservations(conn: &Connection, max_age_ms: i64) -> Result<usize> {
-    conn.execute("DELETE FROM budget_reservations WHERE created_at < ?1", [now_ms() - max_age_ms]).map_err(err)
+/// Journals an attempt and holds its spend. Atomic across threads and processes: the limit check and the
+/// insert happen under one `BEGIN IMMEDIATE`, so two requests cannot both take the last dollar. Returns
+/// the attempt id, or why the hold does not fit. A hold of 0 is never refused here.
+pub fn open_attempt(conn: &Connection, a: &AttemptStart) -> Result<std::result::Result<String, OverBudget>> {
+    immediate(conn, || {
+        if a.hold_micro > 0 {
+            let budget: Option<i64> = conn.query_row(
+                "SELECT monthly_budget_micro_usd FROM gateway_clients WHERE id = ?1", [a.client_id], |r| r.get(0))?;
+            if let Some(budget) = budget.map(|b| b.max(0) as u64) {
+                let spent: i64 = conn.query_row(
+                    &format!("SELECT {COUNTED_SPEND} FROM usage_events WHERE client_id = ?1 AND created_at >= ?2"),
+                    params![a.client_id, month_start(now_ms())], |r| r.get(0))?;
+                let reserved: i64 = conn.query_row(
+                    "SELECT COALESCE(SUM(reserved_micro), 0) FROM budget_reservations WHERE client_id = ?1",
+                    [a.client_id], |r| r.get(0))?;
+                let (spent, reserved) = (spent.max(0) as u64, reserved.max(0) as u64);
+                if spent + reserved + a.hold_micro > budget || spent >= budget {
+                    return Ok((Err(OverBudget { spent, reserved, budget, wanted: a.hold_micro }), false));
+                }
+            }
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO budget_reservations (id, client_id, reserved_micro, created_at, provider_id, model_id, \
+             requested_model, session_key, route_mode) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![id, a.client_id, a.hold_micro as i64, now_ms(), a.provider_id, a.model_id, a.requested_model,
+                a.session_key, a.route_mode],
+        )?;
+        Ok((Ok(id), true))
+    })
+}
+
+/// Settles an attempt in one transaction: the ledger entry is written and the journal entry removed, or
+/// neither (counter-review CR-06). An unknown cost is counted against the limit at the amount that was held.
+/// If the journal entry is already gone (settled twice), nothing is written.
+pub fn settle(conn: &Connection, attempt_id: &str, record: &UsageRecord) -> Result<()> {
+    immediate(conn, || {
+        let held: Option<i64> = conn.query_row("SELECT reserved_micro FROM budget_reservations WHERE id = ?1",
+            [attempt_id], |r| r.get(0)).optional()?;
+        let Some(held) = held else { return Ok(((), false)) };
+        let at_risk = (record.cost.micro_usd().is_none() && held > 0).then_some(held as u64);
+        insert_usage(conn, record, at_risk)?;
+        conn.execute("DELETE FROM budget_reservations WHERE id = ?1", [attempt_id])?;
+        Ok(((), true))
+    })
+}
+
+const INTERRUPTED_SOURCE: &str = "the gateway stopped before this attempt was settled";
+
+/// Turns journal entries into ledger entries with an unknown cost: the attempt was sent, or about to be,
+/// and never settled. `only` picks one entry (an attempt dropped without being settled); otherwise every
+/// entry older than `max_age_ms` (left by a crash or a killed process). Returns how many were turned.
+pub fn settle_interrupted(conn: &Connection, only: Option<&str>, max_age_ms: i64) -> Result<usize> {
+    immediate(conn, || {
+        let condition = "(?1 <> '' AND id = ?1) OR (?1 = '' AND created_at < ?2)";
+        let cutoff = now_ms() - max_age_ms;
+        let turned = conn.execute(&format!(
+            "INSERT INTO usage_events (id, client_id, provider, model, cost_micro_usd, cost_status, source, created_at, \
+             outcome, requested_model, error, session_key, route_mode, at_risk_micro_usd) \
+             SELECT lower(hex(randomblob(16))), client_id, COALESCE(provider_id, 'unknown'), COALESCE(model_id, 'unknown'), \
+             NULL, 'unknown', '{INTERRUPTED_SOURCE}', created_at, 'interrupted', requested_model, \
+             'Interrupted before the outcome was recorded', session_key, route_mode, NULLIF(reserved_micro, 0) \
+             FROM budget_reservations WHERE {condition}"), params![only.unwrap_or(""), cutoff])?;
+        conn.execute(&format!("DELETE FROM budget_reservations WHERE {condition}"), params![only.unwrap_or(""), cutoff])?;
+        Ok((turned, true))
+    })
 }
 
 // ---------- Connection health (ROADMAP P0-2) ----------
@@ -509,6 +581,30 @@ pub fn blocking_health(conn: &Connection, provider_id: &str, model_id: &str) -> 
     Ok(list_health(conn, Some(provider_id))?.into_iter().find(|h| h.model_id.is_empty() || h.model_id == model_id))
 }
 
+/// States that speak for the provider account or organization, not just one connection's transport: while
+/// one is active, other connections of the same quota group are not used for the same model (a
+/// connection-wide entry: for any model). Counter-review CR-01: this holds across requests, not only within
+/// the request that hit the refusal.
+pub const QUOTA_STATES: [&str; 4] = ["invalid_credentials", "payment_required", "forbidden", "rate_limited"];
+
+/// The active quota-state entry on *another* connection of `provider`'s quota group that covers `model_id`.
+pub fn group_hold(conn: &Connection, provider: &Provider, model_id: &str) -> Result<Option<(Provider, Health)>> {
+    let mut found = None;
+    for other in list_providers(conn)? {
+        if other.id == provider.id || other.quota_group != provider.quota_group {
+            continue;
+        }
+        let hold = list_health(conn, Some(&other.id))?.into_iter().find(|h| {
+            QUOTA_STATES.contains(&h.state.as_str()) && (h.model_id.is_empty() || h.model_id == model_id)
+        });
+        if let Some(hold) = hold {
+            found = Some((other, hold));
+            break;
+        }
+    }
+    Ok(found)
+}
+
 // ---------- Session affinity (ROADMAP P0-4) ----------
 
 /// How long a session stays pinned after its last request.
@@ -525,8 +621,16 @@ pub fn pinned_target(conn: &Connection, client_id: &str, session_key: &str, requ
     .map_err(err)
 }
 
+/// Deletes expired pins, of one client or of all. Clients may name as many sessions as they like; only the
+/// last two hours of them are kept.
+pub fn purge_sessions(conn: &Connection, client_id: Option<&str>) -> Result<usize> {
+    conn.execute("DELETE FROM session_affinity WHERE (?1 IS NULL OR client_id = ?1) AND last_used_at < ?2",
+        params![client_id, now_ms() - AFFINITY_TTL_MS]).map_err(err)
+}
+
 pub fn pin(conn: &Connection, client_id: &str, session_key: &str, requested: &str, target: &Target) -> Result<()> {
     let now = now_ms();
+    purge_sessions(conn, Some(client_id))?;
     conn.execute(
         "INSERT INTO session_affinity (client_id, session_key, requested_model, provider_id, model_id, created_at, last_used_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6) ON CONFLICT(client_id, session_key, requested_model) DO UPDATE SET \
@@ -691,24 +795,28 @@ impl<'a> UsageRecord<'a> {
     }
 }
 
+/// A ledger entry outside the attempt journal (tests, imports). The gateway settles attempts with `settle`.
 pub fn record_usage(conn: &Connection, r: &UsageRecord) -> Result<()> {
+    insert_usage(conn, r, None).map_err(err)
+}
+
+fn insert_usage(conn: &Connection, r: &UsageRecord, at_risk_micro: Option<u64>) -> rusqlite::Result<()> {
     let now = now_ms();
     conn.execute(
         "INSERT INTO usage_events (id, client_id, provider, model, input_tokens, output_tokens, cache_tokens, \
          cost_micro_usd, cost_status, source, created_at, outcome, http_status, latency_ms, requested_model, error, \
-         cache_write_tokens, session_key, route_mode) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+         cache_write_tokens, session_key, route_mode, at_risk_micro_usd) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
         params![
             uuid::Uuid::new_v4().to_string(), r.client_id, r.provider_id, r.model_id,
             r.input_tokens.map(|v| v as i64), r.output_tokens.map(|v| v as i64), r.cache_tokens.map(|v| v as i64),
             r.cost.micro_usd().map(|v| v as i64), r.cost.status(), r.cost.source(), now, r.outcome,
             r.http_status, r.latency_ms as i64, r.requested_model, r.error,
-            r.cache_write_tokens.map(|v| v as i64), r.session_key, r.route_mode,
+            r.cache_write_tokens.map(|v| v as i64), r.session_key, r.route_mode, at_risk_micro.map(|v| v as i64),
         ],
-    )
-    .map_err(err)?;
+    )?;
     if let Some(client) = r.client_id {
-        conn.execute("UPDATE gateway_clients SET last_used_at = ?2 WHERE id = ?1", params![client, now]).map_err(err)?;
+        conn.execute("UPDATE gateway_clients SET last_used_at = ?2 WHERE id = ?1", params![client, now])?;
     }
     Ok(())
 }
@@ -736,6 +844,8 @@ pub struct UsageEvent {
     pub cache_write_tokens: Option<u64>,
     pub session_key: Option<String>,
     pub route_mode: Option<String>,
+    /// Counted against the client's limit although the cost is unknown: the amount held for the attempt.
+    pub at_risk_micro_usd: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -801,7 +911,7 @@ pub fn usage_summary(conn: &Connection, since: i64, recent_limit: usize) -> Resu
         .prepare(
             "SELECT u.id, u.created_at, c.name, u.provider, u.model, u.requested_model, u.input_tokens, u.output_tokens, \
              u.cost_micro_usd, u.cost_status, u.source, u.outcome, u.http_status, u.latency_ms, u.error, \
-             u.cache_tokens, u.cache_write_tokens, u.session_key, u.route_mode \
+             u.cache_tokens, u.cache_write_tokens, u.session_key, u.route_mode, u.at_risk_micro_usd \
              FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id \
              WHERE u.created_at >= ?1 ORDER BY u.created_at DESC LIMIT ?2",
         )
@@ -829,6 +939,7 @@ pub fn usage_summary(conn: &Connection, since: i64, recent_limit: usize) -> Resu
                 cache_write_tokens: u(16)?,
                 session_key: r.get(17)?,
                 route_mode: r.get(18)?,
+                at_risk_micro_usd: u(19)?,
             })
         })
         .map_err(err)?

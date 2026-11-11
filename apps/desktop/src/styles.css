@@ -335,6 +335,7 @@ button { cursor: default; }
 .warning-note { margin: 0 0 12px; background: color-mix(in srgb, var(--orange) 12%, transparent); font-weight: 500; }
 .warning-note svg { color: var(--orange); flex-shrink: 0; margin-top: 1px; }
 .ok-note { color: var(--green); }
+.error-text { color: var(--red); font-weight: 500; }
 
 /* Gateway card on Overview */
 .gateway-card {

@@ -126,7 +126,7 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
   const models = useGateway(api => api.models(c.id), [c.id]);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState<{ok: boolean; text: string} | null>(null);
-  const [sheet, setSheet] = useState<'key' | 'remove' | 'add-model' | {price: Model} | null>(null);
+  const [sheet, setSheet] = useState<'key' | 'remove' | 'add-model' | 'quota' | {price: Model} | null>(null);
   const [query, setQuery] = useState('');
   const [show, setShow] = useState<'all' | 'enabled' | 'unpriced'>('all');
   const check = checks.get(c.id);
@@ -188,14 +188,16 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
       </div>
       {c.health.length > 0 && <div className="group-row stacked"><HealthList connection={c}/></div>}
       <div className="group-row">
-        <span className="group-label"><label htmlFor={`quota-${c.id}`}>{t('Own organization')}</label>
+        <span className="group-label"><label htmlFor={`quota-${c.id}`}>{t('Independent quota confirmed')}</label>
           <small>{c.separateQuota
-            ? t('Has its own limits. When another connection is rate-limited or refused, this one may still answer.')
+            ? t('You confirmed on {date} that this connection has its own provider quota. When another connection is rate-limited or refused, this one may still answer. The provider’s own limits still apply.',
+                {date: new Date(c.quotaConfirmedAt ?? c.createdAt).toLocaleDateString()})
             : c.sharesQuotaWith.length
-              ? t('Shares limits with {names}. After a rate limit or refusal on one, the others aren’t tried for that request; using a second key to get around a limit can break the provider’s terms.', {names: c.sharesQuotaWith.join(', ')})
-              : t('Assumed to share limits with other {provider} connections you add. Turn on only if it belongs to a different organization or account.', {provider: c.presetName})}</small></span>
-        <span className="group-control"><Switch checked={c.separateQuota} label={t('Own organization')}
-          onChange={separateQuota => call(api => api.updateConnection(c.id, {separateQuota})).then(gatewayChanged)}/></span>
+              ? t('Shares limits with {names}. While one is rate-limited or refused, the others aren’t used for the same model; using a second key to get around a limit can break the provider’s terms.', {names: c.sharesQuotaWith.join(', ')})
+              : t('Assumed to share limits with other {provider} connections you add. Turn on only if the provider gives it a separate quota, for example a different organization.', {provider: c.presetName})}</small></span>
+        <span className="group-control"><Switch checked={c.separateQuota} label={t('Independent quota confirmed')}
+          onChange={separateQuota => separateQuota ? setSheet('quota')
+            : call(api => api.updateConnection(c.id, {separateQuota})).then(gatewayChanged)}/></span>
       </div>
       <div className="group-row">
         <span className="group-label"><label htmlFor={`billing-${c.id}`}>{t('Billing')}</label><small>{billingHint(c.defaultBilling)}</small></span>
@@ -251,6 +253,14 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
 
     {sheet === 'key' && <KeySheet connection={c} onClose={() => setSheet(null)}/>}
     {sheet === 'add-model' && <AddModelSheet connection={c} onClose={() => setSheet(null)} onAdded={() => { models.reload(); gatewayChanged(); }}/>}
+    {sheet === 'quota' && <ConfirmSheet title={t('Confirm an independent quota for {name}?', {name: c.label})}
+      confirmLabel={t('Confirm Independent Quota')} destructive={false}
+      message={<>
+        <p>{t('A different key is not proof of a different quota. Keys of one organization or project usually share its rate limits and credit.')}</p>
+        <p>{t('Confirm only if {provider} gives this connection its own quota, for example a separate organization you are allowed to use. The gateway can’t check this, and the provider’s terms still apply.', {provider: c.presetName})}</p>
+      </>}
+      onConfirm={() => call(api => api.updateConnection(c.id, {separateQuota: true})).then(gatewayChanged)}
+      onClose={() => setSheet(null)}/>}
     {sheet === 'remove' && <ConfirmSheet title={t('Remove {name}?', {name: c.label})} confirmLabel={t('Remove Connection')}
       message={<>
         <p>{t('Its key is deleted from {store}, its models leave every combo, and requests for {id}/… stop working.', {store: STORE, id: c.id})}</p>

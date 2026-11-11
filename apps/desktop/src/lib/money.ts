@@ -43,6 +43,8 @@ export function billingLabel(billing: Billing): string {
 export function sourceText(source: string): string {
   const status = /^rejected by the provider \(HTTP (\d+)\)$/.exec(source);
   if (status) return t('Rejected by the provider (HTTP {status}), not billed', {status: status[1]});
+  const ran = /^HTTP (\d+): the provider may have run the request$/.exec(source);
+  if (ran) return t('HTTP {status}: the provider may have run the request; billing unknown', {status: ran[1]});
   const known: Record<string, string> = {
     'provider response': t('Reported by the provider'),
     'price: user': t('Your price × reported tokens'),
@@ -55,6 +57,7 @@ export function sourceText(source: string): string {
     'the response was cut short before usage was reported': t('Cut short before usage was reported'),
     'not sent': t('Not sent'),
     'could not connect': t('Could not connect; not sent'),
+    'the gateway stopped before this attempt was settled': t('The gateway stopped before this request was settled; billing unknown'),
   };
   return known[source] ?? source;
 }

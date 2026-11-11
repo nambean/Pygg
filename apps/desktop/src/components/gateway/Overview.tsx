@@ -40,6 +40,9 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
 
   return <div className="page">
     <GatewayCard status={status} onStatus={onStatus} onConfigure={() => setConfiguring(true)}/>
+    {status?.accountingError && <ErrorNote>
+      {t('The last usage entry couldn’t be written: {error}. The request stays in the journal and is recorded with an unknown cost when the gateway next starts. Requests are refused while nothing can be written.', {error: status.accountingError})}
+    </ErrorNote>}
 
     {!ready && <section className="group">
       <h2>{t('Get Started')}</h2>

@@ -74,6 +74,8 @@ pub struct GatewayStatus {
     pub base_url: Option<String>,
     pub error: Option<String>,
     pub autostart: bool,
+    /// Why the last ledger entry could not be written, while that is still the latest outcome.
+    pub accounting_error: Option<String>,
 }
 
 async fn status_of(state: &AppState) -> GatewayStatus {
@@ -85,6 +87,7 @@ async fn status_of(state: &AppState) -> GatewayStatus {
         base_url: server.as_ref().map(|s| format!("http://{}", s.addr)),
         error,
         autostart: state.autostart(),
+        accounting_error: state.shared.accounting_error(),
     }
 }
 

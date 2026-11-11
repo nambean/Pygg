@@ -64,12 +64,17 @@ export function Clients({intent, onIntentDone}: {intent?: 'create'; onIntentDone
 
 function Spend({client: c}: {client: Client}) {
   const limit = c.monthlyBudgetMicroUsd;
-  const share = limit ? Math.min(1, c.monthSpendMicroUsd / limit) : 0;
+  const counted = c.monthSpendMicroUsd + c.monthAtRiskMicroUsd;
+  const share = limit ? Math.min(1, counted / limit) : 0;
   return <span className="spend">
     <span className="spend-text">{microUsd(c.monthSpendMicroUsd)}{limit ? <span className="secondary"> / {microUsd(limit)}</span> : <span className="secondary"> · {t('no limit')}</span>}</span>
     {limit ? <span className={share >= 1 ? 'meter full' : share >= 0.8 ? 'meter high' : 'meter'} role="meter"
       aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)} aria-label={t('Share of the monthly limit')}>
       <span style={{width: `${share * 100}%`}}/></span> : null}
+    {limit !== null && counted > limit && <small className="error-text">{t('Over the limit by {amount}', {amount: microUsd(counted - limit)})}</small>}
+    {c.monthAtRiskMicroUsd > 0 && <small className="secondary"
+      title={t('Requests that failed or were cut off after reaching the provider. Their cost is unknown, so the amount held for them counts against the limit.')}>
+      {t('+ {amount} possibly charged', {amount: microUsd(c.monthAtRiskMicroUsd)})}</small>}
     {c.reservedMicroUsd > 0 && <small className="secondary">{t('{amount} held for requests in flight', {amount: microUsd(c.reservedMicroUsd)})}</small>}
     {c.monthUnknownRequests > 0 && <small className="secondary">{plural(c.monthUnknownRequests, '+ {n} request with unknown cost', '+ {n} requests with unknown cost')}</small>}
   </span>;
@@ -127,7 +132,7 @@ function CreateSheet({onClose}: {onClose: () => void}) {
         <input id="client-name" className="text-input" value={name} onChange={e => setName(e.target.value)} placeholder="Claude Code" autoFocus/>
       </FormRow>
       <FormRow label={t('Monthly limit')} htmlFor="client-limit"
-        hint={t('Optional. Requests are refused once this month’s known spend reaches it. Unknown costs can’t be counted.')}>
+        hint={t('Optional. Each request is checked against an estimate of its cost before it is sent, and refused once this month’s spend reaches the limit. The estimate isn’t a guarantee: the provider’s bill can be higher.')}>
         <span className={amount !== null && !Number.isFinite(amount) ? 'money-input invalid' : 'money-input'}>
           <span aria-hidden>$</span>
           <input id="client-limit" inputMode="decimal" value={limit} onChange={e => setLimit(e.target.value)} placeholder={t('No limit')}/>
@@ -156,14 +161,16 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
     }).then(() => { gatewayChanged(); onClose(); }, e => { setError(errorText(e)); setBusy(false); });
   };
   return <Sheet title={t('Limits for {name}', {name: c.name})}
-    subtitle={t('Spent so far this month: {amount} known.', {amount: microUsd(c.monthSpendMicroUsd)})} onClose={onClose} busy={busy} className="narrow"
+    subtitle={c.monthAtRiskMicroUsd > 0
+      ? t('Spent so far this month: {amount} known, {risk} possibly charged.', {amount: microUsd(c.monthSpendMicroUsd), risk: microUsd(c.monthAtRiskMicroUsd)})
+      : t('Spent so far this month: {amount} known.', {amount: microUsd(c.monthSpendMicroUsd)})} onClose={onClose} busy={busy} className="narrow"
     footer={<>
       <span className="spacer"/>
       <button type="button" className="button" onClick={onClose} disabled={busy}>{t('Cancel')}</button>
       <button type="button" className="button prominent" onClick={save} disabled={busy || !valid}>{t('Save Limits')}</button>
     </>}>
     <div className="form">
-      <FormRow label={t('Monthly limit')} htmlFor="limit" hint={t('Leave empty for no limit. Resets on the 1st (UTC).')}>
+      <FormRow label={t('Monthly limit')} htmlFor="limit" hint={t('Leave empty for no limit. Resets on the 1st (UTC). Checked against an estimate before each request, so the provider’s bill can end up higher.')}>
         <span className={valid ? 'money-input' : 'money-input invalid'}>
           <span aria-hidden>$</span>
           <input id="limit" inputMode="decimal" value={limit} onChange={e => setLimit(e.target.value)} placeholder={t('No limit')} autoFocus/>
@@ -184,7 +191,7 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
       </FormRow>
     </div>
     {c.monthUnknownRequests > 0 && <p className="sheet-text secondary">
-      {plural(c.monthUnknownRequests, '{n} request this month had an unknown cost and isn’t counted.', '{n} requests this month had an unknown cost and aren’t counted.')}
+      {plural(c.monthUnknownRequests, '{n} request this month had an unknown cost. Only spend held for it counts against the limit.', '{n} requests this month had an unknown cost. Only spend held for them counts against the limit.')}
     </p>}
     {error && <ErrorNote>{error}</ErrorNote>}
   </Sheet>;
