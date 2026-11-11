@@ -183,6 +183,9 @@ pub struct Model {
 }
 
 pub const TIERS: [&str; 5] = ["T0", "T1", "T2", "T3", "T4"];
+/// A tier from Pygg's table rather than the user (gateway/tiers.rs).
+pub const CURATED: &str = super::tiers::SOURCE;
+
 /// The auto-routing alias (`auto`, `auto/cheap`); reserved as a connection and combo name.
 pub const AUTO: &str = "auto";
 
@@ -190,8 +193,14 @@ pub const AUTO: &str = "auto";
 #[derive(Clone, Debug, Default, PartialEq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
-    /// T0 (local) to T4 (frontier); always set by the user.
+    /// T0 (local) to T4 (frontier): the user's, or a starting tier from Pygg's table (`tier_source`).
     pub tier: Option<String>,
+    /// `user`, or `curated:v1` for Pygg's tier table (gateway/tiers.rs).
+    #[serde(default)]
+    pub tier_source: Option<String>,
+    /// Why the table gave this tier, when it did.
+    #[serde(default)]
+    pub tier_note: Option<String>,
     /// Prompt and answer together.
     pub context_tokens: Option<u64>,
     pub max_output_tokens: Option<u64>,
@@ -231,7 +240,7 @@ impl Listed {
 
 const MODEL_COLUMNS: &str = "m.provider_id, m.model_id, CASE WHEN m.billing = 'unknown' THEN p.default_billing ELSE m.billing END, \
      m.enabled, m.price_json, m.observed_at, CASE WHEN m.tier IS NULL THEN NULL ELSE 'T' || m.tier END, m.context_tokens, m.max_output_tokens, m.supports_tools, \
-     m.supports_vision, m.caps_source, m.caps_observed_at, m.thinking_types, m.effort_levels";
+     m.supports_vision, m.caps_source, m.caps_observed_at, m.thinking_types, m.effort_levels, m.tier_source, p.kind";
 
 fn model_row(row: &rusqlite::Row) -> rusqlite::Result<Model> {
     let price: Option<String> = row.get(4)?;
@@ -256,6 +265,12 @@ fn model_row(row: &rusqlite::Row) -> rusqlite::Result<Model> {
             observed_at: row.get(12)?,
             thinking_types: list(13)?,
             effort_levels: list(14)?,
+            tier_note: match row.get::<_, Option<String>>(15)?.as_deref() {
+                Some(super::tiers::SOURCE) => super::tiers::suggest(&row.get::<_, String>(16)?, &row.get::<_, String>(1)?)
+                    .map(|(_, why)| why.to_string()),
+                _ => None,
+            },
+            tier_source: row.get(15)?,
         },
     })
 }
@@ -268,6 +283,24 @@ pub fn list_models(conn: &Connection, provider_id: Option<&str>) -> Result<Vec<M
         .map_err(err)?;
     let rows = stmt.query_map([provider_id], model_row).map_err(err)?;
     rows.collect::<rusqlite::Result<_>>().map_err(err)
+}
+
+/// Gives models whose tier nobody set a starting tier from Pygg's table (gateway/tiers.rs), source `curated:v1`. A
+/// tier the user set or cleared is never touched. Returns how many were filled.
+pub fn fill_curated_tiers(conn: &Connection) -> Result<usize> {
+    let mut statement = conn.prepare(
+        "SELECT m.provider_id, m.model_id, p.kind FROM models m JOIN providers p ON p.id = m.provider_id \
+         WHERE m.tier IS NULL AND m.tier_source IS NULL").map_err(err)?;
+    let rows: Vec<(String, String, String)> = statement.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).map_err(err)?
+        .collect::<rusqlite::Result<_>>().map_err(err)?;
+    let mut filled = 0;
+    for (provider, model, kind) in rows {
+        let Some((tier, _)) = super::tiers::suggest(&kind, &model) else { continue };
+        let Some(n) = TIERS.iter().position(|t| *t == tier) else { continue };
+        filled += conn.execute("UPDATE models SET tier = ?3, tier_source = ?4 WHERE provider_id = ?1 AND model_id = ?2 AND tier IS NULL AND tier_source IS NULL",
+            params![provider, model, n as i64, super::tiers::SOURCE]).map_err(err)?;
+    }
+    Ok(filled)
 }
 
 /// Adds models the provider listed; existing rows keep their settings. Returns how many were new.
@@ -309,6 +342,7 @@ pub fn import_listed(conn: &Connection, provider_id: &str, listed: &[Listed], so
             ).map_err(err)?;
         }
     }
+    fill_curated_tiers(conn)?;
     Ok(added)
 }
 
@@ -328,7 +362,8 @@ pub fn set_capabilities(conn: &Connection, provider_id: &str, model_id: &str, ca
     }
     let tier = caps.tier.as_deref().and_then(|t| TIERS.iter().position(|x| *x == t)).map(|n| n as i64);
     let changed = conn.execute(
-        "UPDATE models SET tier = ?3, tier_source = CASE WHEN ?3 IS NULL THEN NULL ELSE 'user' END, context_tokens = ?4, \
+        // Always `user`, a cleared tier included: the tier table then never fills it again.
+        "UPDATE models SET tier = ?3, tier_source = 'user', context_tokens = ?4, \
          max_output_tokens = ?5, supports_tools = ?6, supports_vision = ?7, caps_source = 'user', caps_observed_at = ?8, \
          thinking_types = ?9, effort_levels = ?10 WHERE provider_id = ?1 AND model_id = ?2",
         params![provider_id, model_id, tier, caps.context_tokens.map(|v| v as i64), caps.max_output_tokens.map(|v| v as i64),

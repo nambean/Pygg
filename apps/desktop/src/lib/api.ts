@@ -60,6 +60,8 @@ export type Capabilities = {
   supportsTools: boolean | null; supportsVision: boolean | null;
   /** On the Anthropic API: the thinking types it accepts (adaptive, enabled) and effort levels; null is unknown. */
   thinkingTypes: string[] | null; effortLevels: string[] | null;
+  /** 'user', or 'curated:v1' for a starting tier from Pygg's table; tierNote says why the table gave it. */
+  tierSource: string | null; tierNote: string | null;
   /** 'user', or 'provider: <kind> /models'. */
   source: string | null; observedAt: number | null;
 };

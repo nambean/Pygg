@@ -550,7 +550,7 @@ function PriceSheet({model: m, onClose, onSaved}: {model: Model; onClose: () => 
 function capsText(m: Model): string {
   const c = m.capabilities;
   if (!c.tier && !c.contextTokens) return t('Not set');
-  const parts = [c.tier ?? t('no tier')];
+  const parts = [c.tier ? (c.tierSource === 'curated:v1' ? t('{tier} (Pygg' + String.fromCharCode(0x2019) + 's table)', {tier: c.tier}) : c.tier) : t('no tier')];
   if (c.contextTokens) parts.push(t('{n}k context', {n: Math.round(c.contextTokens / 1000)}));
   if (c.supportsTools) parts.push(t('tools'));
   if (c.supportsVision) parts.push(t('images'));
@@ -583,7 +583,7 @@ function CapsSheet({model: m, onClose, onSaved}: {model: Model; onClose: () => v
       // `enabled` (a thinking budget) is kept as the provider said; only adaptive is set here.
       thinkingTypes: adaptive === 'unknown' ? null : [...(c.thinkingTypes ?? []).filter(x => x !== 'adaptive'), ...(adaptive === 'yes' ? ['adaptive'] : [])],
       effortLevels: effort.trim() === '' ? null : effort.trim() === 'none' ? [] : effort.split(/[\s,]+/).filter(Boolean),
-      source: 'user', observedAt: null}))
+      tierSource: 'user', tierNote: null, source: 'user', observedAt: null}))
       .then(() => { onSaved(); onClose(); }, e => { setError(errorText(e)); setBusy(false); });
   };
   const sourceText = c.source === null ? null : c.source === 'user'
@@ -599,7 +599,9 @@ function CapsSheet({model: m, onClose, onSaved}: {model: Model; onClose: () => v
     </>}>
     <div className="form">
       <FormRow label={t('Tier')} htmlFor="caps-tier"
-        hint={t('T0 local, T1 small and fast, T2 capable at low cost, T3 strong coding and reasoning, T4 frontier. Always your judgment; auto never guesses it.')}>
+        hint={c.tierSource === 'curated:v1' && c.tierNote
+          ? t('From Pygg' + String.fromCharCode(0x2019) + 's table: {why}. Saving here makes the tier yours, and the table no longer changes it.', {why: c.tierNote})
+          : t('T0 local, T1 small and fast, T2 capable at low cost, T3 strong coding and reasoning, T4 frontier. Your judgment; Pygg' + String.fromCharCode(0x2019) + 's table only fills tiers nobody set.')}>
         <select id="caps-tier" className="popup-button" value={tier} onChange={e => setTier(e.target.value as Tier | '')}>
           <option value="">{t('Not set (auto skips it)')}</option>
           {TIERS.map(x => <option key={x} value={x}>{x}</option>)}

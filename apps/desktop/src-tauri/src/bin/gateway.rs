@@ -62,6 +62,8 @@ async fn main() {
     let one = |name: &str| flags.get(name).and_then(|v| v.first()).cloned();
 
     let conn = db::open(&db_path).unwrap_or_else(|e| fail(format!("{}: {e}", db_path.display())));
+    // Starting tiers from Pygg's table where nobody set one (ROADMAP B3).
+    let _ = store::fill_curated_tiers(&conn);
     let db = Arc::new(Mutex::new(conn));
     let mut shared = Shared::for_store(db.clone(), Arc::new(OsSecrets), &db_path);
     if command == "serve" && one("tasks").as_deref() == Some("yes") {

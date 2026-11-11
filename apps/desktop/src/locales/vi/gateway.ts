@@ -515,8 +515,11 @@ export const gateway: Record<string, string> = {
   'auto chooses a model only for what it is known to support. Leave a field empty when you don’t know it.':
     'auto chỉ chọn model cho những gì đã biết chắc là nó hỗ trợ. Để trống ô nào bạn không biết.',
   'Tier': 'Tier',
-  'T0 local, T1 small and fast, T2 capable at low cost, T3 strong coding and reasoning, T4 frontier. Always your judgment; auto never guesses it.':
-    'T0 chạy local, T1 nhỏ và nhanh, T2 đủ tốt với chi phí thấp, T3 mạnh về code và suy luận, T4 hàng đầu. Luôn do bạn đánh giá; auto không bao giờ tự đoán.',
+  'T0 local, T1 small and fast, T2 capable at low cost, T3 strong coding and reasoning, T4 frontier. Your judgment; Pygg’s table only fills tiers nobody set.':
+    'T0 chạy trên máy, T1 nhỏ và nhanh, T2 đủ mạnh với chi phí thấp, T3 mạnh về code và suy luận, T4 hàng đầu. Do bạn đánh giá; bảng của Pygg chỉ điền những tier chưa ai đặt.',
+  '{tier} (Pygg’s table)': '{tier} (bảng của Pygg)',
+  'From Pygg’s table: {why}. Saving here makes the tier yours, and the table no longer changes it.':
+    'Theo bảng của Pygg: {why}. Lưu ở đây thì tier là của bạn, và bảng không đổi nó nữa.',
   'Not set (auto skips it)': 'Chưa đặt (auto bỏ qua)',
   'Context': 'Context',
   'Prompt and answer together, in tokens.': 'Cả prompt và câu trả lời, tính bằng token.',

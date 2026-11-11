@@ -181,8 +181,10 @@ pub fn plan(conn: &Connection, client: &Client, alias: &str, strategy: Strategy,
                 let b = billing_rank(&model.billing);
                 // The facts it was ranked on; its place in the order is in the header.
                 let reason = match strategy {
-                    Strategy::Tier => format!("tier {} (minimum {}); {}; {reason_cost}",
-                        tier.as_deref().unwrap_or("?"), min_tier.as_deref().unwrap_or("?"), model.billing),
+                    Strategy::Tier => format!("tier {}{} (minimum {}); {}; {reason_cost}",
+                        tier.as_deref().unwrap_or("?"),
+                        if model.capabilities.tier_source.as_deref() == Some(store::CURATED) { " from Pygg's table" } else { "" },
+                        min_tier.as_deref().unwrap_or("?"), model.billing),
                     Strategy::Cheap => format!("{}; {reason_cost}", model.billing),
                 };
                 // Tier: lowest tier, then billing (local, free, subscription, paid), then estimated cost.
@@ -380,6 +382,40 @@ mod tests {
         assert_eq!(Needs::of(Surface::OpenAi, &body).thinking, None);
         let off = serde_json::json!({ "thinking": { "type": "disabled" }, "messages": [] });
         assert_eq!(Needs::of(Surface::Anthropic, &off).thinking.as_deref(), Some("disabled"));
+    }
+
+    #[test]
+    fn the_tier_table_fills_only_what_nobody_set_and_auto_says_so() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let p = store::add_provider(&conn, &NewProvider { kind: "gemini", label: "Gemini", endpoint: "http://g.test",
+            credential_ref: None, default_billing: "free", wire: "openai" }).unwrap();
+        for m in ["gemini-2.5-flash", "gemini-2.5-pro", "mystery-1"] {
+            store::add_model(&conn, &p.id, m).unwrap();
+        }
+        let tier = |m: &str| store::list_models(&conn, None).unwrap().into_iter().find(|x| x.model_id == m).unwrap().capabilities;
+        let flash = tier("gemini-2.5-flash");
+        assert_eq!((flash.tier.as_deref(), flash.tier_source.as_deref()), (Some("T2"), Some(store::CURATED)));
+        assert!(flash.tier_note.unwrap().contains("Flash"));
+        assert_eq!(tier("mystery-1").tier, None, "a line the table does not know stays unset");
+
+        // The user's tier, and a tier the user cleared, are theirs.
+        store::set_capabilities(&conn, &p.id, "gemini-2.5-pro", &Capabilities { tier: Some("T4".into()), ..tier("gemini-2.5-pro") }).unwrap();
+        store::set_capabilities(&conn, &p.id, "gemini-2.5-flash", &Capabilities { tier: None, ..tier("gemini-2.5-flash") }).unwrap();
+        store::fill_curated_tiers(&conn).unwrap();
+        assert_eq!(tier("gemini-2.5-pro").tier.as_deref(), Some("T4"));
+        assert_eq!((tier("gemini-2.5-flash").tier, tier("gemini-2.5-flash").tier_source.as_deref()), (None, Some("user")));
+
+        // auto names where a tier came from.
+        store::add_model(&conn, &p.id, "gemini-3.1-flash-lite").unwrap();
+        let lite = tier("gemini-3.1-flash-lite");
+        store::set_capabilities(&conn, &p.id, "gemini-3.1-flash-lite", &Capabilities { context_tokens: Some(1_000_000), ..lite.clone() }).unwrap();
+        // That save made it the user's; give the table a fresh model to show the reason on.
+        store::add_model(&conn, &p.id, "gemini-3.5-flash").unwrap();
+        conn.execute("UPDATE models SET context_tokens = 1000000 WHERE model_id = 'gemini-3.5-flash'", []).unwrap();
+        let client = store::create_client(&conn, "T", None).unwrap().0;
+        let plan = plan(&conn, &client, "auto", Strategy::Tier, &Needs { input_tokens: 100, ..Needs::default() }).unwrap();
+        let ranked = plan.ranked.iter().find(|r| r.model_id == "gemini-3.5-flash").unwrap();
+        assert!(ranked.reason.starts_with("tier T2 from Pygg's table (minimum T2)"), "{}", ranked.reason);
     }
 
     #[test]

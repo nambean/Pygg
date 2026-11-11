@@ -72,6 +72,10 @@ pub fn run() {
             } else if let Err(e) = tasks::recover(&conn, &worktrees) {
                 eprintln!("could not recover tasks: {e}");
             }
+            // Models from before the tier table (ROADMAP B3) get its starting tiers where nobody set one.
+            if let Err(e) = gateway::store::fill_curated_tiers(&conn) {
+                eprintln!("could not fill tiers: {e}");
+            }
             let db = Arc::new(Mutex::new(conn));
             let handle = app.handle().clone();
             let runner = tasks::Runner::new(db.clone(), worktrees, tasks::agent_executor())

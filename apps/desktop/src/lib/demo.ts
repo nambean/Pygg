@@ -121,7 +121,7 @@ export function demoApi(): GatewayApi {
       defaultBilling: 'local', dataUseTerms: 'unknown', termsSource: null, termsCheckedAt: null, createdAt: now - 4 * 86_400_000, key: false, wire: 'openai', separateQuota: false, quotaConfirmedAt: null},
   ];
   const UNKNOWN: Capabilities = {tier: null, contextTokens: null, maxOutputTokens: null, supportsTools: null, supportsVision: null,
-    thinkingTypes: null, effortLevels: null, source: null, observedAt: null};
+    thinkingTypes: null, effortLevels: null, tierSource: null, tierNote: null, source: null, observedAt: null};
   const models: Model[] = [];
   const addModels = (providerId: string, ids: string[]) => {
     for (const modelId of ids) {
@@ -148,7 +148,7 @@ export function demoApi(): GatewayApi {
       // As Anthropic's model list reports them: the newer model takes adaptive thinking, the older only a budget.
       thinkingTypes: m.providerId !== 'anthropic' ? null : modelId === 'claude-sonnet-4-5' ? ['adaptive'] : ['enabled'],
       effortLevels: m.providerId !== 'anthropic' ? null : modelId === 'claude-sonnet-4-5' ? ['low', 'medium', 'high', 'max'] : [],
-      source, observedAt: now - 2 * 86_400_000};
+      tierSource: tier ? 'user' : null, tierNote: null, source, observedAt: now - 2 * 86_400_000};
   };
   facts('gemini-3.1-flash-lite', 'T1', 1_000_000, 64_000, true);
   facts('gemini-3.1-pro-preview', 'T3', 1_000_000, 64_000, true);

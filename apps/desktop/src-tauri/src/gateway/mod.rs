@@ -31,6 +31,7 @@ pub mod signatures;
 pub mod sse;
 pub mod store;
 pub mod task_api;
+pub mod tiers;
 
 use axum::body::{Body, Bytes};
 use axum::extract::{DefaultBodyLimit, Request, State};
