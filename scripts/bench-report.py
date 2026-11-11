@@ -4,7 +4,8 @@
 
 Per arm: runs, passes and the pass rate with a 95% Wilson interval; money (gateway or agent figures, at list
 price) in total, per run with a 95% bootstrap interval over cases, and per passed run; median time; for a cascade,
-which step solved each passed run. With --baseline, each arm's money per passed run is compared with that arm's.
+which step solved each passed run. With --baseline, each arm's money per passed run is compared with that arm's,
+with a 95% interval from a bootstrap over the cases both arms ran.
 """
 import collections, json, math, random, statistics, sys
 
@@ -59,6 +60,30 @@ def bootstrap_mean_by_case(rs, value, n=2000, seed=7):
     return means[int(0.025 * n)], means[int(0.975 * n)]
 
 
+def paired_saving(base_rs, arm_rs, n=10000, seed=7):
+    """95% bootstrap interval of 1 - (arm's money per passed run / baseline's), resampling the cases both ran,
+    so a hard case drawn twice weighs on both arms alike."""
+    def by_case(rs):
+        d = collections.defaultdict(list)
+        for r in rs:
+            d[r["caseId"]].append((money(r)[0], r["passed"]))
+        return d
+    b, a = by_case(base_rs), by_case(arm_rs)
+    cases = sorted(set(b) & set(a))
+    def pp(d, cs):
+        k = sum(ok for c in cs for _, ok in d[c])
+        return sum(m for c in cs for m, _ in d[c]) / k if k else float("nan")
+    rng = random.Random(seed)
+    out = []
+    for _ in range(n):
+        cs = [rng.choice(cases) for _ in cases]
+        base_pp = pp(b, cs)
+        if base_pp and not math.isnan(base_pp):
+            out.append(1 - pp(a, cs) / base_pp)
+    out = sorted(x for x in out if not math.isnan(x))
+    return (out[int(0.025 * len(out))], out[int(0.975 * len(out))]) if out else (float("nan"), float("nan"))
+
+
 rows, per_pass = [], {}
 for name, rs in arms.items():
     n = len(rs)
@@ -88,10 +113,14 @@ if baseline:
         print()
         print(f"Money per passed run against `{baseline}` (${base:.4f}):")
         print()
+        base_name = next(kname for kname in per_pass if baseline in kname)
         for name, pp in per_pass.items():
             if baseline in name or math.isnan(pp):
                 continue
-            print(f"- `{name}`: ${pp:.4f}, {1 - pp / base:.0%} less")
+            lo, hi = paired_saving(arms[base_name], arms[name])
+            quota = sum((a.get("gateway") or {}).get("quota", 0) for r in arms[name] for a in r["attempts"])
+            note = f"; it also used {quota} subscription requests, which are quota, not free" if quota else ""
+            print(f"- `{name}`: ${pp:.4f}, {1 - pp / base:.1%} less money (95% CI {lo:.1%} to {hi:.1%}, paired by case){note}")
 
 print()
 for name, rs in arms.items():

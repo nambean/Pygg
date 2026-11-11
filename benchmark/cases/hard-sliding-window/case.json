@@ -1,0 +1,13 @@
+{
+  "id": "hard-sliding-window",
+  "title": "Fix a sliding-window rate limiter",
+  "category": "bug_fix",
+  "complexity": "medium",
+  "prompt": "SlidingWindow in limiter.js should allow at most `limit` hits per key within any window of `windowMs` milliseconds: hit(key) returns true and records the hit if fewer than `limit` hits for that key happened in the last windowMs (a hit exactly windowMs ago no longer counts), otherwise false without recording. Keys are independent. It must not keep hits older than the window: size() returns the number of hits held for all keys, and keys with none left are dropped. The current version is wrong on the boundary, mixes keys and never forgets. Fix it. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

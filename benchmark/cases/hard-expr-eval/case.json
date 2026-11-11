@@ -1,0 +1,13 @@
+{
+  "id": "hard-expr-eval",
+  "title": "Evaluate arithmetic expressions",
+  "category": "feature",
+  "complexity": "high",
+  "prompt": "Implement evaluate(expr) in expr.js. It evaluates an arithmetic expression over decimal numbers (`42`, `3.5`) with + - * / % and ^ (power), unary minus and parentheses, ignoring whitespace. Precedence from low to high: + and -; * / and %; unary minus; ^. All binary operators are left-associative except ^, which is right-associative, and the right operand of ^ may itself start with a unary minus. So -2^2 is -4 and 2^3^2 is 512. Division or remainder by zero throws a RangeError. Anything malformed throws a SyntaxError whose message contains `at N`, where N is the 0-based index in the input of the offending character (the input's length when it ends too early). Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

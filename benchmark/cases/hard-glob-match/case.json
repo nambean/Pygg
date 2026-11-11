@@ -1,0 +1,13 @@
+{
+  "id": "hard-glob-match",
+  "title": "Glob matching",
+  "category": "feature",
+  "complexity": "high",
+  "prompt": "Implement match(pattern, path) in glob.js for /-separated paths. `?` matches one character other than `/`; `*` matches any run of characters other than `/` (possibly empty); `**` as a whole path segment matches zero or more segments, so `a/**/b` matches `a/b` and `a/x/y/b`, and a trailing `/**` matches everything below; `[abc]`, `[a-z]` and `[!a-z]` match one character other than `/` in or not in the set; `{a,b,c}` matches any of the alternatives, which may contain other glob syntax but not nested braces; a backslash makes the next character literal. The whole path must match. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

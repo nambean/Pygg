@@ -1,0 +1,13 @@
+{
+  "id": "hard-ini-parse",
+  "title": "Parse INI files",
+  "category": "feature",
+  "complexity": "medium",
+  "prompt": "Implement parse(text) in ini.js. Lines are `[section]`, `key = value`, blank, or comments starting with `;` or `#` (after optional whitespace). Keys and unquoted values are trimmed. A dotted section `[a.b]` nests: its keys go in result.a.b. Keys before any section go at the top level. An unquoted value ends at ` ;` or ` #` (whitespace then the comment character). A value in double quotes keeps its spaces and `;` and `#`, and understands `\\\"`, `\\\\` and `\\n`. A line ending in a backslash continues on the next line (the backslash and line break are dropped, the next line's leading whitespace too). A key given twice in the same section becomes an array of its values in order. Any other line throws a SyntaxError whose message contains `line N` (1-based). Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

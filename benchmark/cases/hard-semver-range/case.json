@@ -1,0 +1,13 @@
+{
+  "id": "hard-semver-range",
+  "title": "Does a version satisfy a range",
+  "category": "feature",
+  "complexity": "high",
+  "prompt": "Implement satisfies(version, range) in range.js with the rules of npm's node-semver: comparators `<`, `<=`, `>`, `>=`, `=` or none; X-ranges (`1.x`, `1.2.*`, `*`, partial versions like `1.2`); tilde (`~1.2.3`, `~1.2`, `~1`); caret, including its rules for 0.x versions (`^0.2.3` is `>=0.2.3 <0.3.0`, `^0.0.3` is `>=0.0.3 <0.0.4`); hyphen ranges (`1.2.3 - 2.3.4`, with partial versions on either side); comparators separated by spaces must all hold; sets joined by `||` are alternatives. A version with a prerelease tag (`1.2.3-alpha.1`) satisfies a set only if one of that set's comparators has the same major.minor.patch and a prerelease tag. Prerelease order follows SemVer 2.0.0. An invalid version or range throws a TypeError. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

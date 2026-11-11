@@ -1,0 +1,13 @@
+{
+  "id": "hard-text-table",
+  "title": "Markdown table with display widths",
+  "category": "feature",
+  "complexity": "medium",
+  "prompt": "Implement table(rows, align) in table.js. rows[0] is the header row; every row has the same number of cells, each a string. align is an optional array of 'left', 'right' or 'center' per column (default left). Render a Markdown table: `| a | b |` rows, a separator row of dashes as wide as the column (at least 3) with `:` marking alignment (left, the default, has none; right is `---:` and center `:---:`), every cell padded with spaces to its column's width, center putting the extra space on the right. Width is display width: East Asian wide and fullwidth characters (CJK, Hangul, fullwidth forms) count 2, combining marks (U+0300 to U+036F) count 0, everything else 1. A `|` in a cell is written `\\|` and counts 2. Lines are joined with \\n, no trailing newline. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

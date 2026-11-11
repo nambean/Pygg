@@ -1,0 +1,14 @@
+{
+  "id": "hard-cart-rules",
+  "title": "Fix cart totals against written rules",
+  "category": "bug_fix",
+  "complexity": "high",
+  "prompt": "Cart totals computed by src/cart.js are wrong for some carts. The rules are in RULES.md; the code in src/ (cart.js, coupons.js, tax.js) breaks several of them. Fix the code so that every rule holds. Do not change RULES.md or test/cart.test.js.",
+  "checks": [
+    "node test/cart.test.js"
+  ],
+  "protected": [
+    "RULES.md",
+    "test/cart.test.js"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "hard-line-diff",
+  "title": "Minimal unified line diff",
+  "category": "feature",
+  "complexity": "high",
+  "prompt": "Implement diff(a, b) in diff.js: a unified diff of two texts, line by line (split on \\n). It returns '' when they are equal. Otherwise it starts with `--- a` and `+++ b` lines, followed by hunks. Each hunk starts with `@@ -l,s +l,s @@` (1-based start line and line count in each text; a start of 0 with a count of 0 for an empty side) and has lines starting with ' ' (unchanged), '-' (removed) or '+' (added). Keep up to 3 unchanged lines of context around changes, and merge hunks whose context would overlap or touch. The diff must be minimal: it removes and adds the fewest lines possible. Where lines are replaced, the removed lines come before the added ones. Lines end with \\n, including the last. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "hard-json-patch",
+  "title": "Apply a JSON Patch",
+  "category": "feature",
+  "complexity": "high",
+  "prompt": "Implement applyPatch(doc, ops) in patch.js following RFC 6902 (JSON Patch) with RFC 6901 pointers: operations add, remove, replace, move, copy and test; `~1` stands for `/` and `~0` for `~` in a pointer; `-` as the last token of an add means the end of an array; adding to an array index inserts there, and an index may be at most the array's length. It returns a new document and never modifies `doc`. If any operation fails (a missing path, an index out of range, a failed test, an unknown op, moving a value into itself), it throws an Error whose message contains `op N` with N the 0-based index of that operation, and nothing is applied. `test` compares deeply. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

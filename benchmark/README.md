@@ -34,7 +34,7 @@ benchmark/
 - The fixtures need only Node.js.
 - Each case was checked when written: its fixture as given fails, and with a reference solution (not in the repository, so no agent can read it) it passes.
 
-There are 24 cases: 5 bug fixes, 13 features, 2 refactors, 2 test-writing cases and 2 docs cases; 7 low, 13 medium and 4 high complexity.
+There are 36 cases: 8 bug fixes, 21 features, 3 refactors, 2 test-writing cases and 2 docs cases; 7 low, 17 medium and 12 high complexity. The 12 whose id starts with `hard-` were added for ROADMAP N2 after every arm passed every one of the first 24 ([first pass](reports/2026-11-11-c3-first-pass.md)): each asks for a module written against a specification with many edge cases (passing solutions added 56–211 lines), a concurrency or off-by-one fix, or a fix or refactor spread over three files.
 
 ## Running
 

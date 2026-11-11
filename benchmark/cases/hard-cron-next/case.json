@@ -1,0 +1,13 @@
+{
+  "id": "hard-cron-next",
+  "title": "Next run time of a cron expression",
+  "category": "feature",
+  "complexity": "high",
+  "prompt": "Implement nextRun(expr, from) in cron.js. expr has five space-separated fields: minute (0-59), hour (0-23), day of month (1-31), month (1-12) and day of week (0-7, where 0 and 7 are Sunday). A field is `*` or a comma-separated list of items; an item is a number, a range `a-b`, or either of those or `*` followed by `/step`. All times are UTC. Return the first Date strictly after `from`, at a whole minute, that matches. When both day of month and day of week are restricted (neither is `*`), a day matches if either matches; otherwise both must. A malformed expression or a value out of range throws an Error. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

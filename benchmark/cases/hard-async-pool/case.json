@@ -1,0 +1,13 @@
+{
+  "id": "hard-async-pool",
+  "title": "Fix a concurrency-limited map",
+  "category": "bug_fix",
+  "complexity": "high",
+  "prompt": "mapLimit(items, limit, fn) in pool.js should call the async fn(item, index) for every item with at most `limit` calls running at once, and resolve to the results in input order. If a call rejects, the returned promise rejects with that error as soon as it happens, and no call that has not started yet is started. An empty array resolves to []. A limit that is not a positive integer throws a RangeError synchronously. The current version gets several of these wrong. Fix it. Do not change test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "test.js"
+  ]
+}

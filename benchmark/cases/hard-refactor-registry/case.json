@@ -1,0 +1,15 @@
+{
+  "id": "hard-refactor-registry",
+  "title": "Replace duplicated switches with a registry",
+  "category": "refactor",
+  "complexity": "medium",
+  "prompt": "report.js and export.js each pick an output format with their own switch over the same three formats. Move the formats into a new module formats.js that exports register(name, { type, render }), get(name) and names(), registered with csv, tsv and json, and make report.js and export.js use it, so that a format registered later works in both. Behaviour must not change otherwise. Do not change test.js or check-structure.js.",
+  "checks": [
+    "node test.js",
+    "node check-structure.js"
+  ],
+  "protected": [
+    "test.js",
+    "check-structure.js"
+  ]
+}
