@@ -5,8 +5,8 @@
 //! 2. **Hard filters**, each with a reason the user can read. The client may use the connection, and its API
 //!    format is reachable from the request's. The model is not cooling down, and its quota group is not held.
 //!    What the request needs (tools, images, its prompt plus output limit) is *known* to fit: unknown counts
-//!    as missing. Its cost can be stated (a price, or free or local billing). For `auto`, its tier is set and
-//!    is at or above the client's minimum.
+//!    as missing. Its cost can be stated (a price, or free, local or subscription billing; a subscription uses
+//!    a plan's quota, not money). For `auto`, its tier is set and is at or above the client's minimum.
 //! 3. **Ranking**, with no classifier and no invented quality scores:
 //!    - `auto`: the lowest eligible tier at or above the client's minimum, then Local, Free, Subscription and
 //!      Paid in that order, then the lower estimated cost. This is "the lowest eligible tier under your
@@ -249,7 +249,10 @@ fn judge(conn: &Connection, client: &Client, provider: &Provider, model: &Model,
     }
     match model.billing.as_str() {
         "free" | "local" => Ok(Ok((0, format!("{} (as set)", model.billing)))),
-        "subscription" => no("subscription quota is not tracked yet, so its cost cannot be stated".into()),
+        // A plan with a quota (a token plan, a subscription): no money per request, so its estimate is $0, and it
+        // ranks after free and before paid. Its quota is not tracked yet; when it runs out, the provider's 429
+        // cools it down and the route moves on.
+        "subscription" => Ok(Ok((0, "the plan's quota, not money; quota left not tracked".into()))),
         _ => match &model.price {
             Some(price) => {
                 let estimate = needs.estimate_micro(price);
@@ -353,6 +356,15 @@ mod tests {
         assert_eq!(names(&plan), ["free/gift", "paid/untiered", "paid/small", "paid/notools", "paid/mid", "paid/big"]);
         assert_eq!(plan.ranked[0].estimate_micro_usd, 0);
         assert!(plan.ranked[1].estimate_micro_usd < plan.ranked[2].estimate_micro_usd);
+    }
+
+    #[test]
+    fn a_plan_with_a_quota_ranks_after_free_and_before_paid() {
+        let w = world();
+        store::update_model(&w.conn, "paid", "unpriced", None, Some("subscription"), None).unwrap();
+        let plan = plan(&w.conn, &w.client, "auto", Strategy::Tier, &Needs { input_tokens: 1000, ..Needs::default() }).unwrap();
+        assert_eq!(names(&plan), ["free/gift", "paid/unpriced", "paid/notools", "paid/mid", "paid/big"]);
+        assert!(plan.ranked[1].reason.contains("the plan's quota, not money"));
     }
 
     #[test]
