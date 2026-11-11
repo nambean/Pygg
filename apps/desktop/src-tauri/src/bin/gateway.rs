@@ -17,6 +17,7 @@ use smarttaskrouter_desktop_lib::{db, vault};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 fn fail(message: impl std::fmt::Display) -> ! {
     eprintln!("{message}");
@@ -58,6 +59,7 @@ async fn main() {
     match command.as_str() {
         "serve" => {
             let port = one("port").map(|p| p.parse().unwrap_or_else(|_| fail("bad port"))).unwrap_or(gateway::DEFAULT_PORT);
+            let owner = shared.clone();
             let server = gateway::start(shared, port).await.unwrap_or_else(|e| match e.kind() {
                 std::io::ErrorKind::ResourceBusy => fail(e.to_string()),
                 _ => fail(format!("127.0.0.1:{port}: {e}")),
@@ -65,6 +67,14 @@ async fn main() {
             println!("Gateway listening on http://{} (store: {})", server.addr, db_path.display());
             let _ = tokio::signal::ctrl_c().await;
             server.stop().await;
+            // Requests still running are let finish, so they are settled with their real cost rather than
+            // recorded as interrupted (review LC-02). A second Ctrl+C stops at once.
+            if owner.owns_store() {
+                eprintln!("Finishing the requests in flight; press Ctrl+C again to stop now (they are then recorded \
+                    as interrupted, with an unknown cost).");
+                let drained = async { while owner.owns_store() { tokio::time::sleep(Duration::from_millis(100)).await; } };
+                tokio::select! { _ = drained => {}, _ = tokio::signal::ctrl_c() => {} }
+            }
         }
         "add-connection" => {
             let preset = presets::find(&one("preset").unwrap_or_else(|| fail("--preset is required")))

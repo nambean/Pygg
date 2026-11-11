@@ -46,7 +46,7 @@ type Stored = Omit<Connection, 'presetName' | 'hasKey' | 'needsKey' | 'models' |
 export function demoApi(): GatewayApi {
   const now = Date.now();
   let status: GatewayStatus = {state: 'running', port: 8741, baseUrl: 'http://127.0.0.1:8741', error: null, autostart: true,
-    accountingError: null};
+    accountingError: null, finishing: false};
   const connections: Stored[] = [
     {id: 'gemini', kind: 'gemini', label: 'Gemini', endpoint: PRESETS[0].endpoint!, enabled: true, credentialRef: 'provider-demo1',
       defaultBilling: 'unknown', dataUseTerms: 'unknown', createdAt: now - 6 * 86_400_000, key: true, wire: 'openai', separateQuota: false, quotaConfirmedAt: null},

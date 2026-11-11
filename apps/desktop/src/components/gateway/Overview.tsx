@@ -127,7 +127,9 @@ function GatewayCard({status, onStatus, onConfigure}: {status: GatewayStatus | n
         </div>
         {running && status.baseUrl
           ? <span className="gateway-url mono selectable">{status.baseUrl}</span>
-          : <span className="secondary">{status.error ?? t('Clients can’t connect until the gateway is started.')}</span>}
+          : <span className="secondary">{status.error ?? (status.finishing
+            ? t('Requests that were running are still finishing, so their cost is recorded. Until they do, no other gateway can use this store.')
+            : t('Clients can’t connect until the gateway is started.'))}</span>}
       </div>
     </div>
     <div className="gateway-card-actions">

@@ -16,6 +16,8 @@ export type GatewayStatus = {
   error: string | null;
   autostart: boolean;
   accountingError: string | null;
+  /** Stopped, but requests that were in flight are still finishing. */
+  finishing: boolean;
 };
 
 export type Wire = 'openai' | 'anthropic';

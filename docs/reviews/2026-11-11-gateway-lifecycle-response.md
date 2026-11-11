@@ -1,0 +1,33 @@
+# Response to the gateway lifecycle review, 2026-11-11
+
+Responds to [the lifecycle review](2026-11-11-gateway-lifecycle-counter-review.md). All four findings were checked against the source at `2f4c9a8` and are correct. LC-02 is a real defect, not only a missing guarantee. The fixes are in the commit that adds this note. `cargo test`: 94 passed and 1 ignored, plus the two-process integration test. The five new lifecycle tests passed three runs in a row.
+
+## LC-02 confirmed, and how
+
+At `2f4c9a8`, `Server::stop` (`gateway/mod.rs`) released the owner lock with the `Server` value, after the listener task. The handlers run in `detached()` tasks and the stream pumps in their own `tokio::spawn`, and neither was tied to the lock. A stopped app could therefore still be settling a long answer while `gateway serve` took the store. The new gateway's start-up recovery then turned the live attempt into an interrupted entry, and the late settlement found no journal entry and wrote nothing. Nothing was counted twice, but the exact cost was lost and the single-owner contract was broken.
+
+## Response table
+
+| Item | Decision | Source | Implemented | Tests | Residual risk |
+| --- | --- | --- | --- | --- | --- |
+| **LC-01** process timestamp | **Accept** | `process_start_ms()` and `start()`'s age cutoff (removed) | **Ownership generations.** Taking the store creates an `Owner` with a new UUID generation, written on every journal entry (`budget_reservations.owner_generation`, schema v6). On taking the store, every entry *not of this generation* becomes an interrupted entry (`store::Unsettled::NotOf`). No timestamps, so no millisecond ambiguity. An earlier generation is always finished or dead at that point, because ownership is only released once all its work is settled (LC-02). Entries from before the column existed count as an earlier generation. | `restarting_in_the_same_process_recovers_orphans_once_and_never_interrupts_live_work` (an orphan of an earlier generation, four quick stop/starts: exactly one interrupted entry, at-risk kept); `an_attempt_never_settled_becomes_an_interrupted_entry` (live generation left alone, turned once, not twice); `owning_the_store_turns_every_older_unsettled_attempt_at_once`; `tests/two_gateways.rs` (crash of another process) | — |
+| **LC-02** lock released under live work | **Accept** (critical) | `Server::stop`, `Server._owner`, `detached`, the stream `tokio::spawn`s | **Ownership spans the work, not the listener.** `Owner` is reference-counted. The server holds it, every journaled `Attempt` holds it until it is settled (or turned interrupted in `Drop`, before the hold is released), and every settlement waiting for the store holds it. The OS lock sits in `Owner` and is released only when the last holder is gone. After a stop: no new attempt can start, since `forward` needs a live owner and otherwise answers 503 "The gateway has stopped". Attempts in flight run to completion and settle with their real cost. Another process is refused until then. Starting again in the same process joins the ownership that is still settling (same generation), so nothing live is interrupted. `gateway serve` waits for requests in flight on Ctrl+C; a second Ctrl+C stops at once, and those are then recorded as interrupted. The app shows "requests are still finishing" while that lasts. | `stopping_keeps_the_store_owned_until_a_request_in_flight_is_settled` (1.5 s answer, stopped at 300 ms with 100 ms grace: other gateway refused; settled once as `ok`, not interrupted; then free); `stopping_while_streaming_keeps_the_store_until_the_stream_is_settled` (same for a 1.5 s stream); `a_settlement_waiting_at_stop_keeps_the_store_until_it_is_written` (store read-only at settlement, stop: store kept, other gateway refused; restart joins, writes the exact entry, releases) | Quitting the desktop app ends the process: requests in flight are then recorded as interrupted at the next start, with their held amount at risk. They are not lost or counted twice, but their exact cost is unknown. A request that never ends keeps the store until it ends. The provider's read timeout (600 s between bytes) bounds that. |
+| **LC-03** recovery errors ignored | **Accept** | `start()`: `let _ = … settle_interrupted …` | Start-up recovery failing now **fails the start** with an explicit error ("The usage ledger could not record the attempts a previous gateway left unsettled … the gateway did not start"), shown in the app's gateway status or by the CLI. Nothing listens, and the lock is released, so the start can simply be retried. Expired-session cleanup stays best effort: it is logged, and never affects accounting. Pending settlements are retried on every start. | `a_failed_startup_recovery_refuses_to_start_and_succeeds_once_the_store_is_writable` (read-only store with an orphan: start refused, lock released; writable again: starts, `/health` ok, exactly one interrupted entry) | — |
+| **LC-04** lifecycle coverage | **Accept** | `tests/two_gateways.rs` only | The rig can now run on a store file, stop with a chosen grace and start again (`rig_on_store`, `stop_server`, `start_server`, `until_released`). The fake provider has a 1.5 s stream (`drip`). The five tests above cover the review's matrix (below). | Matrix below | Disk-full and lock contention are exercised through `PRAGMA query_only`, not each SQLite error code (as before). |
+
+## The review's acceptance matrix
+
+| Scenario | Result | Test |
+| --- | --- | --- |
+| Two processes share a store at once | Second refused | `tests/two_gateways.rs`, `a_second_gateway_on_the_same_store_is_refused_until_the_first_stops` |
+| Crash kills the owner; a later gateway starts | Its attempts become Unknown with at-risk, once | `tests/two_gateways.rs` |
+| Stop/start in the same process with an orphan | Orphan recovered once, not forgotten | `restarting_in_the_same_process_…` |
+| Stop with a request in flight before headers | Store kept until it settles; settled as `ok` | `stopping_keeps_the_store_owned_…` |
+| Stop with a stream running past the grace | Same; one entry, no interrupted double | `stopping_while_streaming_…` |
+| Ledger blocked during stop | Store kept; no other gateway; exact entry written on restart | `a_settlement_waiting_at_stop_…` |
+| Start-up recovery fails | Start refused with the reason; never green | `a_failed_startup_recovery_…` |
+| Several quick restarts | No duplicate entries, no journal left | `restarting_in_the_same_process_…` |
+
+## Unchanged
+
+As the review asked, these were not changed: the exclusive file lock, the default stop on any 5xx, the allowlist, atomic settlement, and the Anthropic and Claude Code evidence. No routing, SDK or memory work was added. P0-5 waits for this pass.

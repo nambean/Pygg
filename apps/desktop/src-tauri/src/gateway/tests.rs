@@ -58,6 +58,22 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
         "slow-ok" => tokio::time::sleep(Duration::from_millis(300)).await,
         _ => {}
     }
+    // A stream that takes 1.5 s, for the stop-while-streaming tests (review LC-02).
+    if model == "drip" {
+        let chunks = futures_util::stream::unfold(0u32, |i| async move {
+            if i >= 15 {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let data = if i == 14 {
+                format!("data: {}\n\ndata: [DONE]\n\n", json!({ "choices": [], "usage": { "prompt_tokens": 10, "completion_tokens": 15 } }))
+            } else {
+                format!("data: {}\n\n", json!({ "choices": [{ "delta": { "content": "x" } }] }))
+            };
+            Some((Ok::<_, std::io::Error>(Bytes::from(data)), i + 1))
+        });
+        return ([(header::CONTENT_TYPE, "text/event-stream")], Body::from_stream(chunks)).into_response();
+    }
     // A model that reports more than any estimate held for it: 1M prompt tokens.
     let usage = if model == "heavy" { json!({ "prompt_tokens": 1_000_000, "completion_tokens": 500 }) }
         else { json!({ "prompt_tokens": 1000, "completion_tokens": 500 }) };
@@ -126,7 +142,7 @@ struct Rig {
     shared: Shared,
     fake: Arc<Fake>,
     http: reqwest::Client,
-    _server: Server,
+    server: tokio::sync::Mutex<Option<Server>>,
 }
 
 fn price() -> Price {
@@ -136,6 +152,15 @@ fn price() -> Price {
 }
 
 async fn rig_with(read_timeout: Duration) -> Rig {
+    rig_on(read_timeout, None).await
+}
+
+/// A rig on a store file, so the gateway takes the store's owner lock (reviews PR-01, LC-02).
+async fn rig_on_store(path: &std::path::Path) -> Rig {
+    rig_on(Duration::from_secs(30), Some(path)).await
+}
+
+async fn rig_on(read_timeout: Duration, store_path: Option<&std::path::Path>) -> Rig {
     let fake = Arc::new(Fake::default());
     let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let upstream_addr = upstream.local_addr().unwrap();
@@ -145,7 +170,7 @@ async fn rig_with(read_timeout: Duration) -> Rig {
         .with_state(fake.clone());
     tokio::spawn(async move { axum::serve(upstream, app).await.unwrap() });
 
-    let conn = crate::db::open_in_memory().unwrap();
+    let conn = match store_path { Some(path) => crate::db::open(path).unwrap(), None => crate::db::open_in_memory().unwrap() };
     let endpoint = format!("http://{upstream_addr}/v1");
     let add = |kind: &str, label: &str, endpoint: &str, billing: &str, wire: &str| {
         store::add_provider(&conn, &NewProvider { kind, label, endpoint, credential_ref: Some("provider-main"),
@@ -178,9 +203,10 @@ async fn rig_with(read_timeout: Duration) -> Rig {
 
     let secrets = MapSecrets(HashMap::from([("provider-main".to_string(), "key-1".to_string())]));
     let shared = Shared::with_read_timeout(Arc::new(Mutex::new(conn)), Arc::new(secrets), read_timeout);
+    let shared = match store_path { Some(path) => Shared::for_store(shared.db.clone(), shared.secrets.clone(), path), None => shared };
     let server = start(shared.clone(), 0).await.unwrap();
     Rig { base: format!("http://{}", server.addr), token, client_id: client.id, shared, fake, http: reqwest::Client::new(),
-        _server: server }
+        server: tokio::sync::Mutex::new(Some(server)) }
 }
 
 async fn rig() -> Rig {
@@ -221,6 +247,30 @@ impl Rig {
 
     fn client(&self) -> store::Client {
         self.shared.with_db(store::list_clients).unwrap().into_iter().find(|c| c.id == self.client_id).unwrap()
+    }
+
+    /// Stops the gateway, giving open responses `grace` to finish (review LC-02).
+    async fn stop_server(&self, grace: Duration) {
+        if let Some(server) = self.server.lock().await.take() {
+            server.stop_within(grace).await;
+        }
+    }
+
+    /// Starts the gateway again with the same store; returns its new base URL.
+    async fn start_server(&self) -> std::io::Result<String> {
+        let server = start(self.shared.clone(), 0).await?;
+        let base = format!("http://{}", server.addr);
+        *self.server.lock().await = Some(server);
+        Ok(base)
+    }
+
+    /// Waits until this process no longer owns the store: every attempt of a stopped gateway is settled.
+    async fn until_released(&self) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while self.shared.owns_store() {
+            assert!(Instant::now() < deadline, "the store was never released");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     }
 
     /// Opts the test client into trying further models after a server error (review FR-02; the default stops).
@@ -737,11 +787,13 @@ fn an_attempt_never_settled_becomes_an_interrupted_entry() {
     let conn = crate::db::open_in_memory().unwrap();
     let (client, _) = store::create_client(&conn, "Tests", Some(1_000_000)).unwrap();
     let start = store::AttemptStart { client_id: &client.id, provider_id: "main", model_id: "fast", requested_model: "coding",
-        session_key: Some("s-9"), route_mode: "native", hold_micro: 4_000 };
+        session_key: Some("s-9"), route_mode: "native", hold_micro: 4_000, owner_generation: "g1" };
     let id = store::open_attempt(&conn, &start).unwrap().unwrap();
-    // A fresh entry may belong to another process that is still waiting on it.
-    assert_eq!(store::settle_interrupted(&conn, None, 60_000).unwrap(), 0);
-    assert_eq!(store::settle_interrupted(&conn, None, -1).unwrap(), 1);
+    // The generation that journaled it is still live: its entries are left alone.
+    assert_eq!(store::settle_interrupted(&conn, store::Unsettled::NotOf("g1")).unwrap(), 0);
+    // A gateway of a new generation took the store: g1 has finished or died.
+    assert_eq!(store::settle_interrupted(&conn, store::Unsettled::NotOf("g2")).unwrap(), 1);
+    assert_eq!(store::settle_interrupted(&conn, store::Unsettled::NotOf("g3")).unwrap(), 0, "turned exactly once");
     let event = store::usage_summary(&conn, 0, 10).unwrap().recent.remove(0);
     assert_eq!((event.outcome.as_str(), event.cost_status.as_str(), event.at_risk_micro_usd), ("interrupted", "unknown", Some(4_000)));
     assert_eq!((event.provider.as_str(), event.session_key.as_deref()), ("main", Some("s-9")));
@@ -968,15 +1020,175 @@ fn owning_the_store_turns_every_older_unsettled_attempt_at_once() {
         let path = dir.path().join("store.sqlite3");
         let conn = crate::db::open(&path).unwrap();
         let (client, _) = store::create_client(&conn, "Tests", None).unwrap();
-        // An entry left by a gateway that died ten minutes ago: not an hour old, but no one else can own it.
+        // An entry left a moment ago by a gateway of an earlier generation that died: no one else can own it.
         let start_row = store::AttemptStart { client_id: &client.id, provider_id: "main", model_id: "fast",
-            requested_model: "main/fast", session_key: None, route_mode: "native", hold_micro: 0 };
+            requested_model: "main/fast", session_key: None, route_mode: "native", hold_micro: 0, owner_generation: "dead" };
         store::open_attempt(&conn, &start_row).unwrap().unwrap();
-        conn.execute("UPDATE budget_reservations SET created_at = created_at - 600000", []).unwrap();
         let shared = Shared::for_store(Arc::new(Mutex::new(conn)), Arc::new(MapSecrets(HashMap::new())), &path);
         let server = start(shared.clone(), 0).await.unwrap();
         let events = shared.with_db(|db| store::usage_summary(db, 0, 10)).unwrap().recent;
         assert_eq!((events.len(), events[0].outcome.as_str()), (1, "interrupted"));
         server.stop().await;
+    });
+}
+
+// ---------- Review LC-01 to LC-04: gateway lifecycle ----------
+
+fn other_gateway(path: &std::path::Path) -> Shared {
+    let conn = crate::db::open(path).unwrap();
+    Shared::for_store(Arc::new(Mutex::new(conn)), Arc::new(MapSecrets(HashMap::new())), path)
+}
+
+fn count_events(rig: &Rig, model: &str) -> (usize, usize) {
+    let ledger = rig.ledger();
+    let mine: Vec<_> = ledger.iter().filter(|e| e.model == model).collect();
+    (mine.len(), mine.iter().filter(|e| e.outcome == "interrupted").count())
+}
+
+#[test]
+fn stopping_keeps_the_store_owned_until_a_request_in_flight_is_settled() {
+    rt().block_on(async {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.sqlite3");
+        let rig = rig_on_store(&path).await;
+        // A 1.5 s answer, stopped 300 ms in with a 100 ms grace: the listener ends long before the answer.
+        let request = { let (http, base, token) = (rig.http.clone(), rig.base.clone(), rig.token.clone());
+            tokio::spawn(async move { http.post(format!("{base}/v1/chat/completions")).bearer_auth(token)
+                .json(&chat("main/slow")).send().await.map(|r| r.status().as_u16()) }) };
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        rig.stop_server(Duration::from_millis(100)).await;
+
+        // The attempt still holds the store: another gateway cannot take it over a live attempt.
+        assert!(rig.shared.owns_store());
+        let refused = start(other_gateway(&path), 0).await.err().expect("refused while the attempt runs");
+        assert_eq!(refused.kind(), std::io::ErrorKind::ResourceBusy);
+
+        let _ = request.await;
+        rig.until_released().await;
+        let next = start(other_gateway(&path), 0).await.expect("free once the attempt is settled");
+        // Settled once, by its own gateway, with its real outcome; not turned into an interrupted entry.
+        assert_eq!(count_events(&rig, "slow"), (1, 0));
+        assert_eq!(rig.ledger().iter().find(|e| e.model == "slow").unwrap().outcome, "ok");
+        assert_eq!(rig.journal_len(), 0);
+        next.stop().await;
+    });
+}
+
+#[test]
+fn stopping_while_streaming_keeps_the_store_until_the_stream_is_settled() {
+    rt().block_on(async {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.sqlite3");
+        let rig = rig_on_store(&path).await;
+        let stream = { let (http, base, token) = (rig.http.clone(), rig.base.clone(), rig.token.clone());
+            tokio::spawn(async move {
+                let response = http.post(format!("{base}/v1/chat/completions")).bearer_auth(token)
+                    .json(&json!({ "model": "main/drip", "stream": true, "messages": [] })).send().await;
+                match response { Ok(r) => r.text().await.map(|t| t.len()).unwrap_or(0), Err(_) => 0 }
+            }) };
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        rig.stop_server(Duration::from_millis(100)).await;
+        assert!(rig.shared.owns_store(), "the stream pump still holds the store");
+        assert_eq!(start(other_gateway(&path), 0).await.err().map(|e| e.kind()), Some(std::io::ErrorKind::ResourceBusy));
+
+        let _ = stream.await;
+        rig.until_released().await;
+        assert_eq!(count_events(&rig, "drip"), (1, 0), "one entry, by the stream itself");
+        assert_eq!(rig.journal_len(), 0);
+        start(other_gateway(&path), 0).await.expect("free once the stream is settled").stop().await;
+    });
+}
+
+#[test]
+fn restarting_in_the_same_process_recovers_orphans_once_and_never_interrupts_live_work() {
+    rt().block_on(async {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.sqlite3");
+        let rig = rig_on_store(&path).await;
+        // An orphan of an earlier generation (journaled, never settled, its holder gone).
+        let orphan = store::AttemptStart { client_id: &rig.client_id, provider_id: "main", model_id: "orphan",
+            requested_model: "main/orphan", session_key: None, route_mode: "native", hold_micro: 700,
+            owner_generation: "earlier" };
+        rig.shared.with_db(|db| store::open_attempt(db, &orphan)).unwrap().unwrap();
+
+        // Stop and start several times in a row, quickly: the orphan becomes exactly one interrupted entry.
+        let mut base = rig.base.clone();
+        for _ in 0..4 {
+            rig.stop_server(Duration::from_millis(50)).await;
+            rig.until_released().await;
+            base = rig.start_server().await.expect("restarts in the same process");
+        }
+        assert_eq!(count_events(&rig, "orphan"), (1, 1));
+        assert_eq!(rig.ledger().iter().find(|e| e.model == "orphan").unwrap().at_risk_micro_usd, Some(700));
+
+        // Restarting while an attempt is in flight joins its ownership: the live attempt is not interrupted.
+        let request = { let (http, token) = (rig.http.clone(), rig.token.clone());
+            tokio::spawn(async move { http.post(format!("{base}/v1/chat/completions")).bearer_auth(token)
+                .json(&chat("main/slow")).send().await.map(|r| r.status().as_u16()) }) };
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        rig.stop_server(Duration::from_millis(50)).await;
+        assert!(rig.shared.owns_store());
+        rig.start_server().await.expect("joins the ownership that is still settling");
+        let _ = request.await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(count_events(&rig, "slow"), (1, 0), "settled by its own attempt, not interrupted");
+        assert_eq!(rig.journal_len(), 0);
+        rig.stop_server(Duration::from_millis(50)).await;
+    });
+}
+
+#[test]
+fn a_failed_startup_recovery_refuses_to_start_and_succeeds_once_the_store_is_writable() {
+    rt().block_on(async {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.sqlite3");
+        let shared = other_gateway(&path);
+        let client = shared.with_db(|db| store::create_client(db, "Tests", None)).unwrap().0;
+        let orphan = store::AttemptStart { client_id: &client.id, provider_id: "main", model_id: "orphan",
+            requested_model: "main/orphan", session_key: None, route_mode: "native", hold_micro: 0, owner_generation: "dead" };
+        shared.with_db(|db| store::open_attempt(db, &orphan)).unwrap().unwrap();
+
+        shared.with_db(|db| db.execute_batch("PRAGMA query_only = ON")).unwrap();
+        let failed = start(shared.clone(), 0).await.err().expect("no gateway over unaccounted attempts");
+        assert!(failed.to_string().contains("could not record the attempts a previous gateway left unsettled"));
+        assert!(!shared.owns_store(), "the lock is released after a failed start");
+
+        shared.with_db(|db| db.execute_batch("PRAGMA query_only = OFF")).unwrap();
+        let server = start(shared.clone(), 0).await.expect("starts once the store is writable");
+        let health: Value = reqwest::get(format!("http://{}/health", server.addr)).await.unwrap().json().await.unwrap();
+        assert_eq!(health["accounting"], "ok");
+        let events = shared.with_db(|db| store::usage_summary(db, 0, 10)).unwrap().recent;
+        assert_eq!((events.len(), events[0].outcome.as_str()), (1, "interrupted"));
+        server.stop().await;
+    });
+}
+
+#[test]
+fn a_settlement_waiting_at_stop_keeps_the_store_until_it_is_written() {
+    rt().block_on(async {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("store.sqlite3");
+        let rig = rig_on_store(&path).await;
+        let (answer, _) = tokio::join!(rig.post("/v1/chat/completions", chat("main/slow-ok")), async {
+            tokio::time::sleep(Duration::from_millis(120)).await;
+            rig.shared.with_db(|db| db.execute_batch("PRAGMA query_only = ON")).unwrap();
+        });
+        assert_eq!(answer.status(), 200);
+        assert_eq!(rig.shared.pending_settlements(), 1);
+
+        // Stopped with a settlement waiting: the store is not handed over, so no other gateway can turn the
+        // entry into an interrupted one while its exact figures are still in memory.
+        rig.stop_server(Duration::from_millis(50)).await;
+        assert!(rig.shared.owns_store());
+        assert_eq!(start(other_gateway(&path), 0).await.err().map(|e| e.kind()), Some(std::io::ErrorKind::ResourceBusy));
+
+        // Started again once the store is writable: the entry is written exactly, and the store can be released.
+        rig.shared.with_db(|db| db.execute_batch("PRAGMA query_only = OFF")).unwrap();
+        rig.start_server().await.unwrap();
+        assert_eq!(rig.shared.pending_settlements(), 0);
+        assert_eq!(count_events(&rig, "slow-ok"), (1, 0));
+        assert_eq!(rig.ledger().iter().find(|e| e.model == "slow-ok").unwrap().cost_micro_usd, Some(300));
+        rig.stop_server(Duration::from_millis(50)).await;
+        rig.until_released().await;
     });
 }

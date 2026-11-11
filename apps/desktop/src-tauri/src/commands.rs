@@ -79,6 +79,8 @@ pub struct GatewayStatus {
     pub autostart: bool,
     /// Why the last ledger entry could not be written, while that is still the latest outcome.
     pub accounting_error: Option<String>,
+    /// Stopped, but requests that were in flight are still finishing and keep the store (review LC-02).
+    pub finishing: bool,
 }
 
 async fn status_of(state: &AppState) -> GatewayStatus {
@@ -91,6 +93,7 @@ async fn status_of(state: &AppState) -> GatewayStatus {
         error,
         autostart: state.autostart(),
         accounting_error: state.shared.accounting_error(),
+        finishing: server.is_none() && state.shared.owns_store(),
     }
 }
 

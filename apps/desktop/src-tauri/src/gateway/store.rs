@@ -470,6 +470,8 @@ pub struct AttemptStart<'a> {
     pub route_mode: &'a str,
     /// Spend held against the client's limit; 0 for free targets and clients without a limit.
     pub hold_micro: u64,
+    /// The ownership generation of the gateway sending it (review LC-01).
+    pub owner_generation: &'a str,
 }
 
 /// Journals an attempt and holds its spend. Atomic across threads and processes: the limit check and the
@@ -496,9 +498,9 @@ pub fn open_attempt(conn: &Connection, a: &AttemptStart) -> Result<std::result::
         let id = uuid::Uuid::new_v4().to_string();
         conn.execute(
             "INSERT INTO budget_reservations (id, client_id, reserved_micro, created_at, provider_id, model_id, \
-             requested_model, session_key, route_mode) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             requested_model, session_key, route_mode, owner_generation) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![id, a.client_id, a.hold_micro as i64, now_ms(), a.provider_id, a.model_id, a.requested_model,
-                a.session_key, a.route_mode],
+                a.session_key, a.route_mode, a.owner_generation],
         )?;
         Ok((Ok(id), true))
     })
@@ -521,21 +523,33 @@ pub fn settle(conn: &Connection, attempt_id: &str, record: &UsageRecord) -> Resu
 
 const INTERRUPTED_SOURCE: &str = "the gateway stopped before this attempt was settled";
 
+/// Which journal entries `settle_interrupted` turns into ledger entries.
+#[derive(Clone, Copy, Debug)]
+pub enum Unsettled<'a> {
+    /// One attempt, dropped without being settled.
+    Attempt(&'a str),
+    /// Every entry not journaled by this ownership generation (review LC-01): called by a gateway that has just
+    /// taken the store, so every other generation has finished or died.
+    NotOf(&'a str),
+}
+
 /// Turns journal entries into ledger entries with an unknown cost: the attempt was sent, or about to be,
-/// and never settled. `only` picks one entry (an attempt dropped without being settled); otherwise every
-/// entry older than `max_age_ms` (left by a crash or a killed process). Returns how many were turned.
-pub fn settle_interrupted(conn: &Connection, only: Option<&str>, max_age_ms: i64) -> Result<usize> {
+/// and never settled. Its held amount stays counted as spend at risk. Returns how many were turned.
+pub fn settle_interrupted(conn: &Connection, which: Unsettled) -> Result<usize> {
+    let (only, generation) = match which {
+        Unsettled::Attempt(id) => (id, ""),
+        Unsettled::NotOf(generation) => ("", generation),
+    };
     immediate(conn, || {
-        let condition = "(?1 <> '' AND id = ?1) OR (?1 = '' AND created_at < ?2)";
-        let cutoff = now_ms() - max_age_ms;
+        let condition = "(?1 <> '' AND id = ?1) OR (?1 = '' AND owner_generation IS NOT ?2)";
         let turned = conn.execute(&format!(
             "INSERT INTO usage_events (id, client_id, provider, model, cost_micro_usd, cost_status, source, created_at, \
              outcome, requested_model, error, session_key, route_mode, at_risk_micro_usd) \
              SELECT lower(hex(randomblob(16))), client_id, COALESCE(provider_id, 'unknown'), COALESCE(model_id, 'unknown'), \
              NULL, 'unknown', '{INTERRUPTED_SOURCE}', created_at, 'interrupted', requested_model, \
              'Interrupted before the outcome was recorded', session_key, route_mode, NULLIF(reserved_micro, 0) \
-             FROM budget_reservations WHERE {condition}"), params![only.unwrap_or(""), cutoff])?;
-        conn.execute(&format!("DELETE FROM budget_reservations WHERE {condition}"), params![only.unwrap_or(""), cutoff])?;
+             FROM budget_reservations WHERE {condition}"), params![only, generation])?;
+        conn.execute(&format!("DELETE FROM budget_reservations WHERE {condition}"), params![only, generation])?;
         Ok((turned, true))
     })
 }

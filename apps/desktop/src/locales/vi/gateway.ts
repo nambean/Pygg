@@ -434,6 +434,8 @@ export const gateway: Record<string, string> = {
     'Thêm nhà cung cấp này vào opencode.json trong dự án hoặc trong ~/.config/opencode/. Header session cố định giữ OpenCode trên một model của combo.',
   'Any OpenAI-compatible SDK works the same way: base URL, token, and a route as the model. Send one session header per conversation to keep it on one model.':
     'Mọi SDK tương thích OpenAI đều dùng như nhau: base URL, token, và một tuyến ở chỗ tên model. Gửi một header session cho mỗi hội thoại để giữ nó trên một model.',
+  'Requests that were running are still finishing, so their cost is recorded. Until they do, no other gateway can use this store.':
+    'Các request đang chạy vẫn đang hoàn tất để chi phí được ghi sổ. Trong lúc đó, không gateway nào khác dùng được store này.',
   'Interrupted': 'Bị gián đoạn',
   'only {n} connection': 'chỉ {n} kết nối',
   'only {n} connections': 'chỉ {n} kết nối',

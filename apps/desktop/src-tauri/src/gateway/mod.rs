@@ -45,7 +45,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 use store::{Client, Provider, Target, UsageRecord};
 use tokio::sync::{mpsc, oneshot};
@@ -82,12 +82,23 @@ pub struct Shared {
     accounting: Arc<Mutex<Accounting>>,
     /// The store file, when there is one. A gateway serving it must own it alone (review PR-01).
     store_path: Option<std::path::PathBuf>,
+    /// The current ownership of the store, if this process holds it (review LC-02). Weak: the server, every
+    /// attempt in flight and every pending settlement hold it strongly, and the store is released only when
+    /// the last of them is gone.
+    owner: Arc<Mutex<Weak<Owner>>>,
 }
 
-/// When this process started using the gateway: journal entries older than this belong to another process.
-fn process_start_ms() -> i64 {
-    static START: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
-    *START.get_or_init(crate::db::now_ms)
+/// Ownership of the store by this process (reviews PR-01, LC-01, LC-02). Held by the running server, by every
+/// journaled attempt until it is settled, and by every settlement waiting for the store. While any of them is
+/// alive the store's lock stays taken, so a stopped gateway still finishing a long answer keeps another
+/// gateway from taking the store and turning that live attempt into an interrupted one.
+pub struct Owner {
+    /// Written on every journal entry of this ownership; a gateway that takes the store later turns every
+    /// entry of another generation into an interrupted entry, since that generation has finished or died.
+    generation: String,
+    /// The exclusive OS lock on `<store>.gateway-lock`; `None` without a store file (tests). Dropped, and so
+    /// released, with the last holder of this ownership.
+    _lock: Option<std::fs::File>,
 }
 
 /// The lock file next to a store, held exclusively by the one gateway that serves it.
@@ -105,8 +116,9 @@ fn claim_store(store: &std::path::Path) -> std::io::Result<std::fs::File> {
     match file.try_lock() {
         Ok(()) => Ok(file),
         Err(std::fs::TryLockError::WouldBlock) => Err(std::io::Error::new(std::io::ErrorKind::ResourceBusy,
-            "Another gateway is already serving this store: the SmartTaskRouter app or `gateway serve`. \
-             Stop that one first; only one gateway may write the usage ledger at a time.")),
+            "Another gateway is already serving this store: the SmartTaskRouter app or `gateway serve`, or one \
+             that was stopped and is still finishing requests. Stop that one first, or wait for it to finish; only \
+             one gateway may write the usage ledger at a time.")),
         Err(std::fs::TryLockError::Error(e)) => Err(e),
     }
 }
@@ -118,8 +130,9 @@ struct Accounting {
     journal_error: Option<String>,
     /// Attempts whose ledger entry could not be written, by attempt id, with the entry and the error. Each one
     /// still has its journal entry in the store, so a crash turns it into an interrupted entry; otherwise it is
-    /// settled exactly as it would have been once the store accepts it.
-    pending: HashMap<String, (store::PendingUsage, String)>,
+    /// settled exactly as it would have been once the store accepts it. Each holds the ownership, so the store
+    /// is not handed to another gateway while it waits.
+    pending: HashMap<String, (store::PendingUsage, String, Arc<Owner>)>,
 }
 
 impl Shared {
@@ -136,14 +149,24 @@ impl Shared {
             .user_agent(concat!("SmartTaskRouter/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("HTTP client");
-        process_start_ms();
         Shared { db, secrets, http, signatures: Arc::default(), inflight: Arc::default(), accounting: Arc::default(),
-            store_path: None }
+            store_path: None, owner: Arc::new(Mutex::new(Weak::new())) }
     }
 
     /// For a store on disk: `start` then takes the store's owner lock, so two processes never serve one store.
     pub fn for_store(db: Arc<Mutex<Connection>>, secrets: Arc<dyn Secrets>, path: &std::path::Path) -> Shared {
         Shared { store_path: Some(path.to_path_buf()), ..Shared::new(db, secrets) }
+    }
+
+    /// The current ownership, if this process still holds the store.
+    fn current_owner(&self) -> Option<Arc<Owner>> {
+        self.owner.lock().unwrap_or_else(|p| p.into_inner()).upgrade()
+    }
+
+    /// Whether this process still holds the store: a server is running, or a stopped one's work is still being
+    /// settled.
+    pub fn owns_store(&self) -> bool {
+        self.current_owner().is_some()
     }
 
     fn accounting(&self) -> std::sync::MutexGuard<'_, Accounting> {
@@ -154,7 +177,7 @@ impl Shared {
     /// not be written. Attempts are journaled before they are sent, so this never means spend went unrecorded.
     pub fn accounting_error(&self) -> Option<String> {
         let a = self.accounting();
-        if let Some((_, error)) = a.pending.values().next() {
+        if let Some((_, error, _)) = a.pending.values().next() {
             return Some(format!("{} usage {} waiting to be written: {error}", a.pending.len(),
                 if a.pending.len() == 1 { "entry is" } else { "entries are" }));
         }
@@ -171,10 +194,10 @@ impl Shared {
     }
 
     /// Tries the waiting settlements again, each exactly as it would have been written. A journal entry already
-    /// turned into an interrupted entry (by another process at start) is not written twice.
+    /// turned into an interrupted entry is not written twice. A settled one gives up its hold on the store.
     pub fn recover_accounting(&self) {
         let waiting: Vec<(String, store::PendingUsage)> =
-            self.accounting().pending.iter().map(|(id, (usage, _))| (id.clone(), usage.clone())).collect();
+            self.accounting().pending.iter().map(|(id, (usage, _, _))| (id.clone(), usage.clone())).collect();
         for (id, usage) in waiting {
             let settled = self.with_db(|db| store::settle(db, &id, &usage.record()));
             let mut a = self.accounting();
@@ -225,11 +248,13 @@ impl Drop for InflightGuard {
 /// One upstream attempt, journaled before it was sent, with the spend it holds (counter-review CR-06).
 /// `settle` writes its ledger entry and removes the journal entry in one transaction. An attempt dropped
 /// without being settled (a panic, an aborted task) becomes an entry with an unknown cost; one that cannot
-/// be written at all stays in the journal and is turned into an entry when the gateway next starts.
+/// be written at all stays in the journal and is turned into an entry by the next owner of the store. It
+/// holds the store's ownership until then (review LC-02).
 pub struct Attempt {
     db: Arc<Mutex<Connection>>,
     id: String,
     settled: bool,
+    owner: Option<Arc<Owner>>,
 }
 
 impl Attempt {
@@ -247,8 +272,11 @@ impl Attempt {
         }
         let error = error.unwrap_or_default();
         eprintln!("gateway: could not write the ledger entry for attempt {}: {error}", self.id);
-        // Kept with its exact figures and retried before every request; paid requests wait until it is written.
-        shared.accounting().pending.insert(self.id.clone(), (store::PendingUsage::of(record), error));
+        // Kept with its exact figures and retried before every request; paid requests wait until it is written,
+        // and the store stays owned by this process meanwhile.
+        if let Some(owner) = self.owner.take() {
+            shared.accounting().pending.insert(self.id.clone(), (store::PendingUsage::of(record), error, owner));
+        }
         self.settled = true;
     }
 }
@@ -257,8 +285,9 @@ impl Drop for Attempt {
     fn drop(&mut self) {
         if !self.settled {
             let conn = self.db.lock().unwrap_or_else(|p| p.into_inner());
-            let _ = store::settle_interrupted(&conn, Some(&self.id), 0);
+            let _ = store::settle_interrupted(&conn, store::Unsettled::Attempt(&self.id));
         }
+        // `owner` is dropped after this, so the store is released only once the attempt is accounted for.
     }
 }
 
@@ -266,37 +295,58 @@ pub struct Server {
     pub addr: SocketAddr,
     shutdown: Option<oneshot::Sender<()>>,
     task: tokio::task::JoinHandle<()>,
-    /// The store's owner lock, released when the server stops (review PR-01).
-    _owner: Option<std::fs::File>,
+    /// This server's hold on the store's ownership. Attempts in flight hold it too (review LC-02).
+    _owner: Arc<Owner>,
 }
 
 impl Server {
-    /// Stops accepting requests, gives open responses a few seconds to finish, then ends them, and releases
-    /// the store for another gateway.
-    pub async fn stop(mut self) {
+    /// Stops accepting requests and gives open responses a few seconds to finish before ending the listener.
+    /// Attempts still in flight run to completion and are settled; the store stays owned by this process until
+    /// the last of them is, so no other gateway can take it over a live attempt (review LC-02).
+    pub async fn stop(self) {
+        self.stop_within(Duration::from_secs(5)).await
+    }
+
+    pub async fn stop_within(mut self, grace: Duration) {
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
         }
-        if tokio::time::timeout(Duration::from_secs(5), &mut self.task).await.is_err() {
+        if tokio::time::timeout(grace, &mut self.task).await.is_err() {
             self.task.abort();
         }
     }
 }
 
-/// Starts serving. For a store on disk, takes its owner lock first: one gateway per store, so the usage
-/// ledger, its pending settlements and the paid-admission hold are never split across processes (review
-/// PR-01). A second gateway on the same store fails with `ErrorKind::ResourceBusy` and sends nothing.
+/// Starts serving (reviews PR-01, LC-01, LC-02, LC-03).
+///
+/// - If this process still owns the store (a stopped server's attempts are still settling), the new server
+///   joins that ownership: same generation, nothing of it is turned into interrupted entries.
+/// - Otherwise it takes the store's exclusive OS lock (a second gateway fails with `ErrorKind::ResourceBusy`
+///   and sends nothing) and starts a new generation. Every journal entry of another generation is then known
+///   to be finished or orphaned, and becomes an interrupted entry. If that cannot be written, the start
+///   fails and the lock is released: the gateway does not report itself running over unaccounted attempts.
 pub async fn start(shared: Shared, port: u16) -> std::io::Result<Server> {
-    let owner = match &shared.store_path {
-        Some(path) => Some(claim_store(path)?),
-        None => None,
+    let owner = match shared.current_owner() {
+        Some(owner) => owner,
+        None => {
+            let lock = match &shared.store_path {
+                Some(path) => Some(claim_store(path)?),
+                None => None,
+            };
+            let owner = Arc::new(Owner { generation: uuid::Uuid::new_v4().to_string(), _lock: lock });
+            shared.with_db(|db| store::settle_interrupted(db, store::Unsettled::NotOf(&owner.generation)))
+                .map_err(|e| std::io::Error::other(format!(
+                    "The usage ledger could not record the attempts a previous gateway left unsettled ({e}), so \
+                     the gateway did not start. Check that the store is writable and start it again.")))?;
+            *shared.owner.lock().unwrap_or_else(|p| p.into_inner()) = Arc::downgrade(&owner);
+            owner
+        }
     };
-    // Attempts left unsettled by a crash or a killed process become ledger entries with an unknown cost.
-    // Owning the store means no other process can still be waiting on them, so every entry from before this
-    // process started is turned now. Without a store file (tests), only entries older than an hour.
-    let age = if owner.is_some() { (db_now() - process_start_ms()).max(0) } else { 60 * 60 * 1000 };
-    let _ = shared.with_db(|db| store::settle_interrupted(db, None, age));
-    let _ = shared.with_db(|db| store::purge_sessions(db, None));
+    shared.recover_accounting();
+    // Expired session pins only cost space; a failure here does not touch accounting.
+    if let Err(e) = shared.with_db(|db| store::purge_sessions(db, None)) {
+        eprintln!("gateway: could not delete expired session pins: {e}");
+    }
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
     let addr = listener.local_addr()?;
     let app = router(shared, addr.port());
@@ -650,14 +700,21 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 shared.accounting_error().unwrap_or_default()));
             continue;
         }
+        // Every attempt holds the store's ownership until it is settled (review LC-02). Without one (the
+        // gateway was stopped and its last work has finished), nothing new is sent.
+        let Some(owner) = shared.current_owner() else {
+            return Err(Refusal::new(StatusCode::SERVICE_UNAVAILABLE, "api_error",
+                "The gateway has stopped, so nothing was sent. Start it again in SmartTaskRouter."));
+        };
         // Journaled before anything is sent (counter-review CR-06); nothing is sent that the ledger could not
         // account for.
         let start = store::AttemptStart { client_id: &client.id, provider_id: &provider.id, model_id: &model_id,
-            requested_model: requested, session_key: incoming.session, route_mode: mode.label(), hold_micro: hold };
+            requested_model: requested, session_key: incoming.session, route_mode: mode.label(), hold_micro: hold,
+            owner_generation: &owner.generation };
         let journal = match shared.with_db(|db| store::open_attempt(db, &start)) {
             Ok(Ok(id)) => {
                 shared.set_journal_error(None);
-                Attempt { db: shared.db.clone(), id, settled: false }
+                Attempt { db: shared.db.clone(), id, settled: false, owner: Some(owner) }
             }
             Ok(Err(over)) => {
                 skipped.push(format!("{name}: up to ${:.4} (estimated) would pass the monthly limit (${:.2} counted, ${:.2} held, ${:.2} limit)",
