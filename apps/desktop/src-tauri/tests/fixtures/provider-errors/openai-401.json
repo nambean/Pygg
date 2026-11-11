@@ -1,0 +1,17 @@
+{
+    "case":  "openai-401",
+    "captured":  "2026-11-11",
+    "url":  "https://api.openai.com/v1/chat/completions",
+    "status":  401,
+    "headers":  {
+                    "content-type":  "application/json; charset=utf-8"
+                },
+    "body":  {
+                 "error":  {
+                               "message":  "Incorrect API key provided: pygg-inv****************************0000. You can find your API key at https://platform.openai.com/account/api-keys.",
+                               "type":  "invalid_request_error",
+                               "param":  null,
+                               "code":  "invalid_api_key"
+                           }
+             }
+}

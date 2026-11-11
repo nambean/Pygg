@@ -1,0 +1,18 @@
+{
+    "case":  "anthropic-404-model",
+    "captured":  "2026-11-11",
+    "url":  "https://api.anthropic.com/v1/messages",
+    "status":  404,
+    "headers":  {
+                    "content-type":  "application/json",
+                    "x-should-retry":  "false"
+                },
+    "body":  {
+                 "type":  "error",
+                 "error":  {
+                               "type":  "not_found_error",
+                               "message":  "model: claude-does-not-exist"
+                           },
+                 "request_id":  "req_011Cgvx9XkrLuMReVFbpYxV2"
+             }
+}

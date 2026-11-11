@@ -1,0 +1,18 @@
+{
+    "case":  "anthropic-401",
+    "captured":  "2026-11-11",
+    "url":  "https://api.anthropic.com/v1/messages",
+    "status":  401,
+    "headers":  {
+                    "content-type":  "application/json",
+                    "x-should-retry":  "false"
+                },
+    "body":  {
+                 "type":  "error",
+                 "error":  {
+                               "type":  "authentication_error",
+                               "message":  "invalid x-api-key"
+                           },
+                 "request_id":  "req_011Cgvx9CnLpDkf5hBY5S6Dd"
+             }
+}

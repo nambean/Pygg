@@ -102,7 +102,32 @@ With the owner's key and go-ahead, `scripts/anthropic-parity.ps1` sent the same 
 
 The token counts are identical, so at the same price the billed amount is identical: on this endpoint the gateway adds no cache cost. The ledger recorded each gateway request with the whole prompt (9020 tokens, cache included) and route `native`. About $0.06 in all. The key was put in the credential store for the run and removed afterwards.
 
-Not covered: the 1-hour cache TTL, a multi-turn tool-result round trip, other Claude models, and an Anthropic-compatible endpoint other than Anthropic's own.
+**Extended the same day (ROADMAP C1)**, again direct against the gateway with separate nonces:
+
+| Case | Direct | Gateway |
+| --- | --- | --- |
+| 1-hour TTL (`cache_control.ttl: "1h"`, `-Extended`), claude-haiku-4-5: 1h cache write, then read | 9015, then 9015 | 9015, then 9015 |
+| Two-turn tool round trip (`tool_use`, then a `tool_result`, `-Extended`) | `tool_use`, then a final text answer, `end_turn` | the same |
+| claude-haiku-5-5, two turns, streamed and not: cache write, then read | 13514 / 13515 | 13515 / 13516 |
+| claude-sonnet-5-5, the same | 13515 / 13515 | 13516 / 13516 |
+| `count_tokens` with a tool (`-CountTokens`, free) | 9568 | 9568 |
+
+On the two newer models the gateway's prompts were one token longer in some runs; the nonce, which differs per arm, accounts for it. Each arm wrote what it later read, so caching behaves the same. About $0.30 in all for C1.
+
+Not covered: an Anthropic-compatible endpoint other than Anthropic's own (no such key here).
+
+## Real provider errors as fixtures, 2026-11-11
+
+`scripts/capture-provider-errors.ps1` sends requests that cannot generate anything (an invalid key everywhere; with the owner's keys, an unknown model and a request without `max_tokens`) and saves each answer, status and retry headers under `tests/fixtures/provider-errors/`. A body is never saved if it contains a real key. `tests/provider_errors.rs` runs every fixture through the gateway's error policy.
+
+| Case | Answer | Policy |
+| --- | --- | --- |
+| Invalid key: Anthropic, OpenRouter, OpenAI, Groq, DeepSeek, Mistral, Qwen | 401, each in its own body shape (Mistral `{"detail": …}`, OpenRouter "Missing Authentication header") | try other connections; this connection's key marked invalid |
+| Invalid key: Gemini | **400** `INVALID_ARGUMENT`, "Please pass a valid API key" | the same, by a new rule (before it, a 400 stopped the request and left the key looking usable) |
+| Unknown model: Anthropic, Gemini, Qwen | 404 | try another model; only that model marked unavailable |
+| Malformed request: Anthropic | 400 `invalid_request_error` | stop, nothing marked |
+
+Not captured: 403, 429 and quota answers (they need an exhausted quota) and timeouts.
 
 ## Live verification: Auto routing, 2026-11-11
 
@@ -140,15 +165,19 @@ With the owner's go-ahead, Claude Code 2.1.317 ran a headless session (`claude -
 - All four turns completed. The gateway's request log (`SMARTTASKROUTER_LOG_REQUESTS=1`) shows **12 of 12 requests to `/v1/messages` carrying the session header**, including the sub-agent's and the compaction's. No `count_tokens` call was made. The ledger has 12 entries, all `translated:anthropic->openai` with `session=cc-live-1`. Prompt input totaled about 117k tokens and output about 1.2k: a few cents at Flash-Lite prices.
 - Afterwards the connection was removed with its key, and the scratch store, config and token deleted.
 
+## Live verification: the OpenCode snippet, 2026-11-11
+
+The Overview's OpenCode snippet, as generated, in a scratch `opencode.json` for OpenCode 1.18.4, against the headless gateway on a scratch store with a Gemini connection and a combo of `gemini-2.5-flash-lite` then `gemini-2.5-flash`. `opencode run` completed. The gateway's request log shows the session header on 2 of 2 requests. Flash-Lite answered 404 for this key, so the combo moved to Flash and the ledger says so. Afterwards the connection was removed with its key (no credential entries left) and the scratch store deleted.
+
 ## Not verified yet
 
-- **Anthropic-compatible endpoints other than Anthropic's own**, and the parity cases listed as not covered above.
+- **Anthropic-compatible endpoints other than Anthropic's own.**
+- **403, 429, quota and timeout answers from real providers** (fixtures cover 401, 400 and 404).
 - **OpenRouter's acceptance of `cache_control` on translated content parts.** It follows OpenRouter's documentation but has not been measured.
 
 - **Claude Code in an interactive terminal.** A headless session was run (below); an interactive one may send background requests that `-p` does not, and was not run.
 - **The counter-review changes against a real provider.** The quota-group hold, HTTP-date resets, the attempt journal and the at-risk accounting were tested against the fake provider only.
-- **OpenCode configuration snippet.** Its format follows OpenCode's documented custom-provider config, but it was not run.
-- **Providers other than Gemini.** OpenRouter, OpenAI, Groq, DeepSeek and Ollama were tested only against the fake provider.
+- **Providers other than Gemini, Anthropic and Qwen answering successfully.** OpenRouter, OpenAI, Groq, DeepSeek and Mistral gave their real 401 answers (above); a successful request, and Ollama, only against the fake provider.
 - **Clicking through the native window.** It was checked through screenshots and DevTools-driven commands. The D12 checks for traffic-light controls (snap layouts, scaling, screen readers) remain open.
 
 ## Designed, not built

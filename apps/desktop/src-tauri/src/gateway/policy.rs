@@ -28,11 +28,13 @@ pub struct ProviderError {
     pub code: Option<String>,
     /// When the provider said it may be tried again.
     pub retry_after: Option<Duration>,
+    /// The provider's message, for the few cases where only it says what happened.
+    pub message: Option<String>,
 }
 
 impl ProviderError {
     pub fn new(status: u16) -> ProviderError {
-        ProviderError { status, code: None, retry_after: None }
+        ProviderError { status, code: None, retry_after: None, message: None }
     }
 
     /// Reads the status, the reset time and the provider's error code from an error response.
@@ -45,7 +47,17 @@ impl ProviderError {
             ["code", "type", "status"].iter().find_map(|k| e[*k].as_str().map(str::to_string))
         });
         let retry_after = retry_after(headers, SystemTime::now()).or_else(|| error.and_then(gemini_retry_delay));
-        ProviderError { status, code, retry_after }
+        let message = error.and_then(|e| e["message"].as_str()).map(|m| m.chars().take(300).collect());
+        ProviderError { status, code, retry_after, message }
+    }
+
+    /// A rejected key sent as 400: Gemini answers an invalid key with `400 INVALID_ARGUMENT` and `Please pass a valid
+    /// API key` (captured 2026-11-11, tests/fixtures/provider-errors/gemini-401.json).
+    fn is_rejected_key(&self) -> bool {
+        self.status == 400 && self.message.as_deref().is_some_and(|m| {
+            let m = m.to_ascii_lowercase();
+            m.contains("api key") && (m.contains("valid") || m.contains("expired"))
+        })
     }
 
     fn code_is(&self, codes: &[&str]) -> bool {
@@ -105,6 +117,7 @@ pub fn decide(failure: &Failure) -> Decision {
             let wait = |default: Duration| Some(e.retry_after.unwrap_or(default).min(COOLDOWN_CAP));
             match e.status {
                 401 => decision(Next::OtherGroups, mark(false, "invalid_credentials", None), false),
+                400 if e.is_rejected_key() => decision(Next::OtherGroups, mark(false, "invalid_credentials", None), false),
                 402 => decision(Next::OtherGroups, mark(false, "payment_required", wait(Duration::from_secs(600))), false),
                 // OpenAI says "insufficient_quota" with a 429 when the account is out of credit: that is the
                 // account, not one model, and it does not pass in 30 seconds.

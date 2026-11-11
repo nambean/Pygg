@@ -1,0 +1,17 @@
+{
+    "case":  "qwen-401",
+    "captured":  "2026-11-11",
+    "url":  "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "status":  401,
+    "headers":  {
+                    "content-type":  "application/json"
+                },
+    "body":  {
+                 "error":  {
+                               "message":  "Invalid API-key provided. For details, see: https://www.alibabacloud.com/help/en/model-studio/error-code#apikey-error",
+                               "id":  "88041517-a7b7-4ef3-9df7-20ed8d787569",
+                               "type":  "invalid_request_error",
+                               "code":  "invalid_api_key"
+                           }
+             }
+}

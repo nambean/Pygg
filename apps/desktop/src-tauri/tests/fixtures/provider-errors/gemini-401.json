@@ -1,0 +1,16 @@
+{
+    "case":  "gemini-401",
+    "captured":  "2026-11-11",
+    "url":  "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    "status":  400,
+    "headers":  {
+                    "content-type":  "application/json; charset=UTF-8"
+                },
+    "body":  {
+                 "error":  {
+                               "code":  400,
+                               "message":  "Please pass a valid API key",
+                               "status":  "INVALID_ARGUMENT"
+                           }
+             }
+}

@@ -1,0 +1,16 @@
+{
+    "case":  "groq-401",
+    "captured":  "2026-11-11",
+    "url":  "https://api.groq.com/openai/v1/chat/completions",
+    "status":  401,
+    "headers":  {
+                    "content-type":  "application/json"
+                },
+    "body":  {
+                 "error":  {
+                               "message":  "Invalid API Key",
+                               "type":  "invalid_request_error",
+                               "code":  "invalid_api_key"
+                           }
+             }
+}

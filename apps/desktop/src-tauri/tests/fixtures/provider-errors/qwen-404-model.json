@@ -1,0 +1,17 @@
+{
+    "case":  "qwen-404-model",
+    "captured":  "2026-11-11",
+    "url":  "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "status":  404,
+    "headers":  {
+                    "content-type":  "application/json"
+                },
+    "body":  {
+                 "error":  {
+                               "message":  "Model not exist.",
+                               "id":  "3e23420f-badf-4231-b52a-6b50e71aab43",
+                               "type":  "invalid_request_error",
+                               "code":  "model_not_found"
+                           }
+             }
+}

@@ -7,7 +7,9 @@
 # Uses a scratch store; the key is put in the OS credential store for the gateway and removed at the end.
 #
 # -Features instead compares thinking with a tool call, and citations on a document (4 small requests).
-param([string]$Model = 'claude-haiku-4-5', [int]$Port = 8796, [switch]$Features)
+# -CountTokens compares /v1/messages/count_tokens, which generates nothing and is free.
+# -Extended compares the 1-hour cache (write, then read) and a two-turn tool round trip (8 requests, about $0.05).
+param([string]$Model = 'claude-haiku-4-5', [int]$Port = 8796, [switch]$Features, [switch]$Extended, [switch]$CountTokens)
 $ErrorActionPreference = 'Stop'
 if (-not $env:ANTHROPIC_API_KEY) { throw 'Set ANTHROPIC_API_KEY first.' }
 $root = Split-Path $PSScriptRoot -Parent
@@ -75,7 +77,44 @@ try {
       }
     }
   }
-  foreach ($stream in $(if ($Features) { @() } else { @($false, $true) })) {
+  if ($CountTokens) {
+    $tool = @{ name = 'get_weather'; description = 'Weather for a city'
+      input_schema = @{ type = 'object'; properties = @{ city = @{ type = 'string' } }; required = @('city') } }
+    foreach ($arm in $arms) {
+      $body = @{ model = $(if ($arm.name -eq 'gateway') { "anthropic/$Model" } else { $Model }); tools = @($tool)
+        system = "Count run. $filler"; messages = @(@{ role = 'user'; content = 'What is the weather in Hanoi?' }) }
+      $url = $arm.url -replace '/messages$', '/messages/count_tokens'
+      $j = (Post $url $arm.headers $body).Body | ConvertFrom-Json
+      $rows += [pscustomobject]@{ case = 'count_tokens'; arm = $arm.name; input_tokens = $j.input_tokens; error = $j.error.message }
+    }
+  }  if ($Extended) {
+    $nonce = Get-Random
+    foreach ($arm in $arms) {
+      $body = Request "$($arm.name)-1h-$nonce" $false
+      $body.system[0].cache_control = @{ type = 'ephemeral'; ttl = '1h' }
+      if ($arm.name -eq 'gateway') { $body.model = "anthropic/$Model" }
+      foreach ($turn in 1, 2) {
+        $u = Usage (Post $arm.url $arm.headers $body) $false
+        $rows += [pscustomobject]@{ case = '1h cache'; arm = $arm.name; turn = $turn; input = $u.input_tokens
+          write_1h = $u.cache_creation.ephemeral_1h_input_tokens; write_5m = $u.cache_creation.ephemeral_5m_input_tokens; cache_read = $u.cache_read_input_tokens }
+      }
+    }
+    $tool = @{ name = 'get_weather'; description = 'Weather for a city'
+      input_schema = @{ type = 'object'; properties = @{ city = @{ type = 'string' } }; required = @('city') } }
+    foreach ($arm in $arms) {
+      $ask = @{ role = 'user'; content = 'What is the weather in Hanoi? Use the tool, then answer in one sentence.' }
+      $first = @{ model = $(if ($arm.name -eq 'gateway') { "anthropic/$Model" } else { $Model }); max_tokens = 300; tools = @($tool); messages = @($ask) }
+      $j1 = (Post $arm.url $arm.headers $first).Body | ConvertFrom-Json
+      $use = $j1.content | Where-Object { $_.type -eq 'tool_use' } | Select-Object -First 1
+      $second = $first.Clone()
+      $second.messages = @($ask, @{ role = 'assistant'; content = $j1.content },
+        @{ role = 'user'; content = @(@{ type = 'tool_result'; tool_use_id = $use.id; content = '31 degrees C and sunny' }) })
+      $j2 = (Post $arm.url $arm.headers $second).Body | ConvertFrom-Json
+      $text = ($j2.content | Where-Object { $_.type -eq 'text' } | ForEach-Object { $_.text }) -join ' '
+      $rows += [pscustomobject]@{ case = 'tool round trip'; arm = $arm.name; turn1 = "$($j1.stop_reason) $($use.name)($($use.input.city))"
+        turn2 = $j2.stop_reason; uses_result = $text.Contains('31'); error = "$($j1.error.message)$($j2.error.message)" }
+    }
+  }  foreach ($stream in $(if ($Features -or $Extended -or $CountTokens) { @() } else { @($false, $true) })) {
     $nonce = Get-Random
     foreach ($arm in $arms) {
       $body = Request "$($arm.name)-$nonce" $stream
@@ -89,7 +128,8 @@ try {
       }
     }
   }
-  $rows | Format-Table -AutoSize | Out-String | Write-Output
+  # Rows of different cases have different columns: one table per case.
+  $rows | Group-Object { if ($_.case) { $_.case } else { "cache, stream=$($_.stream)" } } | ForEach-Object { $_.Group | Format-Table -AutoSize | Out-String -Width 220 | Write-Output }
   "Ledger through the gateway:"
   & $g --db $db usage
 } finally {

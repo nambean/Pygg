@@ -1,0 +1,12 @@
+{
+    "case":  "mistral-401",
+    "captured":  "2026-11-11",
+    "url":  "https://api.mistral.ai/v1/chat/completions",
+    "status":  401,
+    "headers":  {
+                    "content-type":  "application/json"
+                },
+    "body":  {
+                 "detail":  "Invalid API Key"
+             }
+}

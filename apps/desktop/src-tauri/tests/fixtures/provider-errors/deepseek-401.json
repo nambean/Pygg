@@ -1,0 +1,17 @@
+{
+    "case":  "deepseek-401",
+    "captured":  "2026-11-11",
+    "url":  "https://api.deepseek.com/chat/completions",
+    "status":  401,
+    "headers":  {
+                    "content-type":  "application/json"
+                },
+    "body":  {
+                 "error":  {
+                               "message":  "Authentication Fails, Your api key: ****0000 is invalid (request_id: b22128f8-68ea-4d72-9374-9cb4f485b38e)",
+                               "type":  "authentication_error",
+                               "param":  null,
+                               "code":  "invalid_request_error"
+                           }
+             }
+}
