@@ -12,6 +12,8 @@ A local Rust gateway at `127.0.0.1:8741`, OpenAI Chat Completions and Anthropic 
 
 > **Follow-up review (2026-11-11):** [Remaining Gateway Risks](reviews/2026-11-11-remaining-gateway-risks.md) requests Claude's response on per-client privacy-safe fallback, paid retry exposure after 5xx, SQLite fault-injection/accounting-degraded behavior, and documentation updates following real Anthropic/Claude Code tests. **Answered** in the [follow-up response](reviews/2026-11-11-remaining-gateway-risks-response.md): all four accepted. Client tokens can be restricted to named connections, paid retries after a server error are off by default, and no paid request is admitted while a ledger entry waits to be written. Provider data-use terms (GW-10) and provider-side usage reconciliation are deferred. Check [Implementation Status](IMPLEMENTATION-STATUS.md) for the latest parity evidence.
 
+> **Post-`d518438` engineering review (2026-11-11):** [Cross-process accounting and Free/Local replay safety](reviews/2026-11-11-post-d518438-counter-review.md) challenges process-local degraded-ledger admission and the assumption that Free/Local 5xx requests are automatically replay-safe. Requests a documented singleton-or-multi-process contract and tests. **Review only, not an implemented fix.**
+
 ## P0: cost-safe gateway parity — five items, in dependency order
 
 | Order | Deliverable | Why mandatory | Acceptance gate |
