@@ -250,6 +250,13 @@ where
 }
 
 async fn loopback_host_only(request: Request, next: Middleware, port: u16) -> Response {
+    // A request log for checking what a client sends (which paths, whether each carries a session id).
+    // Off unless SMARTTASKROUTER_LOG_REQUESTS is set; it never prints tokens or bodies.
+    if std::env::var_os("SMARTTASKROUTER_LOG_REQUESTS").is_some() {
+        let h = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok()).unwrap_or("-").to_string();
+        eprintln!("{} {} {} session={} ua={}", crate::db::now_ms(), request.method(), request.uri().path(),
+            h(SESSION_HEADER), h("user-agent"));
+    }
     let host = request.headers().get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("");
     let allowed = ["127.0.0.1", "localhost", "[::1]"]
         .iter()

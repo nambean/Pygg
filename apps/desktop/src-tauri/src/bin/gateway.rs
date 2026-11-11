@@ -132,10 +132,11 @@ async fn main() {
             println!("{} requests, {} failed, {} fell back, known cost {}, {} with unknown cost",
                 summary.total.requests, summary.total.failed, summary.total.fallbacks, money(summary.total.known_micro_usd), summary.total.unknown_requests);
             for e in summary.recent {
-                println!("{:<22} {:<10} {:>6}/{:<6} {:<10} {:<10} {}", format!("{}/{}", e.provider, e.model), e.outcome,
+                println!("{:<22} {:<10} {:>6}/{:<6} {:<10} {:<10} {} [{} session={}]", format!("{}/{}", e.provider, e.model), e.outcome,
                     e.input_tokens.map(|v| v.to_string()).unwrap_or("-".into()),
                     e.output_tokens.map(|v| v.to_string()).unwrap_or("-".into()),
-                    e.cost_micro_usd.map(money).unwrap_or("unknown".into()), e.cost_status, e.cost_source);
+                    e.cost_micro_usd.map(money).unwrap_or("unknown".into()), e.cost_status, e.cost_source,
+                    e.route_mode.as_deref().unwrap_or("-"), e.session_key.as_deref().unwrap_or("-"));
             }
         }
         other => fail(format!("unknown command {other}")),

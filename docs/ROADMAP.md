@@ -27,7 +27,7 @@ A local Rust gateway at `127.0.0.1:8741`, OpenAI Chat Completions and Anthropic 
 | P0-1 | **Built, fake-tested.** Native-format semantic passthrough (key order kept, provider limit headers passed back), cache-preserving translation for OpenRouter, every dropped field reported | Parity measured against a real Anthropic endpoint (no key here); OpenRouter cache behaviour measured |
 | P0-2 | **Built, fake-tested.** Error-scoped fallback, quota-group hold across requests, provider error codes, cooldowns from `Retry-After` (seconds or HTTP date) or Gemini `RetryInfo`, no replay after an ambiguous timeout or 408/504/524 | Fixtures per real provider; GW-7 (fallback before the first token rather than before headers) held, as the response advised |
 | P0-3 | **Built, fake-tested.** Attempt journal before sending, atomic settlement, estimated admission holds, spend at risk counted, per-client in-flight cap, unknown-price policy, detached handlers | The limit is an estimate, not a hard cap (stated in the UI); strict mode after the P0-5 catalog |
-| P0-4 | **Built, fake-tested.** Explicit `x-smarttaskrouter-session` only, scoped per client, expired pins deleted; snippets set it | Whether Claude Code puts the header on every request of a long session (needs a run) |
+| P0-4 | **Built, fake-tested.** Explicit `x-smarttaskrouter-session` only, scoped per client, expired pins deleted; snippets set it | Headless Claude Code session: header on 12 of 12 requests (sub-agent and `/compact` included). Interactive terminal not run |
 | P0-5 | Not started | Next |
 
 Details and verification: [Implementation Status](IMPLEMENTATION-STATUS.md). Decisions taken while building: [architect decisions](reviews/2026-11-11-architect-decisions.md).

@@ -11,7 +11,7 @@ The levels are cumulative. **Fake-tested** means end-to-end tests against the fa
 | P0-1 same-format passthrough | Yes | Yes | Translation only (Gemini); native Anthropic not live | No | No |
 | P0-2 error-scoped fallback | Yes | Yes | 404 cooldown and skip (Gemini) | Not applicable | No |
 | P0-3 budgets and complete ledger | Yes | Yes | Ledger and prices (Gemini); reservations not live | Not applicable | No |
-| P0-4 explicit sessions | Yes | Yes | Pinning (Gemini, direct requests); Claude Code not run | Not applicable | No |
+| P0-4 explicit sessions | Yes | Yes | Pinning (Gemini, direct requests); Claude Code headless session carried the header on 12 of 12 requests | Not applicable | No |
 | P0-5 Auto routing | No | No | No | No | No |
 
 ## Built
@@ -84,12 +84,21 @@ With the headless gateway on a scratch store and the owner's Gemini key (gemini-
 - An Anthropic request to Gemini was translated, and the response said `x-smarttaskrouter-dropped: cache_control`.
 - Afterwards the connection was removed with its key, and the scratch store deleted.
 
+## Live verification: Claude Code through the gateway, 2026-11-11
+
+With the owner's go-ahead, Claude Code 2.1.317 ran a headless session (`claude -p`, four invocations of one session) against the headless gateway on a scratch store, routed to `gemini/gemini-3.1-flash-lite` through the Anthropic → OpenAI translation:
+
+- `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` (a client token), `ANTHROPIC_MODEL` and the default Haiku, Sonnet, Opus and sub-agent models all set to that route, `ANTHROPIC_CUSTOM_HEADERS="x-smarttaskrouter-session: cc-live-1"`. Its own config folder, so none of the owner's settings were used. Tools limited to reading and editing files and sub-agents in a scratch folder; no shell, no web.
+- Turns: create a file and read it back (write and read tools); a sub-agent that lists the folder; `/compact`; an edit and a read.
+- All four turns completed. The gateway's request log (`SMARTTASKROUTER_LOG_REQUESTS=1`) shows **12 of 12 requests to `/v1/messages` carrying the session header**, including the sub-agent's and the compaction's. No `count_tokens` call was made. The ledger has 12 entries, all `translated:anthropic->openai` with `session=cc-live-1`. Prompt input totaled about 117k tokens and output about 1.2k: a few cents at Flash-Lite prices.
+- Afterwards the connection was removed with its key, and the scratch store, config and token deleted.
+
 ## Not verified yet
 
 - **Native Anthropic passthrough against a real Anthropic or Anthropic-compatible endpoint.** It is tested only against a fake endpoint. No Anthropic key is available here. The cache-parity gate in the ROADMAP (direct versus through the gateway, cache read and write) is still open.
 - **OpenRouter's acceptance of `cache_control` on translated content parts.** It follows OpenRouter's documentation but has not been measured.
 
-- **Claude Code against the gateway.** The Messages API was tested with direct requests, including tools and streaming. A full Claude Code session was not run, because running an agent here needs the owner's go-ahead. Whether `ANTHROPIC_CUSTOM_HEADERS` puts the session header on every request of a long session (tool calls, `/compact`, sub-agents) is therefore not known.
+- **Claude Code in an interactive terminal.** A headless session was run (below); an interactive one may send background requests that `-p` does not, and was not run.
 - **The counter-review changes against a real provider.** The quota-group hold, HTTP-date resets, the attempt journal and the at-risk accounting were tested against the fake provider only.
 - **OpenCode configuration snippet.** Its format follows OpenCode's documented custom-provider config, but it was not run.
 - **Providers other than Gemini.** OpenRouter, OpenAI, Groq, DeepSeek and Ollama were tested only against the fake provider.
