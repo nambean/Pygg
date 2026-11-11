@@ -15,6 +15,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0007_auto_routing.sql"),
     include_str!("../migrations/0008_task_engine.sql"),
     include_str!("../migrations/0009_tasks_from_clients.sql"),
+    include_str!("../migrations/0010_approval_estimates.sql"),
 ];
 
 pub const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;

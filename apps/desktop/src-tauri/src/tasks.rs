@@ -352,6 +352,10 @@ pub struct AttemptView {
     pub finished_at: Option<i64>,
     /// Its worktree is still there: the result waits for the user.
     pub open: bool,
+    /// The agent's own list-price estimate for the run, when it gave one.
+    pub agent_estimate_usd: Option<f64>,
+    /// The cap the user approved, for a paid step.
+    pub cap_usd: Option<f64>,
     #[serde(skip)]
     worktree: Option<String>,
     #[serde(skip)]
@@ -374,6 +378,20 @@ pub struct TaskDetail {
     pub policy: Policy,
     /// Every attempt in full (the summary's `attempts` are the chips).
     pub attempt_details: Vec<AttemptView>,
+    /// The paid step waiting for the user's decision, if any.
+    pub approval: Option<ApprovalView>,
+}
+
+/// A pending approval as the user sees it: what would run, what it cost before, and a cap to start from.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovalView {
+    pub step: usize,
+    pub label: String,
+    pub estimate: Estimate,
+    pub suggested_cap_usd: f64,
+    /// The agent stops at the cap itself (Claude Code); otherwise it is checked against the cost reported afterwards.
+    pub enforced_by_agent: bool,
 }
 
 struct TaskRow {
@@ -422,7 +440,8 @@ fn attempts_of(conn: &Connection, task_id: &str) -> Result<Vec<AttemptView>> {
                 a.escalation_reason, a.check_results_json, a.files_changed, a.insertions, a.deletions, a.summary, a.log_tail, \
                 (SELECT SUM(input_tokens) FROM usage_events u WHERE u.attempt_id = a.id), \
                 (SELECT SUM(output_tokens) FROM usage_events u WHERE u.attempt_id = a.id), \
-                a.started_at, a.finished_at, a.worktree_path, a.base_revision \
+                a.started_at, a.finished_at, a.worktree_path, a.base_revision, a.agent_estimate_micro_usd, \
+                (SELECT cap_micro_usd FROM approvals p WHERE p.attempt_id = a.id AND p.state = 'approved' ORDER BY p.created_at DESC LIMIT 1) \
          FROM attempts a JOIN task_stages s ON s.id = a.stage_id WHERE s.task_id = ?1 ORDER BY a.number").map_err(err)?;
     let rows = statement.query_map([task_id], |r| {
         let checks: Option<String> = r.get(11)?;
@@ -435,6 +454,8 @@ fn attempts_of(conn: &Connection, task_id: &str) -> Result<Vec<AttemptView>> {
             files_changed: r.get(12)?, insertions: r.get(13)?, deletions: r.get(14)?, summary: r.get(15)?, log_tail: r.get(16)?,
             input_tokens: r.get(17)?, output_tokens: r.get(18)?, started_at: r.get(19)?, finished_at: r.get(20)?,
             open: worktree.is_some(), worktree, base: r.get(22)?,
+            agent_estimate_usd: r.get::<_, Option<i64>>(23)?.map(|m| m as f64 / 1e6),
+            cap_usd: r.get::<_, Option<i64>>(24)?.filter(|c| *c > 0).map(|c| c as f64 / 1e6),
         })
     }).map_err(err)?;
     rows.collect::<rusqlite::Result<Vec<_>>>().map_err(err)
@@ -494,11 +515,30 @@ pub fn task_detail_for(conn: &Connection, id: &str, client_id: Option<&str>) -> 
     }
     let attempts = attempts_of(conn, id)?;
     let summary = summary_of(conn, id, &row, &attempts)?;
+    let approval = approval_of(conn, &row, &attempts)?;
     Ok(TaskDetail {
         summary, prompt: row.prompt, strategy: row.strategy, reason: row.reason, result: row.result,
         result_branch: row.result_branch, base_revision: row.base_revision, workspace_name: row.workspace_name,
+        approval,
         workspace_path: row.workspace_path, policy: row.policy, attempt_details: attempts,
     })
+}
+
+fn approval_of(conn: &Connection, row: &TaskRow, attempts: &[AttemptView]) -> Result<Option<ApprovalView>> {
+    if row.state != "waiting_approval" {
+        return Ok(None);
+    }
+    let Some(waiting) = attempts.iter().rev().find(|a| a.outcome == "waiting") else { return Ok(None) };
+    let Some(step) = row.policy.steps.get(waiting.step) else { return Ok(None) };
+    let estimate: Option<(Option<i64>, Option<i64>, String)> = conn.query_row(
+        "SELECT estimate_low_micro, estimate_high_micro, policy_version FROM approvals WHERE attempt_id = ?1 AND state = 'pending' \
+         ORDER BY created_at DESC LIMIT 1", [&waiting.id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional().map_err(err)?;
+    let Some((low, high, asked_on)) = estimate else { return Ok(None) };
+    // The number of runs the estimate was made from, as recorded in its basis.
+    let runs = asked_on.split('|').nth(5).and_then(|n| n.parse().ok()).unwrap_or(0);
+    let estimate = Estimate { runs, low_micro_usd: low.map(|v| v as u64), high_micro_usd: high.map(|v| v as u64) };
+    Ok(Some(ApprovalView { step: waiting.step, label: waiting.label.clone(), suggested_cap_usd: usd(suggested_cap_micro(&estimate)),
+        enforced_by_agent: agents::enforces_budget(&step.agent), estimate }))
 }
 
 // ---------- State changes ----------
@@ -557,9 +597,7 @@ fn open_attempt(conn: &Connection, task_id: &str, stage_id: &str, index: usize, 
         params![id, stage_id, number, step.agent, step_label(step), step.tier, step.billing, if paid { "waiting" } else { "running" },
             if paid { None } else { Some(now) }, index as i64])?;
     if paid {
-        // Agents report no cost before they run, so the approval carries no cap: it approves the step itself.
-        conn.execute("INSERT INTO approvals (id, attempt_id, cap_micro_usd, policy_version, state, created_at) \
-                      VALUES (?1, ?2, 0, 'tasks-v1', 'pending', ?3)", params![new_id(), id, now])?;
+        ask_approval(conn, &id, step)?;
         set_task(conn, task_id, "waiting_approval", None, Some(&paid_reason(index, step)))?;
         return Ok(Opened::Waiting);
     }
@@ -570,6 +608,63 @@ fn paid_reason(index: usize, step: &Step) -> String {
     format!("Step {} ({}) is marked paid, so it waits for your approval.", index + 1, step_label(step))
 }
 
+/// What earlier runs of an agent and model cost by the agent's own report (its list-price estimate): the basis of
+/// an approval's estimate. Agents report a cost only after a run, so there is nothing better before one.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Estimate {
+    pub runs: u32,
+    pub low_micro_usd: Option<u64>,
+    pub high_micro_usd: Option<u64>,
+}
+
+/// How many recent runs an estimate looks at.
+const ESTIMATE_RUNS: i64 = 10;
+
+fn estimate_for(conn: &Connection, step: &Step) -> rusqlite::Result<Estimate> {
+    let mut statement = conn.prepare(
+        "SELECT agent_estimate_micro_usd FROM attempts WHERE agent = ?1 AND model_ref = ?2 \
+         AND agent_estimate_micro_usd IS NOT NULL ORDER BY finished_at DESC LIMIT ?3")?;
+    let values: Vec<i64> = statement.query_map(params![step.agent, step_label(step), ESTIMATE_RUNS], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(Estimate { runs: values.len() as u32, low_micro_usd: values.iter().min().map(|v| (*v).max(0) as u64),
+        high_micro_usd: values.iter().max().map(|v| (*v).max(0) as u64) })
+}
+
+/// What an approval was asked on (`approvals.policy_version`): the step and its estimate. When it is different at
+/// the moment the user decides, the approval no longer describes what would run (ADR-010).
+fn basis(step: &Step, estimate: &Estimate) -> String {
+    format!("tasks-v2|{}|{}|T{}|{}|{}|{:?}|{:?}", step.agent, step.model.as_deref().unwrap_or(""), step.tier, step.billing,
+        estimate.runs, estimate.low_micro_usd, estimate.high_micro_usd)
+}
+
+/// A pending approval for one attempt, with the estimate as it is now. The cap is the user's, set when approving.
+fn ask_approval(conn: &Connection, attempt: &str, step: &Step) -> rusqlite::Result<()> {
+    let estimate = estimate_for(conn, step)?;
+    conn.execute("INSERT INTO approvals (id, attempt_id, cap_micro_usd, estimate_low_micro, estimate_high_micro, policy_version, \
+                  state, created_at) VALUES (?1, ?2, 0, ?3, ?4, ?5, 'pending', ?6)",
+        params![new_id(), attempt, estimate.low_micro_usd.map(|v| v as i64), estimate.high_micro_usd.map(|v| v as i64),
+            basis(step, &estimate), now_ms()]).map(|_| ())
+}
+
+/// The cap the user approved for an attempt.
+fn approved_cap(conn: &Connection, attempt: &str) -> rusqlite::Result<Option<u64>> {
+    conn.query_row("SELECT cap_micro_usd FROM approvals WHERE attempt_id = ?1 AND state = 'approved' ORDER BY created_at DESC LIMIT 1",
+        [attempt], |r| r.get::<_, i64>(0)).optional().map(|v| v.filter(|c| *c > 0).map(|c| c as u64))
+}
+
+/// A cap to offer: half again the highest recent cost, rounded up to 5 cents; 50 cents with no history.
+fn suggested_cap_micro(estimate: &Estimate) -> u64 {
+    match estimate.high_micro_usd {
+        Some(high) => (high * 3 / 2).div_ceil(50_000).max(1) * 50_000,
+        None => 500_000,
+    }
+}
+
+fn usd(micro: u64) -> f64 {
+    micro as f64 / 1e6
+}
+
 fn close_attempt(conn: &Connection, id: &str, outcome: &str, escalation: Option<&str>) -> rusqlite::Result<()> {
     conn.execute("UPDATE attempts SET state = ?2, escalation_reason = COALESCE(?3, escalation_reason), finished_at = ?4 WHERE id = ?1",
         params![id, outcome, escalation, now_ms()]).map(|_| ())
@@ -578,9 +673,10 @@ fn close_attempt(conn: &Connection, id: &str, outcome: &str, escalation: Option<
 fn save_run(conn: &Connection, id: &str, run: &TaskRun) -> rusqlite::Result<()> {
     let detail = run.usage.error.clone().filter(|_| run.outcome != "ok").unwrap_or_else(|| run.exit.clone());
     conn.execute("UPDATE attempts SET worktree_path = ?2, base_revision = ?3, agent_model = ?4, detail = ?5, files_changed = ?6, \
-                  insertions = ?7, deletions = ?8, summary = ?9, log_tail = ?10 WHERE id = ?1",
+                  insertions = ?7, deletions = ?8, summary = ?9, log_tail = ?10, agent_estimate_micro_usd = ?11 WHERE id = ?1",
         params![id, run.worktree, run.base, run.usage.model, detail, run.files_changed as i64, run.insertions as i64,
-            run.deletions as i64, run.usage.result, run.log_tail]).map(|_| ())
+            run.deletions as i64, run.usage.result, run.log_tail,
+            run.usage.estimate_usd.map(|usd| (usd * 1e6).round().max(0.0) as i64)]).map(|_| ())
 }
 
 fn forget_worktree(conn: &Connection, attempt: &str) -> rusqlite::Result<()> {
@@ -643,6 +739,8 @@ pub struct ExecRequest {
     pub prompt: String,
     pub allow_shell: bool,
     pub timeout_secs: u64,
+    /// The cap the user approved for a paid step; the agent enforces it where it can (`agents::enforces_budget`).
+    pub max_budget_usd: Option<f64>,
 }
 
 /// Runs one attempt and returns its run, worktree included. The app's runs the agent CLI (`agent_executor`);
@@ -655,6 +753,7 @@ pub fn agent_executor() -> Executor {
             let request = agents::TaskRequest {
                 agent: request.agent, workspace: request.workspace, prompt: request.prompt, model: request.model,
                 allow_shell: request.allow_shell, timeout_secs: Some(request.timeout_secs), base: Some(request.base),
+                max_budget_usd: request.max_budget_usd,
             };
             agents::run(&request, &worktrees, canceled(cancel)).await
         })
@@ -756,25 +855,53 @@ impl Runner {
         })
     }
 
-    /// Approves or declines the paid step a task waits on. Approving continues the task.
-    pub fn decide(&self, id: &str, approve: bool) -> Result<Option<tokio::task::JoinHandle<()>>> {
+    /// Approves the paid step a task waits on with a spending cap (micro-USD), or declines it (ADR-010: an approval
+    /// names one attempt and a cap). If the step's estimate changed since the approval was asked, the approval is
+    /// invalidated, a new one is asked with the new estimate, and this returns an error saying so. Approving
+    /// continues the task.
+    pub fn decide(&self, id: &str, approve: bool, cap_micro_usd: Option<u64>) -> Result<Option<tokio::task::JoinHandle<()>>> {
+        let cap = match (approve, cap_micro_usd) {
+            (true, Some(cap)) if cap > 0 => Some(cap),
+            (true, _) => return Err("Set a spending cap for this paid step".into()),
+            (false, _) => None,
+        };
         self.with_db(|c| {
             let row = task_row(c, id)?;
             if row.state != "waiting_approval" {
                 return Err("This task is not waiting for an approval".into());
             }
-            let attempt: String = c.query_row("SELECT id FROM attempts WHERE stage_id = ?1 AND state = 'waiting' ORDER BY number DESC LIMIT 1",
-                [&row.stage_id], |r| r.get(0)).optional().map_err(err)?.ok_or("This task is not waiting for an approval")?;
+            let (attempt, rung): (String, i64) = c.query_row(
+                "SELECT id, rung FROM attempts WHERE stage_id = ?1 AND state = 'waiting' ORDER BY number DESC LIMIT 1",
+                [&row.stage_id], |r| Ok((r.get(0)?, r.get(1)?))).optional().map_err(err)?
+                .ok_or("This task is not waiting for an approval")?;
+            let step = row.policy.steps.get(rung as usize).ok_or("The waiting step is not in the task's policy")?;
+            let asked_on: Option<String> = c.query_row(
+                "SELECT policy_version FROM approvals WHERE attempt_id = ?1 AND state = 'pending' ORDER BY created_at DESC LIMIT 1",
+                [&attempt], |r| r.get(0)).optional().map_err(err)?;
             let tx = c.unchecked_transaction().map_err(err)?;
-            tx.execute("UPDATE approvals SET state = ?2, decided_at = ?3 WHERE attempt_id = ?1 AND state = 'pending'",
-                params![attempt, if approve { "approved" } else { "denied" }, now_ms()]).map_err(err)?;
+            if approve {
+                let now_basis = basis(step, &estimate_for(&tx, step).map_err(err)?);
+                if asked_on.as_deref() != Some(now_basis.as_str()) {
+                    tx.execute("UPDATE approvals SET state = 'invalidated', decided_at = ?2 WHERE attempt_id = ?1 AND state = 'pending'",
+                        params![attempt, now_ms()]).map_err(err)?;
+                    ask_approval(&tx, &attempt, step).map_err(err)?;
+                    audit(&tx, "approval.invalidated", id, serde_json::json!({"attempt": attempt})).map_err(err)?;
+                    tx.commit().map_err(err)?;
+                    return Err("This step's estimate changed since you were asked: other runs of this agent were recorded. \
+                        Check the new estimate and approve again.".into());
+                }
+            }
+            tx.execute("UPDATE approvals SET state = ?2, cap_micro_usd = COALESCE(?3, cap_micro_usd), decided_at = ?4 \
+                        WHERE attempt_id = ?1 AND state = 'pending'",
+                params![attempt, if approve { "approved" } else { "denied" }, cap.map(|c| c as i64), now_ms()]).map_err(err)?;
             if approve {
                 set_task(&tx, id, "running", Some("preparing"), None).map_err(err)?;
             } else {
                 close_attempt(&tx, &attempt, "canceled", Some("You declined this paid step")).map_err(err)?;
                 set_task(&tx, id, "blocked", None, Some("You declined the paid step, and no step after it is free to run")).map_err(err)?;
             }
-            audit(&tx, if approve { "approval.approved" } else { "approval.denied" }, id, serde_json::json!({"attempt": attempt})).map_err(err)?;
+            audit(&tx, if approve { "approval.approved" } else { "approval.denied" }, id,
+                serde_json::json!({"attempt": attempt, "capMicroUsd": cap})).map_err(err)?;
             tx.commit().map_err(err)
         })?;
         Ok(if approve { self.start(id) } else { None })
@@ -802,10 +929,16 @@ impl Runner {
         let Some((mut index, mut carried)) = resume_point(&attempts) else { return Ok(()) };
         let mut last_failure = attempts.iter().rev().find(|a| a.outcome == "failed").and_then(|a| a.escalation_reason.clone());
         let stop = |runner: &Runner| runner.with_db(|c| set_task(c, id, "canceled", None, Some("You stopped it"))).map_err(err);
+        // Set when a paid step went over its cap: the ladder stops there instead of trying further steps.
+        let mut halt: Option<String> = None;
 
         loop {
             if *cancel.borrow() {
                 return stop(self);
+            }
+            if let Some(why) = halt.take() {
+                let reason = format!("{why}. Pygg stopped before trying another step.");
+                return self.with_db(|c| set_task(c, id, "blocked", None, Some(&reason))).map_err(err);
             }
             let Some(step) = row.policy.steps.get(index) else {
                 let reason = format!("Every step failed. Last: {}", last_failure.as_deref().unwrap_or("no attempt ran"));
@@ -816,10 +949,11 @@ impl Runner {
                 Opened::Waiting | Opened::Declined => return Ok(()),
             };
             self.with_db(|c| set_phase(c, id, "generating")).map_err(err)?;
+            let cap = self.with_db(|c| approved_cap(c, &attempt)).map_err(err)?;
             let request = ExecRequest {
                 agent: step.agent.clone(), model: step.model.clone(), workspace: PathBuf::from(&row.workspace_path),
                 base: base.clone(), prompt: compose(&row.prompt, carried.as_deref()), allow_shell: row.policy.allow_shell,
-                timeout_secs: row.policy.timeout_secs,
+                timeout_secs: row.policy.timeout_secs, max_budget_usd: cap.map(usd),
             };
             let name = agents::find(&step.agent).map(|a| a.name).unwrap_or(step.agent.as_str());
             let run = match (self.exec)(request, self.worktrees.clone(), cancel.clone()).await {
@@ -840,6 +974,17 @@ impl Runner {
                 agents::record_for(c, &run, Some(&attempt))?;
                 save_run(c, &attempt, &run).map_err(err)
             })?;
+            // A paid step's cap, checked against what the agent says the run cost. Claude Code stops at it itself;
+            // the others can only be checked afterwards.
+            let reported = run.usage.estimate_usd.map(|u| (u * 1e6).round().max(0.0) as u64);
+            let over_cap = match (cap, reported) {
+                (Some(cap), Some(cost)) if cost > cap => Some(format!("{name}'s own estimate for this step, ${:.2}, is over your cap of ${:.2}",
+                    usd(cost), usd(cap))),
+                _ => None,
+            };
+            let cost_note = over_cap.clone().or_else(|| (cap.is_some() && reported.is_none() && !agents::enforces_budget(&step.agent))
+                .then(|| format!("{name} reported no cost, so your cap for this step could not be checked")));
+            halt = over_cap;
             let worktree = Worktree { repo: PathBuf::from(&row.workspace_path), path: PathBuf::from(&run.worktree), base: run.base.clone() };
             let drop_worktree = |runner: &Runner| {
                 let _ = isolation::discard(&worktree);
@@ -873,11 +1018,12 @@ impl Runner {
                 index += 1;
                 continue;
             }
+            let with_note = |reason: &str| match &cost_note { Some(note) => format!("{reason} {note}."), None => reason.to_string() };
             if row.policy.checks.is_empty() {
                 return self.with_db(|c| {
                     close_attempt(c, &attempt, "done", None)?;
                     set_task(c, id, "needs_review", None,
-                        Some("No checks are approved for this workspace, so nothing confirmed the result. Review the changes yourself."))
+                        Some(&with_note("No checks are approved for this workspace, so nothing confirmed the result. Review the changes yourself.")))
                 }).map_err(err);
             }
 
@@ -908,11 +1054,11 @@ impl Runner {
                     return self.with_db(|c| {
                         close_attempt(c, &attempt, "passed", None)?;
                         if touched.is_empty() {
-                            set_task(c, id, "checks_passed", None, None)
+                            set_task(c, id, "checks_passed", None, cost_note.as_ref().map(|n| format!("{n}.")).as_deref())
                         } else {
-                            set_task(c, id, "needs_review", None, Some(&format!(
+                            set_task(c, id, "needs_review", None, Some(&with_note(&format!(
                                 "The checks passed, but this attempt changed {}, which defines them. Review the changes before trusting the result.",
-                                touched.join(", "))))
+                                touched.join(", ")))))
                         }
                     }).map_err(err);
                 }
@@ -1099,6 +1245,8 @@ mod tests {
     #[derive(Clone)]
     enum Act {
         Write(&'static str, &'static str),
+        /// `Write`, and the agent reports this list-price estimate (USD) for the run.
+        Costly(&'static str, &'static str, f64),
         Fail,
         Nothing,
         WaitForStop,
@@ -1136,8 +1284,13 @@ mod tests {
                 std::fs::create_dir_all(&worktrees).unwrap();
                 let worktree = isolation::create(&request.workspace, &request.base, &worktrees.join(&id[..12])).map_err(|e| e.to_string())?;
                 let mut outcome = "ok";
+                let mut estimate = None;
                 match act {
                     Act::Write(file, text) => std::fs::write(worktree.path.join(file), text).unwrap(),
+                    Act::Costly(file, text, usd) => {
+                        std::fs::write(worktree.path.join(file), text).unwrap();
+                        estimate = Some(usd);
+                    }
                     Act::Fail => outcome = "failed",
                     Act::Nothing => {}
                     Act::WaitForStop => {
@@ -1151,7 +1304,7 @@ mod tests {
                     worktree: worktree.path.to_string_lossy().into_owned(), base: worktree.base, outcome: outcome.into(),
                     exit: if outcome == "ok" { "exit 0".into() } else { "exit 1".into() }, duration_ms: 5,
                     files_changed: stat.files, insertions: stat.insertions, deletions: stat.deletions,
-                    usage: AgentUsage { input_tokens: Some(100), output_tokens: Some(10), ..AgentUsage::default() },
+                    usage: AgentUsage { input_tokens: Some(100), output_tokens: Some(10), estimate_usd: estimate, ..AgentUsage::default() },
                     log_tail: String::new(),
                 })
             })
@@ -1270,7 +1423,7 @@ mod tests {
         assert_eq!(task.attempt_details.iter().map(|a| a.outcome.as_str()).collect::<Vec<_>>(), ["failed", "waiting"]);
         assert_eq!(rig.prompts.lock().unwrap().len(), 1, "the paid step did not start");
 
-        runner.decide(&id, true).unwrap().unwrap().await.unwrap();
+        runner.decide(&id, true, Some(500_000)).unwrap().unwrap().await.unwrap();
         let task = detail(&rig, &id);
         assert_eq!(task.summary.state, "checks_passed");
         assert_eq!(task.attempt_details.len(), 2, "the approved attempt is the one that ran");
@@ -1293,12 +1446,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_approval_needs_a_cap_and_shows_what_the_agent_cost_before() {
+        let rig = rig(&[]);
+        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
+            fake(vec![Act::Costly("x.txt", "x", 0.12), Act::Costly("y.txt", "y", 0.30)], rig.prompts.clone()));
+        let first = create(&rig, vec![step("claude-code", "paid", 3)]);
+        runner.start(&first).unwrap().await.unwrap();
+        let task = detail(&rig, &first);
+        let approval = task.approval.unwrap();
+        assert_eq!((approval.estimate.runs, approval.estimate.high_micro_usd), (0, None), "no earlier run: no estimate");
+        assert_eq!(approval.suggested_cap_usd, 0.5);
+        assert!(approval.enforced_by_agent, "Claude Code stops at --max-budget-usd itself");
+        assert_eq!(runner.decide(&first, true, None).unwrap_err(), "Set a spending cap for this paid step");
+        runner.decide(&first, true, Some(500_000)).unwrap().unwrap().await.unwrap();
+        let task = detail(&rig, &first);
+        assert_eq!(task.attempt_details[0].cap_usd, Some(0.5));
+        assert_eq!(task.attempt_details[0].agent_estimate_usd, Some(0.12));
+
+        let second = create(&rig, vec![step("claude-code", "paid", 3)]);
+        runner.start(&second).unwrap().await.unwrap();
+        let approval = detail(&rig, &second).approval.unwrap();
+        assert_eq!((approval.estimate.runs, approval.estimate.low_micro_usd, approval.estimate.high_micro_usd),
+            (1, Some(120_000), Some(120_000)));
+        assert_eq!(approval.suggested_cap_usd, 0.2, "half again the highest, rounded up to 5 cents");
+
+        // Another run of the same agent is recorded while the approval waits: the estimate it showed is stale.
+        lock(&rig.db).execute("UPDATE attempts SET agent_estimate_micro_usd = 900000 WHERE agent_estimate_micro_usd = 120000", []).unwrap();
+        assert!(runner.decide(&second, true, Some(200_000)).unwrap_err().contains("estimate changed"));
+        let approval = detail(&rig, &second).approval.unwrap();
+        assert_eq!(approval.estimate.high_micro_usd, Some(900_000), "a new approval is asked with the new estimate");
+        let states: Vec<String> = lock(&rig.db).prepare("SELECT state FROM approvals ORDER BY created_at").unwrap()
+            .query_map([], |r| r.get(0)).unwrap().map(|s| s.unwrap()).collect();
+        assert_eq!(states, ["approved", "invalidated", "pending"]);
+        runner.decide(&second, true, Some(1_500_000)).unwrap().unwrap().await.unwrap();
+        assert_eq!(detail(&rig, &second).summary.state, "needs_review");
+    }
+
+    #[tokio::test]
+    async fn a_paid_step_over_its_cap_stops_the_ladder() {
+        let rig = rig(&[good_check()]);
+        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
+            fake(vec![Act::Costly("result.txt", "bad\n", 0.40), Act::Write("result.txt", "good\n")], rig.prompts.clone()));
+        let id = create(&rig, vec![step("codex", "paid", 3), step("opencode", "free", 1)]);
+        runner.start(&id).unwrap().await.unwrap();
+        runner.decide(&id, true, Some(100_000)).unwrap().unwrap().await.unwrap();
+        let task = detail(&rig, &id);
+        assert_eq!(task.summary.state, "blocked");
+        let reason = task.reason.unwrap();
+        assert!(reason.contains("$0.40") && reason.contains("$0.10") && reason.contains("stopped"), "{reason}");
+        assert_eq!(task.attempt_details.len(), 1, "the free step after it did not run");
+    }
+
+    #[tokio::test]
+    async fn a_cap_that_cannot_be_checked_is_said_so() {
+        let rig = rig(&[]);
+        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(), fake(vec![Act::Write("x.txt", "x")], rig.prompts.clone()));
+        let id = create(&rig, vec![step("codex", "paid", 3)]);
+        runner.start(&id).unwrap().await.unwrap();
+        runner.decide(&id, true, Some(100_000)).unwrap().unwrap().await.unwrap();
+        let task = detail(&rig, &id);
+        assert!(task.reason.unwrap().contains("reported no cost, so your cap for this step could not be checked"));
+    }
+
+    #[tokio::test]
     async fn declining_a_paid_step_blocks_the_task() {
         let rig = rig(&[]);
         let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(), fake(vec![], rig.prompts.clone()));
         let id = create(&rig, vec![step("claude-code", "paid", 3)]);
         runner.start(&id).unwrap().await.unwrap();
-        assert!(runner.decide(&id, false).unwrap().is_none());
+        assert!(runner.decide(&id, false, None).unwrap().is_none());
         let task = detail(&rig, &id);
         assert_eq!((task.summary.state.as_str(), task.attempt_details[0].outcome.as_str()), ("blocked", "canceled"));
         assert!(rig.prompts.lock().unwrap().is_empty());

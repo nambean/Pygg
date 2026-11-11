@@ -530,14 +530,19 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'worksp
       logTail: null, inputTokens: a.outcome === 'waiting' ? null : 41_200, outputTokens: a.outcome === 'waiting' ? null : 1_830,
       startedAt: s.startedAt, finishedAt: a.outcome === 'running' || a.outcome === 'waiting' ? null : s.updatedAt,
       open: a.outcome === 'passed' && (s.state === 'checks_passed'),
+      agentEstimateUsd: a.outcome === 'passed' || a.outcome === 'failed' ? (a.billing === 'paid' ? 0.04 : 0) : null,
+      capUsd: a.billing === 'paid' && a.outcome !== 'waiting' ? 0.5 : null,
     }));
+    const waiting = attempts.find(a => a.outcome === 'waiting');
     return {...s, prompt: s.title, strategy: 'free_first', reason: s.state === 'interrupted'
       ? 'The app closed while this task ran. Retry runs the step again from the same code.'
       : s.state === 'waiting_approval' ? 'Step 2 is marked paid, so it waits for your approval.' : null,
       result: null, resultBranch: null, baseRevision: 'a91e7e7', workspaceName: ws.name, workspacePath: ws.path,
       policy: {steps: s.attempts.map((a, i) => ({agent: attempts[i].agent, model: null, tier: a.tier, billing: a.billing})), checks,
         allowShell: false, timeoutSecs: 900},
-      attempts: s.attempts, attemptDetails: attempts};
+      attempts: s.attempts, attemptDetails: attempts,
+      approval: s.state === 'waiting_approval' && waiting ? {step: waiting.step, label: waiting.label,
+        estimate: {runs: 4, lowMicroUsd: 20_000, highMicroUsd: 60_000}, suggestedCapUsd: 0.1, enforcedByAgent: waiting.agent === 'claude-code'} : null};
   }
   const summary = (d: TaskDetail): TaskSummary => ({id: d.id, title: d.title, workspaceId: d.workspaceId, state: d.state, phase: d.phase,
     attempts: d.attempts, cost: d.cost, startedAt: d.startedAt, updatedAt: d.updatedAt});
@@ -598,8 +603,9 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'worksp
     },
     cancelTask: async id => { const d = get(id); if (!['running', 'waiting_approval', 'interrupted'].includes(d.state)) throw 'Only a running or waiting task can be stopped';
       set(id, {state: 'canceled', phase: undefined, reason: 'You stopped it', attempts: d.attempts.map(a => a.outcome === 'running' || a.outcome === 'waiting' ? {...a, outcome: 'canceled'} : a)}); },
-    decideTask: async (id, approve) => { await sleep(150);
-      set(id, approve ? {state: 'running', phase: 'generating', reason: null, attempts: get(id).attempts.map(a => a.outcome === 'waiting' ? {...a, outcome: 'running'} : a)}
+    decideTask: async (id, approve, capUsd) => { await sleep(150);
+      if (approve && !(capUsd && capUsd > 0)) throw 'Set a spending cap for this paid step';
+      set(id, approve ? {state: 'running', phase: 'generating', reason: null, approval: null, attempts: get(id).attempts.map(a => a.outcome === 'waiting' ? {...a, outcome: 'running'} : a)}
         : {state: 'blocked', reason: 'You declined the paid step, and no step after it is free to run', attempts: get(id).attempts.map(a => a.outcome === 'waiting' ? {...a, outcome: 'canceled'} : a)}); },
     retryTask: async id => { if (get(id).state !== 'interrupted') throw 'Only an interrupted task can be retried';
       set(id, {state: 'running', phase: 'preparing', reason: null}); },

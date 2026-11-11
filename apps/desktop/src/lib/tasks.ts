@@ -81,6 +81,20 @@ export type AttemptView = {
   startedAt: number | null; finishedAt: number | null;
   /** Its worktree is still there: the result waits for the user. */
   open: boolean;
+  /** The agent's own list-price estimate for the run, when it gave one. */
+  agentEstimateUsd: number | null;
+  /** The cap the user approved, for a paid step. */
+  capUsd: number | null;
+};
+
+/** What earlier runs of the agent and model cost by its own report; null without history. */
+export type Estimate = { runs: number; lowMicroUsd: number | null; highMicroUsd: number | null };
+
+/** A paid step waiting for the user's decision (ADR-010: one attempt, one cap). */
+export type ApprovalView = {
+  step: number; label: string; estimate: Estimate; suggestedCapUsd: number;
+  /** The agent stops at the cap itself (Claude Code); otherwise it is checked against the cost it reports. */
+  enforcedByAgent: boolean;
 };
 
 export type TaskDetail = TaskSummary & {
@@ -89,6 +103,7 @@ export type TaskDetail = TaskSummary & {
   policy: { steps: Step[]; checks: { command: string; source: string }[]; allowShell: boolean; timeoutSecs: number };
   /** Every attempt in full; `attempts` holds the chips. */
   attemptDetails: AttemptView[];
+  approval: ApprovalView | null;
 };
 
 /** Display names of the agents (agents.rs AGENTS). */

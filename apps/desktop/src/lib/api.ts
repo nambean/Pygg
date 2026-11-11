@@ -193,7 +193,7 @@ export interface GatewayApi {
   createTask(task: NewTask): Promise<string>;
   cancelTask(id: string): Promise<void>;
   /** Approves or declines the paid step a task waits on. */
-  decideTask(id: string, approve: boolean): Promise<void>;
+  decideTask(id: string, approve: boolean, capUsd: number | null): Promise<void>;
   retryTask(id: string): Promise<void>;
   taskDiff(id: string): Promise<string>;
   /** Keeps the result as a branch (returned) or discards it. */
@@ -243,7 +243,7 @@ const native: GatewayApi = {
   task: id => invoke('task_get', {id}),
   createTask: task => invoke('task_create', {task}),
   cancelTask: id => invoke('task_cancel', {id}),
-  decideTask: (id, approve) => invoke('task_decide', {id, approve}),
+  decideTask: (id, approve, capUsd) => invoke('task_decide', {id, approve, capUsd}),
   retryTask: id => invoke('task_retry', {id}),
   taskDiff: id => invoke('task_diff', {id}),
   finishTask: (id, keep, title) => invoke('task_finish', {id, keep, title}),

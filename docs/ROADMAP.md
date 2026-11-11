@@ -61,7 +61,7 @@ A review of every planning doc against the build ([DECISIONS](DECISIONS.md), the
 
 **A. Make the IDE flow usable every day**
 1. **Built 2026-11-11:** tray and notifications for a paid step waiting, a task ready, needing review or not finished (SCREENS §2.5). Per ADR-010, no task names or paths, and no approve button, in a notification. Closing the window keeps the gateway and tasks running from the tray (review GW-9); both are switches in Settings → Background. Not yet: a click on a notification opening the task.
-2. Approvals as ADR-010 specifies: an estimate and a cap, invalidated when the policy, catalog or budget changes (SCREENS §6.3).
+2. **Built 2026-11-11:** approvals as ADR-010 specifies (SCREENS §6.3). The estimate is the range of the agent's own list-price estimates over its last 10 runs of that model; approving needs a cap; Claude Code stops at it itself (`--max-budget-usd`), and for other agents a reported cost over the cap stops the ladder. An approval is invalidated and asked again when its estimate changed before the user decided. Task budgets (A3) will join what invalidates an approval.
 3. Task budgets per day and per workspace (functional plan §2.4).
 4. Workspace Settings in the app: approve the checks of workspaces created from an IDE folder, privacy class, a folder picker (SCREENS §5.3).
 5. Export Patch next to Keep as Branch (ADR-009).

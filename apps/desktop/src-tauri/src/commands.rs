@@ -582,8 +582,9 @@ pub async fn task_cancel(state: State<'_, AppState>, id: String) -> Res<()> {
 }
 
 #[tauri::command]
-pub async fn task_decide(state: State<'_, AppState>, id: String, approve: bool) -> Res<()> {
-    state.tasks.decide(&id, approve).map(|_| ())
+pub async fn task_decide(state: State<'_, AppState>, id: String, approve: bool, cap_usd: Option<f64>) -> Res<()> {
+    let cap = cap_usd.filter(|c| c.is_finite() && *c > 0.0).map(|c| (c * 1e6).round() as u64);
+    state.tasks.decide(&id, approve, cap).map(|_| ())
 }
 
 #[tauri::command]

@@ -4,11 +4,11 @@ import { call, errorText, gatewayChanged } from '../lib/api';
 import { taskCost } from '../lib/format';
 import { t } from '../lib/i18n';
 import { tokens } from '../lib/money';
-import { AGENT_NAMES, type AttemptView, type TaskDetail as Detail } from '../lib/tasks';
+import { AGENT_NAMES, type ApprovalView, type AttemptView, type TaskDetail as Detail } from '../lib/tasks';
 import { useGateway } from '../hooks/useGateway';
 import { billingLabel, outcomeLabel } from './AttemptSequence';
 import { StateIcon, statusLine } from './TaskList';
-import { Badge, CopyButton, ErrorNote, Spinner } from './ui';
+import { Badge, CopyButton, ErrorNote, FormRow, Spinner } from './ui';
 
 /**
  * Task detail (SCREENS.md §5.2): what the task is waiting on, its result, and every attempt with its checks.
@@ -105,13 +105,10 @@ function Actions({task, onChanged}: {task: Detail; onChanged: () => void}) {
       </div>
     </div>}
 
+    {task.approval && <ApprovalPanel key={`${task.approval.step}-${task.approval.estimate.highMicroUsd}`} approval={task.approval}
+      busy={busy} onDecide={(approve, cap) => run(() => call(api => api.decideTask(task.id, approve, cap)))}/>}
+
     <div className="form-actions">
-      {task.state === 'waiting_approval' && <>
-        <button type="button" className="button prominent" disabled={busy} onClick={() => run(() => call(api => api.decideTask(task.id, true)))}>
-          <Check size={13} aria-hidden/>{t('Approve Paid Step')}</button>
-        <button type="button" className="button" disabled={busy} onClick={() => run(() => call(api => api.decideTask(task.id, false)))}>
-          <X size={13} aria-hidden/>{t('Decline')}</button>
-      </>}
       {task.state === 'interrupted' && <button type="button" className="button prominent" disabled={busy}
         onClick={() => run(() => call(api => api.retryTask(task.id)))}><RotateCcw size={13} aria-hidden/>{t('Retry')}</button>}
       {(task.state === 'running' || task.state === 'waiting_approval' || task.state === 'interrupted') &&
@@ -121,6 +118,40 @@ function Actions({task, onChanged}: {task: Detail; onChanged: () => void}) {
     </div>
     {error && <ErrorNote>{error}</ErrorNote>}
   </section>;
+}
+
+/**
+ * A paid step waiting for the user (ADR-010): what would run, what this agent cost before by its own report, and
+ * the cap this one approval allows. Nothing is approved automatically.
+ */
+function ApprovalPanel({approval: a, busy, onDecide}: {approval: ApprovalView; busy: boolean;
+  onDecide: (approve: boolean, capUsd: number | null) => void}) {
+  const [cap, setCap] = useState(a.suggestedCapUsd.toFixed(2));
+  const amount = Number(cap.replace(',', '.'));
+  const valid = Number.isFinite(amount) && amount > 0;
+  const e = a.estimate;
+  const money = (micro: number) => `$${(micro / 1e6).toFixed(2)}`;
+  return <div className="group-box approval-panel">
+    <div className="agent-result-head"><Badge tone="warn">{t('Paid step')}</Badge>
+      <span className="mono">{t('Step {n}', {n: a.step + 1})} · {a.label}</span></div>
+    <p className="secondary">{e.highMicroUsd === null || e.lowMicroUsd === null
+      ? t('No estimate: this agent and model have no earlier run that reported a cost.')
+      : e.lowMicroUsd === e.highMicroUsd
+        ? t('Its last {n} runs cost {amount} each, by the agent’s own list-price estimate.', {n: e.runs, amount: money(e.highMicroUsd)})
+        : t('Its last {n} runs cost {low} to {high}, by the agent’s own list-price estimate.', {n: e.runs, low: money(e.lowMicroUsd), high: money(e.highMicroUsd)})}</p>
+    <FormRow label={t('Spending cap')} htmlFor="approval-cap"
+      hint={a.enforcedByAgent ? t('The agent stops at this amount itself.')
+        : t('This agent cannot stop at a cap. If the cost it reports afterwards is over it, Pygg tries no further step.')}>
+      <span className={valid ? 'money-input' : 'money-input invalid'}><span aria-hidden>$</span>
+        <input id="approval-cap" inputMode="decimal" value={cap} onChange={ev => setCap(ev.target.value)} disabled={busy}/></span>
+    </FormRow>
+    <div className="form-actions">
+      <button type="button" className="button prominent" disabled={busy || !valid} onClick={() => onDecide(true, amount)}>
+        <Check size={13} aria-hidden/>{t('Approve up to {amount}', {amount: valid ? `$${amount.toFixed(2)}` : '—'})}</button>
+      <button type="button" className="button" disabled={busy} onClick={() => onDecide(false, null)}>
+        <X size={13} aria-hidden/>{t('Decline')}</button>
+    </div>
+  </div>;
 }
 
 function AttemptRow({attempt: a}: {attempt: AttemptView}) {
@@ -140,6 +171,8 @@ function AttemptRow({attempt: a}: {attempt: AttemptView}) {
         {a.filesChanged !== null && t('{files} files, +{ins} −{del}', {files: a.filesChanged, ins: a.insertions ?? 0, del: a.deletions ?? 0})}
         {a.inputTokens !== null && ` · ${t('{input} in · {output} out', {input: tokens(a.inputTokens), output: tokens(a.outputTokens ?? 0)})}`}
         {a.startedAt && a.finishedAt ? ` · ${t('{s} s', {s: ((a.finishedAt - a.startedAt) / 1000).toFixed(1)})}` : ''}
+        {a.agentEstimateUsd !== null && a.agentEstimateUsd > 0 ? ` · ${t('agent’s estimate {amount}', {amount: `$${a.agentEstimateUsd.toFixed(2)}`})}` : ''}
+        {a.capUsd !== null ? ` · ${t('cap {amount}', {amount: `$${a.capUsd.toFixed(2)}`})}` : ''}
       </p>}
       {a.checks.length > 0 && <ul className="check-results">
         {a.checks.map(c => <li key={c.command} className={c.passed ? 'passed' : 'failed'}>

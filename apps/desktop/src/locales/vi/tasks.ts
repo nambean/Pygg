@@ -61,7 +61,20 @@ export const tasks: Record<string, string> = {
   'The result was discarded.': 'Kết quả đã bị bỏ.',
   'Checks passed': 'Check đã qua',
   'Needs your review': 'Cần bạn xem lại',
-  'Approve Paid Step': 'Duyệt bước trả phí',
+  'Paid step': 'Bước trả phí',
+  'No estimate: this agent and model have no earlier run that reported a cost.':
+    'Chưa có ước tính: agent và model này chưa có lần chạy nào báo chi phí.',
+  'Its last {n} runs cost {amount} each, by the agent’s own list-price estimate.':
+    '{n} lần chạy gần nhất đều tốn {amount}, theo ước tính giá niêm yết của chính agent.',
+  'Its last {n} runs cost {low} to {high}, by the agent’s own list-price estimate.':
+    '{n} lần chạy gần nhất tốn từ {low} đến {high}, theo ước tính giá niêm yết của chính agent.',
+  'Spending cap': 'Mức chi tối đa',
+  'The agent stops at this amount itself.': 'Agent tự dừng khi chạm mức này.',
+  'This agent cannot stop at a cap. If the cost it reports afterwards is over it, Pygg tries no further step.':
+    'Agent này không tự dừng theo mức chi. Nếu chi phí nó báo sau khi chạy vượt mức này, Pygg sẽ không thử bước nào nữa.',
+  'Approve up to {amount}': 'Duyệt tối đa {amount}',
+  'agent’s estimate {amount}': 'agent ước tính {amount}',
+  'cap {amount}': 'mức chi {amount}',
   'Decline': 'Từ chối',
   'Retry': 'Chạy lại',
   'Stop Task': 'Dừng tác vụ',

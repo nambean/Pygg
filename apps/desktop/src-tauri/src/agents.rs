@@ -190,6 +190,9 @@ pub struct TaskRequest {
     /// created, so every attempt starts from the same code.
     #[serde(default)]
     pub base: Option<String>,
+    /// A spending cap the agent enforces itself, where it can (Claude Code's `--max-budget-usd`).
+    #[serde(default)]
+    pub max_budget_usd: Option<f64>,
 }
 
 /// What the agent reported about the run.
@@ -252,6 +255,20 @@ pub fn arguments(agent: &str, prompt: &str, model: Option<&str>, allow_shell: bo
         args.splice(at..at, [s("--model"), s(model)]);
     }
     Ok(args)
+}
+
+/// The cap an agent enforces itself: only Claude Code has one (`--max-budget-usd`). Others are checked after the run
+/// against the cost they report (tasks.rs).
+pub fn budget_arguments(agent: &str, max_usd: Option<f64>) -> Vec<String> {
+    match (agent, max_usd) {
+        ("claude-code", Some(usd)) if usd > 0.0 => vec!["--max-budget-usd".into(), format!("{usd:.2}")],
+        _ => Vec::new(),
+    }
+}
+
+/// Whether the agent itself stops at a spending cap.
+pub fn enforces_budget(agent: &str) -> bool {
+    agent == "claude-code"
 }
 
 /// Reads what an agent printed: one JSON document (Claude Code, Gemini CLI) or JSON lines (Codex, OpenCode).
@@ -352,6 +369,7 @@ pub async fn run(request: &TaskRequest, worktrees: &Path, cancel: impl std::futu
 
     let mut args = launch.prefix.clone();
     args.extend(arguments(spec.id, &request.prompt, request.model.as_deref(), request.allow_shell)?);
+    args.extend(budget_arguments(spec.id, request.max_budget_usd));
     let mut command = command(&launch, args, &worktree.path, Duration::from_secs(request.timeout_secs.unwrap_or(900)));
     if spec.id == "gemini-cli" {
         // The worktree is a copy Pygg made for this task; Gemini CLI refuses an untrusted folder in headless mode
@@ -450,6 +468,8 @@ mod tests {
             ["-p", "fix it", "--output-format", "json", "--approval-mode", "yolo"]);
         assert_eq!(arguments("opencode", "fix it", Some("p/m"), false).unwrap(), ["run", "--format", "json", "fix it", "--model", "p/m"]);
         assert!(arguments("cursor", "x", None, false).is_err());
+        assert_eq!(budget_arguments("claude-code", Some(0.5)), ["--max-budget-usd", "0.50"]);
+        assert!(budget_arguments("codex", Some(0.5)).is_empty() && budget_arguments("claude-code", None).is_empty());
     }
 
     #[test]

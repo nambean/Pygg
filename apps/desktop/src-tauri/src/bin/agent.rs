@@ -111,6 +111,7 @@ async fn main() {
                 allow_shell: flags.get("shell").map(String::as_str) == Some("yes"),
                 timeout_secs: flags.get("timeout").and_then(|t| t.parse().ok()),
                 base: None,
+                max_budget_usd: None,
             };
             let worktrees = std::env::temp_dir().join("pygg-agent-worktrees");
             let run = agents::run(&request, &worktrees, std::future::pending()).await.unwrap_or_else(|e| fail(e));
