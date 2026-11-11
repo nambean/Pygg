@@ -1,6 +1,6 @@
 # Decisions
 
-> **Status:** Current · architecture decision records (ADR-001 to ADR-028) · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+> **Status:** Current · architecture decision records (ADR-001 to ADR-030) · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
 
 Architecture decision records, in the style of DownFetch's `docs/DECISIONS.md`. Each decision says what was chosen, why, and what it costs. The product plan is [SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md); the screen design is [design/SCREENS.md](design/SCREENS.md).
 
@@ -239,6 +239,22 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 **Why:** Pygg is one user on one machine with SQLite (ADR-002); a server stack is out of proportion, and an unmaintained gateway in the path is a security cost. The metric model is the part worth having, and keeping its shape leaves an export open if a maintained successor appears.
 
 **Rules:** an unknown signal has no row, never a 0 or false; Pygg never infers quality from conversation content (ADR-025); request-level feedback comes only from a client that sends it.
+
+## ADR-030 — The original-vision RFC: a task handoff inside ADR-028, the integrations hub next (2026-11-12)
+
+**Context:** the owner's [RFC](RFC-2026-11-12-ORIGINAL-VISION-GAPS.md) listed eleven gaps (PV-01 to PV-11) against the original vision, a [counter-review](reviews/2026-11-12-original-vision-gaps-response.md) answered it, and the owner's [open-source study](research/2026-11-12-open-source-adoption-study.md) corrected the counter-review. On 2026-11-12 the owner told the chief architect to decide and carry out what was agreed, and to answer the rest. The decisions are in the [architect's response](reviews/2026-11-12-oss-patterns-response.md).
+
+**Decisions:**
+- **A task handoff is what ADR-028 already keeps** ("the bounded summary a failed attempt hands to the next step"). A richer one is built (H1), and it holds only for that task: it is bounded, built from what Pygg recorded, and shown to the user. It is never kept across tasks, never shown as memory, and never sent through the gateway. It ships **off by default** and becomes the default only if its A/B says so. This clarifies ADR-028; it does not reverse it.
+- **Portable context between external clients (PV-02) stays deferred by name.** It is not "already built": MCP task dispatch carries a task description, not a typed, source-linked context package. Reopening it needs H1 to help first, and an owner decision on ADR-028.
+- **Order:**
+  1. PV-11: an honest N2 report and a sanitized results bundle.
+  2. H1 with its A/B, out of the $20 benchmark budget.
+  3. Recording providers' rate-limit headers (PV-06, a slice that costs nothing).
+  4. The integrations hub (PV-05) for Claude Code, Codex CLI and OpenCode.
+  5. One native `pygg` binary.
+  6. npm, after the name is registered and binaries are signed (owner decisions).
+- **Deferred, unchanged:** PV-03, PV-07, PV-08 (the adaptive part, which is evaluated only on benchmark replays, never as a live shadow), PV-09 (as a feature; its deterministic rules go into the H1 builder) and PV-10.
 
 ## Open decisions (not yet finalized)
 
