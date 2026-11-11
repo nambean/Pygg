@@ -694,3 +694,12 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 
 .terms-row .terms-control { max-width: 100%; flex-wrap: wrap; }
 .terms-row .terms-control .text-input { flex: 1 1 260px; }
+
+/* Integrations hub (Agents → From Your IDE) */
+.ide-setup .integrations { margin: 0; }
+.ide-setup .integrations .agent-text small .mono { font-size: 11px; word-break: break-all; }
+.ide-setup .by-hand > summary { cursor: default; font-size: 13px; color: var(--secondary); padding: 2px 0; }
+.ide-setup .by-hand[open] { display: grid; gap: 10px; }
+.sheet .setup-steps { grid-template-columns: minmax(0, 1fr); }
+.sheet .setup-steps li { min-width: 0; overflow-wrap: anywhere; }
+.sheet .setup-steps .code-block { margin-top: 6px; max-width: 100%; }

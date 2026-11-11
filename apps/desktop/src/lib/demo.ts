@@ -4,7 +4,7 @@
  * data" banner whenever this is in use (ADR-014). It follows the core's rules (slugs, validation, honest
  * costs) closely enough for design review, not as a test of them.
  */
-import type { AgentInfo, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
+import type { AgentInfo, Integration, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
   Health, Model, Preset, Target, Tier, UsageEvent, UsageGroup, UsageSummary, Wire } from './api';
 import { TIERS } from './api';
 import { SAMPLE_WORKSPACES, sampleTasks } from './sample';
@@ -507,6 +507,7 @@ export function demoApi(): GatewayApi {
     finishAgentRun: async (runId, keep) => { await sleep(300); return keep ? `str/${keep.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${runId}` : null; },
     ...demoTasks(touch),
     mcpSetup: () => touch({path: 'C:\\Users\\you\\AppData\\Local\\Pygg\\Pygg.exe', args: ['mcp'], exists: true, url: 'http://127.0.0.1:8741'}),
+    ...demoIntegrations(touch),
     usage: async days => {
       const since = Date.now() - days * 86_400_000;
       const list = events.filter(e => e.createdAt >= since);
@@ -646,5 +647,48 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'worksp
       const branch = keep ? `str/${(title || d.title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48)}-${id.replace(/\W/g, '').slice(0, 8)}` : null;
       set(id, {result: keep ? 'kept' : 'discarded', resultBranch: branch, state: d.state === 'needs_review' ? (keep ? 'manually_accepted' : 'canceled') : d.state});
       return branch; },
+  };
+}
+/** The integrations hub on demo data: Claude Code set up, Codex not yet, OpenCode with an entry made by hand. */
+function demoIntegrations(touch: <T>(value: T) => Promise<T>) {
+  const exe = 'C:\\Users\\you\\AppData\\Local\\Pygg\\Pygg.exe';
+  const home = 'C:\\Users\\you';
+  const list: Integration[] = [
+    {id: 'claude-code', name: 'Claude Code', installed: true, state: 'set_up', configPath: `${home}\\.claude.json`,
+      detail: 'pygg: · Scope: User config (available in all your projects) · Status: ✓ Connected', clientName: 'Claude Code (MCP)',
+      setUpAt: Date.now() - 86_400_000, backup: `${home}\\AppData\\Roaming\\SmartTaskRouter\\integration-backups\\claude-code-1-.claude.json`},
+    {id: 'codex', name: 'Codex CLI', installed: true, state: 'not_set_up', configPath: `${home}\\.codex\\config.toml`,
+      detail: null, clientName: null, setUpAt: null, backup: null},
+    {id: 'opencode', name: 'OpenCode', installed: true, state: 'set_up_elsewhere', configPath: `${home}\\.config\\opencode\\opencode.json`,
+      detail: null, clientName: null, setUpAt: null, backup: null},
+  ];
+  const find = (id: string) => { const i = list.find(x => x.id === id); if (!i) throw `Pygg cannot set up ${id}`; return i; };
+  return {
+    integrations: () => touch(list),
+    integrationPlan: (id: string) => {
+      const i = find(id);
+      const change = id === 'opencode'
+        ? JSON.stringify({mcp: {pygg: {type: 'local', command: [exe, 'mcp'], environment: {PYGG_TOKEN: '<new-token>'}, enabled: true}}}, null, 2)
+        : id === 'codex' ? `codex mcp add pygg --env PYGG_TOKEN=<new-token> -- ${exe} mcp`
+        : `claude mcp add --scope user pygg -e PYGG_TOKEN=<new-token> -- ${exe} mcp`;
+      return touch<IntegrationPlan>({id, name: i.name, configPath: i.configPath, configExists: true, change,
+        method: id === 'opencode' ? 'file' : 'command', clientName: `${i.name} (MCP)`,
+        backupDir: `${home}\\AppData\\Roaming\\SmartTaskRouter\\integration-backups`});
+    },
+    applyIntegration: async (id: string) => {
+      const i = find(id);
+      if (i.state === 'set_up') throw `Pygg is already set up in ${i.name}`;
+      if (i.state === 'set_up_elsewhere') throw `${i.name} already has an MCP server named pygg, set up outside Pygg. Remove it here first, or keep using it.`;
+      Object.assign(i, {state: 'set_up', clientName: `${i.name} (MCP)`, setUpAt: Date.now(),
+        backup: `${home}\\AppData\\Roaming\\SmartTaskRouter\\integration-backups\\${id}-${Date.now()}`});
+      await sleep(600);
+      return clone(i);
+    },
+    removeIntegration: async (id: string) => {
+      const i = find(id);
+      Object.assign(i, {state: 'not_set_up', clientName: null, setUpAt: null, backup: null, detail: null});
+      await sleep(300);
+      return clone(i);
+    },
   };
 }

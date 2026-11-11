@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Bot, ExternalLink, FolderGit2, GitBranch, Play, ShieldCheck, Trash2 } from 'lucide-react';
-import { call, errorText, gatewayChanged, type AgentInfo, type AgentRun } from '../../lib/api';
+import { Bot, ExternalLink, FolderGit2, GitBranch, Play, Plug, ShieldCheck, Trash2 } from 'lucide-react';
+import { call, errorText, gatewayChanged, type AgentInfo, type AgentRun, type Integration } from '../../lib/api';
 import { t } from '../../lib/i18n';
 import { tokens } from '../../lib/money';
 import { useGateway } from '../../hooks/useGateway';
-import { Badge, CodeBlock, CopyButton, ErrorNote, FormRow, Segmented, Spinner } from '../ui';
+import { Badge, CodeBlock, ConfirmSheet, CopyButton, ErrorNote, FormRow, Segmented, Sheet, Spinner } from '../ui';
 
 /**
  * Agents: the official agent CLIs the user already has (Claude Code, Codex CLI, Gemini CLI, OpenCode), each with
@@ -177,6 +177,9 @@ function IdeSetup() {
     <h2>{t('From Your IDE')}</h2>
     <div className="group-box ide-setup">
       <p className="group-intro">{t('Your coding agent (Claude Code, Codex, Cursor…) can hand a subtask to Pygg with the pygg_run_task tool. It runs here, on the agents below, in a separate worktree and against your approved checks; your agent reviews the result and keeps or discards it. Tasks appear in Tasks, where paid steps wait for your approval.')}</p>
+      <Integrations/>
+      <details className="by-hand">
+      <summary>{t('Set It Up by Hand')}</summary>
       <ol className="setup-steps">
         <li>{t('In Clients, create a token for your IDE, then open Limits… and turn on “May start tasks”.')}</li>
         <li>{t('Register Pygg as an MCP server with your agent, with that token in place of <token>. The app’s own program serves it:')}</li>
@@ -185,6 +188,99 @@ function IdeSetup() {
         options={[{value: 'claude', label: 'Claude Code'}, {value: 'codex', label: 'Codex CLI'}, {value: 'json', label: t('Cursor and others (JSON)')}]}/>
       <CodeBlock code={code} label={t('Setup')}/>
       <p className="secondary small">{t('The token ends up in your agent’s configuration file. It can only reach this computer’s gateway, and you can revoke it in Clients.')}</p>
+      </details>
     </div>
   </section>;
+}
+
+const INTEGRATION_STATE: Record<Integration['state'], {tone: 'ok' | 'warn' | 'off' | 'info'; label: string}> = {
+  set_up: {tone: 'ok', label: 'Set up'},
+  not_set_up: {tone: 'off', label: 'Not set up'},
+  set_up_elsewhere: {tone: 'info', label: 'Set up by hand'},
+  removed_elsewhere: {tone: 'warn', label: 'Removed outside Pygg'},
+  not_installed: {tone: 'off', label: 'Not found'},
+};
+
+/**
+ * One click per agent (ROADMAP D2): Pygg shows what it will change, backs up the agent's configuration, makes a
+ * token that may start tasks and reaches no model, registers its MCP server and checks the agent lists it.
+ */
+function Integrations() {
+  const list = useGateway(api => api.integrations());
+  const [planning, setPlanning] = useState<Integration | null>(null);
+  const [removing, setRemoving] = useState<Integration | null>(null);
+  if (list.error) return <ErrorNote>{list.error}</ErrorNote>;
+  if (!list.data) return <Spinner label={t('Asking your agents…')}/>;
+  return <>
+    <ul className="group-box agent-list integrations">
+      {list.data.map(i => {
+        const state = INTEGRATION_STATE[i.state];
+        const canSetUp = i.installed && (i.state === 'not_set_up' || i.state === 'removed_elsewhere');
+        const canRemove = i.state === 'set_up' || i.state === 'set_up_elsewhere' || i.state === 'removed_elsewhere';
+        return <li key={i.id} className="agent-row">
+          <span className="provider-logo" aria-hidden><Plug size={15}/></span>
+          <span className="agent-text">
+            <span className="agent-title">{i.name}<Badge tone={state.tone}>{t(state.label)}</Badge></span>
+            <small className="secondary">
+              {i.state === 'set_up' && i.setUpAt
+                ? t('Set up {date} with the token {client}. Backup: {backup}', {date: new Date(i.setUpAt).toLocaleString(),
+                    client: i.clientName ?? '', backup: i.backup ?? t('none, the file did not exist')})
+                : i.state === 'set_up_elsewhere' ? t('{name} already has a server named pygg that Pygg did not make. Pygg leaves it alone.', {name: i.name})
+                : i.state === 'removed_elsewhere' ? t('Pygg set this up, and the entry is gone. Remove revokes its token.')
+                : i.state === 'not_installed' ? t('Not found on this computer.')
+                : i.configPath}
+              {i.detail && <><br/><span className="mono">{i.detail}</span></>}
+            </small>
+          </span>
+          <span className="row-actions">
+            {canSetUp && <button type="button" className="button small" onClick={() => setPlanning(i)}>{t('Set Up…')}</button>}
+            {canRemove && <button type="button" className="button small" onClick={() => setRemoving(i)}>{t('Remove…')}</button>}
+          </span>
+        </li>;
+      })}
+    </ul>
+    {planning && <SetUpSheet integration={planning} onClose={() => setPlanning(null)}/>}
+    {removing && <ConfirmSheet title={t('Remove Pygg from {name}?', {name: removing.name})} confirmLabel={t('Remove')}
+      message={removing.state === 'set_up_elsewhere'
+        ? t('This removes the pygg server you added to {name} by hand. Its token, if you made one, stays valid until you revoke it in Clients.', {name: removing.name})
+        : t('This removes the pygg server from {name} and revokes the token Pygg made for it. The configuration file is backed up first. Tasks already started are not affected.', {name: removing.name})}
+      onConfirm={async () => { await call(api => api.removeIntegration(removing.id)); gatewayChanged(); }}
+      onClose={() => setRemoving(null)}/>}
+  </>;
+}
+
+function SetUpSheet({integration: i, onClose}: {integration: Integration; onClose: () => void}) {
+  const plan = useGateway(api => api.integrationPlan(i.id), [i.id]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const apply = async () => {
+    setBusy(true);
+    setError(null);
+    try { await call(api => api.applyIntegration(i.id)); gatewayChanged(); onClose(); }
+    catch (e) { setError(errorText(e)); setBusy(false); }
+  };
+  const p = plan.data;
+  return <Sheet title={t('Set Up Pygg in {name}', {name: i.name})} subtitle={t('Nothing changes until you choose Set Up.')}
+    onClose={onClose} busy={busy} footer={<>
+      <span className="spacer"/>
+      <button type="button" className="button" onClick={onClose} disabled={busy}>{t('Cancel')}</button>
+      <button type="button" className="button prominent" onClick={apply} disabled={busy || !p}>
+        {busy ? t('Setting Up…') : t('Set Up')}</button>
+    </>}>
+    {plan.error && <ErrorNote>{plan.error}</ErrorNote>}
+    {!p && !plan.error && <Spinner/>}
+    {p && <ol className="setup-steps">
+      <li>{p.configExists
+        ? t('Copy {file} into {dir} first.', {file: p.configPath, dir: p.backupDir})
+        : t('{file} does not exist yet; it will be created.', {file: p.configPath})}</li>
+      <li>{t('Create a client token, “{client}”, that may start tasks and cannot use any model connection.', {client: p.clientName})}</li>
+      <li>{p.method === 'command'
+        ? t('Run {name}’s own command, so {name} edits its configuration itself (the new token in place of <new-token>):', {name: p.name})
+        : t('Add this entry to {file}, keeping everything else in it (the new token in place of <new-token>):', {file: p.configPath})}
+        <CodeBlock code={p.change} label={t('Change')}/></li>
+      <li>{t('Check that {name} lists the pygg server. If anything fails, the file is put back and the token revoked.', {name: p.name})}</li>
+    </ol>}
+    <p className="secondary small">{t('The entry serves all your projects: the server takes the project from the folder your agent runs in. The token is written into {name}’s own configuration for your user, never into a project file. {name}’s own sign-in is not touched.', {name: i.name})}</p>
+    {error && <ErrorNote>{error}</ErrorNote>}
+  </Sheet>;
 }

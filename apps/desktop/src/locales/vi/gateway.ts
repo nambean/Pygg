@@ -674,6 +674,43 @@ export const gateway: Record<string, string> = {
   'May start tasks': 'Được tạo task',
   'from {client}': 'từ {client}',
   'From Your IDE': 'Từ IDE của bạn',
+  'Set It Up by Hand': 'Tự cài đặt bằng tay',
+  'Asking your agents…': 'Đang hỏi các agent…',
+  'Set up': 'Đã cài',
+  'Not set up': 'Chưa cài',
+  'Set up by hand': 'Cài bằng tay',
+  'Removed outside Pygg': 'Đã bị gỡ ngoài Pygg',
+  'Set up {date} with the token {client}. Backup: {backup}': 'Cài lúc {date} với token {client}. Bản sao lưu: {backup}',
+  'none, the file did not exist': 'không có, lúc đó tệp chưa tồn tại',
+  '{name} already has a server named pygg that Pygg did not make. Pygg leaves it alone.':
+    '{name} đã có một server tên pygg không do Pygg tạo. Pygg không động vào nó.',
+  'Pygg set this up, and the entry is gone. Remove revokes its token.':
+    'Pygg đã cài mục này, nhưng mục đó đã mất. Gỡ sẽ thu hồi token của nó.',
+  'Not found on this computer.': 'Không tìm thấy trên máy này.',
+  'Set Up…': 'Cài đặt…',
+  'Remove…': 'Gỡ…',
+  'Remove Pygg from {name}?': 'Gỡ Pygg khỏi {name}?',
+  'This removes the pygg server you added to {name} by hand. Its token, if you made one, stays valid until you revoke it in Clients.':
+    'Thao tác này gỡ server pygg bạn đã tự thêm vào {name}. Token của nó (nếu có) vẫn còn hiệu lực cho tới khi bạn thu hồi trong Client.',
+  'This removes the pygg server from {name} and revokes the token Pygg made for it. The configuration file is backed up first. Tasks already started are not affected.':
+    'Thao tác này gỡ server pygg khỏi {name} và thu hồi token Pygg đã tạo cho nó. Tệp cấu hình được sao lưu trước. Các task đã chạy không bị ảnh hưởng.',
+  'Set Up Pygg in {name}': 'Cài Pygg vào {name}',
+  'Nothing changes until you choose Set Up.': 'Chưa có gì thay đổi cho tới khi bạn chọn Cài đặt.',
+  'Setting Up…': 'Đang cài…',
+  'Set Up': 'Cài đặt',
+  'Copy {file} into {dir} first.': 'Sao lưu {file} vào {dir} trước.',
+  '{file} does not exist yet; it will be created.': '{file} chưa có; tệp sẽ được tạo.',
+  'Create a client token, “{client}”, that may start tasks and cannot use any model connection.':
+    'Tạo một token client, “{client}”, được tạo task và không dùng được kết nối model nào.',
+  'Run {name}’s own command, so {name} edits its configuration itself (the new token in place of <new-token>):':
+    'Chạy lệnh của chính {name}, để {name} tự sửa cấu hình của nó (token mới thay cho <new-token>):',
+  'Add this entry to {file}, keeping everything else in it (the new token in place of <new-token>):':
+    'Thêm mục này vào {file}, giữ nguyên mọi thứ khác trong tệp (token mới thay cho <new-token>):',
+  'Change': 'Thay đổi',
+  'Check that {name} lists the pygg server. If anything fails, the file is put back and the token revoked.':
+    'Kiểm tra {name} đã thấy server pygg. Nếu có lỗi, tệp được khôi phục và token bị thu hồi.',
+  'The entry serves all your projects: the server takes the project from the folder your agent runs in. The token is written into {name}’s own configuration for your user, never into a project file. {name}’s own sign-in is not touched.':
+    'Mục này dùng cho mọi dự án: server lấy dự án từ thư mục agent đang chạy. Token được ghi vào cấu hình người dùng của {name}, không bao giờ vào tệp của dự án. Đăng nhập của {name} không bị động tới.',
   'Your coding agent (Claude Code, Codex, Cursor…) can hand a subtask to Pygg with the pygg_run_task tool. It runs here, on the agents below, in a separate worktree and against your approved checks; your agent reviews the result and keeps or discards it. Tasks appear in Tasks, where paid steps wait for your approval.':
     'Agent lập trình của bạn (Claude Code, Codex, Cursor…) có thể giao một việc con cho Pygg bằng tool pygg_run_task. Việc đó chạy trên máy này, bằng các agent bên dưới, trong worktree riêng và được kiểm bằng các check bạn đã duyệt; agent của bạn xem kết quả rồi giữ hoặc bỏ. Task hiện trong mục Tasks, nơi bước trả phí chờ bạn duyệt.',
   'In Clients, create a token for your IDE, then open Limits… and turn on “May start tasks”.':

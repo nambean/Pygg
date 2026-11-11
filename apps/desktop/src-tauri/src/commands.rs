@@ -582,6 +582,43 @@ pub fn mcp_setup(state: State<'_, AppState>) -> Res<McpSetup> {
         url: format!("http://127.0.0.1:{}", state.port()) })
 }
 
+fn mcp_server(state: &AppState) -> Res<crate::integrations::Server> {
+    let path = std::env::current_exe().map_err(|e| e.to_string())?;
+    let port = state.port();
+    Ok(crate::integrations::Server { program: path.to_string_lossy().into_owned(), args: vec!["mcp".into()],
+        url: (port != gateway::DEFAULT_PORT).then(|| format!("http://127.0.0.1:{port}")) })
+}
+
+fn integration_backups(state: &AppState) -> std::path::PathBuf {
+    state.data_dir.join("integration-backups")
+}
+
+/// The agents Pygg can register its MCP server with, and whether it is (integrations.rs, ROADMAP D2).
+#[tauri::command]
+pub async fn integrations_list(state: State<'_, AppState>) -> Res<Vec<crate::integrations::Integration>> {
+    let records = state.shared.with_db(crate::integrations::records);
+    Ok(crate::integrations::list_with(records, &crate::integrations::Homes::from_env()).await)
+}
+
+/// What setting one up would change, shown before the user agrees.
+#[tauri::command]
+pub fn integration_plan(state: State<'_, AppState>, id: String) -> Res<crate::integrations::Plan> {
+    crate::integrations::plan(&id, &mcp_server(&state)?, &crate::integrations::Homes::from_env(), &integration_backups(&state))
+}
+
+#[tauri::command]
+pub async fn integration_apply(state: State<'_, AppState>, id: String) -> Res<crate::integrations::Integration> {
+    let server = mcp_server(&state)?;
+    crate::integrations::apply(&id, &server, &crate::integrations::Homes::from_env(), &integration_backups(&state),
+        &state.shared, crate::db::now_ms()).await
+}
+
+#[tauri::command]
+pub async fn integration_remove(state: State<'_, AppState>, id: String) -> Res<crate::integrations::Integration> {
+    crate::integrations::remove(&id, &crate::integrations::Homes::from_env(), &integration_backups(&state), &state.shared,
+        crate::db::now_ms()).await
+}
+
 fn budget_micro(usd: Option<f64>) -> Option<u64> {
     usd.filter(|u| u.is_finite() && *u > 0.0).map(|u| (u * 1e6).round() as u64)
 }

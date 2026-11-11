@@ -106,7 +106,7 @@ Then D2 (integrations hub, `str` and npm), B6 and E, in the order already set. N
 
 **D. Distribution**
 1. An NSIS installer tried on a clean machine.
-2. The integrations hub with config backup and restore (ADR-022), then the `str` CLI and npm launcher (ADR-021).
+2. The integrations hub with config backup and restore (ADR-022), then the `str` CLI and npm launcher (ADR-021). **D2a built 2026-11-12** for Claude Code, Codex CLI and OpenCode (Agents → From Your IDE; [AGENTS.md](AGENTS.md#from-the-ide-pygg-mcp-and-the-task-api)): preview, backup, a token that may start tasks and reaches no connection, the agent's own command, a check, undo on failure, removal with the token revoked. Live on scratch configurations; not yet clicked through in the native app. Gateway endpoint setup (base URL for Claude Code, OpenCode and Codex as gateway clients) is not part of it yet.
 3. Signing, which needs a certificate the owner pays for.
 4. The D12 release checks (snap layouts, scaling, screen readers; ADR-012) and macOS and Linux builds (ADR-001); a signed updater and a diagnostics bundle (SCREENS §5.8).
 

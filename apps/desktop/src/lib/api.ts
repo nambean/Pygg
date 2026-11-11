@@ -154,6 +154,17 @@ export type AgentRun = {
 
 /** How an IDE starts the MCP server: the app's program with `args` (`mcp`). */
 export type McpSetup = { path: string; args: string[]; exists: boolean; url: string };
+/** An agent Pygg can register its MCP server with (integrations.rs). */
+export type Integration = {
+  id: string; name: string; installed: boolean;
+  state: 'not_installed' | 'not_set_up' | 'set_up' | 'set_up_elsewhere' | 'removed_elsewhere';
+  configPath: string; detail: string | null; clientName: string | null; setUpAt: number | null; backup: string | null;
+};
+/** What setting an integration up would change, shown before the user agrees. */
+export type IntegrationPlan = {
+  id: string; name: string; configPath: string; configExists: boolean; change: string; method: 'command' | 'file';
+  clientName: string; backupDir: string;
+};
 
 export type NewConnection ={ preset: string; label: string; endpoint?: string; apiKey?: string; billing: Billing };
 export type PriceInput = {
@@ -227,6 +238,13 @@ export interface GatewayApi {
   finishTask(id: string, keep: boolean, title: string | null): Promise<string | null>;
   /** Where pygg-mcp is, for the IDE setup instructions. */
   mcpSetup(): Promise<McpSetup>;
+  /** The agents Pygg can register its MCP server with, and whether it is. */
+  integrations(): Promise<Integration[]>;
+  integrationPlan(id: string): Promise<IntegrationPlan>;
+  /** Backs up the agent's configuration, creates a token that may start tasks, registers the server, checks it. */
+  applyIntegration(id: string): Promise<Integration>;
+  /** Removes the entry and revokes the token Pygg made for it. */
+  removeIntegration(id: string): Promise<Integration>;
   /** Today's paid steps against the daily budget. */
   taskBudget(): Promise<DayBudget>;
   setTaskBudget(dailyUsd: number | null): Promise<DayBudget>;
@@ -287,6 +305,10 @@ const native: GatewayApi = {
   taskDiff: id => invoke('task_diff', {id}),
   finishTask: (id, keep, title) => invoke('task_finish', {id, keep, title}),
   mcpSetup: () => invoke('mcp_setup'),
+  integrations: () => invoke('integrations_list'),
+  integrationPlan: id => invoke('integration_plan', {id}),
+  applyIntegration: id => invoke('integration_apply', {id}),
+  removeIntegration: id => invoke('integration_remove', {id}),
   taskBudget: () => invoke('task_budget'),
   setTaskBudget: dailyUsd => invoke('task_set_budget', {dailyUsd}),
   setWorkspaceBudget: (id, dailyUsd) => invoke('workspace_set_budget', {id, dailyUsd}),

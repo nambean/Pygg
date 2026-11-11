@@ -7,6 +7,7 @@ pub mod checks;
 pub mod commands;
 pub mod db;
 pub mod gateway;
+pub mod integrations;
 pub mod isolation;
 pub mod mcp;
 pub mod process;
@@ -137,6 +138,10 @@ pub fn run() {
             commands::task_diff,
             commands::task_finish,
             commands::mcp_setup,
+            commands::integrations_list,
+            commands::integration_plan,
+            commands::integration_apply,
+            commands::integration_remove,
             commands::task_budget,
             commands::tasks_quality,
             commands::workspace_set_privacy,
