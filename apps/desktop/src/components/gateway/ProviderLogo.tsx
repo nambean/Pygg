@@ -1,7 +1,7 @@
 import { Cpu, Server } from 'lucide-react';
 import {
   siAlibabacloud, siAnthropic, siDeepseek, siDocker, siGooglegemini, siHuggingface, siKimi, siLmstudio, siMinimax,
-  siMistralai, siNvidia, siOllama, siOpenrouter, siVllm, siX,
+  siMistralai, siNvidia, siOllama, siOpenrouter, siPerplexity, siVllm, siX,
 } from 'simple-icons';
 
 type Icon = {path: string; title: string};
@@ -16,6 +16,8 @@ const ICONS: Record<string, Icon> = {
   nvidia: siNvidia, huggingface: siHuggingface, moonshot: siKimi, 'moonshot-anthropic': siKimi,
   minimax: siMinimax, 'minimax-anthropic': siMinimax, ollama: siOllama, lmstudio: siLmstudio,
   'docker-model-runner': siDocker, vllm: siVllm,
+  // Web sessions (ADR-035) of the same providers.
+  'deepseek-web': siDeepseek, 'grok-web': siX, 'perplexity-web': siPerplexity,
 };
 
 export function ProviderLogo({kind, name, size = 16}: {kind: string; name: string; size?: number}) {

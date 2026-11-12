@@ -32,6 +32,8 @@ export type Preset = {
   freeModels: boolean;
   /** A web session (ADR-035): a site with no API, used through a Pygg window the user signs in to. */
   web?: boolean;
+  /** A web session whose site's assistant can act for the user (Muse). */
+  webActs?: boolean;
 };
 
 /** The text of the web-session warning the user acknowledges; the same number as websession::WARNING_VERSION. */
@@ -66,6 +68,7 @@ export type Connection = {
    * (in Pygg's own words, never the page's). */
   web?: boolean;
   webAckCurrent?: boolean;
+  webActs?: boolean;
   webAckAt?: number | null;
   webState?: WebState | null;
   webStateReason?: string | null;

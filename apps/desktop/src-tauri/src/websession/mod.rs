@@ -76,10 +76,13 @@ pub struct Recipe {
     pub input: &'static str,
     /// Matched against a visible button's `aria-label` and `data-testid`.
     pub send_pattern: &'static str,
+    /// Without such a button, Enter in the prompt box sends (as typing would).
+    pub enter_sends: bool,
     /// Each reply of the site's assistant; the last one is the answer.
     pub reply: &'static str,
-    /// Present while the site is still answering.
-    pub busy: &'static str,
+    /// Present while the site is still answering. Without one, a reply counts as finished only after it has not
+    /// changed for longer (`Timing::stable_busy`).
+    pub busy: Option<&'static str>,
     /// A request to approve an action the site's agent wants to take, and the label of its "deny" button.
     pub approval: Option<&'static str>,
     pub deny_pattern: &'static str,
@@ -87,6 +90,12 @@ pub struct Recipe {
     pub ready_attr: Option<(&'static str, &'static str, &'static str)>,
     /// Words of a page that wants the user to sign in, in lower case.
     pub sign_in_hints: &'static [&'static str],
+    /// The exact text of buttons a page shows only to someone signed out, in lower case. For sites that also chat with
+    /// visitors (ChatGPT, Perplexity, Grok): their prompt box is there either way, and a visitor's chat is not the
+    /// user's account.
+    pub signed_out_buttons: &'static [&'static str],
+    /// The site's assistant can act for the user (send mail, buy), so the warning says so (Muse).
+    pub acts: bool,
     /// A CAPTCHA, a bot check or a sign-in challenge: selectors, and words in lower case.
     pub challenge_selectors: &'static str,
     pub challenge_hints: &'static [&'static str],
@@ -94,26 +103,139 @@ pub struct Recipe {
     pub quota_hints: &'static [&'static str],
 }
 
-pub const RECIPES: &[Recipe] = &[Recipe {
-    preset: "muse-web",
-    site: "https://muse.ai",
-    new_chat_url: "https://muse.ai/thread/new",
-    // Meta's sign-in checks for an existing account by passing through each of its sites in turn ("aymh" redirect
-    // cycle: facebook.com, then instagram.com); blocking one of them aborts the sign-in and leaves the window blank.
-    hosts: &["muse.ai", "meta.com", "meta.ai", "facebook.com", "instagram.com", "threads.com", "threads.net", "messenger.com"],
-    models: &["muse"],
-    input: "textarea",
-    send_pattern: "send",
-    reply: "div[class*=\"hatch-agent-bubble-bg\"]",
-    busy: "button[aria-label*=\"Stop\" i]",
-    approval: Some("[data-testid=\"hatch-inline-approval-card\"]"),
-    deny_pattern: "^(deny|decline|reject|don.t allow)$",
-    ready_attr: Some(("[data-hatch-shell-hydration-state]", "data-hatch-shell-hydration-state", "hydrated")),
-    sign_in_hints: &["log in", "sign in", "create an account", "use another account"],
-    challenge_selectors: "iframe[src*=\"captcha\" i], iframe[src*=\"challenges.cloudflare.com\"], iframe[title*=\"challenge\" i], [id*=\"captcha\" i]",
-    challenge_hints: &["verify you're human", "verify you are human", "are you a robot", "security check", "unusual activity", "suspicious activity"],
-    quota_hints: &["out of credits", "usage limit", "limit reached", "token limit"],
-}];
+/// A check the site runs on the browser: a CAPTCHA, Cloudflare's "Just a moment" page or Turnstile, or a bot check.
+const CHALLENGE_SELECTORS: &str = "iframe[src*=\"captcha\" i], iframe[src*=\"challenges.cloudflare.com\"], iframe[title*=\"challenge\" i], \
+    [id*=\"captcha\" i], #challenge-form, #challenge-stage, .cf-turnstile";
+const CHALLENGE_HINTS: &[&str] = &["verify you're human", "verify you are human", "verifying you are human", "are you a robot",
+    "security check", "checking your browser", "performing security verification", "unusual activity", "suspicious activity"];
+const QUOTA_HINTS: &[&str] = &["out of credits", "usage limit", "limit reached", "token limit", "reached your limit", "rate limit"];
+/// Google's sign-in, which several sites offer. Google may refuse to sign in inside an embedded window ("This browser
+/// or app may not be secure"); Pygg does not hide what the window is, so the site's own email sign-in is then the way.
+const GOOGLE: [&str; 2] = ["google.com", "youtube.com"];
+
+/// Sites and their sign-in hosts. Muse's hosts are from its live redirect chain (2026-11-12). The others are the sites'
+/// documented sign-in paths, and are checked against the live chain when the owner signs in with the debug navigation
+/// log (`PYGG_WEB_DEVTOOLS=1`); their selectors were read from each site's public page where it has one, and follow
+/// what 9router reads otherwise (docs/research/2026-11-12-web-session-routers.md).
+pub const RECIPES: &[Recipe] = &[
+    Recipe {
+        preset: "muse-web",
+        site: "https://muse.ai",
+        new_chat_url: "https://muse.ai/thread/new",
+        // Meta's sign-in checks for an existing account by passing through each of its sites in turn ("aymh" redirect
+        // cycle: facebook.com, then instagram.com); blocking one of them aborts the sign-in and leaves the window blank.
+        hosts: &["muse.ai", "meta.com", "meta.ai", "facebook.com", "instagram.com", "threads.com", "threads.net", "messenger.com"],
+        models: &["muse"],
+        input: "textarea",
+        send_pattern: "send",
+        enter_sends: false,
+        reply: "div[class*=\"hatch-agent-bubble-bg\"]",
+        busy: Some("button[aria-label*=\"Stop\" i]"),
+        approval: Some("[data-testid=\"hatch-inline-approval-card\"]"),
+        deny_pattern: "^(deny|decline|reject|don.t allow)$",
+        ready_attr: Some(("[data-hatch-shell-hydration-state]", "data-hatch-shell-hydration-state", "hydrated")),
+        sign_in_hints: &["log in", "sign in", "create an account", "use another account"],
+        signed_out_buttons: &[],
+        acts: true,
+        challenge_selectors: CHALLENGE_SELECTORS,
+        challenge_hints: CHALLENGE_HINTS,
+        quota_hints: QUOTA_HINTS,
+    },
+    // ChatGPT chats with visitors too, so "signed in" needs its Log in buttons gone. Sign-in: auth.openai.com (email,
+    // phone), Google, Apple, Microsoft. Public page, 2026-11-12: `textarea[name="prompt"]`, a "Send message" button.
+    Recipe {
+        preset: "chatgpt-web",
+        site: "https://chatgpt.com",
+        new_chat_url: "https://chatgpt.com/",
+        hosts: &["chatgpt.com", "openai.com", GOOGLE[0], GOOGLE[1], "apple.com", "live.com", "microsoftonline.com", "microsoft.com"],
+        models: &["chatgpt"],
+        input: "#prompt-textarea, textarea[name=\"prompt\"]",
+        send_pattern: "send",
+        enter_sends: true,
+        reply: "[data-message-author-role=\"assistant\"]",
+        busy: Some("button[data-testid=\"stop-button\"], button[aria-label*=\"Stop\" i]"),
+        approval: None,
+        deny_pattern: "^(deny|decline|cancel)$",
+        ready_attr: None,
+        sign_in_hints: &["log in", "sign up", "welcome back"],
+        signed_out_buttons: &["log in", "sign up for free", "sign up"],
+        acts: false,
+        challenge_selectors: CHALLENGE_SELECTORS,
+        challenge_hints: CHALLENGE_HINTS,
+        quota_hints: QUOTA_HINTS,
+    },
+    // Perplexity answers visitors too. Sign-in: an emailed code on perplexity.ai, Google, Apple. Public page,
+    // 2026-11-12: a Lexical `div[contenteditable][role=textbox]`, a "Submit" button. Its "Computer" mode is an agent;
+    // a new chat opens in its search mode.
+    Recipe {
+        preset: "perplexity-web",
+        site: "https://www.perplexity.ai",
+        new_chat_url: "https://www.perplexity.ai/",
+        hosts: &["perplexity.ai", GOOGLE[0], GOOGLE[1], "apple.com"],
+        models: &["perplexity"],
+        input: "div[contenteditable=\"true\"][role=\"textbox\"], #ask-input, textarea",
+        send_pattern: "submit|send",
+        enter_sends: true,
+        reply: "[id^=\"markdown-content-\"], .prose",
+        busy: Some("button[aria-label*=\"Stop\" i]"),
+        approval: None,
+        deny_pattern: "^(deny|decline|cancel)$",
+        ready_attr: None,
+        sign_in_hints: &["sign in", "log in", "continue with email"],
+        signed_out_buttons: &["sign in", "log in", "sign up"],
+        acts: false,
+        challenge_selectors: CHALLENGE_SELECTORS,
+        challenge_hints: CHALLENGE_HINTS,
+        quota_hints: QUOTA_HINTS,
+    },
+    // DeepSeek needs an account: chat.deepseek.com sends a visitor to /sign_in (email or phone with a password,
+    // Google, Apple). Its Send control has no label, so Enter sends; it shows no reliable "stop" control either.
+    Recipe {
+        preset: "deepseek-web",
+        site: "https://chat.deepseek.com",
+        new_chat_url: "https://chat.deepseek.com/",
+        hosts: &["chat.deepseek.com", "deepseek.com", GOOGLE[0], GOOGLE[1], "apple.com"],
+        models: &["deepseek"],
+        input: "textarea#chat-input, textarea",
+        send_pattern: "send",
+        enter_sends: true,
+        reply: ".ds-markdown",
+        busy: None,
+        approval: None,
+        deny_pattern: "^(deny|decline|cancel)$",
+        ready_attr: None,
+        sign_in_hints: &["log in", "sign up", "forgot your"],
+        signed_out_buttons: &[],
+        acts: false,
+        challenge_selectors: CHALLENGE_SELECTORS,
+        challenge_hints: CHALLENGE_HINTS,
+        quota_hints: QUOTA_HINTS,
+    },
+    // Grok sits behind Cloudflare: on 2026-11-12 even its sign-in page answered with "Just a moment" in a normal
+    // browser. That check stops the connection until the user clears it in the window; Pygg never answers it. Sign-in:
+    // accounts.x.ai (email), X, Google, Apple. Grok chats with visitors too.
+    Recipe {
+        preset: "grok-web",
+        site: "https://grok.com",
+        new_chat_url: "https://grok.com/",
+        hosts: &["grok.com", "x.ai", "x.com", "twitter.com", GOOGLE[0], GOOGLE[1], "apple.com"],
+        models: &["grok"],
+        input: "textarea, div.ProseMirror[contenteditable=\"true\"]",
+        send_pattern: "submit|send",
+        enter_sends: true,
+        reply: ".response-content-markdown",
+        busy: Some("button[aria-label*=\"Stop\" i]"),
+        approval: None,
+        deny_pattern: "^(deny|decline|cancel)$",
+        ready_attr: None,
+        sign_in_hints: &["sign in", "sign up", "log in"],
+        signed_out_buttons: &["sign in", "sign up"],
+        acts: false,
+        challenge_selectors: CHALLENGE_SELECTORS,
+        challenge_hints: CHALLENGE_HINTS,
+        quota_hints: QUOTA_HINTS,
+    },
+];
 
 pub fn recipe(preset: &str) -> Option<&'static Recipe> {
     RECIPES.iter().find(|r| r.preset == preset)
@@ -242,11 +364,13 @@ pub fn state_script(r: &Recipe) -> String {
   const body = document.body ? document.body.innerText.slice(0, 4000).toLowerCase() : '';
   const input = document.querySelector({input});
   const signIn = !input && {sign_in}.some(h => body.includes(h));
+  const signedOut = [...document.querySelectorAll('button,a')].some(b => b.offsetParent !== null
+    && {signed_out}.includes((b.innerText || '').trim().toLowerCase()));
   const challenge = !!document.querySelector({challenge}) || {challenge_hints}.some(h => body.includes(h));
   return {{ fresh: !window.__pyggOld, ready: document.readyState === 'complete' && !!input && {ready_attr},
-           hasInput: !!input, signIn, challenge }};
+           hasInput: !!input, signIn, signedOut, challenge }};
 }})()"#,
-        input = q(r.input), sign_in = json!(r.sign_in_hints), challenge = q(r.challenge_selectors),
+        input = q(r.input), sign_in = json!(r.sign_in_hints), signed_out = json!(r.signed_out_buttons), challenge = q(r.challenge_selectors),
         challenge_hints = json!(r.challenge_hints), ready_attr = ready_attr)
 }
 
@@ -268,17 +392,26 @@ pub fn fill_script(r: &Recipe, text: &str) -> String {
 }})()"#, input = q(r.input), text = q(text))
 }
 
-/// Clicks the visible Send button: `clicked`, `disabled` or `missing`.
+/// Clicks the visible Send button: `clicked`, `disabled` or `missing`. Where the recipe says Enter sends and there is
+/// no such button, presses Enter in the prompt box instead: `entered`.
 pub fn send_script(r: &Recipe) -> String {
     format!(r#"(() => {{
   const re = new RegExp({pattern}, 'i');
   const button = [...document.querySelectorAll('button,[role=button]')].filter(b => b.offsetParent !== null)
     .find(b => re.test((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('data-testid') || '')));
-  if (!button) return 'missing';
-  if (button.disabled || button.getAttribute('aria-disabled') === 'true') return 'disabled';
-  button.click();
-  return 'clicked';
-}})()"#, pattern = q(r.send_pattern))
+  if (button) {{
+    if (button.disabled || button.getAttribute('aria-disabled') === 'true') return 'disabled';
+    button.click();
+    return 'clicked';
+  }}
+  const box = {enter} ? document.querySelector({input}) : null;
+  if (!box) return 'missing';
+  box.focus();
+  for (const type of ['keydown', 'keypress', 'keyup']) {{
+    box.dispatchEvent(new KeyboardEvent(type, {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }}));
+  }}
+  return 'entered';
+}})()"#, pattern = q(r.send_pattern), enter = r.enter_sends, input = q(r.input))
 }
 
 /// The conversation as it stands: how many replies, the last one's text, and the signals around it.
@@ -287,9 +420,9 @@ pub fn read_script(r: &Recipe) -> String {
   const replies = [...document.querySelectorAll({reply})];
   const last = replies.length ? (replies[replies.length - 1].innerText || '').trim() : '';
   const body = document.body ? document.body.innerText.slice(0, 4000).toLowerCase() : '';
-  return {{ count: replies.length, text: last, busy: !!document.querySelector({busy}),
+  return {{ count: replies.length, text: last, busy: {busy},
            approval: {approval}, challenge: !!document.querySelector({challenge}) || {challenge_hints}.some(h => body.includes(h)) }};
-}})()"#, reply = q(r.reply), busy = q(r.busy),
+}})()"#, reply = q(r.reply), busy = r.busy.map(|b| format!("!!document.querySelector({})", q(b))).unwrap_or_else(|| "false".into()),
         approval = r.approval.map(|a| format!("!!document.querySelector({})", q(a))).unwrap_or_else(|| "false".into()),
         challenge = q(r.challenge_selectors), challenge_hints = json!(r.challenge_hints))
 }
@@ -315,6 +448,8 @@ pub struct PageState {
     pub ready: bool,
     pub has_input: bool,
     pub sign_in: bool,
+    /// Buttons only a visitor sees are on the page: the site may chat, but not as the user.
+    pub signed_out: bool,
     pub challenge: bool,
 }
 
@@ -455,6 +590,9 @@ pub async fn open_chat(page: &dyn Page, recipe: &Recipe, timing: &Timing) -> Res
         if state.fresh && state.challenge {
             return Err(WebError::NeedsYou { state: "needs_you", reason: CHALLENGE });
         }
+        if state.fresh && state.signed_out && state.has_input {
+            return Err(WebError::NeedsYou { state: "signed_out", reason: SIGNED_OUT });
+        }
         if state.fresh && state.ready {
             return Ok(());
         }
@@ -490,7 +628,7 @@ pub async fn converse(page: &dyn Page, recipe: &Recipe, prompt: &str, timing: &T
     let started = Instant::now();
     loop {
         match page.eval(send_script(recipe)).await?.as_str() {
-            Some("clicked") => break,
+            Some("clicked" | "entered") => break,
             _ if started.elapsed() >= timing.send => return Err(WebError::PageChanged(NO_SEND_BUTTON)),
             _ => tokio::time::sleep(timing.poll).await,
         }
@@ -534,7 +672,8 @@ pub async fn converse(page: &dyn Page, recipe: &Recipe, prompt: &str, timing: &T
             stable = 0;
         } else {
             stable += 1;
-            if (!state.busy && stable >= timing.stable) || stable >= timing.stable_busy {
+            let settled = if recipe.busy.is_some() { timing.stable } else { timing.stable_busy };
+            if (!state.busy && stable >= settled) || stable >= timing.stable_busy {
                 let text = last.unwrap_or_default();
                 let lower = text.to_lowercase();
                 if recipe.quota_hints.iter().any(|h| lower.contains(h)) && text.len() < 600 {
