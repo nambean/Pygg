@@ -849,7 +849,12 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             let decision = policy::decide(failure);
             if let Some(mark) = &decision.mark {
                 let until = mark.cooldown.map(|d| db_now() + d.as_millis() as i64);
-                let model = if mark.model_scope { model_id.as_str() } else { "" };
+                // A 402 on a model that is free without credit (an OpenRouter `:free` one) is kept on that model: a
+                // connection-wide entry does not hold such a model (`store::blocking_health`), so it would be sent
+                // again at once.
+                let model_scope = mark.model_scope || (mark.state == "payment_required"
+                    && shared.with_db(|db| store::free_without_credit(db, &provider.id, &model_id)).unwrap_or(false));
+                let model = if model_scope { model_id.as_str() } else { "" };
                 let status = match failure { Failure::Http(e) => Some(e.status), _ => None };
                 let _ = shared.with_db(|db| store::mark_health(db, &provider.id, model, mark.state, message, status, until));
             }

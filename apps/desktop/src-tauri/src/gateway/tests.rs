@@ -50,6 +50,9 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
         "timeout408" => return (StatusCode::REQUEST_TIMEOUT, "generation took too long").into_response(),
         "gateway504" => return (StatusCode::GATEWAY_TIMEOUT, "upstream timed out").into_response(),
         "broke" => return (StatusCode::INTERNAL_SERVER_ERROR, "boom").into_response(),
+        // OpenRouter's answer on an account with no credit (its `code` is a number).
+        "nocredit" | "nocredit:free" => return (StatusCode::PAYMENT_REQUIRED, Json(json!({ "error": {
+            "message": "Insufficient credits", "code": 402 } }))).into_response(),
         "noquota" => return (StatusCode::TOO_MANY_REQUESTS, Json(json!({ "error": { "message": "You exceeded your current quota",
             "type": "insufficient_quota", "code": "insufficient_quota" } }))).into_response(),
         "daylong" => return ([(header::RETRY_AFTER, "86400")], (StatusCode::TOO_MANY_REQUESTS,
@@ -681,6 +684,62 @@ fn an_account_out_of_credit_cools_the_whole_connection_down() {
         assert_eq!(rig.post("/v1/chat/completions", chat("main/fast")).await.status(), 429);
         assert_eq!(rig.post("/v1/chat/completions", chat("sibling/fast")).await.status(), 429);
         assert_eq!(rig.fake.count("fast"), 0);
+    });
+}
+
+#[test]
+fn no_credit_on_openrouter_does_not_hold_its_free_models() {
+    rt().block_on(async {
+        let rig = rig().await;
+        let zero = Price { input_micro_per_mtok: 0, output_micro_per_mtok: 0, ..price() };
+        let listed = |provider: &str, model: &str, price: &Price| rig.shared.with_db(|db| {
+            store::add_model(db, provider, model).unwrap();
+            store::update_model(db, provider, model, None, None, Some(Some(price.clone()))).unwrap();
+        });
+        // A second OpenRouter key: same quota group as Router.
+        let endpoint = rig.shared.with_db(|db| store::get_provider(db, "router")).unwrap().unwrap().endpoint;
+        let other = rig.shared.with_db(|db| store::add_provider(db, &NewProvider { kind: "openrouter", label: "Router 2",
+            endpoint: &endpoint, credential_ref: Some("provider-main"), default_billing: "free", wire: "openai" })).unwrap();
+        for provider in ["router", other.id.as_str(), "main"] {
+            listed(provider, "free-a:free", &zero);
+        }
+        listed("router", "nocredit:free", &zero);
+        listed("router", "paid-b", &price());
+        rig.shared.with_db(|db| store::update_model(db, "router", "paid-b", Some(true), None, None)).unwrap();
+
+        // A paid model: the account has no credit, so the whole connection is marked.
+        assert_ne!(rig.post("/v1/chat/completions", chat("router/nocredit")).await.status(), 200);
+        let health = rig.shared.with_db(|db| store::list_health(db, Some("router"))).unwrap();
+        assert_eq!((health[0].model_id.as_str(), health[0].state.as_str()), ("", "payment_required"));
+        // Its paid models wait, here and on the sibling key; its $0 models do not, on either key.
+        assert_ne!(rig.post("/v1/chat/completions", chat("router/paid-b")).await.status(), 200);
+        assert_eq!(rig.fake.count("paid-b"), 0);
+        assert_eq!(rig.post("/v1/chat/completions", chat("router/free-a:free")).await.status(), 200);
+        assert_eq!(rig.post("/v1/chat/completions", chat(&format!("{}/free-a:free", other.id))).await.status(), 200);
+        assert_eq!(rig.fake.count("free-a:free"), 2);
+        // A $0 model answering says nothing about the balance: the paid models still wait.
+        assert_ne!(rig.post("/v1/chat/completions", chat("router/paid-b")).await.status(), 200);
+        assert_eq!(rig.fake.count("paid-b"), 0);
+        // `auto` judges them the same way.
+        let client = rig.client();
+        let plan = rig.shared.with_db(|db| auto::plan(db, &client, "auto/cheap", auto::Strategy::Cheap,
+            &auto::Needs::default())).unwrap();
+        let reason = |provider: &str, model: &str| plan.excluded.iter()
+            .find(|e| e.provider_id == provider && e.model_id == model).map(|e| e.reason.clone()).unwrap_or_default();
+        assert!(reason("router", "paid-b").starts_with("payment required"), "{plan:?}");
+        assert!(!reason("router", "free-a:free").contains("payment"), "{plan:?}");
+        assert!(!reason(&other.id, "free-a:free").contains("payment"), "{plan:?}");
+
+        // A 402 on a $0 model is kept on that model, which then waits; the other $0 model is still used.
+        assert_ne!(rig.post("/v1/chat/completions", chat("router/nocredit:free")).await.status(), 200);
+        assert_ne!(rig.post("/v1/chat/completions", chat("router/nocredit:free")).await.status(), 200);
+        assert_eq!(rig.fake.count("nocredit:free"), 1);
+        assert_eq!(rig.post("/v1/chat/completions", chat("router/free-a:free")).await.status(), 200);
+
+        // Only on a connection set as free whose free part is its $0 models: a $0 price elsewhere is not an exception.
+        assert_ne!(rig.post("/v1/chat/completions", chat("main/nocredit")).await.status(), 200);
+        assert_ne!(rig.post("/v1/chat/completions", chat("main/free-a:free")).await.status(), 200);
+        assert_eq!(rig.fake.count("free-a:free"), 3);
     });
 }
 

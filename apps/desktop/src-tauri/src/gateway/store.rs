@@ -931,11 +931,13 @@ pub fn probe_failed(conn: &Connection, provider_id: &str) -> Result<()> {
         params![provider_id, now_ms()]).map(|_| ()).map_err(err)
 }
 
-/// Clears the model's entry, and the connection-wide one unless it needs the user (a rejected key).
+/// Clears the model's entry, and the connection-wide one unless it needs the user (a rejected key). An answer from a
+/// model that is free without credit says nothing about the account's balance, so it leaves `payment_required`.
 pub fn mark_healthy(conn: &Connection, provider_id: &str, model_id: &str) -> Result<()> {
+    let free = free_without_credit(conn, provider_id, model_id)?;
     conn.execute(
-        "DELETE FROM connection_health WHERE provider_id = ?1 AND (model_id = ?2 OR (model_id = '' AND until_ms IS NOT NULL))",
-        params![provider_id, model_id],
+        "DELETE FROM connection_health WHERE provider_id = ?1 AND (model_id = ?2 OR (model_id = '' AND until_ms IS NOT NULL          AND NOT (?3 AND state = 'payment_required')))",
+        params![provider_id, model_id, free],
     )
     .map(|_| ())
     .map_err(err)
@@ -1010,9 +1012,35 @@ pub fn list_health(conn: &Connection, provider_id: Option<&str>) -> Result<Vec<H
     rows.collect::<rusqlite::Result<_>>().map_err(err)
 }
 
+/// Whether a model is free on its connection without any credit: listed at $0, and billed as free, on a connection
+/// set as free whose free part is its $0 models (ADR-032). OpenRouter serves its `:free` models on an account with
+/// no balance, so the account being out of credit (HTTP 402) says nothing about them.
+pub fn free_without_credit(conn: &Connection, provider_id: &str, model_id: &str) -> Result<bool> {
+    const SQL: &str = concat!("SELECT EXISTS (SELECT 1 FROM models m JOIN providers p ON p.id = m.provider_id          WHERE m.provider_id = ?1 AND m.model_id = ?2 AND ", free_models_connection!(), " AND ", listed_free!(),
+        " AND (", billing!(), ") = 'free')");
+    conn.query_row(SQL, params![provider_id, model_id], |r| r.get(0)).map_err(err)
+}
+
+/// Whether a health entry covers this model: its own entry, or a connection-wide one. A connection-wide
+/// `payment_required` does not cover a model that is free without credit (`free_without_credit`).
+fn covers(h: &Health, model_id: &str, free_without_credit: bool) -> bool {
+    h.model_id == model_id || (h.model_id.is_empty() && !(free_without_credit && h.state == "payment_required"))
+}
+
+/// Looks up `free_without_credit` only when an entry in `entries` could depend on it.
+fn free_if_it_matters(conn: &Connection, entries: &[Health], provider_id: &str, model_id: &str) -> Result<bool> {
+    if entries.iter().any(|h| h.model_id.is_empty() && h.state == "payment_required") {
+        free_without_credit(conn, provider_id, model_id)
+    } else {
+        Ok(false)
+    }
+}
+
 /// The entry that currently keeps this connection or model from being tried, if any.
 pub fn blocking_health(conn: &Connection, provider_id: &str, model_id: &str) -> Result<Option<Health>> {
-    Ok(list_health(conn, Some(provider_id))?.into_iter().find(|h| h.model_id.is_empty() || h.model_id == model_id))
+    let entries = list_health(conn, Some(provider_id))?;
+    let free = free_if_it_matters(conn, &entries, provider_id, model_id)?;
+    Ok(entries.into_iter().find(|h| covers(h, model_id, free)))
 }
 
 /// States that speak for the provider account or organization, not just one connection's transport: while
@@ -1028,9 +1056,10 @@ pub fn group_hold(conn: &Connection, provider: &Provider, model_id: &str) -> Res
         if other.id == provider.id || other.quota_group != provider.quota_group {
             continue;
         }
-        let hold = list_health(conn, Some(&other.id))?.into_iter().find(|h| {
-            QUOTA_STATES.contains(&h.state.as_str()) && (h.model_id.is_empty() || h.model_id == model_id)
-        });
+        let entries = list_health(conn, Some(&other.id))?;
+        // The account being out of credit does not hold a model that is free here without credit.
+        let free = free_if_it_matters(conn, &entries, &provider.id, model_id)?;
+        let hold = entries.into_iter().find(|h| QUOTA_STATES.contains(&h.state.as_str()) && covers(h, model_id, free));
         if let Some(hold) = hold {
             found = Some((other, hold));
             break;
