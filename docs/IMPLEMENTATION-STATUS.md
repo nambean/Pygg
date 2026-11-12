@@ -185,6 +185,19 @@ An OpenAI-format client to `anthropic/claude-haiku-5-5` through a scratch gatewa
 
 Anthropic-format requests to `qwen3.7-plus` on Qwen's token plan through a scratch gateway (ROADMAP B5; `QWEN_API_KEY`, removed from the Credential Manager afterwards). Non-streamed with a tool: a `thinking` block (617 characters, signed `pygg-reasoning-v1`) then `tool_use`. The second turn, with that thinking block and the tool result sent back: HTTP 200, a thinking block and the answer, nothing reported dropped. Streamed: a thinking block with its `signature_delta`, then the text. Quota only, no money. DeepSeek's 400 without the reasoning is from its documentation, not tried here (no DeepSeek key in the environment).
 
+## Live verification: OpenRouter, Ollama and DeepSeek through the owner's gateway, 2026-11-12
+
+Small requests through the owner's installed app (`127.0.0.1:8741`), authenticated as the OpenCode client Pygg made, connections read from a read-only copy of the store (ROADMAP C1). The installed build predates B5.
+
+| Target | Requests | Result |
+| --- | --- | --- |
+| OpenRouter `nvidia/nemotron-3.5-lightning:free` | OpenAI and Anthropic format, each streamed and not | HTTP 200 for all four, `pong`; mode `native` for OpenAI, `translated:anthropic->openai` for Anthropic. With `max_tokens: 64` the model spent everything on reasoning and the Anthropic answer was empty (`stop_reason: max_tokens`); with 600 it answered. Ledger: $0, cost `actual`. |
+| OpenRouter `google/gemma-4-31b-it:free` | OpenAI, not streamed | A real 429 (`temporarily rate-limited upstream`, Google AI Studio's shared pool). Pygg cooled that one model down and refused the next three requests without calling OpenRouter; the other `:free` model was unaffected. |
+| Ollama `qwen2.5-coder:7b` (Docker, GPU) | OpenAI not streamed; Anthropic streamed | HTTP 200, `Pong`; ledger $0 (`local`). |
+| DeepSeek `deepseek-flash` | OpenAI, not streamed, `max_tokens: 16` | A real 402, `Insufficient Balance` (`insufficient_balance_error`): the DeepSeek account has no balance. Pygg relayed it, recorded `payment_required` on the connection for 10 minutes and a $0 ledger entry. **Not verified:** a successful DeepSeek request, and the two-turn tool conversation on its reasoning model in Anthropic format (B5's `reasoning_content` round trip), which needs a funded account. |
+
+Reasoning: OpenRouter's Nemotron returned `reasoning`, and the Anthropic-format answer had no `thinking` block, as expected from a build before B5; this is not a test of B5. Money spent: $0. The OpenRouter account's earlier 402 in the store (`can only afford 16542` of 32000 tokens, on a paid model) is what the 402 change above addresses.
+
 ## Benchmark N2 through the gateway and the task engine, 2026-11-11 to 2026-11-12
 
 12 harder cases, three runs each, six arms, OpenCode driven by the task engine (`bench --engine`), every attempt costed from the gateway's ledger by its `PYGG_ATTEMPT_ID` ([report](../benchmark/reports/2026-11-12-n2-savings.md)). Live through the gateway: Anthropic (Sonnet 5.5, Haiku 5.5; 438 requests, none failed), Qwen's token plan through `auto` and as a cascade step (489 requests, all quota), and **Ollama** in Docker on the GPU (`qwen3:8b`, 173 requests, 2 failed). $4.89 at list prices, within the client's strict $17.50 limit, which held each request at its most before sending. One finding changed the product: a step whose service stops answering is now skipped (AGENTS.md).
@@ -197,7 +210,8 @@ Anthropic-format requests to `qwen3.7-plus` on Qwen's token plan through a scrat
 
 - **Claude Code in an interactive terminal.** A headless session was run (above); an interactive one may send background requests that `-p` does not, and was not run.
 - **The counter-review changes against a real provider.** The quota-group hold, HTTP-date resets, the attempt journal and the at-risk accounting were tested against the fake provider only.
-- **Providers other than Gemini, Anthropic, Qwen and Ollama answering successfully.** OpenRouter, OpenAI, Groq, DeepSeek and Mistral gave their real 401 answers (above); a successful request only against the fake provider. Ollama answered live in the N2 benchmark.
+- **Providers other than Gemini, Anthropic, Qwen, Ollama and OpenRouter answering successfully.** OpenAI, Groq, DeepSeek and Mistral gave their real 401 answers (above), and DeepSeek a real 402 for an empty balance (2026-11-12); a successful request only against the fake provider. OpenRouter and Ollama answered live through the owner's gateway on 2026-11-12.
+- **DeepSeek's thinking mode with tools across the Anthropic translation** (B5). Needs a funded DeepSeek account.
 - **Clicking through the native window.** It was checked through screenshots and DevTools-driven commands. The D12 checks for traffic-light controls (snap layouts, scaling, screen readers) remain open.
 
 ## Designed, not built
