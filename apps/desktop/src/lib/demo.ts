@@ -4,7 +4,7 @@
  * data" banner whenever this is in use (ADR-014). It follows the core's rules (slugs, validation, honest
  * costs) closely enough for design review, not as a test of them.
  */
-import type { AgentInfo, Integration, Launcher, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
+import type { AgentInfo, Integration, Launcher, ClientDefaults, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
   Health, Model, Preset, Target, Tier, UsageEvent, UsageBucket, UsageGroup, UsageSummary, Account, Wire,
   LocalUsage, SubscriptionUsage, Retention } from './api';
 import { TIERS, WEB_WARNING_VERSION } from './api';
@@ -203,6 +203,8 @@ export function demoApi(): GatewayApi {
   ];
 
   let savingsBaseline: string | null = 'anthropic/claude-sonnet-4-5';
+  let clientDefaults: ClientDefaults = {autoMinTier: null, monthlyBudgetMicroUsd: null, maxConcurrency: null, unknownCostPolicy: null,
+    paidRetries: null, requireNoTraining: null};
   let launcher: Launcher = {setUp: false, clientId: null, clientName: null, setUpAt: null, installed: true,
     cliPath: 'C:\\Users\\you\\AppData\\Local\\Pygg\\pygg-cli.exe'};
 
@@ -493,6 +495,8 @@ export function demoApi(): GatewayApi {
       });
     },
     setSavingsBaseline: async baseline => { savingsBaseline = baseline; },
+    clientDefaults: async () => touch({...clientDefaults}),
+    setClientDefaults: async d => { await sleep(150); clientDefaults = {...d}; },
     launcher: async () => touch({...launcher}),
     launcherSetUp: async () => {
       await sleep(400);

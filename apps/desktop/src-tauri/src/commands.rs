@@ -384,6 +384,17 @@ pub fn usage_set_savings_baseline(state: State<'_, AppState>, baseline: Option<S
     state.shared.with_db(|db| gateway::savings::set_baseline(db, baseline.as_deref()))
 }
 
+/// The defaults for new API keys (Policies).
+#[tauri::command]
+pub fn client_defaults(state: State<'_, AppState>) -> Res<store::ClientDefaults> {
+    state.shared.with_db(store::client_defaults)
+}
+
+#[tauri::command]
+pub fn client_set_defaults(state: State<'_, AppState>, defaults: store::ClientDefaults) -> Res<()> {
+    state.shared.with_db(|db| store::set_client_defaults(db, &defaults))
+}
+
 /// The newest request of each API key (CLI Tools' "Working").
 #[tauri::command]
 pub fn client_latest_requests(state: State<'_, AppState>) -> Res<Vec<store::LatestRequest>> {

@@ -4,7 +4,7 @@
 use super::pricing::{Cost, Price};
 use crate::db::now_ms;
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub type Result<T> = std::result::Result<T, String>;
@@ -737,7 +737,39 @@ pub fn list_clients(conn: &Connection) -> Result<Vec<Client>> {
     rows.collect::<rusqlite::Result<_>>().map_err(err)
 }
 
-/// Creates a client and returns it with its token, which is not stored and cannot be shown again.
+/// Where the defaults for new API keys are kept (Policies).
+pub const CLIENT_DEFAULTS: &str = "client.defaults";
+
+/// Defaults applied when an API key is created, whoever creates it: the app, the CLI or a tool's set-up (Policies,
+/// SCREENS §2.2). `None` keeps the schema's own default. Existing keys keep what they have.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientDefaults {
+    pub auto_min_tier: Option<String>,
+    pub monthly_budget_micro_usd: Option<u64>,
+    pub max_concurrency: Option<u32>,
+    pub unknown_cost_policy: Option<String>,
+    pub paid_retries: Option<u32>,
+    pub require_no_training: Option<bool>,
+}
+
+pub fn client_defaults(conn: &Connection) -> Result<ClientDefaults> {
+    Ok(setting(conn, CLIENT_DEFAULTS)?.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default())
+}
+
+pub fn set_client_defaults(conn: &Connection, d: &ClientDefaults) -> Result<()> {
+    if let Some(tier) = &d.auto_min_tier {
+        if !["T0", "T1", "T2", "T3", "T4"].contains(&tier.as_str()) { return Err(format!("unknown tier {tier}")); }
+    }
+    if d.max_concurrency.is_some_and(|n| !(1..=256).contains(&n)) { return Err("Requests at once must be 1 to 256".into()); }
+    if d.paid_retries.is_some_and(|n| n > 5) { return Err("Paid retries must be 0 to 5".into()); }
+    if d.unknown_cost_policy.as_deref().is_some_and(|p| p != "block" && p != "allow") { return Err("Unknown prices: block or allow".into()); }
+    if d.monthly_budget_micro_usd == Some(0) { return Err("Enter a monthly limit above $0, or none".into()); }
+    set_setting(conn, CLIENT_DEFAULTS, &serde_json::to_string(d).map_err(|e| e.to_string())?)
+}
+
+/// Creates a client and returns it with its token. The store keeps only the token's hash; the app may keep a copy in
+/// the credential store (commands.rs). The defaults for new keys apply here, so every way of creating one gets them.
 pub fn create_client(conn: &Connection, name: &str, monthly_budget_micro_usd: Option<u64>) -> Result<(Client, String)> {
     let name = name.trim();
     if name.is_empty() {
@@ -745,12 +777,20 @@ pub fn create_client(conn: &Connection, name: &str, monthly_budget_micro_usd: Op
     }
     let token = format!("str-{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
     let id = uuid::Uuid::new_v4().to_string();
+    let defaults = client_defaults(conn)?;
+    let budget = monthly_budget_micro_usd.or(defaults.monthly_budget_micro_usd);
     conn.execute(
         "INSERT INTO gateway_clients (id, name, token_hash, token_prefix, monthly_budget_micro_usd, created_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![id, name, hash_token(&token), &token[..12], monthly_budget_micro_usd.map(|v| v as i64), now_ms()],
+        params![id, name, hash_token(&token), &token[..12], budget.map(|v| v as i64), now_ms()],
     )
     .map_err(err)?;
+    if let Some(tier) = &defaults.auto_min_tier { set_client_auto_min_tier(conn, &id, tier)?; }
+    if defaults.max_concurrency.is_some() || defaults.unknown_cost_policy.is_some() {
+        set_client_policy(conn, &id, defaults.max_concurrency, defaults.unknown_cost_policy.as_deref())?;
+    }
+    if let Some(n) = defaults.paid_retries { set_client_paid_retries(conn, &id, n)?; }
+    if let Some(required) = defaults.require_no_training { set_client_require_no_training(conn, &id, required)?; }
     let client = conn
         .query_row(&format!("SELECT {CLIENT_COLUMNS} FROM gateway_clients WHERE id = ?1"), [&id], |r| client_row(conn, r))
         .map_err(err)?;
@@ -2217,6 +2257,23 @@ mod tests {
         assert!(list_clients(&conn).unwrap().is_empty());
         assert!(revoked_client_ids(&conn).unwrap().is_empty());
         assert!(authenticate(&conn, &token).unwrap().is_none());
+    }
+
+    #[test]
+    fn new_keys_get_the_defaults_and_old_keys_keep_theirs() {
+        let conn = db::open_in_memory().unwrap();
+        let (old, _) = create_client(&conn, "Old", None).unwrap();
+        assert_eq!(old.auto_min_tier, "T2");
+        assert!(set_client_defaults(&conn, &ClientDefaults { paid_retries: Some(9), ..Default::default() }).is_err());
+        set_client_defaults(&conn, &ClientDefaults { auto_min_tier: Some("T1".into()), monthly_budget_micro_usd: Some(5_000_000),
+            max_concurrency: Some(2), unknown_cost_policy: Some("allow".into()), paid_retries: Some(1), require_no_training: Some(true) }).unwrap();
+        let (new, _) = create_client(&conn, "New", None).unwrap();
+        assert_eq!((new.auto_min_tier.as_str(), new.monthly_budget_micro_usd, new.max_concurrency, new.unknown_cost_policy.as_str(),
+            new.paid_retries, new.require_no_training), ("T1", Some(5_000_000), 2, "allow", 1, true));
+        let (own, _) = create_client(&conn, "Own limit", Some(1_000_000)).unwrap();
+        assert_eq!(own.monthly_budget_micro_usd, Some(1_000_000), "a limit given at creation wins");
+        let old = list_clients(&conn).unwrap().into_iter().find(|c| c.id == old.id).unwrap();
+        assert_eq!((old.auto_min_tier.as_str(), old.max_concurrency), ("T2", 8), "existing keys keep theirs");
     }
 
     #[test]

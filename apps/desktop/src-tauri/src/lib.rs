@@ -282,6 +282,8 @@ pub fn run() {
             commands::model_test,
             commands::connection_reliability,
             commands::client_latest_requests,
+            commands::client_defaults,
+            commands::client_set_defaults,
             commands::client_token,
             commands::client_delete,
             commands::client_delete_revoked,

@@ -17,7 +17,6 @@ import { CommandPalette, type Command } from './components/CommandPalette';
 import { GatewayStatus } from './components/GatewayStatus';
 import { Guide } from './components/Guide';
 import { NewTaskView } from './components/NewTaskView';
-import { PendingView } from './components/PendingView';
 import { SettingsView } from './components/SettingsView';
 import { TaskDetail } from './components/TaskDetail';
 import { TaskList } from './components/TaskList';
@@ -30,6 +29,7 @@ import { Endpoint } from './components/gateway/Endpoint';
 import { Connections } from './components/gateway/Connections';
 import { Overview, type GatewayDestination } from './components/gateway/Overview';
 import { Usage } from './components/gateway/Usage';
+import { Policies } from './components/gateway/Policies';
 import { Agents } from './components/gateway/Agents';
 
 type View =
@@ -170,7 +170,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
     : view.kind === 'agents' ? t('Agents')
     : view.kind === 'guide' ? t('Guide')
     : t('Settings');
-  const isTaskScreen = view.kind === 'tasks' || view.kind === 'task' || view.kind === 'new' || view.kind === 'policies' || view.kind === 'workspaces';
+  const isTaskScreen = view.kind === 'tasks' || view.kind === 'task' || view.kind === 'new' || view.kind === 'workspaces';
   const primary = isGateway(view.kind) ? PRIMARY[view.kind] : undefined;
 
   return <div className={`window${isMac || customChrome ? ' has-lights' : ''}${sidebarOpen ? '' : ' sidebar-hidden'}`}>
@@ -184,14 +184,14 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         <SidebarGroup title={t('Gateway')}>
           {GATEWAY.map((g, i) => <SidebarItem key={g.kind} icon={g.icon} label={t(g.title)} shortcut={`${MOD}${i + 1}`}
             selected={view.kind === g.kind} onSelect={() => go(g.kind)}/>)}
+          <SidebarItem icon={<SlidersHorizontal/>} label={t('Policies')}
+            selected={view.kind === 'policies'} onSelect={() => setView({kind: 'policies'})}/>
         </SidebarGroup>
         <SidebarGroup title={t('Smart Tasks · Experimental')}>
           <SidebarItem icon={<ListTodo/>} label={t('Tasks')} count={attention} emphasized shortcut={`${MOD}7`}
             selected={view.kind === 'tasks' || view.kind === 'task' || view.kind === 'new'} onSelect={() => setView({kind: 'tasks', filter: 'all'})}/>
           <SidebarItem icon={<FolderGit2/>} label={t('Workspaces')} count={workspaces.filter(needsChecks).length} emphasized
             title={t('Workspaces')} selected={view.kind === 'workspaces'} onSelect={() => setView({kind: 'workspaces'})}/>
-          <SidebarItem icon={<SlidersHorizontal/>} label={t('Policies')}
-            selected={view.kind === 'policies'} onSelect={() => setView({kind: 'policies'})}/>
           <SidebarItem icon={<Bot/>} label={t('Agents')} shortcut={`${MOD}8`}
             selected={view.kind === 'agents'} onSelect={() => setView({kind: 'agents'})}/>
         </SidebarGroup>
@@ -232,7 +232,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         </button>}
       </header>
 
-      {(isGateway(view.kind) || view.kind === 'agents' || isTaskScreen) && !runningInDesktop && <p className="banner sample" role="status">
+      {(isGateway(view.kind) || view.kind === 'agents' || view.kind === 'policies' || isTaskScreen) && !runningInDesktop && <p className="banner sample" role="status">
         {t('Browser preview with demo data. Nothing is stored or sent; the desktop app runs the real gateway.')}
       </p>}
 
@@ -264,12 +264,8 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         {view.kind === 'task' && <TaskDetail id={view.id} onBack={() => { taskList.reload(); setView({kind: 'tasks', filter: view.from}); }}/>}
         {view.kind === 'new' && <NewTaskView onCreated={created}/>}
         {view.kind === 'workspaces' && <WorkspacesView/>}
-        {view.kind === 'policies' && <PendingView title={t('Policies')}
-          purpose={t('One place for strategies, tiers, attempt limits, budgets and when paid steps need your approval. Until then, these are set where they apply:')}>
-          <button type="button" className="button" onClick={() => setView({kind: 'workspaces'})}>{t('Checks and Privacy in Workspaces')}</button>
-          <button type="button" className="button" onClick={() => setView({kind: 'settings'})}>{t('Daily Budget in Settings')}</button>
-          <button type="button" className="button" onClick={newTask}>{t('Steps and Strategy in New Task')}</button>
-        </PendingView>}
+        {view.kind === 'policies' && <Policies go={go} onSettings={() => setView({kind: 'settings'})}
+          onWorkspaces={() => setView({kind: 'workspaces'})}/>}
         {view.kind === 'settings' && <SettingsView language={language} onLanguage={onLanguage} onGateway={() => go('endpoint')}/>}
       </div>
     </main>

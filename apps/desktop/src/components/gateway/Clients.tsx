@@ -181,7 +181,7 @@ function CreateSheet({onClose}: {onClose: () => void}) {
   </Sheet>;
 }
 
-function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void}) {
+export function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void}) {
   const [limit, setLimit] = useState(c.monthlyBudgetMicroUsd ? String(c.monthlyBudgetMicroUsd / 1_000_000) : '');
   const [unknown, setUnknown] = useState(c.unknownCostPolicy);
   const [concurrency, setConcurrency] = useState(String(c.maxConcurrency));

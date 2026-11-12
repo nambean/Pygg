@@ -89,6 +89,12 @@ export type Savings = {
   suggested: string | null;
 };
 
+/** Defaults applied when an API key is created (Policies); null keeps Pygg's own default. */
+export type ClientDefaults = {
+  autoMinTier: Tier | null; monthlyBudgetMicroUsd: number | null; maxConcurrency: number | null;
+  unknownCostPolicy: 'block' | 'allow' | null; paidRetries: number | null; requireNoTraining: boolean | null;
+};
+
 /** The newest request one API key sent: CLI Tools' "Working". */
 export type LatestRequest = {clientId: string; createdAt: number; provider: string; model: string; requestedModel: string | null; outcome: Outcome};
 
@@ -292,6 +298,8 @@ export interface GatewayApi {
   reliability(connectionId: string): Promise<Reliability[]>;
   /** The newest request of each API key. */
   latestRequests(): Promise<LatestRequest[]>;
+  clientDefaults(): Promise<ClientDefaults>;
+  setClientDefaults(defaults: ClientDefaults): Promise<void>;
   savings(days: number): Promise<Savings>;
   setSavingsBaseline(baseline: string | null): Promise<void>;
   launcher(): Promise<Launcher>;
@@ -421,6 +429,8 @@ const native: GatewayApi = {
   testModel: (providerId, modelId) => invoke('model_test', {providerId, modelId}),
   reliability: id => invoke('connection_reliability', {id}),
   latestRequests: () => invoke('client_latest_requests'),
+  clientDefaults: () => invoke('client_defaults'),
+  setClientDefaults: defaults => invoke('client_set_defaults', {defaults}),
   savings: days => invoke('usage_savings', {days}),
   setSavingsBaseline: baseline => invoke('usage_set_savings_baseline', {baseline}),
   launcher: () => invoke('launcher_state'),
