@@ -28,6 +28,7 @@ pub mod openai_to_anthropic;
 pub mod policy;
 pub mod presets;
 pub mod probe;
+pub mod quota;
 pub mod pricing;
 pub mod reference;
 pub mod signatures;
