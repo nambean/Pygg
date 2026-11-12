@@ -27,7 +27,7 @@ const SECTIONS: Section[] = [
   </>},
   {id: 'claude', title: 'Claude Code', body: go => <>
     <p>{t('Pointing Claude Code’s own settings at another endpoint would stop it using your Claude plan, so Pygg uses a launcher: set it up once in CLI Tools (or with the command below), then start Claude Code through Pygg when you want it. Plain claude keeps your Claude sign-in.')}</p>
-    {code('pygg setup claude-launcher\npygg run claude\npygg run --model auto/cheap claude\npygg run claude -p "Explain this repository"', t('Claude Code through Pygg'))}
+    {code('pygg setup claude-launcher --dry-run\npygg setup claude-launcher\npygg run claude\npygg run --model auto/cheap claude\npygg run claude -p "Explain this repository"', t('Claude Code through Pygg'))}
     <p>{t('Arguments after claude are Claude Code’s own; --model before claude sets the model for every slot. Claude Code may say it does not recognize the model “auto” and assume a 200k context: that is expected.')}{' '}
       <button type="button" className="link-button" onClick={() => go('tools')}>{t('Open CLI Tools')}</button></p>
     <p>{t('To let Claude Code hand tasks to Pygg instead (smart tasks, experimental):')}</p>
@@ -48,11 +48,17 @@ const SECTIONS: Section[] = [
       <button type="button" className="link-button" onClick={() => go('endpoint')}>{t('Open Endpoint')}</button></p>
     {code('Provider:  OpenAI Compatible\nBase URL:  http://127.0.0.1:8741/v1\nAPI key:   a Pygg API key (Endpoint → API Keys)\nModel:     auto', t('Fields'))}
     {code('from openai import OpenAI\n\nclient = OpenAI(base_url="http://127.0.0.1:8741/v1", api_key="<your Pygg API key>")\nreply = client.chat.completions.create(model="auto", messages=[{"role": "user", "content": "Hello"}])\nprint(reply.choices[0].message.content)', 'Python')}
-    {code('curl http://127.0.0.1:8741/v1/chat/completions \\\n  -H "Authorization: Bearer $PYGG_KEY" -H "Content-Type: application/json" \\\n  -d \'{"model":"auto","messages":[{"role":"user","content":"Hello"}]}\'', 'curl')}
+    {code('$headers = @{ Authorization = "Bearer $env:PYGG_KEY" }\n$body = @{ model = "auto"; max_tokens = 16; messages = @(@{ role = "user"; content = "Reply with OK." }) } | ConvertTo-Json -Depth 5\nInvoke-RestMethod -Uri "http://127.0.0.1:8741/v1/chat/completions" -Method Post -Headers $headers -ContentType "application/json" -Body $body', 'PowerShell')}
+    <p className="secondary">{t('These send a real request, recorded in Usage. The gateway serves three formats:')}</p>
+    {code('OpenAI Chat Completions:  POST /v1/chat/completions\nOpenAI Responses:         POST /v1/responses\nAnthropic Messages:       POST /v1/messages', t('Formats'))}
+    <p>{t('IDE agents that take MCP servers (Claude Code, Codex, Cursor…) can also start Pygg’s MCP server over stdio, to hand tasks to Pygg (experimental). It is a program they start, not an address:')}</p>
+    {code('Command:    pygg   (or the full path of Pygg.exe)\nArguments:  mcp', 'MCP')}
   </>},
   {id: 'cli', title: 'Command line and npm', body: () => <>
     <p>{t('The installer puts pygg-cli.exe next to the app (usually %LOCALAPPDATA%\\Pygg). From npm, the same program is called pygg:')}</p>
-    {code('npm install -g @pygg/cli@dev\npygg --version\npygg status\npygg doctor', t('Install and check'))}
+    {code('node --version\nnpm install -g @pygg/cli@dev\npygg --version\npygg status\npygg doctor', t('Install and check'))}
+    <p className="secondary">{t('@dev is the developer preview. Without Node.js, use the program the installer put next to the app; after installing from npm, open a new terminal if pygg is not found.')}</p>
+    {code('& "$env:LOCALAPPDATA\\Pygg\\pygg-cli.exe" doctor', t('Without npm'))}
     <table className="data-table guide-table">
       <thead><tr><th scope="col">{t('Command')}</th><th scope="col">{t('What it does')}</th></tr></thead>
       <tbody>
@@ -84,6 +90,8 @@ const SECTIONS: Section[] = [
         <button type="button" className="link-button" onClick={() => go('combos')}>{t('Open Combos')}</button></li>
       <li><span className="mono">gemini/gemini-2.5-flash</span>: {t('one model of one connection, by name.')}</li>
     </ul>
+    <p>{t('From the command line (CONNECTION and MODEL are placeholders). The auto command only shows the choice; test-model sends one short request and may cost a little.')}</p>
+    {code('pygg gateway combo --name coding --member CONNECTION/MODEL --member BACKUP_CONNECTION/BACKUP_MODEL\npygg gateway auto --alias auto --client "Claude Code" --tools yes --prompt 2000 --max-tokens 1000\npygg gateway auto --alias auto/cheap --tools yes\npygg gateway test-model --model CONNECTION/MODEL', t('Combos and auto'))}
   </>},
   {id: 'costs', title: 'Costs and limits', body: go => <>
     <ul className="guide-list">
@@ -108,8 +116,19 @@ const SECTIONS: Section[] = [
         ] as const).map(([see, todo]) => <tr key={see}><td>{see}</td><td>{todo}</td></tr>)}
       </tbody>
     </table>
-    {code('pygg doctor\npygg diagnostics --out pygg-diagnostics.zip', t('Before asking for help'))}
+    {code('pygg doctor\npygg diagnostics --out "$env:USERPROFILE\\Desktop\\pygg-diagnostics.zip"', t('Before asking for help'))}
   </>},
+  {id: 'faq', title: 'FAQ', body: () => <dl className="guide-faq">
+    {([
+      [t('Does Pygg provide models?'), t('No. It routes your requests to the providers you connect, with your own keys or local runtimes.')],
+      [t('Is free unlimited?'), t('No. Free tiers have their own limits, set by each provider; Pygg moves on to the next model when one is used up.')],
+      [t('Why is a cost unknown?'), t('The model has no price, the provider reported no usage, or a failed request may have been billed. Unknown is never counted as $0.')],
+      [t('Why did it stop after a server error?'), t('The provider may already have run and billed the request. Pygg tries another model only if the API key allows paid retries.')],
+      [t('Does fallback retry a poor answer?'), t('No. Fallback happens on errors before the answer starts; Pygg does not judge answers.')],
+      [t('Can another computer use my Pygg?'), t('No. The gateway listens on 127.0.0.1 only.')],
+      [t('Does using Claude Code through Pygg use my Claude plan?'), t('No: through Pygg, Claude Code uses your connected providers. Plain claude, started without pygg run, keeps your plan.')],
+    ] as const).map(([q, a]) => <div key={q}><dt>{q}</dt><dd>{a}</dd></div>)}
+  </dl>},
 ];
 
 export function Guide({go}: {go: Go}) {
