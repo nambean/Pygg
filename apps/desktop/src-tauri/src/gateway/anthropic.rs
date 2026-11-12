@@ -637,6 +637,8 @@ async fn translated(shared: Shared, mut forwarded: super::Forwarded, stream: boo
         let mut line = Vec::<u8>::new();
         let mut outcome = "ok";
         let mut error = None;
+        // Whether the provider sent anything at all before it ended the stream.
+        let mut answered = false;
         'read: while let Some(chunk) = bytes.next().await {
             let chunk = match chunk {
                 Ok(chunk) => chunk,
@@ -663,6 +665,7 @@ async fn translated(shared: Shared, mut forwarded: super::Forwarded, stream: boo
                     break 'read;
                 }
                 let Ok(value) = serde_json::from_str::<Value>(data) else { continue };
+                answered = true;
                 shared.capture_signatures(&value);
                 for event in translator.push(&value) {
                     if let Some(file) = capture.as_mut() {
@@ -675,11 +678,18 @@ async fn translated(shared: Shared, mut forwarded: super::Forwarded, stream: boo
                 }
             }
         }
+        // A 200 whose stream held nothing (Gemini sometimes answers with `data: [DONE]` alone, found by the P0
+        // benchmark) is not an empty success: the client is told the provider failed, and the cost stays unknown.
+        if outcome == "ok" && !answered {
+            outcome = "stream_error";
+            error = Some(EMPTY_ANSWER.to_string());
+        }
         // A stream that ends without [DONE] is still finished cleanly if the provider closed it normally.
         if outcome != "client_disconnected" {
             if outcome == "stream_error" {
+                let message = if error.as_deref() == Some(EMPTY_ANSWER) { EMPTY_ANSWER } else { "The provider's stream broke off" };
                 let event = format!("event: error\ndata: {}\n\n",
-                    json!({ "type": "error", "error": { "type": "api_error", "message": "The provider's stream broke off" } }));
+                    json!({ "type": "error", "error": { "type": "api_error", "message": message } }));
                 let _ = tx.send(Ok(Bytes::from(event))).await;
             } else {
                 for event in translator.finish() {
@@ -699,6 +709,9 @@ async fn translated(shared: Shared, mut forwarded: super::Forwarded, stream: boo
     });
     out
 }
+
+/// What the client and the ledger are told when a provider's stream held nothing at all.
+pub const EMPTY_ANSWER: &str = "The provider ended its answer without any content";
 
 /// A debugging aid (ROADMAP N4): with `SMARTTASKROUTER_CAPTURE_DIR` set, each translated stream is written there,
 /// one file per request, as received from the provider (`IN`) and as sent to the client (`OUT`). The file holds the

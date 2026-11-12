@@ -65,6 +65,10 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
         _ => {}
     }
     // A stream that takes 1.5 s, for the stop-while-streaming tests (review LC-02).
+    // A 200 with nothing in its stream: Gemini sometimes answers so (P0 benchmark, 2026-11-12).
+    if model == "empty" && body["stream"] == true {
+        return ([(header::CONTENT_TYPE, "text/event-stream")], "data: [DONE]\n\n").into_response();
+    }
     if model == "drip" {
         let chunks = futures_util::stream::unfold(0u32, |i| async move {
             if i >= 15 {
@@ -678,6 +682,15 @@ fn anthropic_messages_round_trip_through_translation() {
         assert!(streamed.starts_with("event: message_start"));
         assert!(streamed.contains("\"type\":\"tool_use\"") && streamed.contains("\"partial_json\":\"\\\"a\\\"}\""));
         assert!(streamed.contains("\"stop_reason\":\"tool_use\"") && streamed.trim_end().ends_with("{\"type\":\"message_stop\"}"));
+
+        // An empty stream is the provider failing, not an empty answer: an error event, and the ledger says so.
+        let empty = rig.post("/v1/messages", json!({ "model": "main/empty", "stream": true, "max_tokens": 64,
+            "messages": [{ "role": "user", "content": "hi" }] })).await.text().await.unwrap();
+        assert!(empty.contains("event: error") && empty.contains(crate::gateway::anthropic::EMPTY_ANSWER), "{empty}");
+        assert!(!empty.contains("message_stop"));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let last = rig.shared.with_db(|db| store::usage_summary(db, 0, 1)).unwrap().recent.remove(0);
+        assert_eq!((last.outcome.as_str(), last.cost_status.as_str()), ("stream_error", "unknown"));
 
         let missing = rig.post("/v1/messages", json!({ "model": "claude-sonnet", "messages": [] })).await;
         assert_eq!(missing.status(), 404);

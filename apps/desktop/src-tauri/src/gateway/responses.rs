@@ -979,6 +979,7 @@ async fn from_chat_upstream(shared: Shared, mut forwarded: Forwarded, stream: bo
         let mut lines = DataLines::default();
         let mut bytes = upstream.bytes_stream();
         let (mut outcome, mut error) = ("ok", None);
+        let mut answered = false;
         'read: while let Some(chunk) = bytes.next().await {
             let chunk = match chunk {
                 Ok(chunk) => chunk,
@@ -989,6 +990,7 @@ async fn from_chat_upstream(shared: Shared, mut forwarded: Forwarded, stream: bo
                     break 'read;
                 }
                 let Ok(value) = serde_json::from_str::<Value>(&data) else { continue };
+                answered = true;
                 shared.capture_signatures(&value);
                 if !send_all(&tx, translator.push(&value)).await {
                     outcome = "client_disconnected";
@@ -996,9 +998,17 @@ async fn from_chat_upstream(shared: Shared, mut forwarded: Forwarded, stream: bo
                 }
             }
         }
+        // An empty 200 stream is the provider failing, not an empty answer (see anthropic::EMPTY_ANSWER).
+        if outcome == "ok" && !answered {
+            outcome = "stream_error";
+            error = Some(super::anthropic::EMPTY_ANSWER.to_string());
+        }
         match outcome {
             "ok" => { send_all(&tx, translator.finish()).await; }
-            "stream_error" => { send_all(&tx, translator.fail("The provider's stream broke off")).await; }
+            "stream_error" => {
+                send_all(&tx, translator.fail(error.as_deref().filter(|e| *e == super::anthropic::EMPTY_ANSWER)
+                    .unwrap_or("The provider's stream broke off"))).await;
+            }
             _ => {}
         }
         let usage = translator.usage.clone();
