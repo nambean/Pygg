@@ -340,6 +340,12 @@ pub async fn connection_refresh_models(state: State<'_, AppState>, id: String) -
     Ok(ImportResult { listed: ids.len(), added })
 }
 
+/// How a connection's models have answered over the last 30 days (SCREENS §5.4), from the ledger.
+#[tauri::command]
+pub fn connection_reliability(state: State<'_, AppState>, id: String) -> Res<Vec<store::Reliability>> {
+    state.shared.with_db(|db| store::reliability(db, &id, crate::db::now_ms() - 30 * 86_400_000))
+}
+
 /// Sends one short request to a model through the gateway's own routing and ledger (Test Model, SCREENS §6.2).
 #[tauri::command]
 pub async fn model_test(state: State<'_, AppState>, provider_id: String, model_id: String) -> Res<gateway::model_test::TestResult> {

@@ -62,6 +62,9 @@ export type Connection = {
 export type QuotaWindow = {kind: string; limit: number | null; remaining: number | null; resetsAt: number | null};
 export type RateLimits = {modelId: string; headers: Record<string, string>; httpStatus: number | null; observedAt: number;
   windows?: QuotaWindow[]};
+/** How a model has answered over the last 30 days, from the ledger. */
+export type Reliability = {modelId: string; requests: number; ok: number; medianLatencyMs: number | null};
+
 /** What one short test request to a model came back with. */
 export type ModelTest = {ok: boolean; text: string; latencyMs: number; inputTokens: number | null; outputTokens: number | null; route: string};
 
@@ -250,6 +253,8 @@ export interface GatewayApi {
   checkAccount(id: string): Promise<Connection>;
   /** Sends one short request to a model and reports what came back (Test Model). */
   testModel(providerId: string, modelId: string): Promise<ModelTest>;
+  /** How a connection's models have answered over the last 30 days. */
+  reliability(connectionId: string): Promise<Reliability[]>;
   /** Puts a connection in a pool, or takes it out with null (ADR-034). */
   setConnectionPool(id: string, pool: string | null): Promise<Connection>;
   moveInPool(id: string, up: boolean): Promise<void>;
@@ -363,6 +368,7 @@ const native: GatewayApi = {
   checkAccount: id => invoke('connection_check_account', {id}),
   setConnectionPool: (id, pool) => invoke('connection_set_pool', {id, pool}),
   testModel: (providerId, modelId) => invoke('model_test', {providerId, modelId}),
+  reliability: id => invoke('connection_reliability', {id}),
   moveInPool: (id, up) => invoke('connection_move_in_pool', {id, up}),
   setConnectionTerms: (id, terms, source) => invoke('connection_set_terms', {id, terms, source}),
   removeConnection: id => invoke('connection_remove', {id}),

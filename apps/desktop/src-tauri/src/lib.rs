@@ -251,6 +251,7 @@ pub fn run() {
             commands::connection_check_account,
             commands::connection_set_pool,
             commands::model_test,
+            commands::connection_reliability,
             commands::connection_move_in_pool,
             commands::diagnostics_export,
             snap::window_snap_area,

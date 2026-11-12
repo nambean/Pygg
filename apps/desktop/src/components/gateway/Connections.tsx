@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { KeyRound, Plug, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { BILLINGS, TIERS, call, errorText, gatewayChanged, type Billing, type Connection, type Health, type Model, type Preset,
-  type ModelTest, type Tier } from '../../lib/api';
+  type ModelTest, type Reliability, type Tier } from '../../lib/api';
 import { ago, windowText } from '../../lib/format';
 import { plural, t } from '../../lib/i18n';
 import { billingLabel, parseUsd, priceText } from '../../lib/money';
@@ -155,6 +155,7 @@ function ConnectionRow({connection: c, selected, onSelect}: {connection: Connect
 
 function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; onRemoved: () => void}) {
   const models = useGateway(api => api.models(c.id), [c.id]);
+  const reliability = useGateway(api => api.reliability(c.id), [c.id], 30_000);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState<{ok: boolean; text: string} | null>(null);
   const [sheet, setSheet] = useState<'key' | 'remove' | 'add-model' | 'quota' | {price: Model} | {caps: Model} | null>(null);
@@ -289,7 +290,7 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
           </tr></thead>
           <tbody>
             {shown.map(m => <ModelRow key={m.modelId} model={m} onPrice={() => setSheet({price: m})} onCaps={() => setSheet({caps: m})}
-              health={c.health.find(h => h.modelId === m.modelId)}
+              health={c.health.find(h => h.modelId === m.modelId)} reliability={reliability.data?.find(r => r.modelId === m.modelId)}
               onChange={() => { models.reload(); gatewayChanged(); }}/>)}
             {shown.length === 0 && <tr><td colSpan={6} className="table-empty">{t('No models match.')}</td></tr>}
           </tbody>
@@ -412,8 +413,8 @@ function ModelTestButton({model: m}: {model: Model}) {
   </>;
 }
 
-function ModelRow({model: m, health, onPrice, onCaps, onChange}: {model: Model; health?: Health; onPrice: () => void; onCaps: () => void;
-  onChange: () => void}) {
+function ModelRow({model: m, health, reliability: r, onPrice, onCaps, onChange}: {model: Model; health?: Health; reliability?: Reliability;
+  onPrice: () => void; onCaps: () => void; onChange: () => void}) {
   const needsPrice = m.billing === 'paid' || m.billing === 'unknown';
   const price = m.price ? priceText(m.price)
     : needsPrice ? t('No price · cost Unknown') : m.billing === 'subscription' ? t('Quota, not money') : t('Not needed');
@@ -426,7 +427,10 @@ function ModelRow({model: m, health, onPrice, onCaps, onChange}: {model: Model; 
       && <small className="source" title={t('This connection is set as free and this model is not listed at $0, so Pygg turned it off. Turn it on to use it; its cost follows its price, or is Unknown without one.')}>
         <br/>{t('Off: not $0')}</small>}</td>
     <td className={m.price ? '' : 'secondary'}>{price}{m.price && <small className="source"> · {m.price.source === 'user' ? t('your price') : t('list price')}</small>}</td>
-    <td className={m.capabilities.tier ? '' : 'secondary'}>{capsText(m)}</td>
+    <td className={m.capabilities.tier ? '' : 'secondary'}>{capsText(m)}
+      {r && r.requests > 0 && <small className="source" title={t('From the ledger over the last 30 days; requests the client left are not counted.')}>
+        <br/>{t('{rate}% of {n} answered', {rate: Math.round((r.ok / r.requests) * 100), n: r.requests})}
+        {r.medianLatencyMs !== null ? ` · ${t('median {s} s', {s: (r.medianLatencyMs / 1000).toFixed(1)})}` : ''}</small>}</td>
     <td className="narrow"><Switch checked={m.enabled} label={t('Use {model}', {model: m.modelId})}
       onChange={enabled => call(api => api.updateModel(m.providerId, m.modelId, {enabled})).then(onChange)}/></td>
     <td className="narrow row-buttons">

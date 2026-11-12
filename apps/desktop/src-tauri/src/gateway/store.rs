@@ -1596,6 +1596,47 @@ pub fn shadow_summary(conn: &Connection, since: i64) -> Result<ShadowSummary> {
     }).map_err(err)
 }
 
+/// How a model has answered, from the ledger (SCREENS §5.4: "reliability appears only once measured, with the sample
+/// size"): requests that reached it, those that succeeded, and the median time to answer them.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Reliability {
+    pub model_id: String,
+    pub requests: u64,
+    pub ok: u64,
+    pub median_latency_ms: Option<u64>,
+}
+
+/// Reliability of a connection's models since `since`. A request the client left before it finished counts neither
+/// way: it says nothing about the model.
+pub fn reliability(conn: &Connection, provider_id: &str, since: i64) -> Result<Vec<Reliability>> {
+    let mut stmt = conn.prepare("SELECT model, outcome, latency_ms FROM usage_events WHERE provider = ?1 AND created_at >= ?2 \
+        AND outcome <> 'client_disconnected' ORDER BY model").map_err(err)?;
+    let rows: Vec<(String, String, Option<i64>)> = stmt.query_map(params![provider_id, since], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
+    let mut out: Vec<Reliability> = Vec::new();
+    let mut latencies: Vec<Vec<u64>> = Vec::new();
+    for (model, outcome, latency) in rows {
+        if out.last().map(|r| r.model_id != model).unwrap_or(true) {
+            out.push(Reliability { model_id: model.clone(), requests: 0, ok: 0, median_latency_ms: None });
+            latencies.push(Vec::new());
+        }
+        let (r, l) = (out.last_mut().unwrap(), latencies.last_mut().unwrap());
+        r.requests += 1;
+        if outcome == "ok" {
+            r.ok += 1;
+            if let Some(ms) = latency {
+                l.push(ms.max(0) as u64);
+            }
+        }
+    }
+    for (r, mut l) in out.iter_mut().zip(latencies) {
+        l.sort_unstable();
+        r.median_latency_ms = (!l.is_empty()).then(|| l[l.len() / 2]);
+    }
+    Ok(out)
+}
+
 /// Something in the ledger worth a look (SCREENS §5.6, anomalies). Each is a plain reading of recorded figures, never
 /// a forecast: a client near or over its monthly limit, a day that cost far more than the week before it, requests whose
 /// cost is unknown, and a burst of failures.
@@ -2012,6 +2053,22 @@ mod tests {
         set_capabilities(&conn, &p.id, "claude-haiku-5-5", &Capabilities { tier: Some("T1".into()), ..Capabilities::default() }).unwrap();
         fill_curated_tiers(&conn).unwrap();
         assert_eq!(tier("claude-haiku-5-5").tier.as_deref(), Some("T1"));
+    }
+
+    #[test]
+    fn reliability_counts_what_reached_each_model() {
+        let conn = db::open_in_memory().unwrap();
+        let p = gemini(&conn);
+        let cost = Cost::Estimated { micro_usd: 1, source: "x".into() };
+        for (model, outcome, ms) in [("a", "ok", 100), ("a", "ok", 300), ("a", "error", 50), ("a", "client_disconnected", 9), ("b", "ok", 700)] {
+            record_usage(&conn, &UsageRecord { client_id: None, provider_id: &p.id, model_id: model, requested_model: model,
+                input_tokens: None, output_tokens: None, cache_tokens: None, cost: &cost, outcome, http_status: Some(200),
+                latency_ms: ms, error: None, cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None,
+                repeated_tokens: None }).unwrap();
+        }
+        let r = reliability(&conn, &p.id, 0).unwrap();
+        assert_eq!((r[0].model_id.as_str(), r[0].requests, r[0].ok, r[0].median_latency_ms), ("a", 3, 2, Some(300)));
+        assert_eq!((r[1].requests, r[1].ok, r[1].median_latency_ms), (1, 1, Some(700)));
     }
 
     #[test]

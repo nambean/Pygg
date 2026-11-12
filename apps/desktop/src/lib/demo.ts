@@ -439,6 +439,12 @@ export function demoApi(): GatewayApi {
       return view(stored);
     },
     // The preview sends nothing: a sample answer.
+    reliability: async id => touch(Object.entries(events.filter(e => e.provider === id).reduce<Record<string, {n: number; ok: number; ms: number[]}>>((acc, e) => {
+      const r = acc[e.model] ??= {n: 0, ok: 0, ms: []};
+      r.n += 1;
+      if (e.outcome === 'ok') { r.ok += 1; if (e.latencyMs !== null) r.ms.push(e.latencyMs); }
+      return acc;
+    }, {})).map(([modelId, r]) => ({modelId, requests: r.n, ok: r.ok, medianLatencyMs: r.ms.length ? r.ms.sort((a, b) => a - b)[Math.floor(r.ms.length / 2)] : null}))),
     testModel: async () => { await sleep(600); return {ok: true, text: 'ok', latencyMs: 640, inputTokens: 14, outputTokens: 2, route: 'native'}; },
     setConnectionPool: async (id, pool) => {
       const c = find(id);
