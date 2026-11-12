@@ -864,3 +864,12 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .form details.advanced > summary { cursor: default; font-size: 13px; color: var(--secondary); padding: 2px 0; }
 .form details.advanced[open] > summary { margin-bottom: 4px; }
 .sign-in-row { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; align-items: flex-start; }
+
+/* Web sessions (ADR-035): the account-risk warning and the sign-in row. */
+.web-warning { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px;
+  background: color-mix(in srgb, var(--orange) 10%, transparent); }
+.web-warning > svg { color: var(--orange); flex: none; margin-top: 2px; }
+.web-warning p { margin: 0 0 6px; }
+.web-risks { margin: 4px 0 8px; padding-left: 18px; display: grid; gap: 4px; font-size: 12px; }
+.group-row.stacked .web-risks { color: var(--secondary); }
+.web-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }

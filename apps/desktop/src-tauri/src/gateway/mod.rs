@@ -100,6 +100,8 @@ pub struct Shared {
     owner: Arc<Mutex<Weak<Owner>>>,
     /// The app's task runner, for the task API (task_api.rs). `None` in `gateway serve`: tasks run in the app.
     pub tasks: Option<crate::tasks::Runner>,
+    /// The app's web-session endpoint (ADR-035, `websession`). `None` in `gateway serve`: no window can be driven there.
+    pub web: Option<crate::websession::Link>,
 }
 
 /// Ownership of the store by this process (reviews PR-01, LC-01, LC-02). Held by the running server, by every
@@ -170,7 +172,7 @@ impl Shared {
             .build()
             .expect("HTTP client");
         Shared { db, secrets, http, signatures: Arc::default(), inflight: Arc::default(), accounting: Arc::default(),
-            store_path: None, owner: Arc::new(Mutex::new(Weak::new())), tasks: None }
+            store_path: None, owner: Arc::new(Mutex::new(Weak::new())), tasks: None, web: None }
     }
 
     /// For a store on disk: `start` then takes the store's owner lock, so two processes never serve one store.
@@ -181,6 +183,11 @@ impl Shared {
     /// Lets gateway clients start smart tasks on this runner (the app's).
     pub fn with_tasks(self, runner: crate::tasks::Runner) -> Shared {
         Shared { tasks: Some(runner), ..self }
+    }
+
+    /// Lets web-session connections be reached through the app's endpoint (ADR-035).
+    pub fn with_web(self, link: crate::websession::Link) -> Shared {
+        Shared { web: Some(link), ..self }
     }
 
     /// The current ownership, if this process still holds the store.
@@ -758,6 +765,8 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
     // Further targets this client allows after a failure the provider may have processed (reviews FR-02, PR-02).
     let mut paid_retries_left = client.paid_retries;
     let mut accounting_held = false;
+    // Every target was a web session and the request uses tools: the request is the problem, not the targets.
+    let mut tools_refused = false;
 
     for (index, (provider, model_id)) in targets.into_iter().enumerate() {
         let outcome_if_failed = if index + 1 < count { "fallback" } else { "error" };
@@ -784,6 +793,16 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 continue;
             }
         };
+        // A web session (ADR-035) takes a request only with its warning acknowledged, without tools, and while the app
+        // that drives its window runs; it is reached through that app's loopback endpoint.
+        let web = presets::is_web(&provider.kind);
+        if web {
+            if let Err((why, tools)) = crate::websession::routable(&provider, incoming.body, shared.web.is_some()) {
+                tools_refused |= tools;
+                skipped.push(format!("{name}: {why}"));
+                continue;
+            }
+        }
         if blocked_groups.get(&provider.quota_group).is_some_and(|refused_by| *refused_by != provider.id) {
             skipped.push(format!("{name}: shares limits with a connection that just refused this request"));
             continue;
@@ -807,6 +826,8 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         }
 
         let (billing, price) = shared.with_db(|db| store::pricing_for(db, &provider, &model_id)).unwrap_or_default();
+        // The user's plan with the site: the cost is unknown, never $0, whatever a model's own settings say.
+        let billing = if web { "subscription".to_string() } else { billing };
         // A subscription (a token plan) uses a quota, not money per request: it holds nothing against a money
         // limit, as auto ranks it and as its ledger entry says. Its price, if one was entered, is not what it costs.
         let hold = if is_free(&billing) || billing == "subscription" || !has_limit {
@@ -893,6 +914,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         };
 
         let key = match &provider.credential_ref {
+            _ if web => shared.web.as_ref().map(|link| link.token.clone()),
             Some(reference) => match shared.secrets.read(reference) {
                 Ok(Some(key)) => Some(key),
                 Ok(None) => {
@@ -919,7 +941,11 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         } else {
             openai_to_anthropic::ThinkingSupport::default()
         };
-        let (url, mut body, dropped) = upstream_request(incoming, &provider, &model_id, mode, &thinking);
+        let (url, mut body, dropped) = match shared.web.as_ref().filter(|_| web) {
+            Some(link) => upstream_request(incoming, &Provider { endpoint: link.endpoint(&provider.id), ..provider.clone() },
+                &model_id, mode, &thinking),
+            None => upstream_request(incoming, &provider, &model_id, mode, &thinking),
+        };
         if provider.wire == "openai" {
             // Gemini needs the signatures of earlier tool calls back; others must not see the field.
             if provider.kind == "gemini" {
@@ -1042,8 +1068,11 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
     }
     let wait = retry_at.map(|at| ((at - db_now()).max(1000) as u64).div_ceil(1000));
     let over_budget = skipped.iter().any(|s| s.contains("monthly limit") || s.contains("spending limit"));
+    let tools_only = tools_refused && skipped.iter().all(|s| s.ends_with(crate::websession::NO_TOOLS));
     let (status, kind) = if accounting_held {
         (StatusCode::SERVICE_UNAVAILABLE, "api_error")
+    } else if tools_only {
+        (StatusCode::BAD_REQUEST, "invalid_request_error")
     } else if over_budget {
         (StatusCode::TOO_MANY_REQUESTS, "budget_exceeded")
     } else if wait.is_some() {

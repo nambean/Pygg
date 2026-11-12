@@ -22,6 +22,7 @@ pub mod shell;
 pub mod snap;
 pub mod tasks;
 pub mod vault;
+pub mod websession;
 
 use commands::AppState;
 use serde::Serialize;
@@ -92,6 +93,12 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let path = dir.join("store.sqlite3");
             let conn = db::open(&path)?;
+            // Web-session profile folders whose connection is gone are deleted before any window opens (ADR-035).
+            let web_root = dir.join("websessions");
+            match gateway::store::web_profiles(&conn) {
+                Ok(keep) => { websession::sweep(&web_root, &keep); }
+                Err(e) => eprintln!("web sessions: {e}"),
+            }
             let worktrees = dir.join("worktrees");
             // Nothing runs here yet: a task left running was cut off when the app last closed, unless another process
             // (`gateway serve --tasks`) holds the store and may be running it.
@@ -113,10 +120,29 @@ pub fn run() {
             let runner = tasks::Runner::new(db.clone(), worktrees, tasks::agent_executor())
                 .with_notify(Arc::new(move |_task, state| shell::task_stopped(&handle, state)));
             // IDE agents start tasks through the gateway's task API (gateway/task_api.rs); they run here.
-            let shared = gateway::Shared::for_store(db, Arc::new(gateway::OsSecrets), &path).with_tasks(runner.clone());
+            // Web sessions (ADR-035): each connection's window, served to the gateway on a loopback port of its own,
+            // behind a token that lives only in this process.
+            let web_listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
+            web_listener.set_nonblocking(true)?;
+            let web_link = websession::Link { base: format!("http://{}", web_listener.local_addr()?),
+                token: format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple()) };
+            let web = Arc::new(websession::Service::new(db.clone(),
+                websession::window::AppWindows::new(app.handle().clone(), web_root), web_link.token.clone(),
+                websession::Timing::default()));
+            {
+                let web = web.clone();
+                tauri::async_runtime::spawn(async move {
+                    match tokio::net::TcpListener::from_std(web_listener) {
+                        Ok(listener) => websession::serve(listener, web).await,
+                        Err(e) => eprintln!("web sessions: {e}"),
+                    }
+                });
+            }
+            let shared = gateway::Shared::for_store(db, Arc::new(gateway::OsSecrets), &path).with_tasks(runner.clone())
+                .with_web(web_link);
             let state = AppState { shared, server: tokio::sync::Mutex::new(None), last_error: Mutex::new(None),
                 data_dir: dir.clone(), runs: Mutex::new(Default::default()),
-                tasks: runner };
+                tasks: runner, web: Some(web) };
             // Facts the providers' lists leave out are looked up in the reference catalog (ADR-031), at most once a
             // day, in the background; the cached copy serves offline.
             {
@@ -173,7 +199,9 @@ pub fn run() {
         // loaded, so it never opens blank.
         .on_page_load(|webview, payload| {
             // Opened at sign-in, Pygg stays in the tray until the user opens it.
-            if payload.event() == tauri::webview::PageLoadEvent::Finished && !shell::started_in_background() {
+            // Only the main window: a web session's window stays hidden until the user opens it.
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished
+                && !shell::started_in_background() {
                 let _ = webview.window().show();
             }
         })
@@ -264,6 +292,8 @@ pub fn run() {
             commands::launcher_remove,
             commands::connection_move_in_pool,
             commands::diagnostics_export,
+            commands::web_session_open,
+            commands::web_session_check,
             snap::window_snap_area,
         ])
         .run(tauri::generate_context!())

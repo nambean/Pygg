@@ -26,11 +26,17 @@ export type Wire = 'openai' | 'anthropic';
 export type Preset = {
   id: string; name: string; endpoint: string | null; needsKey: boolean; defaultBilling: Billing; wire: Wire;
   /** How to start using it, per the provider's docs (docs/PROVIDERS.md). */
-  offer: 'free' | 'credits' | 'paid' | 'local' | 'custom';
+  offer: 'free' | 'credits' | 'paid' | 'local' | 'custom' | 'web';
   offerNote: string | null;
   /** Its free part is a set of $0 models (OpenRouter's :free): paid ones start off while it is set as free. */
   freeModels: boolean;
+  /** A web session (ADR-035): a site with no API, used through a Pygg window the user signs in to. */
+  web?: boolean;
 };
+
+/** The text of the web-session warning the user acknowledges; the same number as websession::WARNING_VERSION. */
+export const WEB_WARNING_VERSION = 1;
+export type WebState = 'signed_in' | 'signed_out' | 'needs_you' | 'page_changed';
 
 export type HealthState = 'invalid_credentials' | 'forbidden' | 'payment_required' | 'rate_limited' | 'model_unavailable'
   | 'server_error' | 'unreachable';
@@ -56,6 +62,14 @@ export type Connection = {
   readsAccount?: boolean;
   /** The rate-limit headers its provider last sent, per model (PV-06): as the provider said them. */
   limits?: RateLimits[];
+  /** A web session (ADR-035): whether its warning was acknowledged in its current text, and what its window last showed
+   * (in Pygg's own words, never the page's). */
+  web?: boolean;
+  webAckCurrent?: boolean;
+  webAckAt?: number | null;
+  webState?: WebState | null;
+  webStateReason?: string | null;
+  webStateAt?: number | null;
 };
 
 /** A limit a provider stated: what it allows, what is left, when it resets (ms). */
@@ -251,7 +265,9 @@ export type IntegrationPlan = {
   clientName: string; backupDir: string;
 };
 
-export type NewConnection ={ preset: string; label: string; endpoint?: string; apiKey?: string; billing: Billing };
+export type NewConnection ={ preset: string; label: string; endpoint?: string; apiKey?: string; billing: Billing;
+  /** For a web session: the warning text the user acknowledged (WEB_WARNING_VERSION). */
+  webAck?: number };
 export type PriceInput = {
   inputUsdPerMtok: number; outputUsdPerMtok: number; cachedInputUsdPerMtok?: number | null; cacheWriteUsdPerMtok?: number | null;
 };
@@ -289,6 +305,10 @@ export interface GatewayApi {
   setConnectionKey(id: string, apiKey: string): Promise<Connection>;
   removeConnection(id: string): Promise<void>;
   refreshModels(id: string): Promise<{listed: number; added: number}>;
+  /** Shows a web session's window, where the user signs in on the site's own page (ADR-035). */
+  openWebSession(id: string): Promise<void>;
+  /** Opens a new chat in a web session's window to see whether it is signed in. */
+  checkWebSession(id: string): Promise<Connection>;
   models(providerId?: string): Promise<Model[]>;
   addModel(providerId: string, modelId: string): Promise<void>;
   updateModel(providerId: string, modelId: string,
@@ -410,6 +430,8 @@ const native: GatewayApi = {
   setConnectionTerms: (id, terms, source) => invoke('connection_set_terms', {id, terms, source}),
   removeConnection: id => invoke('connection_remove', {id}),
   refreshModels: id => invoke('connection_refresh_models', {id}),
+  openWebSession: id => invoke('web_session_open', {id}),
+  checkWebSession: id => invoke('web_session_check', {id}),
   models: providerId => invoke('models_list', {providerId: providerId ?? null}),
   addModel: (providerId, modelId) => invoke('model_add', {providerId, modelId}),
   updateModel: (providerId, modelId, change) => invoke('model_update', {providerId, modelId, ...change}),
