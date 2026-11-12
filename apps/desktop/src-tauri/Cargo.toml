@@ -41,6 +41,8 @@ bytes = "1"
 sha2 = "0.10"
 # `Retry-After` as an HTTP date (already in the tree through hyper).
 httpdate = "1"
+# Codex's config.toml edited keeping its comments and layout (src/integrations.rs; already in the tree through Tauri).
+toml_edit = "0.25"
 
 [target.'cfg(windows)'.dependencies]
 # Opening Pygg at sign-in: the user's own Run key (HKCU), no administrator rights.
