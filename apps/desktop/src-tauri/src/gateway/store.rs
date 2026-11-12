@@ -730,6 +730,14 @@ pub fn max_output_tokens(conn: &Connection, provider_id: &str, model_id: &str) -
         |r| r.get::<_, Option<i64>>(0)).optional().map(|v| v.flatten().filter(|m| *m > 0).map(|m| m as u64)).map_err(err)
 }
 
+/// The thinking types and effort levels the model takes, when they are known (`None` is unknown).
+pub fn thinking_support(conn: &Connection, provider_id: &str, model_id: &str) -> Result<(Option<Vec<String>>, Option<Vec<String>>)> {
+    let parse = |v: Option<String>| v.and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok());
+    conn.query_row("SELECT thinking_types, effort_levels FROM models WHERE provider_id = ?1 AND model_id = ?2",
+        params![provider_id, model_id], |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?)))
+        .optional().map(|row| row.map(|(t, e)| (parse(t), parse(e))).unwrap_or((None, None))).map_err(err)
+}
+
 pub fn set_client_require_no_training(conn: &Connection, id: &str, required: bool) -> Result<()> {
     conn.execute("UPDATE gateway_clients SET require_no_training = ?2 WHERE id = ?1", params![id, required]).map(|_| ()).map_err(err)
 }
