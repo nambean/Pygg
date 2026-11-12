@@ -390,8 +390,13 @@ pub struct AttemptView {
     pub finished_at: Option<i64>,
     /// Its worktree is still there: the result waits for the user.
     pub open: bool,
-    /// The agent's own list-price estimate for the run, when it gave one.
+    /// The step's cost as Pygg knows it (`cost_source` says from where), when it is known.
     pub agent_estimate_usd: Option<f64>,
+    /// `pygg`: Pygg's ledger, for requests the agent sent through Pygg's gateway; `agent`: the agent's own
+    /// list-price estimate; None: recorded before v19, the agent's estimate.
+    pub cost_source: Option<String>,
+    /// Requests this step sent through Pygg's gateway that had no price (ADR-011: unknown, never $0).
+    pub unpriced_requests: u32,
     /// The cap the user approved, for a paid step.
     pub cap_usd: Option<f64>,
     /// What was added to this attempt's prompt about earlier attempts (H1); None: the task alone.
@@ -488,7 +493,9 @@ fn attempts_of(conn: &Connection, task_id: &str) -> Result<Vec<AttemptView>> {
                 (SELECT SUM(output_tokens) FROM usage_events u WHERE u.attempt_id = a.id), \
                 a.started_at, a.finished_at, a.worktree_path, a.base_revision, a.agent_estimate_micro_usd, \
                 (SELECT cap_micro_usd FROM approvals p WHERE p.attempt_id = a.id AND p.state = 'approved' ORDER BY p.created_at DESC LIMIT 1), \
-                a.handoff_sent, a.changed_paths_json \
+                a.handoff_sent, a.changed_paths_json, a.cost_source, \
+                (SELECT COUNT(*) FROM usage_events u WHERE u.attempt_id = a.id AND u.cost_status = 'unknown' \
+                 AND COALESCE(u.route_mode, '') <> 'agent') \
          FROM attempts a JOIN task_stages s ON s.id = a.stage_id WHERE s.task_id = ?1 ORDER BY a.number").map_err(err)?;
     let rows = statement.query_map([task_id], |r| {
         let checks: Option<String> = r.get(11)?;
@@ -505,6 +512,8 @@ fn attempts_of(conn: &Connection, task_id: &str) -> Result<Vec<AttemptView>> {
             cap_usd: r.get::<_, Option<i64>>(24)?.filter(|c| *c > 0).map(|c| c as f64 / 1e6),
             handoff_sent: r.get(25)?,
             changed_paths: r.get::<_, Option<String>>(26)?.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
+            cost_source: r.get(27)?,
+            unpriced_requests: r.get(28)?,
         })
     }).map_err(err)?;
     rows.collect::<rusqlite::Result<Vec<_>>>().map_err(err)
@@ -892,7 +901,32 @@ fn save_run(conn: &Connection, id: &str, run: &TaskRun) -> rusqlite::Result<()> 
                   insertions = ?7, deletions = ?8, summary = ?9, log_tail = ?10, agent_estimate_micro_usd = ?11 WHERE id = ?1",
         params![id, run.worktree, run.base, run.usage.model, detail, run.files_changed as i64, run.insertions as i64,
             run.deletions as i64, run.usage.result, run.log_tail,
-            run.usage.estimate_usd.map(|usd| (usd * 1e6).round().max(0.0) as i64)]).map(|_| ())
+            run.usage.estimate_usd.map(|usd| (usd * 1e6).round().max(0.0) as i64)])?;
+    conn.execute("UPDATE attempts SET cost_source = 'agent' WHERE id = ?1 AND agent_estimate_micro_usd IS NOT NULL", [id]).map(|_| ())
+}
+
+/// What a step's requests through Pygg's own gateway cost. The agent sends its attempt id as its session header
+/// (`PYGG_ATTEMPT_ID`, docs/AGENTS.md), so the gateway's entries made since the attempt started carry it; they are
+/// tied to the attempt here. Those entries are then the step's cost, and the agent's own entry for the run (its
+/// tokens, cost unknown) is taken off the attempt so nothing is counted twice; it stays in the ledger. Returns None
+/// when no request went through Pygg, else (the priced entries' sum, how many had no price).
+fn link_gateway_usage(conn: &Connection, attempt: &str) -> rusqlite::Result<Option<(u64, u32)>> {
+    let started: i64 = conn.query_row("SELECT COALESCE(started_at, 0) FROM attempts WHERE id = ?1", [attempt], |r| r.get(0))?;
+    conn.execute("UPDATE usage_events SET attempt_id = ?1 WHERE attempt_id IS NULL AND session_key = ?1 \
+                  AND created_at >= ?2 AND COALESCE(route_mode, '') <> 'agent'", params![attempt, started])?;
+    let (count, known, unknown): (i64, i64, i64) = conn.query_row(
+        "SELECT COUNT(*), COALESCE(SUM(CASE WHEN cost_status <> 'unknown' THEN cost_micro_usd END), 0), \
+                COALESCE(SUM(CASE WHEN cost_status = 'unknown' THEN 1 ELSE 0 END), 0) \
+         FROM usage_events WHERE attempt_id = ?1 AND COALESCE(route_mode, '') <> 'agent'", [attempt],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+    if count == 0 {
+        return Ok(None);
+    }
+    conn.execute("UPDATE usage_events SET attempt_id = NULL, session_key = ?1 WHERE attempt_id = ?1 AND route_mode = 'agent'",
+        [attempt])?;
+    let cost = (unknown == 0).then_some(known.max(0));
+    conn.execute("UPDATE attempts SET agent_estimate_micro_usd = ?2, cost_source = 'pygg' WHERE id = ?1", params![attempt, cost])?;
+    Ok(Some((known.max(0) as u64, unknown as u32)))
 }
 
 fn forget_worktree(conn: &Connection, attempt: &str) -> rusqlite::Result<()> {
@@ -1277,20 +1311,31 @@ impl Runner {
                     continue;
                 }
             };
-            self.with_db(|c| -> Result<()> {
+            let through_pygg = self.with_db(|c| -> Result<Option<(u64, u32)>> {
                 agents::record_for(c, &run, Some(&attempt))?;
-                save_run(c, &attempt, &run).map_err(err)
+                save_run(c, &attempt, &run).map_err(err)?;
+                link_gateway_usage(c, &attempt).map_err(err)
             })?;
-            // A paid step's cap, checked against what the agent says the run cost. Claude Code stops at it itself;
-            // the others can only be checked afterwards.
-            let reported = run.usage.estimate_usd.map(|u| (u * 1e6).round().max(0.0) as u64);
+            // A paid step's cap, checked against what the run cost. Requests the agent sent through Pygg are priced by
+            // Pygg's ledger, whatever the agent estimates; otherwise the agent's own estimate is all there is. Claude
+            // Code stops at the cap itself; the others can only be checked afterwards.
+            let (reported, whose) = match through_pygg {
+                Some((known, 0)) => (Some(known), "Pygg's ledger".to_string()),
+                Some(_) => (None, String::new()),
+                None => (run.usage.estimate_usd.map(|u| (u * 1e6).round().max(0.0) as u64), format!("{name}'s own estimate")),
+            };
             let over_cap = match (cap, reported) {
-                (Some(cap), Some(cost)) if cost > cap => Some(format!("{name}'s own estimate for this step, ${:.2}, is over your cap of ${:.2}",
+                (Some(cap), Some(cost)) if cost > cap => Some(format!("{whose} for this step, ${:.2}, is over your cap of ${:.2}",
                     usd(cost), usd(cap))),
                 _ => None,
             };
-            let cost_note = over_cap.clone().or_else(|| (cap.is_some() && reported.is_none() && !agents::enforces_budget(&step.agent))
-                .then(|| format!("{name} reported no cost, so your cap for this step could not be checked")));
+            let unchecked = match through_pygg {
+                Some((_, unpriced)) if unpriced > 0 => Some(format!("{unpriced} of this step's requests through Pygg had no \
+                    price (enter the model's price in Connections), so your cap for this step could not be checked")),
+                _ => (reported.is_none() && !agents::enforces_budget(&step.agent))
+                    .then(|| format!("{name} reported no cost, so your cap for this step could not be checked")),
+            };
+            let cost_note = over_cap.clone().or_else(|| unchecked.filter(|_| cap.is_some()));
             halt = over_cap;
             let worktree = Worktree { repo: PathBuf::from(&row.workspace_path), path: PathBuf::from(&run.worktree), base: run.base.clone() };
             // Which paths it changed, kept after a discarded worktree is gone, so a later step can be told (H1).
@@ -1586,6 +1631,9 @@ mod tests {
         Fail,
         Nothing,
         WaitForStop,
+        /// `Write`, with one request through Pygg's gateway tagged with the attempt (its session header), priced at
+        /// this many micro-USD or unpriced; the agent itself estimates $0, as OpenCode does for a custom provider.
+        ThroughPygg(&'static str, &'static str, Option<u64>, Arc<Mutex<Connection>>),
     }
 
     struct Rig {
@@ -1631,6 +1679,22 @@ mod tests {
                     Act::Costly(file, text, usd) => {
                         std::fs::write(worktree.path.join(file), text).unwrap();
                         estimate = Some(usd);
+                    }
+                    Act::ThroughPygg(file, text, price, db) => {
+                        std::fs::write(worktree.path.join(file), text).unwrap();
+                        estimate = Some(0.0);
+                        use crate::gateway::pricing::Cost;
+                        let cost = match price {
+                            Some(micro_usd) => Cost::Estimated { micro_usd, source: "a price the user entered".into() },
+                            None => Cost::Unknown { source: "no price recorded for this model".into() },
+                        };
+                        crate::gateway::store::record_usage(&lock(&db), &crate::gateway::store::UsageRecord {
+                            client_id: None, provider_id: "anthropic", model_id: "claude-haiku-5-5",
+                            requested_model: "anthropic/claude-haiku-5-5", input_tokens: Some(1000), output_tokens: Some(50),
+                            cache_tokens: None, cost: &cost, outcome: "ok", http_status: Some(200), latency_ms: 5, error: None,
+                            cache_write_tokens: None, session_key: Some(&request.attempt_id), route_mode: Some("native"),
+                            route_reason: None,
+                        }).unwrap();
                     }
                     Act::Fail => outcome = "failed",
                     Act::Nothing => {}
@@ -1920,6 +1984,48 @@ mod tests {
         let reason = task.reason.unwrap();
         assert!(reason.contains("$0.40") && reason.contains("$0.10") && reason.contains("stopped"), "{reason}");
         assert_eq!(task.attempt_details.len(), 1, "the free step after it did not run");
+    }
+
+    #[tokio::test]
+    async fn a_step_through_pyggs_gateway_is_costed_and_capped_by_pyggs_ledger_not_by_the_agent() {
+        // Priced: the ledger's $0.40 is the step's cost, over a $0.10 cap, though the agent estimated $0.
+        let rig = rig(&[good_check()]);
+        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(), fake(vec![
+            Act::ThroughPygg("result.txt", "bad\n", Some(400_000), rig.db.clone()), Act::Write("result.txt", "good\n")],
+            rig.prompts.clone()));
+        let id = create(&rig, vec![step("opencode", "paid", 2), step("opencode", "free", 1)]);
+        runner.start(&id).unwrap().await.unwrap();
+        runner.decide(&id, true, Some(100_000)).unwrap().unwrap().await.unwrap();
+        let task = detail(&rig, &id);
+        assert_eq!(task.summary.state, "blocked");
+        let reason = task.reason.clone().unwrap();
+        assert!(reason.contains("Pygg's ledger") && reason.contains("$0.40") && reason.contains("$0.10"), "{reason}");
+        let a = &task.attempt_details[0];
+        assert_eq!((a.cost_source.as_deref(), a.agent_estimate_usd, a.unpriced_requests), (Some("pygg"), Some(0.40), 0));
+        assert_eq!(a.input_tokens, Some(1000), "the gateway's entry, not the agent's own as well");
+        assert_eq!((task.summary.cost.estimated_usd, task.summary.cost.unknown_calls), (0.40, 0));
+        // The agent's own entry for the run stays in the ledger, off the attempt.
+        let agent_rows: i64 = lock(&rig.db).query_row("SELECT COUNT(*) FROM usage_events WHERE route_mode = 'agent' \
+            AND attempt_id IS NULL AND session_key = ?1", [&a.id], |r| r.get(0)).unwrap();
+        assert_eq!(agent_rows, 1);
+
+        // Unpriced: unknown, never $0; the cap could not be checked, and today's budget counts the whole cap.
+        drop(rig);
+        let rig = self::rig(&[good_check()]);
+        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
+            fake(vec![Act::ThroughPygg("result.txt", "good\n", None, rig.db.clone())], rig.prompts.clone()));
+        let id = create(&rig, vec![step("opencode", "paid", 2)]);
+        runner.start(&id).unwrap().await.unwrap();
+        runner.decide(&id, true, Some(100_000)).unwrap().unwrap().await.unwrap();
+        let task = detail(&rig, &id);
+        let reason = task.reason.clone().unwrap();
+        assert!(reason.contains("1 of this step's requests through Pygg had no price") && reason.contains("could not be checked"),
+            "{reason}");
+        let a = &task.attempt_details[0];
+        assert_eq!((a.cost_source.as_deref(), a.agent_estimate_usd, a.unpriced_requests), (Some("pygg"), None, 1));
+        assert_eq!(task.summary.cost.unknown_calls, 1);
+        let (spent, _, unknown) = used_today(&lock(&rig.db), None).unwrap();
+        assert_eq!((spent, unknown), (100_000, 1));
     }
 
     #[tokio::test]

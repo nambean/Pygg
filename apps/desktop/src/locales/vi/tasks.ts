@@ -110,6 +110,10 @@ export const tasks: Record<string, string> = {
   'The changes and the copy of the repository they were made in are deleted. This cannot be undone. Export Patch first to keep a copy.':
     'Các thay đổi và bản sao repository chứa chúng sẽ bị xoá, không hoàn tác được. Muốn giữ một bản thì Xuất patch trước.',
   'agent’s estimate {amount}': 'agent ước tính {amount}',
+  'Pygg’s ledger {amount}': 'theo sổ chi của Pygg {amount}',
+  '{n} requests through Pygg without a price': '{n} request qua Pygg chưa có giá',
+  'Some requests through Pygg used a model without a price: enter it in Connections.':
+    'Có request qua Pygg dùng model chưa có giá: hãy nhập giá trong Kết nối.',
   'cap {amount}': 'mức chi {amount}',
   'Decline': 'Từ chối',
   'Retry': 'Chạy lại',

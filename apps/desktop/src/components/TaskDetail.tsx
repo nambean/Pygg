@@ -41,7 +41,9 @@ export function TaskDetail({id, onBack}: {id: string; onBack: () => void}) {
             {task.attemptDetails.map(a => <AttemptRow key={a.id} attempt={a}/>)}
           </ol>}
         <p className="group-footnote">{t('Cost so far: {cost}', {cost: taskCost(task.cost)})}
-          {task.cost.unknownCalls > 0 && ` · ${t('Agents run with their own sign-in, so their cost is unknown to Pygg.')}`}</p>
+          {task.cost.unknownCalls > 0 && ` · ${task.attemptDetails.some(a => (a.unpricedRequests ?? 0) > 0)
+            ? t('Some requests through Pygg used a model without a price: enter it in Connections.')
+            : t('Agents run with their own sign-in, so their cost is unknown to Pygg.')}`}</p>
       </section>
 
       <section className="group">
@@ -205,7 +207,10 @@ function AttemptRow({attempt: a}: {attempt: AttemptView}) {
         {a.filesChanged !== null && t('{files} files, +{ins} −{del}', {files: a.filesChanged, ins: a.insertions ?? 0, del: a.deletions ?? 0})}
         {a.inputTokens !== null && ` · ${t('{input} in · {output} out', {input: tokens(a.inputTokens), output: tokens(a.outputTokens ?? 0)})}`}
         {a.startedAt && a.finishedAt ? ` · ${t('{s} s', {s: ((a.finishedAt - a.startedAt) / 1000).toFixed(1)})}` : ''}
-        {a.agentEstimateUsd !== null && a.agentEstimateUsd > 0 ? ` · ${t('agent’s estimate {amount}', {amount: `$${a.agentEstimateUsd.toFixed(2)}`})}` : ''}
+        {a.costSource === 'pygg' && a.agentEstimateUsd !== null
+          ? ` · ${t('Pygg’s ledger {amount}', {amount: `$${a.agentEstimateUsd.toFixed(a.agentEstimateUsd < 0.01 ? 4 : 2)}`})}`
+          : a.agentEstimateUsd !== null && a.agentEstimateUsd > 0 ? ` · ${t('agent’s estimate {amount}', {amount: `$${a.agentEstimateUsd.toFixed(2)}`})}` : ''}
+        {(a.unpricedRequests ?? 0) > 0 ? ` · ${t('{n} requests through Pygg without a price', {n: a.unpricedRequests ?? 0})}` : ''}
         {a.capUsd !== null ? ` · ${t('cap {amount}', {amount: `$${a.capUsd.toFixed(2)}`})}` : ''}
       </p>}
       {a.checks.length > 0 && <ul className="check-results">

@@ -87,8 +87,13 @@ export type AttemptView = {
   startedAt: number | null; finishedAt: number | null;
   /** Its worktree is still there: the result waits for the user. */
   open: boolean;
-  /** The agent's own list-price estimate for the run, when it gave one. */
+  /** The step's cost as Pygg knows it, when known; costSource says from where. */
   agentEstimateUsd: number | null;
+  /** 'pygg': Pygg's ledger, for requests the agent sent through Pygg's gateway; 'agent': the agent's own
+   * list-price estimate; null: recorded before schema v19 (the agent's estimate). */
+  costSource?: 'pygg' | 'agent' | null;
+  /** Requests this step sent through Pygg's gateway that had no price. */
+  unpricedRequests?: number;
   /** The cap the user approved, for a paid step. */
   capUsd: number | null;
   /** What this attempt was told about earlier ones, after the task (ADR-030); null: the task alone. */
