@@ -120,7 +120,7 @@ Then D2 (integrations hub, `str` and npm), B6 and E, in the order already set. N
   - minimum-tier rules by task category and complexity, and a measured ranking above a minimum sample (ADR-006);
   - Apply to Workspace with drift detection, next to Keep as Branch and Export Patch (ADR-009, SCREENS D6);
   - non-Git workspaces with read-only planning or a snapshot (ADR-008, SCREENS D11); today a workspace must be a Git repository;
-  - the Setup Assistant (SCREENS §6.1); a command palette and keyboard shortcuts (SCREENS §2.6);
+  - the Setup Assistant (SCREENS §6.1); ~~a command palette and keyboard shortcuts (SCREENS §2.6)~~ (built 2026-11-12: Ctrl+K or the toolbar's search button; screens, Connect Provider, New Combo, Create Client Token, task filters, sidebar, diagnostics; nothing in it spends or deletes);
   - Usage → Subscriptions and Local Runtime tabs, ledger export and anomaly alerts (SCREENS §5.6);
   - billing-tier views with an account-model entitlement schema (ADR-020, CLI/IDE/npm/Tiers §6), with account pools above;
   - running the benchmark from the app (functional plan §9);

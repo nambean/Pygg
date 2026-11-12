@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Bot, ChartColumn, FolderGit2, Gauge, KeyRound, ListOrdered, ListTodo, PanelLeft, Plug, Plus, Settings as SettingsIcon,
+import { Bot, ChartColumn, FolderGit2, Gauge, KeyRound, ListOrdered, ListTodo, PanelLeft, Plug, Plus, Search, Settings as SettingsIcon,
   SlidersHorizontal } from 'lucide-react';
 import './styles.css';
 import brandMark from './assets/brand-mark.svg';
@@ -13,6 +13,7 @@ import { useGateway } from './hooks/useGateway';
 import { gatewayChanged } from './lib/api';
 import { onTasksChanged, sendShellStrings } from './lib/shell';
 import { BudgetSubtitle } from './components/BudgetSubtitle';
+import { CommandPalette, type Command } from './components/CommandPalette';
 import { GatewayStatus } from './components/GatewayStatus';
 import { NewTaskView } from './components/NewTaskView';
 import { PendingView } from './components/PendingView';
@@ -66,6 +67,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
   const [intent, setIntent] = useState<Intent | undefined>();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [query, setQuery] = useState('');
+  const [palette, setPalette] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const gateway = useGateway(api => api.gatewayStatus(), [], 5_000);
@@ -103,6 +105,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
       const mod = isMac ? event.metaKey : event.ctrlKey;
       if (!mod || event.altKey) return;
       const key = event.key.toLowerCase();
+      if (key === 'k' && !event.shiftKey) { event.preventDefault(); setPalette(true); return; }
       if (event.shiftKey) {
         if (key === 'l') { event.preventDefault(); setSidebarOpen(open => !open); }
         return;
@@ -118,6 +121,42 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [go, newTask, view.kind]);
+
+  // The palette's commands (SCREENS.md §2.6). None spends money or deletes: those open the screen that asks.
+  const commands = useMemo<Command[]>(() => {
+    const nav = t('Go to');
+    const list: Command[] = [
+      ...GATEWAY.map((g, i) => ({id: `go-${g.kind}`, group: nav, label: t(g.title), hint: `${MOD}${i + 1}`, run: () => go(g.kind)})),
+      {id: 'go-tasks', group: nav, label: t('Tasks'), hint: `${MOD}6`, run: () => setView({kind: 'tasks', filter: 'all'})},
+      {id: 'go-agents', group: nav, label: t('Agents'), hint: `${MOD}7`, run: () => setView({kind: 'agents'})},
+      {id: 'go-workspaces', group: nav, label: t('Workspaces'), run: () => setView({kind: 'workspaces'})},
+      {id: 'go-policies', group: nav, label: t('Policies'), run: () => setView({kind: 'policies'})},
+      {id: 'go-settings', group: nav, label: t('Settings'), hint: `${MOD},`, run: () => setView({kind: 'settings'})},
+    ];
+    const gateway = t('Gateway');
+    list.push(
+      {id: 'connect', group: gateway, label: t('Connect Provider…'), keywords: 'add key api', run: () => go('connections', 'connect')},
+      {id: 'combo', group: gateway, label: t('New Combo…'), keywords: 'fallback', run: () => go('combos', 'create')},
+      {id: 'client', group: gateway, label: t('Create Client Token…'), keywords: 'key token', run: () => go('clients', 'create')},
+      {id: 'auto', group: gateway, label: t('Simulate auto routing'), keywords: 'auto cheap route', run: () => go('combos')},
+      {id: 'usage-export', group: gateway, label: t('Export usage as CSV…'), keywords: 'ledger csv', run: () => go('usage')},
+      {id: 'ide', group: gateway, label: t('Set up an IDE agent…'), keywords: 'claude code codex opencode mcp', run: () => setView({kind: 'agents'})},
+    );
+    const tasks = t('Tasks');
+    list.push(
+      {id: 'new-task', group: tasks, label: t('New Task'), hint: `${MOD}N`, run: newTask},
+      ...FILTERS.filter(f => f !== 'all').map(f => ({id: `tasks-${f}`, group: tasks, label: t(FILTER_TITLES[f]),
+        hint: counts[f] ? String(counts[f]) : undefined, run: () => setView({kind: 'tasks', filter: f})})),
+    );
+    const app = t('App');
+    list.push(
+      {id: 'sidebar', group: app, label: sidebarOpen ? t('Hide sidebar') : t('Show sidebar'), hint: `${MOD}Shift+L`,
+        run: () => setSidebarOpen(open => !open)},
+      {id: 'diagnostics', group: app, label: t('Save Diagnostics…'), keywords: 'support bug report', run: () => setView({kind: 'settings'})},
+      {id: 'language', group: app, label: t('Language'), keywords: 'english tiếng việt', run: () => setView({kind: 'settings'})},
+    );
+    return list;
+  }, [go, newTask, counts, sidebarOpen]);
 
   const openTask = (task: TaskSummary) => setView({kind: 'task', id: task.id, from: view.kind === 'tasks' ? view.filter : 'all'});
   const openedTask = view.kind === 'task' ? allTasks.find(task => task.id === view.id) : undefined;
@@ -181,6 +220,8 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
             <BudgetSubtitle running={counts.running} waiting={counts.approval} budget={budget.data ?? undefined}/>}
         </div>
         <span className="spacer" data-tauri-drag-region/>
+        <button className="toolbar-button" type="button" onClick={() => setPalette(true)} aria-label={t('Command palette')}
+          title={`${t('Command palette')} (${MOD}K)`}><Search size={16} strokeWidth={1.75}/></button>
         {primary && <button type="button" className="button prominent" onClick={() => setIntent(primary.intent)}>
           <Plus size={14} strokeWidth={2.4} aria-hidden/>{t(primary.label)}
         </button>}
@@ -227,6 +268,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         {view.kind === 'settings' && <SettingsView language={language} onLanguage={onLanguage} onGateway={() => go('overview')}/>}
       </div>
     </main>
+    {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)}/>}
   </div>;
 }
 

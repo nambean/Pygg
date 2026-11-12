@@ -760,3 +760,22 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
   .chart-bar { forced-color-adjust: none; background: CanvasText; }
   .text-input[aria-invalid="true"], .money-input.invalid { border: 2px solid Mark; }
 }
+
+/* Command palette (CommandPalette.tsx, SCREENS.md §2.6). */
+.palette-backdrop { padding-top: 12vh; }
+.palette { width: min(560px, calc(100vw - 32px)); max-height: min(460px, 70vh); display: flex; flex-direction: column;
+  background: var(--surface); color: var(--label); border-radius: 12px; box-shadow: var(--popover-shadow); overflow: hidden; outline: none; }
+.palette-search { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--separator);
+  color: var(--secondary); }
+.palette-input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--label); font: inherit; font-size: 15px;
+  outline: none; }
+.palette-list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; }
+.palette-group { padding: 8px 10px 4px; font-size: 11px; font-weight: 600; color: var(--secondary); text-transform: uppercase;
+  letter-spacing: .04em; }
+.palette-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px; border-radius: 7px;
+  cursor: default; }
+.palette-item.active { background: var(--accent); color: #fff; }
+.palette-item kbd { font: inherit; font-size: 11px; color: var(--secondary); }
+.palette-item.active kbd { color: rgba(255, 255, 255, .85); }
+.palette-empty { padding: 16px 10px; color: var(--secondary); }
+@media (forced-colors: active) { .palette-item.active { background: Highlight; color: HighlightText; forced-color-adjust: none; } }
