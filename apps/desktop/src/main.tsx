@@ -239,7 +239,8 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
       <div className="content">
         {view.kind === 'overview' && <Overview status={status} onStatus={setStatus} navigate={go}/>}
         {view.kind === 'connections' && <Connections intent={intent === 'connect' ? 'connect' : undefined} onIntentDone={intentDone}/>}
-        {view.kind === 'combos' && <Combos intent={intent === 'create' ? 'create' : undefined} onIntentDone={intentDone}/>}
+        {view.kind === 'combos' && <Combos intent={intent === 'create' ? 'create' : undefined} onIntentDone={intentDone}
+          onConnect={() => go('connections', 'connect')}/>}
         {view.kind === 'endpoint' && <Endpoint status={status} onStatus={setStatus} intent={intent === 'create' ? 'create' : undefined}
           onIntentDone={intentDone}/>}
         {view.kind === 'tools' && <CliTools status={status} navigate={go}/>}

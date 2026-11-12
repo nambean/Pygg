@@ -1,16 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowRight, ArrowUp, ListOrdered, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowRight, ArrowUp, LayoutTemplate, ListOrdered, Trash2, X } from 'lucide-react';
 import { call, errorText, gatewayChanged, type Combo, type Connection, type Model, type Target } from '../../lib/api';
 import { plural, t } from '../../lib/i18n';
 import { billingLabel } from '../../lib/money';
 import { useGateway } from '../../hooks/useGateway';
-import { ConfirmSheet, CopyButton, Empty, ErrorNote, FormRow, Sheet, Spinner } from '../ui';
+import { ConfirmSheet, CopyButton, Empty, ErrorNote, FormRow, Segmented, Sheet, Spinner } from '../ui';
 import { AutoRouting } from './AutoRouting';
+import { ComboTemplates } from './ComboTemplates';
 
 const key = (m: Target) => `${m.providerId}/${m.modelId}`;
 
-/** Combos: named, ordered model lists. A request for the name tries each model in turn on hard errors. */
-export function Combos({intent, onIntentDone}: {intent?: 'create'; onIntentDone: () => void}) {
+/**
+ * Combos: named, ordered model lists, as in 9router and OmniRoute. A request for the name tries each model in turn on
+ * hard errors. Templates build one from rules over the user's models; the second tab explains and simulates `auto`.
+ */
+export function Combos({intent, onIntentDone, onConnect}: {intent?: 'create'; onIntentDone: () => void; onConnect: () => void}) {
+  const [tab, setTab] = useState<'combos' | 'auto'>('combos');
+  const [templating, setTemplating] = useState(false);
   const combos = useGateway(api => api.combos());
   const connections = useGateway(api => api.connections());
   const models = useGateway(api => api.models());
@@ -20,20 +26,39 @@ export function Combos({intent, onIntentDone}: {intent?: 'create'; onIntentDone:
 
   if (combos.loading && !combos.data) return <div className="page"><Spinner label={t('Loading combos…')}/></div>;
   const list = combos.data ?? [];
+  const modelOf = (m: Target) => models.data?.find(x => x.providerId === m.providerId && x.modelId === m.modelId);
   return <div className="page">
+    <div className="page-bar">
+      <Segmented label={t('Show')} value={tab} onChange={setTab}
+        options={[{value: 'combos', label: t('Combos')}, {value: 'auto', label: t('How auto chooses')}]}/>
+      <span className="spacer"/>
+      {tab === 'combos' && <button type="button" className="button" onClick={() => setTemplating(true)}>
+        <LayoutTemplate size={13} aria-hidden/>{t('From Template…')}</button>}
+    </div>
+    {tab === 'auto' && <AutoRouting/>}
+    {tab === 'combos' && <>
     {combos.error && <ErrorNote>{combos.error}</ErrorNote>}
     {list.length === 0
       ? <Empty icon={<ListOrdered size={40} strokeWidth={1.4}/>} title={t('No Combos Yet')}
-          action={<button type="button" className="button prominent" onClick={() => setEditing('new')}>{t('New Combo…')}</button>}>
-          {t('A combo is a model name your clients can use, such as “coding”, that stands for a list of models. If the first is out of quota or unavailable, the next one answers.')}
+          action={<span className="row-actions">
+            <button type="button" className="button prominent" onClick={() => setTemplating(true)}>{t('Start from a Template…')}</button>
+            <button type="button" className="button" onClick={() => setEditing('new')}>{t('New Combo…')}</button></span>}>
+          {t('One model name, a fallback order you control. A combo such as “coding” stands for a list of models: if the first is out of quota or unavailable, the next one answers. Templates such as Free first or Use my plans first build one from your models.')}
         </Empty>
       : <section className="group">
         <h2>{t('Combos')}</h2>
+        <p className="group-intro">{t('One model name, a fallback order you control. Clients send the name as the model.')}</p>
         <ul className="group-box combo-list">
           {list.map(combo => <li key={combo.id} className="combo-row">
             <div className="combo-head">
               <span className="combo-name mono selectable">{combo.name}</span>
-              <span className="secondary">{plural(combo.members.length, '{n} model', '{n} models')}</span>
+              <span className="secondary">{t('Ordered fallback')} · {plural(combo.members.length, '{n} model', '{n} models')}
+                {(() => {
+                  const off = combo.members.filter(m => !connections.data?.find(c => c.id === m.providerId)?.enabled).length;
+                  const missing = combo.members.filter(m => !modelOf(m)).length;
+                  return off || missing ? <span className="warn-text"> · {[off && plural(off, '{n} off', '{n} off'),
+                    missing && plural(missing, '{n} missing', '{n} missing')].filter(Boolean).join(' · ')}</span> : null;
+                })()}</span>
               <span className="spacer"/>
               <CopyButton text={combo.name} label={t('Copy Name')}/>
               <button type="button" className="button" onClick={() => setEditing(combo)}>{t('Edit…')}</button>
@@ -47,17 +72,23 @@ export function Combos({intent, onIntentDone}: {intent?: 'create'; onIntentDone:
                 return <li key={`${key(m)}-${i}`} className={off ? 'chain-step off' : 'chain-step'}>
                   {i > 0 && <ArrowRight size={12} className="chain-arrow" aria-hidden/>}
                   <span className="chain-chip mono" title={off ? t('Skipped: its connection is disabled or removed') : undefined}>
-                    <span className="chain-index">{i + 1}</span>{key(m)}</span>
+                    <span className="chain-index">{i + 1}</span>{key(m)}
+                    {modelOf(m) && <span className="chain-meta">{[billingLabel(modelOf(m)!.billing), modelOf(m)!.capabilities.tier,
+                      modelOf(m)!.capabilities.supportsTools ? t('tools') : null].filter(Boolean).join(' · ')}</span>}</span>
                 </li>;
               })}
               {combo.members.length === 0 && <li className="secondary">{t('Empty: its models’ connections were removed.')}</li>}
             </ol>
           </li>)}
         </ul>
-        <p className="group-footnote">{t('The next model is tried on a rejected key, an exhausted quota or rate limit, or an unavailable model, and only before any of the answer has reached the client. After a timeout or a server error the provider may already have run (and billed) the request, so the gateway stops there unless the client allows retries (Clients → Limits). A malformed request is returned as it is.')}</p>
+        <details className="group-footnote fallback-details">
+          <summary>{t('Tries members in order when a key is rejected, quota is exhausted, or a model is unavailable. Once an answer starts streaming, Pygg does not switch models.')}</summary>
+          {t('After a timeout or a server error the provider may already have run (and billed) the request, so the gateway stops there unless the API key allows paid retries (Endpoint → API Keys → Limits). A malformed request is returned as it is.')}
+        </details>
       </section>}
-
-    <AutoRouting/>
+    </>}
+    {templating && <ComboTemplates models={models.data ?? []} connections={connections.data ?? []} existing={list}
+      onClose={() => setTemplating(false)} onConnect={() => { setTemplating(false); onConnect(); }}/>}
 
     {editing && <ComboSheet combo={editing === 'new' ? null : editing} connections={connections.data ?? []} models={models.data ?? []}
       existing={list} onClose={() => setEditing(null)}/>}
@@ -88,7 +119,7 @@ function ComboSheet({combo, connections, models, existing, onClose}: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const options = useMemo(() => connections.map(c => ({connection: c,
+  const options = useMemo(() => connections.filter(c => c.enabled).map(c => ({connection: c,
     models: models.filter(m => m.providerId === c.id && m.enabled)})).filter(g => g.models.length), [connections, models]);
   const nameError = !name.trim() ? null : /[\s/]/.test(name.trim()) ? t('No spaces or slashes.')
     : existing.some(c => c.name === name.trim() && c.id !== combo?.id) ? t('Another combo has this name.') : null;
@@ -114,7 +145,11 @@ function ComboSheet({combo, connections, models, existing, onClose}: {
     if (!connection) return t('Connection removed');
     if (!connection.enabled) return t('Connection disabled · skipped');
     const wire = connection.wire === 'anthropic' ? ` · ${t('Anthropic clients only')}` : '';
-    return (model ? billingLabel(model.billing) + (model.price ? ` · ${t('priced')}` : '') : t('Not in the model list')) + wire;
+    if (!model) return t('Not in the model list') + wire;
+    const caps = model.capabilities;
+    return [billingLabel(model.billing), model.price ? t('priced') : null, caps.tier,
+      caps.supportsTools === true ? t('tools') : caps.supportsTools === false ? t('no tools') : null,
+      caps.contextTokens ? `${Math.round(caps.contextTokens / 1000)}k` : null].filter(Boolean).join(' · ') + wire;
   };
 
   return <Sheet title={combo ? t('Edit {name}', {name: combo.name}) : t('New Combo')}

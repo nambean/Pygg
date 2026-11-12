@@ -840,6 +840,22 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .guide-steps, .guide-list { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
 .guide-table td, .guide-table th { vertical-align: top; }
 @media (max-width: 1100px) { .guide { grid-template-columns: 1fr; } .guide-nav { position: static; grid-auto-flow: column; overflow-x: auto; } }
+.chain-meta { margin-left: 6px; font-family: var(--font, inherit); font-size: 10px; color: var(--secondary); }
+.fallback-details > summary { cursor: default; }
+.fallback-details[open] > summary { margin-bottom: 4px; }
+.template-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.template-card { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 12px; border-radius: 8px;
+  border: 1px solid var(--separator); background: var(--surface); color: var(--label); font: inherit; cursor: default; }
+.template-card:hover { border-color: var(--accent-text); }
+.template-card:focus-visible { outline: 3px solid var(--focus-ring); }
+.template-icon { color: var(--accent-text); margin-top: 1px; }
+.template-text { display: grid; gap: 3px; }
+.template-name { font-weight: 600; font-size: 13px; }
+.template-text small { font-size: 12px; line-height: 1.4; }
+.template-empty { display: grid; gap: 6px; justify-items: start; padding: 12px; border-radius: 8px; background: var(--surface); }
+.template-empty p { margin: 0; }
+.template-excluded { font-size: 12px; margin: 6px 0; }
+.template-excluded ul { margin: 6px 0 0; padding-left: 18px; max-height: 180px; overflow: auto; }
 .page-intro { color: var(--secondary); margin: 0; font-size: 13px; line-height: 1.5; }
 .endpoint-value { display: inline-flex; align-items: center; gap: 8px; }
 .chosen-preset { display: flex; align-items: center; gap: 10px; padding-bottom: 4px; }
