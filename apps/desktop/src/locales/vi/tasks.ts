@@ -282,4 +282,58 @@ export const tasks: Record<string, string> = {
     "git {0} thất bại: {1}",
   "{0} · {1}":
     "{0} · {1}",
+  "Choose the workspace folder":
+    "Hãy chọn thư mục workspace",
+  "{0} is not a folder":
+    "{0} không phải là thư mục",
+  "The workspace must be a Git repository: every attempt works on its own worktree, so your files and branch are never touched.":
+    "Workspace phải là một Git repository: mỗi lần thử làm trên worktree riêng, nên file và nhánh của bạn không bao giờ bị động đến.",
+  "That workspace no longer exists":
+    "Workspace đó không còn nữa",
+  "That check no longer exists":
+    "Check đó không còn nữa",
+  "Type the command, e.g. pnpm test":
+    "Nhập lệnh, ví dụ pnpm test",
+  "A check is one command line of at most 500 characters":
+    "Một check là một dòng lệnh, tối đa 500 ký tự",
+  "Unknown privacy class {0}":
+    "Không biết lớp riêng tư {0}",
+  "This workspace has task history, so it stays.":
+    "Workspace này có lịch sử tác vụ, nên được giữ lại.",
+  "Unknown strategy {0}":
+    "Không biết chiến lược {0}",
+  "Add at least one step":
+    "Hãy thêm ít nhất một bước",
+  "A task has at most {0} steps":
+    "Một tác vụ có tối đa {0} bước",
+  "Unknown agent {0}":
+    "Không biết agent {0}",
+  "A step's tier is T0 to T4":
+    "Tier của một bước là T0 đến T4",
+  "Unknown billing {0}":
+    "Không biết cách tính phí {0}",
+  "Unknown handoff {0}: use none, tail or evidence":
+    "Không biết kiểu bàn giao {0}: dùng none, tail hoặc evidence",
+  "That task no longer exists":
+    "Tác vụ đó không còn nữa",
+  "Only a running or waiting task can be stopped":
+    "Chỉ dừng được tác vụ đang chạy hoặc đang chờ",
+  "This task is not waiting for an approval":
+    "Tác vụ này không chờ duyệt",
+  "The waiting step is not in the task's policy":
+    "Bước đang chờ không có trong chính sách của tác vụ",
+  "Set a spending cap for this paid step":
+    "Hãy đặt mức trần chi cho bước trả phí này",
+  "This step's estimate or your budget changed since you were asked. Check the new estimate and approve again.":
+    "Ước tính của bước này hoặc ngân sách của bạn đã đổi từ lúc được hỏi. Hãy xem ước tính mới rồi duyệt lại.",
+  "The cap is more than what is left of today's budget for paid steps (${0})":
+    "Mức trần lớn hơn phần còn lại của ngân sách hôm nay cho bước trả phí (${0})",
+  "Only an interrupted task can be retried":
+    "Chỉ chạy lại được tác vụ bị gián đoạn",
+  "The task has no base commit":
+    "Tác vụ không có commit gốc",
+  "This task has no result waiting for you":
+    "Tác vụ này không có kết quả nào chờ bạn",
+  "The result's worktree is gone":
+    "Worktree của kết quả không còn nữa",
 };

@@ -85,14 +85,14 @@ pub struct WorkspaceView {
 pub fn add_workspace(conn: &Connection, path: &str, name: Option<&str>) -> Result<WorkspaceView> {
     let path = path.trim().trim_matches('"').trim();
     if path.is_empty() {
-        return Err("Choose the workspace folder".into());
+        return Err(m::CHOOSE_FOLDER.into());
     }
     let dir = Path::new(path);
     if !dir.is_dir() {
-        return Err(format!("{path} is not a folder"));
+        return Err(fill(m::NOT_A_FOLDER, &[&path]));
     }
     if !isolation::is_repository(dir) {
-        return Err("The workspace must be a Git repository: every attempt works on its own worktree, so your files and branch are never touched.".into());
+        return Err(m::WORKSPACE_NOT_REPOSITORY.into());
     }
     let name = name.map(str::trim).filter(|n| !n.is_empty()).map(String::from)
         .or_else(|| dir.file_name().map(|n| n.to_string_lossy().into_owned()))
@@ -119,7 +119,7 @@ fn suggest_checks(conn: &Connection, id: &str, dir: &Path) -> Result<()> {
 pub fn workspace(conn: &Connection, id: &str) -> Result<WorkspaceView> {
     let (name, path, budget, privacy_class): (String, String, Option<i64>, String) = conn.query_row(
         "SELECT name, path, daily_budget_micro_usd, privacy_class FROM workspaces WHERE id = ?1", [id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).optional().map_err(err)?.ok_or("That workspace no longer exists")?;
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).optional().map_err(err)?.ok_or(m::WORKSPACE_GONE)?;
     let mut statement = conn.prepare("SELECT command, source, approved FROM workspace_checks WHERE workspace_id = ?1 ORDER BY rowid")
         .map_err(err)?;
     let checks = statement.query_map([id], |r| Ok(WorkspaceCheck { command: r.get(0)?, source: r.get(1)?, approved: r.get(2)? }))
@@ -146,7 +146,7 @@ pub fn set_check(conn: &Connection, id: &str, command: &str, approved: bool) -> 
     let changed = conn.execute("UPDATE workspace_checks SET approved = ?3 WHERE workspace_id = ?1 AND command = ?2",
         params![id, command, approved]).map_err(err)?;
     if changed == 0 {
-        return Err("That check no longer exists".into());
+        return Err(m::CHECK_GONE.into());
     }
     audit(conn, if approved { "check.approved" } else { "check.unapproved" }, id, serde_json::json!({"command": command})).map_err(err)
 }
@@ -155,10 +155,10 @@ pub fn set_check(conn: &Connection, id: &str, command: &str, approved: bool) -> 
 pub fn add_check(conn: &Connection, id: &str, command: &str) -> Result<()> {
     let command = command.trim();
     if command.is_empty() {
-        return Err("Type the command, e.g. pnpm test".into());
+        return Err(m::TYPE_COMMAND.into());
     }
     if command.chars().count() > 500 || command.contains('\n') {
-        return Err("A check is one command line of at most 500 characters".into());
+        return Err(m::CHECK_TOO_LONG.into());
     }
     workspace(conn, id)?;
     conn.execute("INSERT INTO workspace_checks (id, workspace_id, command, source, approved) VALUES (?1, ?2, ?3, 'user', 1) \
@@ -175,11 +175,11 @@ pub fn remove_check(conn: &Connection, id: &str, command: &str) -> Result<()> {
 /// agent sends the code (data-use terms, ROADMAP B2), so the user decides each time.
 pub fn set_privacy(conn: &Connection, id: &str, class: &str) -> Result<()> {
     if !matches!(class, "standard" | "sensitive") {
-        return Err(format!("Unknown privacy class {class}"));
+        return Err(fill(m::UNKNOWN_PRIVACY, &[&class]));
     }
     let changed = conn.execute("UPDATE workspaces SET privacy_class = ?2 WHERE id = ?1", params![id, class]).map_err(err)?;
     if changed == 0 {
-        return Err("That workspace no longer exists".into());
+        return Err(m::WORKSPACE_GONE.into());
     }
     audit(conn, "workspace.privacy", id, serde_json::json!({"class": class})).map_err(err)
 }
@@ -190,7 +190,7 @@ fn is_sensitive(conn: &Connection, workspace_id: &str) -> rusqlite::Result<bool>
 
 pub fn remove_workspace(conn: &Connection, id: &str) -> Result<()> {
     if workspace(conn, id)?.tasks > 0 {
-        return Err("This workspace has task history, so it stays.".into());
+        return Err(m::WORKSPACE_HAS_HISTORY.into());
     }
     conn.execute("DELETE FROM workspaces WHERE id = ?1", [id]).map_err(err)?;
     Ok(())
@@ -272,29 +272,29 @@ pub fn create_task(conn: &Connection, new: &NewTask) -> Result<String> {
 pub fn create_task_for(conn: &Connection, new: &NewTask, client_id: Option<&str>) -> Result<String> {
     let prompt = new.prompt.trim();
     if prompt.is_empty() {
-        return Err("Describe the task".into());
+        return Err(m::DESCRIBE.into());
     }
     if !STRATEGIES.contains(&new.strategy.as_str()) {
-        return Err(format!("Unknown strategy {}", new.strategy));
+        return Err(fill(m::UNKNOWN_STRATEGY, &[&new.strategy]));
     }
     if new.steps.is_empty() {
-        return Err("Add at least one step".into());
+        return Err(m::ADD_STEP.into());
     }
     if new.steps.len() > MAX_STEPS {
-        return Err(format!("A task has at most {MAX_STEPS} steps"));
+        return Err(fill(m::TOO_MANY_STEPS, &[&MAX_STEPS]));
     }
     for step in &new.steps {
-        agents::find(&step.agent).ok_or_else(|| format!("Unknown agent {}", step.agent))?;
+        agents::find(&step.agent).ok_or_else(|| fill(m::UNKNOWN_STEP_AGENT, &[&step.agent]))?;
         if step.tier > 4 {
-            return Err("A step's tier is T0 to T4".into());
+            return Err(m::STEP_TIER.into());
         }
         if !BILLINGS.contains(&step.billing.as_str()) {
-            return Err(format!("Unknown billing {}", step.billing));
+            return Err(fill(m::UNKNOWN_BILLING, &[&step.billing]));
         }
     }
     let handoff = new.handoff.as_deref().map(str::trim).filter(|h| !h.is_empty()).unwrap_or(crate::handoff::DEFAULT_MODE);
     if !crate::handoff::MODES.contains(&handoff) {
-        return Err(format!("Unknown handoff {handoff}: use none, tail or evidence"));
+        return Err(fill(m::UNKNOWN_HANDOFF, &[&handoff]));
     }
     let ws = workspace(conn, &new.workspace_id)?;
     let base = isolation::head(Path::new(&ws.path)).map_err(|e| e.to_string())?;
@@ -480,7 +480,7 @@ fn task_row(conn: &Connection, id: &str) -> Result<TaskRow> {
             stage_id: r.get(13)?, created_at: r.get(14)?, updated_at: r.get(15)?, client_id: r.get(16)?, client_name: r.get(17)?,
         }, r.get::<_, String>(12)?)),
     ).optional().map_err(err)?;
-    let (mut row, policy) = row.ok_or("That task no longer exists")?;
+    let (mut row, policy) = row.ok_or(m::TASK_GONE)?;
     row.policy = serde_json::from_str(&policy).map_err(|e| format!("The task's policy could not be read: {e}"))?;
     Ok(row)
 }
@@ -569,7 +569,7 @@ pub fn task_detail(conn: &Connection, id: &str) -> Result<TaskDetail> {
 pub fn task_detail_for(conn: &Connection, id: &str, client_id: Option<&str>) -> Result<TaskDetail> {
     let row = task_row(conn, id)?;
     if client_id.is_some() && row.client_id.as_deref() != client_id {
-        return Err("That task no longer exists".into());
+        return Err(m::TASK_GONE.into());
     }
     let attempts = attempts_of(conn, id)?;
     let summary = summary_of(conn, id, &row, &attempts)?;
@@ -838,7 +838,7 @@ pub fn set_workspace_budget(conn: &Connection, id: &str, micro_usd: Option<u64>)
     let changed = conn.execute("UPDATE workspaces SET daily_budget_micro_usd = ?2 WHERE id = ?1",
         params![id, micro_usd.filter(|v| *v > 0).map(|v| v as i64)]).map_err(err)?;
     if changed == 0 {
-        return Err("That workspace no longer exists".into());
+        return Err(m::WORKSPACE_GONE.into());
     }
     audit(conn, "budget.workspace", id, serde_json::json!({"microUsd": micro_usd})).map_err(err)
 }
@@ -1155,7 +1155,7 @@ impl Runner {
         self.with_db(|c| {
             let row = task_row(c, id)?;
             if !matches!(row.state.as_str(), "waiting_approval" | "interrupted" | "needs_revalidation" | "running") {
-                return Err("Only a running or waiting task can be stopped".into());
+                return Err(m::CANNOT_STOP.into());
             }
             let tx = c.unchecked_transaction().map_err(err)?;
             tx.execute("UPDATE approvals SET state = 'invalidated', decided_at = ?2 WHERE state = 'pending' AND attempt_id IN \
@@ -1180,15 +1180,15 @@ impl Runner {
         self.with_db(|c| {
             let row = task_row(c, id)?;
             if row.state != "waiting_approval" {
-                return Err("This task is not waiting for an approval".into());
+                return Err(m::NOT_WAITING.into());
             }
             let (attempt, rung): (String, i64) = c.query_row(
                 "SELECT id, rung FROM attempts WHERE stage_id = ?1 AND state = 'waiting' ORDER BY number DESC LIMIT 1",
                 [&row.stage_id], |r| Ok((r.get(0)?, r.get(1)?))).optional().map_err(err)?
-                .ok_or("This task is not waiting for an approval")?;
-            let step = row.policy.steps.get(rung as usize).ok_or("The waiting step is not in the task's policy")?;
+                .ok_or(m::NOT_WAITING)?;
+            let step = row.policy.steps.get(rung as usize).ok_or(m::STEP_NOT_IN_POLICY)?;
             if approve && step.billing == "paid" && cap.is_none() {
-                return Err("Set a spending cap for this paid step".into());
+                return Err(m::SET_CAP.into());
             }
             let asked_on: Option<String> = c.query_row(
                 "SELECT policy_version FROM approvals WHERE attempt_id = ?1 AND state = 'pending' ORDER BY rowid DESC LIMIT 1",
@@ -1202,13 +1202,12 @@ impl Runner {
                     ask_approval(&tx, &attempt, step, &row.workspace_id).map_err(err)?;
                     audit(&tx, "approval.invalidated", id, serde_json::json!({"attempt": attempt})).map_err(err)?;
                     tx.commit().map_err(err)?;
-                    return Err("This step's estimate or your budget changed since you were asked. \
-                        Check the new estimate and approve again.".into());
+                    return Err(m::APPROVAL_STALE.into());
                 }
                 let left = if step.billing == "paid" { remaining(&tx, &row.workspace_id).map_err(err)? } else { None };
                 if let (Some(cap), Some(left)) = (cap, left) {
                     if cap > left {
-                        return Err(format!("The cap is more than what is left of today's budget for paid steps (${:.2})", usd(left)));
+                        return Err(fill(m::CAP_OVER_BUDGET, &[&format!("{:.2}", usd(left))]));
                     }
                 }
             }
@@ -1234,7 +1233,7 @@ impl Runner {
         self.with_db(|c| {
             let row = task_row(c, id)?;
             if row.state != "interrupted" {
-                return Err("Only an interrupted task can be retried".into());
+                return Err(m::CANNOT_RETRY.into());
             }
             set_task(c, id, "running", Some("preparing"), None).map_err(err)?;
             signal(c, "retried", "task", id, true, "user").map_err(err)
@@ -1247,7 +1246,7 @@ impl Runner {
         if row.state != "running" {
             return Ok(());
         }
-        let base = row.base_revision.clone().ok_or("The task has no base commit")?;
+        let base = row.base_revision.clone().ok_or(m::NO_BASE)?;
         let attempts = self.with_db(|c| attempts_of(c, id))?;
         let Some((mut index, mut carried)) = resume_point(&attempts) else { return Ok(()) };
         let mut last_failure = attempts.iter().rev().find(|a| a.outcome == "failed").and_then(|a| a.escalation_reason.clone());
@@ -1440,10 +1439,10 @@ impl Runner {
 fn result_attempt(conn: &Connection, id: &str) -> Result<(TaskRow, AttemptView, Worktree)> {
     let row = task_row(conn, id)?;
     if row.result.is_some() || !matches!(row.state.as_str(), "checks_passed" | "needs_review") {
-        return Err("This task has no result waiting for you".into());
+        return Err(m::NO_RESULT.into());
     }
     let attempt = attempts_of(conn, id)?.into_iter().rev().find(|a| a.open && (a.outcome == "passed" || a.outcome == "done"))
-        .ok_or("The result's worktree is gone")?;
+        .ok_or(m::WORKTREE_GONE)?;
     let worktree = Worktree {
         repo: PathBuf::from(&row.workspace_path), path: PathBuf::from(attempt.worktree.clone().unwrap_or_default()),
         base: attempt.base.clone().or_else(|| row.base_revision.clone()).unwrap_or_default(),
@@ -1513,7 +1512,7 @@ pub fn check_owner(conn: &Connection, id: &str, client_id: &str) -> Result<()> {
         .optional().map_err(err)?;
     match owner {
         Some(Some(owner)) if owner == client_id => Ok(()),
-        _ => Err("That task no longer exists".into()),
+        _ => Err(m::TASK_GONE.into()),
     }
 }
 

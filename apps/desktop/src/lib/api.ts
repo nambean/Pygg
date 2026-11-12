@@ -4,6 +4,7 @@
  * (pnpm dev) the same calls go to an in-memory demo (lib/demo.ts), which the interface labels as such.
  */
 import { invoke } from '@tauri-apps/api/core';
+import { engineText } from './engineText';
 import { runningInDesktop } from './native';
 import type { DayBudget, NewTask, TaskDetail, TaskSummary, WorkspaceView } from './tasks';
 
@@ -345,10 +346,10 @@ export async function call<T>(f: (api: GatewayApi) => Promise<T>): Promise<T> {
 }
 
 /** A Tauri command rejects with the Rust error string; anything else becomes its message. */
+/** An error as text, in the interface language when it is one of the engine's templates (engineText.ts). */
 export function errorText(error: unknown): string {
-  if (typeof error === 'string') return error;
-  if (error instanceof Error) return error.message;
-  return String(error);
+  const text = typeof error === 'string' ? error : error instanceof Error ? error.message : String(error);
+  return engineText(text);
 }
 
 /** Changes made on one screen that others should reflect (a new connection appears in Combos, …). */

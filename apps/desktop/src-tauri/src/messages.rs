@@ -61,6 +61,35 @@ pub const GIT_MISSING: &str = "Git was not found on this computer";
 pub const BRANCH_EXISTS: &str = "A branch named {0} already exists";
 pub const GIT_FAILED: &str = "git {0} failed: {1}";
 
+// ---------- What a task or workspace action refused ----------
+pub const CHOOSE_FOLDER: &str = "Choose the workspace folder";
+pub const NOT_A_FOLDER: &str = "{0} is not a folder";
+pub const WORKSPACE_NOT_REPOSITORY: &str = "The workspace must be a Git repository: every attempt works on its own worktree, so your files and branch are never touched.";
+pub const WORKSPACE_GONE: &str = "That workspace no longer exists";
+pub const CHECK_GONE: &str = "That check no longer exists";
+pub const TYPE_COMMAND: &str = "Type the command, e.g. pnpm test";
+pub const CHECK_TOO_LONG: &str = "A check is one command line of at most 500 characters";
+pub const UNKNOWN_PRIVACY: &str = "Unknown privacy class {0}";
+pub const WORKSPACE_HAS_HISTORY: &str = "This workspace has task history, so it stays.";
+pub const UNKNOWN_STRATEGY: &str = "Unknown strategy {0}";
+pub const ADD_STEP: &str = "Add at least one step";
+pub const TOO_MANY_STEPS: &str = "A task has at most {0} steps";
+pub const UNKNOWN_STEP_AGENT: &str = "Unknown agent {0}";
+pub const STEP_TIER: &str = "A step's tier is T0 to T4";
+pub const UNKNOWN_BILLING: &str = "Unknown billing {0}";
+pub const UNKNOWN_HANDOFF: &str = "Unknown handoff {0}: use none, tail or evidence";
+pub const TASK_GONE: &str = "That task no longer exists";
+pub const CANNOT_STOP: &str = "Only a running or waiting task can be stopped";
+pub const NOT_WAITING: &str = "This task is not waiting for an approval";
+pub const STEP_NOT_IN_POLICY: &str = "The waiting step is not in the task's policy";
+pub const SET_CAP: &str = "Set a spending cap for this paid step";
+pub const APPROVAL_STALE: &str = "This step's estimate or your budget changed since you were asked. Check the new estimate and approve again.";
+pub const CAP_OVER_BUDGET: &str = "The cap is more than what is left of today's budget for paid steps (${0})";
+pub const CANNOT_RETRY: &str = "Only an interrupted task can be retried";
+pub const NO_BASE: &str = "The task has no base commit";
+pub const NO_RESULT: &str = "This task has no result waiting for you";
+pub const WORKTREE_GONE: &str = "The result's worktree is gone";
+
 // ---------- A step's label ----------
 pub const DEFAULT_MODEL: &str = "default model";
 pub const LABEL: &str = "{0} · {1}";
@@ -71,7 +100,7 @@ pub const ALL: &[&str] = &[BUDGET_USED, WAITS_PAID, WAITS_SENSITIVE, STOPPED, DE
     PYGG_LEDGER, OWN_ESTIMATE, UNPRICED, NO_COST, SKIPPED, DECLINED_STEP, COULD_NOT_RUN, DID_NOT_FINISH, NO_CHANGES,
     CHECK_FAILED, LAST_FAILURE, EXIT, EXITED, ABNORMAL, TIMED_OUT, CANCELED, COULD_NOT_START, AGENT_ERROR, UNKNOWN_AGENT,
     DESCRIBE, NOT_A_REPOSITORY_WORKSPACE, NOT_INSTALLED, NOT_A_REPOSITORY, GIT_MISSING, BRANCH_EXISTS, GIT_FAILED,
-    DEFAULT_MODEL, LABEL];
+    DEFAULT_MODEL, LABEL, CHOOSE_FOLDER, NOT_A_FOLDER, WORKSPACE_NOT_REPOSITORY, WORKSPACE_GONE, CHECK_GONE, TYPE_COMMAND, CHECK_TOO_LONG, UNKNOWN_PRIVACY, WORKSPACE_HAS_HISTORY, UNKNOWN_STRATEGY, ADD_STEP, TOO_MANY_STEPS, UNKNOWN_STEP_AGENT, STEP_TIER, UNKNOWN_BILLING, UNKNOWN_HANDOFF, TASK_GONE, CANNOT_STOP, NOT_WAITING, STEP_NOT_IN_POLICY, SET_CAP, APPROVAL_STALE, CAP_OVER_BUDGET, CANNOT_RETRY, NO_BASE, NO_RESULT, WORKTREE_GONE];
 
 /// The template with `{0}`, `{1}` … replaced by the arguments, in one pass (an argument's own braces stay).
 pub fn fill(template: &str, args: &[&dyn Display]) -> String {

@@ -51,6 +51,33 @@ const TEMPLATES: string[] = [
   "git {0} failed: {1}",
   "default model",
   "{0} · {1}",
+  "Choose the workspace folder",
+  "{0} is not a folder",
+  "The workspace must be a Git repository: every attempt works on its own worktree, so your files and branch are never touched.",
+  "That workspace no longer exists",
+  "That check no longer exists",
+  "Type the command, e.g. pnpm test",
+  "A check is one command line of at most 500 characters",
+  "Unknown privacy class {0}",
+  "This workspace has task history, so it stays.",
+  "Unknown strategy {0}",
+  "Add at least one step",
+  "A task has at most {0} steps",
+  "Unknown agent {0}",
+  "A step's tier is T0 to T4",
+  "Unknown billing {0}",
+  "Unknown handoff {0}: use none, tail or evidence",
+  "That task no longer exists",
+  "Only a running or waiting task can be stopped",
+  "This task is not waiting for an approval",
+  "The waiting step is not in the task's policy",
+  "Set a spending cap for this paid step",
+  "This step's estimate or your budget changed since you were asked. Check the new estimate and approve again.",
+  "The cap is more than what is left of today's budget for paid steps (${0})",
+  "Only an interrupted task can be retried",
+  "The task has no base commit",
+  "This task has no result waiting for you",
+  "The result's worktree is gone",
   // templates: end
 ];
 
@@ -59,7 +86,7 @@ const VERBATIM = new Set([
   "`{0}` {1}#0", "The checks passed, but this attempt changed {0}, which defines them. Review the changes before trusting the result.#0",
   "The checks passed, but this attempt changed {0}, which defines them. Review the changes before trusting the result. {1}.#0",
   "git {0} failed: {1}#0", "git {0} failed: {1}#1", "A branch named {0} already exists#0", "{0} is not a Git repository#0",
-  "{0} is not installed, or not on PATH. See {1}#1",
+  "{0} is not installed, or not on PATH. See {1}#1", "{0} is not a folder#0",
 ]);
 
 type Matcher = {template: string; pattern: RegExp; literal: number};
