@@ -1,0 +1,163 @@
+//! What routing saved, as an estimate (SCREENS §2.2, Home and Usage): the requests the gateway answered, priced
+//! again at one model the user chose to compare with, with the same tokens.
+//!
+//! It is an estimate and says so. Another model would have written a different number of tokens; the cache split is
+//! assumed to be the same; and a request whose cost or tokens are not known is left out and counted, never taken as
+//! $0. Failed attempts with a known cost are added to what routing cost, not hidden; those with an unknown cost are
+//! counted. Subscription requests are counted apart: their money is a plan, not a price per token.
+
+use std::collections::HashMap;
+
+use rusqlite::{params, Connection};
+use serde::Serialize;
+
+use super::pricing::{self, Price, Usage};
+use super::store::{self, Result};
+
+/// The setting holding the model to compare with, as `connection/model`.
+pub const BASELINE_SETTING: &str = "savings.baseline";
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BillingCounts {
+    pub free: u64,
+    pub local: u64,
+    pub subscription: u64,
+    pub paid: u64,
+    pub unknown: u64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Savings {
+    /// `connection/model`, or `None` while the user has not chosen one.
+    pub baseline: Option<String>,
+    /// Whether the chosen model has a price; without one nothing can be compared.
+    pub baseline_priced: bool,
+    /// Requests the gateway answered in the period, by how their model is billed.
+    pub answered: BillingCounts,
+    /// Answered requests priced both ways.
+    pub compared: u64,
+    /// What those requests cost as routed (known costs only), plus failed attempts with a known cost.
+    pub routed_micro_usd: u64,
+    /// The same tokens at the baseline's price.
+    pub baseline_micro_usd: u64,
+    /// Part of `routed_micro_usd` from attempts that failed or fell back.
+    pub failed_attempts_micro_usd: u64,
+    /// Answered requests left out because their cost was unknown (subscription ones are counted in `answered`).
+    pub left_out_unknown_cost: u64,
+    /// Answered requests left out because the provider reported no tokens.
+    pub left_out_no_tokens: u64,
+    /// Failed attempts whose cost is unknown: they may have been billed, so the estimate may be too kind.
+    pub failed_unknown_cost: u64,
+}
+
+fn baseline_price(conn: &Connection, baseline: &str) -> Result<Option<Price>> {
+    let Some((provider_id, model_id)) = baseline.split_once('/') else { return Ok(None) };
+    let Some(provider) = store::get_provider(conn, provider_id)? else { return Ok(None) };
+    let (_, price) = store::pricing_for(conn, &provider, model_id)?;
+    Ok(price.filter(|p| p.input_micro_per_mtok > 0 || p.output_micro_per_mtok > 0))
+}
+
+type Row = (String, Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>, String, String, String);
+
+pub fn savings(conn: &Connection, since: i64) -> Result<Savings> {
+    let baseline = store::setting(conn, BASELINE_SETTING)?.filter(|s| s.contains('/'));
+    let price = match &baseline { Some(b) => baseline_price(conn, b)?, None => None };
+    let mut out = Savings { baseline: baseline.clone(), baseline_priced: price.is_some(), ..Default::default() };
+    // Only requests to the user's connections: an agent's own run (`agent:…`) has no connection here.
+    let mut stmt = conn.prepare(concat!(
+        "SELECT u.outcome, u.input_tokens, u.output_tokens, u.cache_tokens, u.cache_write_tokens, u.cost_micro_usd, ",
+        "u.cost_status, u.provider, u.model FROM usage_events u JOIN providers p ON p.id = u.provider WHERE u.created_at >= ?1"))
+        .map_err(|e| e.to_string())?;
+    let rows: Vec<Row> = stmt.query_map(params![since], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+        r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?))).map_err(|e| e.to_string())?
+        .collect::<rusqlite::Result<_>>().map_err(|e| e.to_string())?;
+    // Billing by the same rule as the model list and the ledger (store::pricing_for), once per model.
+    let mut billing_of: HashMap<(String, String), String> = HashMap::new();
+    for (outcome, input, output, cached, written, cost, status, provider_id, model_id) in rows {
+        let known = status != "unknown";
+        if outcome != "ok" {
+            // A client that left says nothing about cost; other failures may have been billed.
+            if outcome == "client_disconnected" { continue; }
+            if known { out.failed_attempts_micro_usd += cost.unwrap_or(0).max(0) as u64; } else { out.failed_unknown_cost += 1; }
+            continue;
+        }
+        let key = (provider_id, model_id);
+        if !billing_of.contains_key(&key) {
+            let b = match store::get_provider(conn, &key.0)? {
+                Some(p) => store::pricing_for(conn, &p, &key.1)?.0,
+                None => "unknown".to_string(),
+            };
+            billing_of.insert(key.clone(), b);
+        }
+        match billing_of[&key].as_str() {
+            "free" => out.answered.free += 1,
+            "local" => out.answered.local += 1,
+            "subscription" => { out.answered.subscription += 1; continue; }
+            "paid" => out.answered.paid += 1,
+            _ => out.answered.unknown += 1,
+        }
+        let Some(price) = &price else { continue };
+        if !known { out.left_out_unknown_cost += 1; continue; }
+        let (Some(input), Some(output)) = (input, output) else { out.left_out_no_tokens += 1; continue };
+        let usage = Usage { prompt: input.max(0) as u64, completion: output.max(0) as u64, cached: cached.unwrap_or(0).max(0) as u64,
+            cache_write: written.unwrap_or(0).max(0) as u64, provider_cost_usd: None };
+        out.compared += 1;
+        out.routed_micro_usd += cost.unwrap_or(0).max(0) as u64;
+        out.baseline_micro_usd += pricing::resolve("paid", Some(price), Some(&usage)).micro_usd().unwrap_or(0);
+    }
+    out.routed_micro_usd += out.failed_attempts_micro_usd;
+    Ok(out)
+}
+
+pub fn set_baseline(conn: &Connection, baseline: Option<&str>) -> Result<()> {
+    store::set_setting(conn, BASELINE_SETTING, baseline.unwrap_or(""))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+    use crate::gateway::pricing::Cost;
+    use crate::gateway::store::UsageRecord;
+
+    fn record(conn: &Connection, provider: &str, model: &str, outcome: &str, tokens: Option<(u64, u64)>, cost: &Cost) {
+        store::record_usage(conn, &UsageRecord { client_id: None, provider_id: provider, model_id: model, requested_model: "auto",
+            input_tokens: tokens.map(|t| t.0), output_tokens: tokens.map(|t| t.1), cache_tokens: None, cost, outcome,
+            http_status: Some(200), latency_ms: 1, error: None, cache_write_tokens: None, session_key: None, route_mode: None,
+            route_reason: None, repeated_tokens: None }).unwrap();
+    }
+
+    #[test]
+    fn the_estimate_counts_what_it_leaves_out() {
+        let conn = db::open_in_memory().unwrap();
+        let p = store::add_provider(&conn, &store::NewProvider { kind: "gemini", label: "Gemini", endpoint: "https://example.test/v1/",
+            credential_ref: Some("provider-x"), default_billing: "paid", wire: "openai" }).unwrap();
+        store::add_model(&conn, &p.id, "cheap").unwrap();
+        store::add_model(&conn, &p.id, "strong").unwrap();
+        let price = Price { input_micro_per_mtok: 2_000_000, output_micro_per_mtok: 10_000_000, cached_input_micro_per_mtok: None,
+            cache_write_micro_per_mtok: None, source: "user".into(), observed_at: 0 };
+        store::update_model(&conn, &p.id, "strong", None, None, Some(Some(price))).unwrap();
+        let est = |micro| Cost::Estimated { micro_usd: micro, source: "x".into() };
+        record(&conn, &p.id, "cheap", "ok", Some((1_000_000, 100_000)), &est(150_000));
+        record(&conn, &p.id, "cheap", "ok", Some((1_000, 10)), &Cost::Unknown { source: "no price".into() });
+        record(&conn, &p.id, "cheap", "ok", None, &est(0));
+        record(&conn, &p.id, "cheap", "fallback", None, &est(20_000));
+        record(&conn, &p.id, "cheap", "error", None, &Cost::Unknown { source: "503".into() });
+
+        let none = savings(&conn, 0).unwrap();
+        assert_eq!((none.baseline.as_deref(), none.compared), (None, 0), "nothing compared without a chosen model");
+
+        set_baseline(&conn, Some(&format!("{}/strong", p.id))).unwrap();
+        let s = savings(&conn, 0).unwrap();
+        assert!(s.baseline_priced);
+        assert_eq!(s.answered.paid, 3);
+        assert_eq!(s.compared, 1);
+        // 1M in at $2 + 0.1M out at $10 = $3.00.
+        assert_eq!(s.baseline_micro_usd, 3_000_000);
+        // $0.15 for the answer plus $0.02 for the failed attempt.
+        assert_eq!((s.routed_micro_usd, s.failed_attempts_micro_usd), (170_000, 20_000));
+        assert_eq!((s.left_out_unknown_cost, s.left_out_no_tokens, s.failed_unknown_cost), (1, 1, 1));
+    }
+}

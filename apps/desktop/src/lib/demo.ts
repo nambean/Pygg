@@ -194,6 +194,7 @@ export function demoApi(): GatewayApi {
       allowedConnections: null, paidRetries: 1, autoMinTier: 'T1', mayRunTasks: false, requireNoTraining: false, strictBudget: false},
   ];
 
+  let savingsBaseline: string | null = 'anthropic/claude-sonnet-4-5';
   let launcher: Launcher = {setUp: false, clientId: null, clientName: null, setUpAt: null, installed: true,
     cliPath: 'C:\\Users\\you\\AppData\\Local\\Pygg\\pygg-cli.exe'};
 
@@ -446,6 +447,27 @@ export function demoApi(): GatewayApi {
       const e = events.filter(x => x.client === c.name).sort((a, b) => b.createdAt - a.createdAt)[0];
       return e ? [{clientId: c.id, createdAt: e.createdAt, provider: e.provider, model: e.model, requestedModel: e.requestedModel, outcome: e.outcome}] : [];
     })),
+    // The preview's own figures: Flash-Lite and Qwen answers priced again at Claude Sonnet's list price.
+    savings: async days => {
+      const since = Date.now() - days * 86_400_000;
+      const shown = events.filter(e => e.createdAt >= since);
+      const ok = shown.filter(e => e.outcome === 'ok');
+      const priced = ok.filter(e => e.costStatus !== 'unknown' && e.inputTokens !== null && e.outputTokens !== null);
+      const failed = shown.filter(e => e.outcome !== 'ok' && e.costStatus !== 'unknown').reduce((n, e) => n + (e.costMicroUsd ?? 0), 0);
+      const baseline = savingsBaseline;
+      return touch({
+        baseline, baselinePriced: baseline !== null,
+        answered: {free: 0, local: ok.filter(e => e.provider === 'ollama').length, subscription: 0,
+          paid: ok.filter(e => e.provider !== 'ollama' && e.costStatus !== 'unknown').length, unknown: ok.filter(e => e.costStatus === 'unknown').length},
+        compared: baseline ? priced.length : 0,
+        routedMicroUsd: baseline ? priced.reduce((n, e) => n + (e.costMicroUsd ?? 0), 0) + failed : 0,
+        baselineMicroUsd: baseline ? priced.reduce((n, e) => n + (e.inputTokens ?? 0) * 2 + (e.outputTokens ?? 0) * 10, 0) : 0,
+        failedAttemptsMicroUsd: baseline ? failed : 0,
+        leftOutUnknownCost: baseline ? ok.filter(e => e.costStatus === 'unknown').length : 0, leftOutNoTokens: 0,
+        failedUnknownCost: shown.filter(e => e.outcome !== 'ok' && e.costStatus === 'unknown').length,
+      });
+    },
+    setSavingsBaseline: async baseline => { savingsBaseline = baseline; },
     launcher: async () => touch({...launcher}),
     launcherSetUp: async () => {
       await sleep(400);

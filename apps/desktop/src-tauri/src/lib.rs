@@ -254,6 +254,8 @@ pub fn run() {
             commands::model_test,
             commands::connection_reliability,
             commands::client_latest_requests,
+            commands::usage_savings,
+            commands::usage_set_savings_baseline,
             commands::launcher_state,
             commands::launcher_set_up,
             commands::launcher_remove,

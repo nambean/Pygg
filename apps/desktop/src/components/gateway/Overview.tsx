@@ -8,6 +8,7 @@ import { ago } from '../../lib/format';
 import { useGateway } from '../../hooks/useGateway';
 import { Badge, CodeBlock, CopyButton, ErrorNote, FormRow, Segmented, Sheet, Spinner, Switch } from '../ui';
 import { OutcomeBadge } from './Usage';
+import { Savings } from './Savings';
 import { UsageAlerts } from './UsageAlerts';
 
 /** The gateway's screens, in the sidebar's order: the path a 9router or OmniRoute user knows. */
@@ -84,6 +85,7 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
           <Stat label={t('Fell back')} value={String(usage.data.total.fallbacks)} note={t('to the next model')}/>
           <Stat label={t('Failed')} value={String(usage.data.total.failed)}/>
         </div>
+        {usage.data.total.requests > 0 && <Savings days={1} compact/>}
         {usage.data.recent.length > 0 ? <ul className="group-box compact-list">
           {usage.data.recent.slice(0, 6).map(e => <li key={e.id} className="compact-row">
             <span className="compact-time">{ago(e.createdAt)}</span>

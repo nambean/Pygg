@@ -65,6 +65,14 @@ export type RateLimits = {modelId: string; headers: Record<string, string>; http
 /** How a model has answered over the last 30 days, from the ledger. */
 export type Reliability = {modelId: string; requests: number; ok: number; medianLatencyMs: number | null};
 
+/** What routing saved, as an estimate against a model the user chose (gateway/savings.rs). */
+export type Savings = {
+  baseline: string | null; baselinePriced: boolean;
+  answered: {free: number; local: number; subscription: number; paid: number; unknown: number};
+  compared: number; routedMicroUsd: number; baselineMicroUsd: number; failedAttemptsMicroUsd: number;
+  leftOutUnknownCost: number; leftOutNoTokens: number; failedUnknownCost: number;
+};
+
 /** The newest request one API key sent: CLI Tools' "Working". */
 export type LatestRequest = {clientId: string; createdAt: number; provider: string; model: string; requestedModel: string | null; outcome: Outcome};
 
@@ -264,6 +272,8 @@ export interface GatewayApi {
   reliability(connectionId: string): Promise<Reliability[]>;
   /** The newest request of each API key. */
   latestRequests(): Promise<LatestRequest[]>;
+  savings(days: number): Promise<Savings>;
+  setSavingsBaseline(baseline: string | null): Promise<void>;
   launcher(): Promise<Launcher>;
   launcherSetUp(): Promise<Launcher>;
   launcherRemove(): Promise<Launcher>;
@@ -382,6 +392,8 @@ const native: GatewayApi = {
   testModel: (providerId, modelId) => invoke('model_test', {providerId, modelId}),
   reliability: id => invoke('connection_reliability', {id}),
   latestRequests: () => invoke('client_latest_requests'),
+  savings: days => invoke('usage_savings', {days}),
+  setSavingsBaseline: baseline => invoke('usage_set_savings_baseline', {baseline}),
   launcher: () => invoke('launcher_state'),
   launcherSetUp: () => invoke('launcher_set_up'),
   launcherRemove: () => invoke('launcher_remove'),

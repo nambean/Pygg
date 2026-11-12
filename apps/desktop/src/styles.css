@@ -801,6 +801,11 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .client-check.tool-status { margin: 6px 0 0; }
 .launcher-row { margin-bottom: 10px; }
 .launcher-row .code-block { margin-top: 8px; }
+.savings { padding: 12px 14px; display: grid; gap: 6px; }
+.savings.compact { margin-bottom: 10px; }
+.savings-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.savings-figure { font-size: 17px; font-weight: 600; }
+.savings-detail { margin: 0; font-size: 12px; }
 .page-intro { color: var(--secondary); margin: 0; font-size: 13px; line-height: 1.5; }
 .endpoint-value { display: inline-flex; align-items: center; gap: 8px; }
 .chosen-preset { display: flex; align-items: center; gap: 10px; padding-bottom: 4px; }

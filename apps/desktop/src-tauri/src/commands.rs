@@ -340,6 +340,19 @@ pub async fn connection_refresh_models(state: State<'_, AppState>, id: String) -
     Ok(ImportResult { listed: ids.len(), added })
 }
 
+/// What routing saved over the last `days`, against the model the user chose (gateway/savings.rs).
+#[tauri::command]
+pub fn usage_savings(state: State<'_, AppState>, days: u32) -> Res<gateway::savings::Savings> {
+    let since = crate::db::now_ms() - i64::from(days.clamp(1, 366)) * 86_400_000;
+    state.shared.with_db(|db| gateway::savings::savings(db, since))
+}
+
+/// The model to compare with, as `connection/model`, or none.
+#[tauri::command]
+pub fn usage_set_savings_baseline(state: State<'_, AppState>, baseline: Option<String>) -> Res<()> {
+    state.shared.with_db(|db| gateway::savings::set_baseline(db, baseline.as_deref()))
+}
+
 /// The newest request of each API key (CLI Tools' "Working").
 #[tauri::command]
 pub fn client_latest_requests(state: State<'_, AppState>) -> Res<Vec<store::LatestRequest>> {

@@ -10,6 +10,7 @@ import { Badge, Empty, ErrorNote, Segmented, Spinner } from '../ui';
 import { UsageAlerts } from './UsageAlerts';
 import { RepeatedOutput } from './RepeatedOutput';
 import { CostOverTime } from './CostOverTime';
+import { Savings } from './Savings';
 
 type Range = '1' | '7' | '30';
 /** The money ledger, plans paid by the month, and models on this computer (SCREENS.md §5.6). */
@@ -103,6 +104,7 @@ export function Usage() {
         </div>
       </section>
 
+      <Savings days={Number(range)}/>
       {overTime.data && <CostOverTime days={Number(range)} buckets={overTime.data}/>}
       {quality.data && quality.data.tasks > 0 && <TaskResults q={quality.data}/>}
       <RepeatedOutput days={Number(range)}/>
