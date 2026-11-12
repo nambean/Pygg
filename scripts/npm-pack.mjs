@@ -4,8 +4,7 @@
 //
 // Copies the release `pygg-cli.exe` (default apps/desktop/src-tauri/target/release/pygg-cli.exe) into
 // packages/npm/win32-x64/bin, then runs `npm pack` for @pygg/win32-x64 and pygg into DIR (default dist/npm). The
-// binary is never committed. Publishing is the owner's step: `npm publish --access public` for each tarball, after
-// registering the `pygg` name and the `@pygg` scope.
+// binary is never committed. Publishing is the owner's step: see packages/npm/PUBLISHING.md.
 import { execSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
