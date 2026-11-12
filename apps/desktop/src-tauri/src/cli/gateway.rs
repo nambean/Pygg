@@ -43,7 +43,40 @@ fn default_db() -> PathBuf {
 }
 
 /// Runs `gateway` with its arguments (without the program's name): from `gateway.exe` and from `pygg-cli gateway`.
+/// `gateway --help`: the commands, as the module's documentation lists them.
+const HELP: &str = "usage: gateway [--db PATH] <command> [--flag value …]
+
+  serve [--port N] [--tasks yes]
+  add-connection --preset KIND [--label NAME] [--key-env VAR] [--billing TYPE] [--endpoint URL]
+  remove-connection --id ID
+  refresh-models --id ID
+  lookup [--refresh yes]                 fill model facts from the models.dev catalog
+  test-model --model CONNECTION/MODEL    one short request (a paid model costs a little)
+  create-client --name NAME [--monthly-usd N]
+  client --name NAME [--auto-min-tier T0-T4] [--paid-retries N] [--tasks yes|no] [--no-training yes|no]
+         [--strict yes|no] [--monthly-usd N]
+  combo --name NAME --member CONNECTION/MODEL [--member …]
+  model --model CONNECTION/MODEL [--tier T0-T4] [--context N] [--max-output N] [--tools yes|no] [--vision yes|no]
+        [--price-in USD] [--price-out USD] [--price-cached USD] [--price-cache-write USD] [--price-source WHERE]
+        [--billing TYPE]
+  terms --id CONNECTION --terms no_training|may_train|unknown [--source WHERE]
+  auto --alias auto|auto/cheap [--client NAME] [--anthropic yes] [--tools yes] [--prompt N] [--max-tokens N]
+       [--thinking adaptive|enabled] [--effort low|medium|high|xhigh|max]
+  list
+  usage
+
+Keys are read from an environment variable (--key-env), never from the command line. Without --db the app's own
+store is used.";
+
 pub async fn run(mut args: Vec<String>) {
+    // Help is answered before any store is opened or created.
+    if args.is_empty() || super::wants_help(&args) {
+        println!("{HELP}");
+        if args.is_empty() {
+            std::process::exit(2);
+        }
+        return;
+    }
     let mut db_path = None;
     if args.first().map(String::as_str) == Some("--db") {
         args.remove(0);
@@ -53,7 +86,7 @@ pub async fn run(mut args: Vec<String>) {
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent).unwrap_or_else(|e| fail(e));
     }
-    let command = if args.is_empty() { fail("usage: gateway [--db PATH] serve|add-connection|remove-connection|refresh-models|lookup|create-client|combo|list|usage") } else { args.remove(0) };
+    let command = if args.is_empty() { fail(HELP) } else { args.remove(0) };
     let mut flags: HashMap<String, Vec<String>> = HashMap::new();
     let mut iter = args.into_iter();
     while let Some(flag) = iter.next() {

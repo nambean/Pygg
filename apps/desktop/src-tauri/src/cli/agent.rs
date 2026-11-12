@@ -90,7 +90,24 @@ fn fail(message: impl std::fmt::Display) -> ! {
 }
 
 /// Runs `agent` with its arguments (without the program's name): from `agent.exe` and from `pygg-cli agent`.
+/// `agent --help`.
+const HELP: &str = "usage: agent [--db PATH] <command> [--flag value …]
+
+  detect                      the agent CLIs installed and how they sign in
+  run --agent ID --workspace DIR --prompt TEXT [--model M] [--shell yes] [--timeout SECS] [--keep TITLE | --discard yes]
+  task --workspace DIR --prompt TEXT --steps \"agent[:model],…\" [--check CMD] [--keep TITLE | --discard yes]   (needs --db)
+  quality [--days N]          known money per kept result (needs --db)
+
+Agents run with their own sign-in; Pygg never reads or stores it.";
+
 pub async fn run(mut args: Vec<String>) {
+    if args.is_empty() || super::wants_help(&args) {
+        println!("{HELP}");
+        if args.is_empty() {
+            std::process::exit(2);
+        }
+        return;
+    }
     let mut db_path = None;
     if args.first().map(String::as_str) == Some("--db") {
         args.remove(0);

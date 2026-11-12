@@ -20,6 +20,27 @@ use std::time::Duration;
 
 const USAGE: &str = "usage: pygg-cli status|doctor|mcp|gateway …|agent …|diagnostics --out PATH [--db PATH] [--port N]";
 
+/// `pygg --help`: every command in a line, and where to read more.
+const HELP: &str = "Pygg: one local gateway for your AI coding tools, and the agents behind them.
+
+usage: pygg <command> [options]
+
+  status                    is Pygg serving, on which store, and does its gateway answer
+  doctor                    status, plus the store's schema, the agents found and their Pygg set-up
+  mcp                       the MCP server for IDE agents (what Claude Code, Codex and OpenCode start)
+  gateway <command> …       the gateway without the window: serve, connections, models, clients, combos, usage
+  agent <command> …         agent CLIs: detect, run, task, quality
+  diagnostics --out PATH    save the redacted diagnostics bundle (no keys, tokens or prompts)
+  --version                 the version of this program
+
+Options: --db PATH (another store), --port N (status and doctor). `pygg gateway --help` and `pygg agent --help` list
+their commands. The desktop app does everything here with a window: https://github.com/nambean/smarttaskrouter";
+
+/// Whether the arguments ask for help.
+pub fn wants_help(args: &[String]) -> bool {
+    args.iter().any(|a| a == "--help" || a == "-h") || args.first().map(String::as_str) == Some("help")
+}
+
 /// The app's own store, as the app and `gateway` find it.
 pub fn default_store() -> Option<PathBuf> {
     let base = std::env::var_os("APPDATA").map(PathBuf::from)
@@ -170,11 +191,12 @@ mod tests {
 /// Runs `pygg-cli` with its arguments (without the program's name); the exit code says whether all was well.
 pub async fn run(mut args: Vec<String>) -> i32 {
     if args.is_empty() {
-        eprintln!("{USAGE}");
+        eprintln!("{HELP}");
         return 2;
     }
     let command = args.remove(0);
     match command.as_str() {
+        "-V" | "--version" | "version" => { println!("pygg-cli {}", env!("CARGO_PKG_VERSION")); 0 }
         "status" => if status(&args).await { 0 } else { 1 },
         "doctor" => if doctor(&args).await { 0 } else { 1 },
         // Started by the program before its runtime (bin/pygg-cli.rs), since the MCP server runs its own.
@@ -185,7 +207,7 @@ pub async fn run(mut args: Vec<String>) -> i32 {
             Ok(path) => { println!("Saved {} (no keys, tokens, prompts or agent output; see README.txt inside)", path.display()); 0 }
             Err(e) => { eprintln!("{e}"); 1 }
         },
-        "-h" | "--help" | "help" => { println!("{USAGE}"); 0 }
-        other => { eprintln!("unknown command {other}\n{USAGE}"); 2 }
+        "-h" | "--help" | "help" => { println!("{HELP}"); 0 }
+        other => { eprintln!("unknown command {other}\n{USAGE}\nRun `pygg --help` for the list."); 2 }
     }
 }
