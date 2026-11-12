@@ -523,6 +523,7 @@ export function demoApi(): GatewayApi {
       return touch(summary);
     },
     exportUsage: async () => { await sleep(200); return 'C:\\Users\\you\\Downloads\\pygg-usage.csv'; },
+    exportDiagnostics: async () => { await sleep(200); return 'C:\\Users\\you\\Downloads\\pygg-diagnostics.zip'; },
     usageOverTime: async days => {
       const size = days <= 1 ? 3_600_000 : 86_400_000;
       const offset = -new Date().getTimezoneOffset() * 60_000;

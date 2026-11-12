@@ -45,6 +45,8 @@ httpdate = "1"
 [target.'cfg(windows)'.dependencies]
 # Opening Pygg at sign-in: the user's own Run key (HKCU), no administrator rights.
 winreg = "0.55"
+# The Windows version for the diagnostics bundle (src/diagnostics.rs); already in the tree through tao.
+windows-version = "0.1"
 
 [target.'cfg(unix)'.dependencies]
 # Ending a whole process group on timeout or cancel.

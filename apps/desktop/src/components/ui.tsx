@@ -19,13 +19,14 @@ export function Sheet({title, subtitle, onClose, busy, children, footer, classNa
   footer: React.ReactNode; className?: string;
 }) {
   const dialog = useRef<HTMLDivElement>(null);
-  useSheetFocus(dialog);
   useEffect(() => {
     const win = document.querySelector('.window');
     openSheets++;
     win?.setAttribute('inert', '');
     return () => { if (--openSheets === 0) win?.removeAttribute('inert'); };
   }, []);
+  // After the effect above: cleanups run in order, so the window is no longer inert when focus goes back to it.
+  useSheetFocus(dialog);
   const onKey = (event: React.KeyboardEvent) => {
     if (event.key === 'Escape' && !busy) { event.stopPropagation(); onClose(); }
   };

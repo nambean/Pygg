@@ -4,7 +4,8 @@
 import { useEffect, useState } from 'react';
 import { t } from '../lib/i18n';
 
-type Win = { close(): Promise<void>; minimize(): Promise<void>; toggleMaximize(): Promise<void> };
+type Win = { close(): Promise<void>; minimize(): Promise<void>; toggleMaximize(): Promise<void>;
+  isMaximized(): Promise<boolean>; onResized(handler: () => void): Promise<() => void> };
 
 let current: Promise<Win | null> | null = null;
 function win(): Promise<Win | null> {
@@ -21,6 +22,22 @@ export function WindowControls() {
     window.addEventListener('blur', off);
     return () => { window.removeEventListener('focus', on); window.removeEventListener('blur', off); };
   }, []);
+  // The green button is named for what it does on Windows and Linux, Maximize or Restore, as screen readers announce
+  // the native caption buttons (D12).
+  const [maximized, setMaximized] = useState(false);
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    let gone = false;
+    void win().then(async (w) => {
+      if (!w || gone) return;
+      const read = () => { void w.isMaximized().then(setMaximized, () => {}); };
+      read();
+      const unlisten = await w.onResized(read).catch(() => undefined);
+      if (gone) unlisten?.(); else stop = unlisten;
+    });
+    return () => { gone = true; stop?.(); };
+  }, []);
+  const zoomLabel = maximized ? t('Restore') : t('Maximize');
 
   const run = (action: (w: Win) => Promise<void>) => () => { void win().then((w) => w && action(w)); };
 
@@ -31,7 +48,7 @@ export function WindowControls() {
     <button type="button" className="light minimize" onClick={run((w) => w.minimize())} aria-label={t('Minimize')} title={t('Minimize')}>
       <svg viewBox="0 0 8 8" aria-hidden="true"><path d="M1.2 4h5.6"/></svg>
     </button>
-    <button type="button" className="light zoom" onClick={run((w) => w.toggleMaximize())} aria-label={t('Zoom')} title={t('Zoom')}>
+    <button type="button" className="light zoom" onClick={run((w) => w.toggleMaximize())} aria-label={zoomLabel} title={zoomLabel}>
       <svg viewBox="0 0 8 8" aria-hidden="true"><path d="M2 2.2h3.8V6M6 6H2.2V2.2" className="zoom-glyph"/></svg>
     </button>
   </div>;

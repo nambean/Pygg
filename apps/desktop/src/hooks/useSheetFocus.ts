@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], summary, [tabindex]:not([tabindex="-1"])';
 
@@ -8,10 +8,12 @@ const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([di
  * was when the sheet closes. The window behind is inert meanwhile (main.tsx).
  */
 export function useSheetFocus(ref: RefObject<HTMLElement | null>) {
+  // Read during the first render, before React applies autoFocus inside the sheet: read in the effect, it would be
+  // the sheet's own field, and closing would leave focus on the page body (D12 keyboard check).
+  const [before] = useState(() => document.activeElement instanceof HTMLElement ? document.activeElement : null);
   useEffect(() => {
     const sheet = ref.current;
     if (!sheet) return;
-    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const controls = () => Array.from(sheet.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(el => el.offsetParent !== null);
     if (!sheet.contains(document.activeElement)) (controls()[0] ?? sheet).focus();
     function trap(event: KeyboardEvent) {
@@ -26,6 +28,6 @@ export function useSheetFocus(ref: RefObject<HTMLElement | null>) {
       }
     }
     sheet.addEventListener('keydown', trap);
-    return () => { sheet.removeEventListener('keydown', trap); if (before?.isConnected) before.focus(); };
-  }, [ref]);
+    return () => { sheet.removeEventListener('keydown', trap); if (before?.isConnected && !sheet.contains(before)) before.focus(); };
+  }, [ref, before]);
 }

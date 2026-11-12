@@ -27,6 +27,7 @@
   --shadow: 0 0 0 .5px rgba(0, 0, 0, .12), 0 1px 2px rgba(0, 0, 0, .08);
   --popover-shadow: 0 0 0 .5px rgba(0, 0, 0, .14), 0 10px 30px rgba(0, 0, 0, .16);
   --focus: 0 0 0 3px rgba(11, 122, 75, .45);
+  --focus-ring: rgba(11, 122, 75, .45);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -52,6 +53,7 @@
     --shadow: 0 0 0 .5px rgba(255, 255, 255, .1), 0 1px 2px rgba(0, 0, 0, .3);
     --popover-shadow: 0 0 0 .5px rgba(255, 255, 255, .14), 0 10px 30px rgba(0, 0, 0, .5);
     --focus: 0 0 0 3px rgba(61, 220, 151, .6);
+    --focus-ring: rgba(61, 220, 151, .6);
   }
 }
 @media (prefers-contrast: more) {
@@ -71,7 +73,10 @@ body {
 h1, h2, h3, p { margin: 0; }
 button, select, textarea, input { font: inherit; color: inherit; }
 button { cursor: default; }
-:focus-visible { outline: none; box-shadow: var(--focus); }
+/* The focus ring is an outline, not a box-shadow: rules that give a control its own shadow (.button, .text-input,
+   .popup-button, …) would otherwise replace the ring, and Windows high contrast drops box-shadows altogether
+   (D12 release checks, docs/reports/2026-11-12-d12-release-checks.md). Chromium outlines follow border-radius. */
+:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 0; }
 .selectable { -webkit-user-select: text; user-select: text; cursor: text; }
 .mono { font-family: var(--mono); font-size: 12px; }
 .spacer { flex: 1; }
@@ -180,12 +185,12 @@ button { cursor: default; }
   flex: 0 1 360px; min-width: 160px; height: 28px; display: flex; align-items: center; gap: 6px;
   padding: 0 9px; border-radius: 7px; background: var(--field); color: var(--secondary);
 }
-.search-field:focus-within { box-shadow: var(--focus); background: var(--surface); }
+.search-field:focus-within { outline: 3px solid var(--focus-ring); background: var(--surface); }
 .search-field input {
   flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; color: var(--label);
   -webkit-user-select: text; user-select: text;
 }
-.search-field input:focus-visible { box-shadow: none; }
+.search-field input:focus-visible { outline: none; }
 .search-field input::placeholder { color: var(--placeholder); }
 .back-button {
   display: inline-flex; align-items: center; gap: 2px; margin: 0 0 12px -4px; padding: 2px 6px 2px 2px;
@@ -438,7 +443,7 @@ button { cursor: default; }
 }
 .switch input:checked + span { background: var(--accent); }
 .switch input:checked + span::after { transform: translateX(16px); }
-.switch input:focus-visible + span { box-shadow: var(--focus); }
+.switch input:focus-visible + span { outline: 3px solid var(--focus-ring); }
 .switch input:disabled + span { opacity: .5; }
 [dir="rtl"] .switch input:checked + span::after { transform: translateX(-16px); }
 .segmented { display: inline-flex; flex-wrap: wrap; padding: 2px; border-radius: 7px; background: var(--field); }
@@ -566,10 +571,10 @@ td.row-buttons .button + .button { margin-inline-start: 4px; }
 .text-input[aria-invalid="true"] { box-shadow: 0 0 0 1px var(--red); }
 .money-input { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border-radius: 6px;
   background: var(--control); box-shadow: var(--shadow); font-variant-numeric: tabular-nums; }
-.money-input:focus-within { box-shadow: var(--focus); }
+.money-input:focus-within { outline: 3px solid var(--focus-ring); }
 .money-input input { width: 90px; height: 100%; border: 0; outline: 0; background: none; color: var(--label);
   font-variant-numeric: tabular-nums; -webkit-user-select: text; user-select: text; }
-.money-input input:focus-visible { box-shadow: none; }
+.money-input input:focus-visible { outline: none; }
 .money-input.invalid { box-shadow: 0 0 0 1px var(--red); }
 .money-input .secondary { font-size: 11px; white-space: nowrap; }
 /* Agents: official agent CLIs with their own sign-in. */
@@ -720,9 +725,8 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .chart-grid span { border-top: 1px solid var(--separator); }
 .chart-grid span:last-child { border-top-color: var(--track); }
 .chart-bars { position: absolute; inset: 0; display: flex; align-items: stretch; gap: 2px; }
-.chart-column { position: relative; flex: 1; display: flex; align-items: flex-end; border-radius: 4px; outline: none; cursor: default; }
+.chart-column { position: relative; flex: 1; display: flex; align-items: flex-end; border-radius: 4px; cursor: default; }
 .chart-column.active, .chart-column:focus-visible { background: var(--hover); }
-.chart-column:focus-visible { box-shadow: var(--focus); }
 .chart-bar { display: block; width: 100%; max-width: 28px; margin: 0 auto; background: var(--chart-bar); border-radius: 4px 4px 0 0; }
 .chart-unknown { position: absolute; left: 50%; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%;
   background: var(--chart-unknown); box-shadow: 0 0 0 2px var(--surface); }
@@ -735,3 +739,24 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
   white-space: nowrap; pointer-events: none; }
 .chart-tooltip[data-side="right"] { transform: translateX(8px); }
 .chart-tooltip[data-side="left"] { transform: translateX(calc(-100% - 8px)); }
+
+/* ---------- Windows high contrast (forced colors) ----------
+   Backgrounds and box-shadows are replaced by system colors, so state that only a fill or a shadow showed gets a
+   border, and the window buttons show their glyphs (D12). */
+@media (forced-colors: active) {
+  .window-controls .light { border: 1px solid ButtonText; background: ButtonFace; }
+  .window-controls .light svg { opacity: 1; stroke: ButtonText; }
+  .window-controls .zoom-glyph { fill: ButtonText; }
+  .button, .popup-button, .text-input, .money-input, .search-field, .segmented, .group-box, .stat, .sheet { border: 1px solid ButtonText; }
+  .button.prominent { border-width: 2px; }
+  .sidebar-item.selected, .select-row.selected, .segmented button.selected, .preset.selected, .chart-column.active {
+    forced-color-adjust: none; background: Highlight; color: HighlightText;
+  }
+  .sidebar-item.selected svg { color: HighlightText; }
+  .switch span { forced-color-adjust: none; border: 1px solid ButtonText; background: ButtonFace; }
+  .switch span::after { background: ButtonText; }
+  .switch input:checked + span { background: Highlight; }
+  .switch input:checked + span::after { background: HighlightText; }
+  .chart-bar { forced-color-adjust: none; background: CanvasText; }
+  .text-input[aria-invalid="true"], .money-input.invalid { border: 2px solid Mark; }
+}
