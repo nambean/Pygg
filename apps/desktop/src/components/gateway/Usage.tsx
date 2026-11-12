@@ -1,6 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
-import { ArrowDown, ChartColumn, ChevronRight, FileDown } from 'lucide-react';
-import { call, errorText, type CostStatus, type Outcome, type TaskQuality, type UsageEvent, type UsageGroup } from '../../lib/api';
+import { ArrowDown, CalendarClock, ChartColumn, ChevronRight, Cpu, FileDown } from 'lucide-react';
+import { call, errorText, type CostStatus, type LocalUsage, type Outcome, type SubscriptionUsage, type TaskQuality, type UsageEvent,
+  type UsageGroup } from '../../lib/api';
+import { ago, windowText } from '../../lib/format';
 import { locale, plural, t } from '../../lib/i18n';
 import { costText, microUsd, sourceText, tokens } from '../../lib/money';
 import { useGateway } from '../../hooks/useGateway';
@@ -8,6 +10,8 @@ import { Badge, Empty, ErrorNote, Segmented, Spinner } from '../ui';
 import { CostOverTime } from './CostOverTime';
 
 type Range = '1' | '7' | '30';
+/** The money ledger, plans paid by the month, and models on this computer (SCREENS.md §5.6). */
+type View = 'api' | 'subscriptions' | 'local';
 
 export function OutcomeBadge({outcome, status}: {outcome: Outcome; status: number | null}) {
   const code = status && status !== 200 ? ` · ${status}` : '';
@@ -26,6 +30,7 @@ const statusLabel = (s: CostStatus) => ({actual: t('Actual'), estimated: t('Esti
 /** Usage (SCREENS.md §5.6): what went through the gateway, with actual, estimated and unknown costs kept apart. */
 export function Usage() {
   const [range, setRange] = useState<Range>('7');
+  const [view, setView] = useState<View>('api');
   const usage = useGateway(api => api.usage(Number(range)), [range], 15_000);
   const quality = useGateway(api => api.taskQuality(Number(range)), [range], 15_000);
   const overTime = useGateway(api => api.usageOverTime(Number(range)), [range], 15_000);
@@ -55,14 +60,18 @@ export function Usage() {
   const pick = (set: (v: string) => void, value: string) => { set(value); setOpenId(null); setTimeout(toRequests, 0); };
 
   const bar = <div className="page-bar">
+    <Segmented label={t('Usage view')} value={view} onChange={setView} options={[
+      {value: 'api', label: t('API Costs')}, {value: 'subscriptions', label: t('Subscriptions')}, {value: 'local', label: t('Local Runtime')}]}/>
     <Segmented label={t('Period')} value={range} onChange={setRange} options={[
       {value: '1', label: t('24 Hours')}, {value: '7', label: t('7 Days')}, {value: '30', label: t('30 Days')}]}/>
     <span className="spacer"/>
-    {(usage.data?.total.requests ?? 0) > 0 && <button type="button" className="button small" disabled={exporting}
+    {view === 'api' && (usage.data?.total.requests ?? 0) > 0 && <button type="button" className="button small" disabled={exporting}
       onClick={exportCsv}><FileDown size={13} aria-hidden/>{t('Export CSV…')}</button>}
-    {recent.length > 0 && <button type="button" className="link-button" onClick={toRequests}>
+    {view === 'api' && recent.length > 0 && <button type="button" className="link-button" onClick={toRequests}>
       {t('Requests ({n})', {n: recent.length})}<ArrowDown size={12} aria-hidden/></button>}
   </div>;
+  if (view === 'subscriptions') return <div className="page">{bar}<Subscriptions days={Number(range)}/></div>;
+  if (view === 'local') return <div className="page">{bar}<LocalRuntime days={Number(range)}/></div>;
   if (usage.loading && !usage.data) return <div className="page">{bar}<Spinner label={t('Loading usage…')}/></div>;
   const data = usage.data;
   return <div className="page">
@@ -136,6 +145,108 @@ export function Usage() {
       </section>
     </>}
   </div>;
+}
+
+const periodEmpty = () => t('Nothing in this period');
+
+/** Usage → Subscriptions: plans paid by the month count requests against a quota, so no request has a price here. */
+function Subscriptions({days}: {days: number}) {
+  const subs = useGateway(api => api.usageSubscriptions(days), [days], 15_000);
+  if (subs.loading && !subs.data) return <Spinner label={t('Loading usage…')}/>;
+  if (subs.error && !subs.data) return <ErrorNote>{subs.error}</ErrorNote>;
+  const list = subs.data ?? [];
+  if (list.length === 0) return <Empty icon={<CalendarClock size={40} strokeWidth={1.4}/>} title={t('No Subscriptions')}>
+    {t('Set a connection’s billing to Subscription in Connections, for a plan paid by the month. Its requests are counted here against the plan, not as money.')}
+  </Empty>;
+  return <section className="group">
+    <h2>{t('Subscriptions')}</h2>
+    <div className="group-box table-box">
+      <table className="data-table" aria-label={t('Subscriptions')}>
+        <thead><tr>
+          <th scope="col">{t('Connection')}</th><th scope="col" className="num">{t('Requests')}</th>
+          <th scope="col" className="num">{t('Tokens in → out')}</th><th scope="col">{t('Last used')}</th>
+          <th scope="col">{t('Limits, as the provider last stated')}</th>
+        </tr></thead>
+        <tbody>{list.map(s => <SubscriptionRow key={s.providerId} s={s}/>)}</tbody>
+      </table>
+    </div>
+    {subs.error && <ErrorNote>{subs.error}</ErrorNote>}
+    <p className="group-footnote">{t('A subscription costs its monthly price, not a price per request, so these requests have no cost of their own; in API Costs they count as unknown. Limits are read from the headers of the provider’s last answer for each model. Pygg does not guess what is left: a provider that states nothing shows Unknown.')}</p>
+  </section>;
+}
+
+function SubscriptionRow({s}: {s: SubscriptionUsage}) {
+  const stated = s.limits.filter(l => (l.windows?.length ?? 0) > 0);
+  const account = s.account?.freeRequests ? windowText(s.account.freeRequests) : null;
+  return <tr>
+    <td>{s.label}</td>
+    <td className="num">{s.requests}{s.notOk > 0 && <small className="secondary"> · {t('{n} not OK', {n: s.notOk})}</small>}</td>
+    <td className="num">{s.requests ? `${tokens(s.inputTokens)} → ${tokens(s.outputTokens)}` : '—'}</td>
+    <td className="secondary nowrap">{s.lastUsedAt ? ago(s.lastUsedAt) : periodEmpty()}</td>
+    <td>{stated.length || account ? <>
+      {stated.map(l => <div key={l.modelId}>
+        <span className="mono">{l.modelId}</span> <small className="secondary">· {ago(l.observedAt)}</small>
+        <div>{l.windows!.map(windowText).join(' · ')}</div>
+      </div>)}
+      {account && <div>{t('Account')}: {account}</div>}
+    </> : <span className="secondary" title={t('The provider has not stated a limit in its answers yet.')}>{t('Unknown')}</span>}</td>
+  </tr>;
+}
+
+/** Usage → Local Runtime: models on this computer cost no API money, but use its time and power, which are not measured. */
+function LocalRuntime({days}: {days: number}) {
+  const local = useGateway(api => api.usageLocal(days), [days], 15_000);
+  if (local.loading && !local.data) return <Spinner label={t('Loading usage…')}/>;
+  if (local.error && !local.data) return <ErrorNote>{local.error}</ErrorNote>;
+  const list = local.data ?? [];
+  if (list.length === 0) return <Empty icon={<Cpu size={40} strokeWidth={1.4}/>} title={t('No Local Runtime')}>
+    {t('Add Ollama, LM Studio or another server on this computer in Connections. The requests it answers are counted here.')}
+  </Empty>;
+  const models = list.flatMap(l => l.models);
+  const requests = models.reduce((n, m) => n + m.requests, 0);
+  const tokenSum = models.reduce((n, m) => n + m.inputTokens + m.outputTokens, 0);
+  return <>
+    <section className="group">
+      <h2>{t('Local Runtime')}</h2>
+      <div className="group-box totals">
+        <div className="totals-main">
+          <span className="totals-figure">{microUsd(0)}</span>
+          <span className="secondary">{t('API cost')}</span>
+        </div>
+        <div className="totals-parts">
+          <span>{plural(requests, '{n} request', '{n} requests')}</span>
+          <span>{t('{n} tokens', {n: tokens(tokenSum)})}</span>
+        </div>
+        <p className="group-footnote">{t('No API money is spent on a local model. Electricity and the computer’s time are not measured, so they are not in any figure here.')}</p>
+      </div>
+    </section>
+    <section className="group">
+      <h2>{t('By Model')}</h2>
+      <div className="group-box table-box">
+        <table className="data-table" aria-label={t('Local models')}>
+          <thead><tr>
+            <th scope="col">{t('Connection')}</th><th scope="col">{t('Model')}</th><th scope="col" className="num">{t('Requests')}</th>
+            <th scope="col" className="num">{t('Tokens in → out')}</th><th scope="col" className="num">{t('Median time')}</th>
+            <th scope="col">{t('Last used')}</th>
+          </tr></thead>
+          <tbody>{list.map(l => <LocalRows key={l.providerId} l={l}/>)}</tbody>
+        </table>
+      </div>
+      <p className="group-footnote">{t('Median time is of successful requests, from when the gateway sent the request until the answer ended. It includes loading the model when it was not in memory.')}</p>
+    </section>
+  </>;
+}
+
+function LocalRows({l}: {l: LocalUsage}) {
+  if (l.models.length === 0) return <tr><td>{l.label}</td><td colSpan={5} className="secondary">{periodEmpty()}</td></tr>;
+  return <>{l.models.map((m, i) => <tr key={m.model}>
+    <td>{i === 0 ? l.label : ''}</td>
+    <td className="mono" title={m.model}>{m.model}</td>
+    <td className="num">{m.requests}{m.notOk > 0 && <small className="secondary"> · {t('{n} not OK', {n: m.notOk})}</small>}</td>
+    <td className="num">{`${tokens(m.inputTokens)} → ${tokens(m.outputTokens)}`}</td>
+    <td className="num">{m.medianLatencyMs != null ? `${(m.medianLatencyMs / 1000).toFixed(1)} s` : '—'}</td>
+    <td className="secondary nowrap">{m.lastUsedAt ? ago(m.lastUsedAt) : '—'}</td>
+  </tr>)}</>;
 }
 
 /** How tasks turned out (ROADMAP C4): what the user kept, and the known money behind each kept result. */

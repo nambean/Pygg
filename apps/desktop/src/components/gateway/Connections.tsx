@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { KeyRound, Plug, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
-import { BILLINGS, TIERS, call, errorText, gatewayChanged, type Billing, type Connection, type Health, type Model, type Preset, type QuotaWindow,
+import { BILLINGS, TIERS, call, errorText, gatewayChanged, type Billing, type Connection, type Health, type Model, type Preset,
   type Tier } from '../../lib/api';
-import { ago } from '../../lib/format';
+import { ago, windowText } from '../../lib/format';
 import { plural, t } from '../../lib/i18n';
 import { billingLabel, parseUsd, priceText } from '../../lib/money';
 import { isMac } from '../../lib/platform';
@@ -317,19 +317,6 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
     {sheet && typeof sheet === 'object' && 'price' in sheet && <PriceSheet model={sheet.price} onClose={() => setSheet(null)}
       onSaved={() => { models.reload(); gatewayChanged(); }}/>}
   </section>;
-}
-
-/** One stated limit in words: "requests: 12 of 50 left, resets 14:00". */
-function windowText(w: QuotaWindow): string {
-  const names: Record<string, string> = {requests: t('requests'), tokens: t('tokens'), input_tokens: t('input tokens'),
-    output_tokens: t('output tokens'), free_requests_per_day: t('free requests today'), retry: t('asked to wait')};
-  const name = names[w.kind] ?? w.kind;
-  const left = w.remaining === null ? '' : w.limit !== null
-    ? t('{left} of {limit} left', {left: w.remaining.toLocaleString(), limit: w.limit.toLocaleString()})
-    : t('{left} left', {left: w.remaining.toLocaleString()});
-  const reset = w.resetsAt && w.resetsAt > Date.now()
-    ? t('resets {time}', {time: new Date(w.resetsAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}) : '';
-  return [name + (left ? `: ${left}` : ''), reset].filter(Boolean).join(', ');
 }
 
 /** What the account has left, from the provider's own account endpoint (OpenRouter /key, DeepSeek /user/balance). */

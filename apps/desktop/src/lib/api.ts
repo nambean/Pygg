@@ -152,6 +152,28 @@ export type UsageSummary = {
   since: number; total: UsageGroup; byModel: UsageGroup[]; byClient: UsageGroup[]; recent: UsageEvent[];
 };
 
+/** Usage → Subscriptions: one subscription connection's requests and tokens in the period, and its provider's stated limits. */
+export type SubscriptionUsage = {
+  providerId: string; label: string; kind: string | null; requests: number;
+  /** Requests that failed or fell back to another model. */
+  notOk: number; inputTokens: number; outputTokens: number; lastUsedAt: number | null;
+  /** The rate-limit windows from the provider's last answer, per model; empty when it stated none. */
+  limits: RateLimits[]; account: Account | null;
+};
+/** Usage → Local runtime: one model on a local connection. */
+export type LocalModelUsage = {
+  model: string; requests: number; notOk: number; inputTokens: number; outputTokens: number;
+  /** Median time of its successful requests; null when none succeeded. */
+  medianLatencyMs: number | null; lastUsedAt: number | null;
+};
+export type LocalUsage = {providerId: string; label: string; kind: string | null; models: LocalModelUsage[]};
+
+/** How long usage history is kept (Settings → Usage History); null is forever. */
+export type RetentionDays = 30 | 90 | 365 | null;
+/** What one clean-up deleted: ledger rows and route decisions created before `before`. */
+export type RetentionRun = {at: number; before: number; usageRows: number; routeDecisions: number};
+export type Retention = {days: RetentionDays; lastRun: RetentionRun | null};
+
 /** How tasks turned out (ROADMAP C4): every paid step counts toward the money per kept result. */
 export type TaskQuality = {
   tasks: number; kept: number; discarded: number; retried: number; cancelled: number;
@@ -243,8 +265,17 @@ export interface GatewayApi {
   usage(days: number): Promise<UsageSummary>;
   /** Usage per hour for one day, per day for longer, on this computer's clock. */
   usageOverTime(days: number): Promise<UsageBucket[]>;
+  /** Each subscription connection's requests and tokens over the last `days`, with its stated limits. */
+  usageSubscriptions(days: number): Promise<SubscriptionUsage[]>;
+  /** Each local connection's models over the last `days`: requests, tokens, median time. */
+  usageLocal(days: number): Promise<LocalUsage[]>;
   /** Every request of the period as a CSV file the user saves; the path, or null when they cancel. */
   exportUsage(days: number): Promise<string | null>;
+  retention(): Promise<Retention>;
+  /** Saves the period and deletes what is older now; the rest goes once a day. */
+  setRetention(days: RetentionDays): Promise<Retention>;
+  /** How many requests keeping `days` days would delete now; deletes nothing. */
+  retentionPreview(days: number): Promise<number>;
   /** The redacted diagnostics bundle as a zip the user saves; the path, or null when they cancel. */
   exportDiagnostics(): Promise<string | null>;
   /** How tasks turned out over the last `days`. */
@@ -325,7 +356,12 @@ const native: GatewayApi = {
   usage: days => invoke('usage_summary', {days}),
   usageOverTime: days => invoke('usage_over_time', {days, offsetMinutes: -new Date().getTimezoneOffset()}),
   exportUsage: days => invoke('usage_export', {days}),
+  usageSubscriptions: days => invoke('usage_subscriptions', {days}),
+  usageLocal: days => invoke('usage_local', {days}),
   exportDiagnostics: () => invoke('diagnostics_export'),
+  retention: () => invoke('retention_get'),
+  setRetention: days => invoke('retention_set', {days}),
+  retentionPreview: days => invoke('retention_preview', {days}),
   taskQuality: days => invoke('tasks_quality', {days}),
   agents: () => invoke('agents_detect'),
   runAgent: task => invoke('agent_run', {request: task}),
