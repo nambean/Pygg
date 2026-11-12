@@ -14,7 +14,8 @@ Pygg is one desktop program: a Rust core inside a Tauri 2 window, with the same 
                                        /pygg/v1/*   │      ┌───────────────────────────────┐
   Tauri window (React) ── commands ──► Rust core ◄──┴──────┤ Gateway  127.0.0.1:8741      │
                                        │                   │ /v1/chat/completions          │
-                                       │                   │ /v1/messages, /v1/models      │
+                                       │                   │ /v1/messages, /v1/responses   │
+                                       │                   │ /v1/models                    │
                                        │                   └──────────────┬────────────────┘
                         ┌──────────────┼───────────────┐                  │ provider APIs (keys from
                         ▼              ▼               ▼                  ▼ the OS credential store)
@@ -37,7 +38,7 @@ Pygg is one desktop program: a Rust core inside a Tauri 2 window, with the same 
 1. **Authenticate** the client token (`Authorization: Bearer` or `x-api-key`); only loopback `Host` names are served.
 2. **Resolve the model name**: `<connection>/<model>`, a combo (an ordered list), or `auto` / `auto/cheap`, which build a route from the connected models with hard filters first, then rules (`auto.rs`, ADR-006). An explicit `x-smarttaskrouter-session` pins a session to the target that answered it.
 3. **For each target in turn**: the client's connection list and data-use requirement, the API format, health and cooldowns, quota-group holds, then **admission**: a client with a limit holds the estimated (or, if strict, the largest possible) cost before anything is sent. The attempt is **journaled** before it is sent.
-4. **Send**: the same format passes through as a native-format passthrough (key order and cache markers kept); Anthropic to OpenAI-compatible is translated (`anthropic.rs`), and what is dropped is named in `x-smarttaskrouter-dropped`.
+4. **Send**: the same format passes through as a native-format passthrough (key order and cache markers kept); Anthropic to OpenAI-compatible is translated (`anthropic.rs`), OpenAI to Anthropic (`openai_to_anthropic.rs`), and the Responses API to Chat Completions or, through it, to Anthropic (`responses.rs`, ADR-033); what is dropped is named in `x-smarttaskrouter-dropped`.
 5. **On failure**, `policy.rs` decides by error class: try another model, another connection, or stop (a 5xx or an ambiguous timeout stops unless the client allows retries), and what to mark: a key rejected, a model cooling down, a quota group held. Fallback happens only before any byte reached the client.
 6. **Settle**: the ledger entry (tokens, cost with its source: actual, estimated or unknown, never a guessed $0) and the journal removal are one transaction. While a settlement cannot be written, no paid request is admitted.
 
