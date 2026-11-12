@@ -4,7 +4,7 @@
  * data" banner whenever this is in use (ADR-014). It follows the core's rules (slugs, validation, honest
  * costs) closely enough for design review, not as a test of them.
  */
-import type { AgentInfo, Integration, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
+import type { AgentInfo, Integration, Launcher, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
   Health, Model, Preset, Target, Tier, UsageEvent, UsageBucket, UsageGroup, UsageSummary, Account, Wire,
   LocalUsage, SubscriptionUsage, Retention } from './api';
 import { TIERS } from './api';
@@ -193,6 +193,9 @@ export function demoApi(): GatewayApi {
       maxConcurrency: 4, unknownCostPolicy: 'allow', reservedMicroUsd: 0, monthAtRiskMicroUsd: 0,
       allowedConnections: null, paidRetries: 1, autoMinTier: 'T1', mayRunTasks: false, requireNoTraining: false, strictBudget: false},
   ];
+
+  let launcher: Launcher = {setUp: false, clientId: null, clientName: null, setUpAt: null, installed: true,
+    cliPath: 'C:\\Users\\you\\AppData\\Local\\Pygg\\pygg-cli.exe'};
 
   // A day and a half of plausible traffic: mostly priced Flash-Lite, some fallbacks, some unknown costs.
   const events: UsageEvent[] = [];
@@ -439,6 +442,26 @@ export function demoApi(): GatewayApi {
       return view(stored);
     },
     // The preview sends nothing: a sample answer.
+    latestRequests: async () => touch(clients.flatMap(c => {
+      const e = events.filter(x => x.client === c.name).sort((a, b) => b.createdAt - a.createdAt)[0];
+      return e ? [{clientId: c.id, createdAt: e.createdAt, provider: e.provider, model: e.model, requestedModel: e.requestedModel, outcome: e.outcome}] : [];
+    })),
+    launcher: async () => touch({...launcher}),
+    launcherSetUp: async () => {
+      await sleep(400);
+      clients.push({id: 'k-launcher', name: 'Claude Code (launcher)', tokenPrefix: 'str-5c0e9a12', monthlyBudgetMicroUsd: null, createdAt: Date.now(),
+        lastUsedAt: null, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0, maxConcurrency: 8,
+        unknownCostPolicy: 'block', reservedMicroUsd: 0, monthAtRiskMicroUsd: 0, allowedConnections: null, paidRetries: 0, autoMinTier: 'T2',
+        mayRunTasks: false, requireNoTraining: false, strictBudget: false});
+      launcher = {...launcher, setUp: true, clientId: 'k-launcher', clientName: 'Claude Code (launcher)', setUpAt: Date.now()};
+      return touch({...launcher});
+    },
+    launcherRemove: async () => {
+      const c = clients.find(x => x.id === launcher.clientId);
+      if (c) c.revokedAt = Date.now();
+      launcher = {...launcher, setUp: false, clientId: null, clientName: null, setUpAt: null};
+      return touch({...launcher});
+    },
     reliability: async id => touch(Object.entries(events.filter(e => e.provider === id).reduce<Record<string, {n: number; ok: number; ms: number[]}>>((acc, e) => {
       const r = acc[e.model] ??= {n: 0, ok: 0, ms: []};
       r.n += 1;

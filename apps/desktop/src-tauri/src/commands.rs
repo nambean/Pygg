@@ -340,6 +340,43 @@ pub async fn connection_refresh_models(state: State<'_, AppState>, id: String) -
     Ok(ImportResult { listed: ids.len(), added })
 }
 
+/// The newest request of each API key (CLI Tools' "Working").
+#[tauri::command]
+pub fn client_latest_requests(state: State<'_, AppState>) -> Res<Vec<store::LatestRequest>> {
+    state.shared.with_db(store::latest_requests)
+}
+
+/// The Claude Code launcher (launcher.rs) and the command that starts it.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LauncherInfo {
+    #[serde(flatten)]
+    pub state: crate::launcher::State,
+    /// The console program shipped next to the app, when it is there; `pygg` from npm works the same.
+    pub cli_path: Option<String>,
+}
+
+fn launcher_info(state: crate::launcher::State) -> LauncherInfo {
+    let cli_path = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("pygg-cli.exe")))
+        .filter(|p| p.is_file()).map(|p| p.to_string_lossy().into_owned());
+    LauncherInfo { state, cli_path }
+}
+
+#[tauri::command]
+pub fn launcher_state(state: State<'_, AppState>) -> Res<LauncherInfo> {
+    Ok(launcher_info(state.shared.with_db(crate::launcher::state)))
+}
+
+#[tauri::command]
+pub fn launcher_set_up(state: State<'_, AppState>) -> Res<LauncherInfo> {
+    state.shared.with_db(|db| crate::launcher::set_up(db, crate::db::now_ms())).map(launcher_info)
+}
+
+#[tauri::command]
+pub fn launcher_remove(state: State<'_, AppState>) -> Res<LauncherInfo> {
+    state.shared.with_db(crate::launcher::remove).map(launcher_info)
+}
+
 /// How a connection's models have answered over the last 30 days (SCREENS §5.4), from the ledger.
 #[tauri::command]
 pub fn connection_reliability(state: State<'_, AppState>, id: String) -> Res<Vec<store::Reliability>> {

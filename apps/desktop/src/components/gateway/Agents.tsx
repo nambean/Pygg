@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Bot, ExternalLink, FolderGit2, GitBranch, Play, Plug, ShieldCheck, Trash2 } from 'lucide-react';
 import { call, errorText, gatewayChanged, type AgentInfo, type AgentRun, type Integration } from '../../lib/api';
 import { t } from '../../lib/i18n';
@@ -208,7 +208,7 @@ const INTEGRATION_STATE: Record<Integration['state'], {tone: 'ok' | 'warn' | 'of
  * One click per agent (ROADMAP D2): Pygg shows what it will change, backs up the agent's configuration, makes a
  * token that may start tasks and reaches no model, registers its MCP server and checks the agent lists it.
  */
-export function Integrations({kind}: {kind: 'mcp' | 'gateway'}) {
+export function Integrations({kind, status}: {kind: 'mcp' | 'gateway'; status?: (i: Integration) => ReactNode}) {
   const all = useGateway(api => api.integrations());
   const list = {...all, data: all.data?.filter(i => (i.kind ?? 'mcp') === kind)};
   const [planning, setPlanning] = useState<Integration | null>(null);
@@ -242,6 +242,7 @@ export function Integrations({kind}: {kind: 'mcp' | 'gateway'}) {
               {i.id === CODEX_GATEWAY && i.state === 'set_up' && <><br/>{t('Use it with:')} <span className="mono">codex --profile pygg</span></>}
               {i.detail && <><br/><span className="mono">{i.detail}</span></>}
             </small>
+            {status && i.state === 'set_up' && status(i)}
           </span>
           <span className="row-actions">
             {canSetUp && <button type="button" className="button small" onClick={() => setPlanning(i)}>{t('Set Up…')}</button>}

@@ -12,6 +12,7 @@ pub mod gateway;
 pub mod handoff;
 pub mod integrations;
 pub mod isolation;
+pub mod launcher;
 pub mod mcp;
 pub mod messages;
 pub mod process;
@@ -252,6 +253,10 @@ pub fn run() {
             commands::connection_set_pool,
             commands::model_test,
             commands::connection_reliability,
+            commands::client_latest_requests,
+            commands::launcher_state,
+            commands::launcher_set_up,
+            commands::launcher_remove,
             commands::connection_move_in_pool,
             commands::diagnostics_export,
             snap::window_snap_area,

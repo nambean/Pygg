@@ -7,6 +7,7 @@
 //!   pygg-cli mcp                     the MCP server for IDE agents (as `Pygg.exe mcp`)
 //!   pygg-cli gateway [--db P] …      the headless gateway: serve, connections, clients, combos, usage
 //!   pygg-cli agent [--db P] …        agent detection, one-off runs, smart tasks, quality
+//!   pygg-cli run claude [args…]      Claude Code through Pygg for one launch (run.rs, launcher.rs)
 //!   pygg-cli setup [<tool>]          set Pygg up in an agent, as the Agents screen does (setup.rs)
 //!   pygg-cli diagnostics --out PATH  the redacted diagnostics bundle (diagnostics.rs), as Settings → Diagnostics saves
 //!
@@ -15,6 +16,7 @@
 
 pub mod agent;
 pub mod gateway;
+pub mod run;
 pub mod setup;
 
 use std::path::{Path, PathBuf};
@@ -32,6 +34,7 @@ usage: pygg <command> [options]
   mcp                       the MCP server for IDE agents (what Claude Code, Codex and OpenCode start)
   gateway <command> …       the gateway without the window: serve, connections, models, clients, combos, usage
   agent <command> …         agent CLIs: detect, run, task, quality
+  run claude [args…]        start Claude Code through Pygg for this launch only (set up: `pygg setup claude-launcher`)
   setup [<tool>]            set Pygg up in Codex, OpenCode or Claude Code, as the Agents screen does (--dry-run, --remove)
   diagnostics --out PATH    save the redacted diagnostics bundle (no keys, tokens or prompts)
   --version                 the version of this program
@@ -64,7 +67,7 @@ fn schema_of(store: &Path) -> Result<u32, String> {
 }
 
 /// What `/health` says on the port, if anything answers there.
-async fn health(port: u16) -> Result<serde_json::Value, String> {
+pub(crate) async fn health(port: u16) -> Result<serde_json::Value, String> {
     let client = reqwest::Client::builder().timeout(Duration::from_secs(3)).build().map_err(|e| e.to_string())?;
     let response = client.get(format!("http://127.0.0.1:{port}/health")).send().await.map_err(|e| {
         if e.is_connect() { "nothing is listening".to_string() } else { e.to_string() }
@@ -207,6 +210,7 @@ pub async fn run(mut args: Vec<String>) -> i32 {
         "gateway" => { gateway::run(args).await; 0 }
         "agent" => { agent::run(args).await; 0 }
         "setup" => setup::run(args).await,
+        "run" => run::run(args).await,
         "diagnostics" => match diagnostics(&args).await {
             Ok(path) => { println!("Saved {} (no keys, tokens, prompts or agent output; see README.txt inside)", path.display()); 0 }
             Err(e) => { eprintln!("{e}"); 1 }

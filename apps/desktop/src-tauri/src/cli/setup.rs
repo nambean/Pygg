@@ -20,13 +20,14 @@ pub const HELP: &str = "usage: pygg setup [<tool>] [--dry-run | --remove] [--db 
   pygg setup                   list the tools and whether Pygg is set up in them
   pygg setup codex-models      Codex uses your connections through Pygg (run it with `codex --profile pygg`)
   pygg setup opencode-models   OpenCode lists Pygg's models, `auto` among them
+  pygg setup claude-launcher   `pygg run claude` starts Claude Code through Pygg, one launch at a time
   pygg setup claude-code       Claude Code can hand tasks to Pygg (its MCP server); also codex, opencode
 
   --dry-run   show what would change, write nothing
   --remove    take Pygg out of the tool and revoke the token it made; the backup stays
 
 Every change backs up the tool's configuration first. The token Pygg makes is written into the tool's own
-configuration and never printed. For Claude Code's model requests, see Overview in the app or `pygg gateway --help`.";
+configuration and never printed; the launcher's is kept in the Windows Credential Manager.";
 
 /// Friendly names for the integrations' ids.
 fn resolve(name: &str) -> Option<&'static str> {
@@ -100,6 +101,9 @@ pub async fn run(args: Vec<String>) -> i32 {
         println!("`pygg setup <tool> --dry-run` shows what setting one up would change.");
         return 0;
     };
+    if tool == "claude-launcher" {
+        return launcher(&store, &args).await;
+    }
     let Some(id) = resolve(&tool) else {
         eprintln!("unknown tool {tool}: one of codex-models, opencode-models, {}", integrations::TARGETS.iter()
             .map(|t| t.0).collect::<Vec<_>>().join(", "));
@@ -154,6 +158,28 @@ pub async fn run(args: Vec<String>) -> i32 {
             }
             0
         }
+        Err(e) => { eprintln!("{e}"); 1 }
+    }
+}
+
+/// `pygg setup claude-launcher [--dry-run | --remove]`.
+async fn launcher(store: &Path, args: &[String]) -> i32 {
+    if args.iter().any(|a| a == "--dry-run") {
+        println!("Setting up the Claude Code launcher makes the Pygg API key \"{}\", keeps it in the Windows Credential Manager", crate::launcher::CLIENT_NAME);
+        println!("and changes no file. Then `pygg run claude` starts Claude Code through Pygg with the model auto.
+
+Nothing was written.");
+        return 0;
+    }
+    let conn = match crate::db::open(store) {
+        Ok(c) => c,
+        Err(e) => { eprintln!("{}: {e}", store.display()); return 1; }
+    };
+    let result = if args.iter().any(|a| a == "--remove") { crate::launcher::remove(&conn) }
+        else { crate::launcher::set_up(&conn, crate::db::now_ms()) };
+    match result {
+        Ok(s) if s.set_up => { println!("Set up. Start Claude Code through Pygg with: pygg run claude"); 0 }
+        Ok(_) => { println!("Removed: the launcher's key is revoked and deleted from the Credential Manager."); 0 }
         Err(e) => { eprintln!("{e}"); 1 }
     }
 }

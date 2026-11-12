@@ -798,6 +798,9 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 /* Connect → Sign In with OpenRouter (oauth.rs). */
 .advanced-box > summary { cursor: default; font-size: 13px; color: var(--secondary); padding: 6px 2px; }
 .advanced-box[open] > summary { margin-bottom: 6px; }
+.client-check.tool-status { margin: 6px 0 0; }
+.launcher-row { margin-bottom: 10px; }
+.launcher-row .code-block { margin-top: 8px; }
 .page-intro { color: var(--secondary); margin: 0; font-size: 13px; line-height: 1.5; }
 .endpoint-value { display: inline-flex; align-items: center; gap: 8px; }
 .chosen-preset { display: flex; align-items: center; gap: 10px; padding-bottom: 4px; }

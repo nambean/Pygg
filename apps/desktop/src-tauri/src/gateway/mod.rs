@@ -715,7 +715,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 let why = auto::summarize(&plan.excluded, 8);
                 return Err(Refusal::new(StatusCode::UNPROCESSABLE_ENTITY, "no_eligible_model", format!(
                     "No connected model is eligible for \"{requested}\". Set tiers, context sizes and prices in \
-                     Connections, or ask for a model by name.{}{}", if why.is_empty() { "" } else { " " }, why)));
+                     Pygg → Providers, or ask for a model by name.{}{}", if why.is_empty() { "" } else { " " }, why)));
             }
             let mut route = Vec::new();
             for ranked in plan.ranked.iter().take(auto::ROUTE_LENGTH) {

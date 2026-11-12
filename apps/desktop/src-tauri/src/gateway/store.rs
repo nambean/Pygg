@@ -1657,6 +1657,30 @@ pub struct UsageAlert {
 pub const SPIKE_FACTOR: u64 = 3;
 pub const SPIKE_FLOOR_MICRO_USD: u64 = 500_000;
 
+/// The newest request each API key sent, for CLI Tools' "Working" (SCREENS §2.2): which model answered, and how.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LatestRequest {
+    pub client_id: String,
+    pub created_at: i64,
+    pub provider: String,
+    pub model: String,
+    pub requested_model: Option<String>,
+    pub outcome: String,
+}
+
+pub fn latest_requests(conn: &Connection) -> Result<Vec<LatestRequest>> {
+    let mut stmt = conn.prepare("SELECT u.client_id, u.created_at, u.provider, u.model, u.requested_model, u.outcome \
+        FROM usage_events u JOIN (SELECT client_id, MAX(created_at) AS at FROM usage_events WHERE client_id IS NOT NULL \
+        GROUP BY client_id) m ON m.client_id = u.client_id AND m.at = u.created_at ORDER BY u.created_at DESC").map_err(err)?;
+    let rows = stmt.query_map([], |r| Ok(LatestRequest { client_id: r.get(0)?, created_at: r.get(1)?, provider: r.get(2)?,
+        model: r.get(3)?, requested_model: r.get(4)?, outcome: r.get(5)? })).map_err(err)?
+        .collect::<rusqlite::Result<Vec<_>>>().map_err(err)?;
+    // Two entries at the same millisecond: the first is enough.
+    let mut seen = std::collections::HashSet::new();
+    Ok(rows.into_iter().filter(|r| seen.insert(r.client_id.clone())).collect())
+}
+
 pub fn usage_alerts(conn: &Connection, now: i64) -> Result<Vec<UsageAlert>> {
     let mut out = Vec::new();
     for c in list_clients(conn)?.into_iter().filter(|c| c.revoked_at.is_none()) {
@@ -2053,6 +2077,27 @@ mod tests {
         set_capabilities(&conn, &p.id, "claude-haiku-5-5", &Capabilities { tier: Some("T1".into()), ..Capabilities::default() }).unwrap();
         fill_curated_tiers(&conn).unwrap();
         assert_eq!(tier("claude-haiku-5-5").tier.as_deref(), Some("T1"));
+    }
+
+    #[test]
+    fn latest_requests_are_one_per_client() {
+        let conn = db::open_in_memory().unwrap();
+        let p = gemini(&conn);
+        let cost = Cost::Estimated { micro_usd: 1, source: "x".into() };
+        let (a, _) = create_client(&conn, "A", None).unwrap();
+        let (b, _) = create_client(&conn, "B", None).unwrap();
+        for (client, model, outcome) in [(&a, "m1", "ok"), (&a, "m2", "error"), (&b, "m3", "ok")] {
+            record_usage(&conn, &UsageRecord { client_id: Some(&client.id), provider_id: &p.id, model_id: model, requested_model: "auto",
+                input_tokens: None, output_tokens: None, cache_tokens: None, cost: &cost, outcome, http_status: Some(200),
+                latency_ms: 1, error: None, cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None,
+                repeated_tokens: None }).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(3));
+        }
+        let latest = latest_requests(&conn).unwrap();
+        assert_eq!(latest.len(), 2);
+        let of = |id: &str| latest.iter().find(|r| r.client_id == id).unwrap();
+        assert_eq!((of(&a.id).model.as_str(), of(&a.id).outcome.as_str()), ("m2", "error"));
+        assert_eq!(of(&b.id).model, "m3");
     }
 
     #[test]

@@ -65,6 +65,13 @@ export type RateLimits = {modelId: string; headers: Record<string, string>; http
 /** How a model has answered over the last 30 days, from the ledger. */
 export type Reliability = {modelId: string; requests: number; ok: number; medianLatencyMs: number | null};
 
+/** The newest request one API key sent: CLI Tools' "Working". */
+export type LatestRequest = {clientId: string; createdAt: number; provider: string; model: string; requestedModel: string | null; outcome: Outcome};
+
+/** The Claude Code launcher (`pygg run claude`): set up or not, and the console program that starts it. */
+export type Launcher = {setUp: boolean; clientId: string | null; clientName: string | null; setUpAt: number | null; installed: boolean;
+  cliPath: string | null};
+
 /** What one short test request to a model came back with. */
 export type ModelTest = {ok: boolean; text: string; latencyMs: number; inputTokens: number | null; outputTokens: number | null; route: string};
 
@@ -255,6 +262,11 @@ export interface GatewayApi {
   testModel(providerId: string, modelId: string): Promise<ModelTest>;
   /** How a connection's models have answered over the last 30 days. */
   reliability(connectionId: string): Promise<Reliability[]>;
+  /** The newest request of each API key. */
+  latestRequests(): Promise<LatestRequest[]>;
+  launcher(): Promise<Launcher>;
+  launcherSetUp(): Promise<Launcher>;
+  launcherRemove(): Promise<Launcher>;
   /** Puts a connection in a pool, or takes it out with null (ADR-034). */
   setConnectionPool(id: string, pool: string | null): Promise<Connection>;
   moveInPool(id: string, up: boolean): Promise<void>;
@@ -369,6 +381,10 @@ const native: GatewayApi = {
   setConnectionPool: (id, pool) => invoke('connection_set_pool', {id, pool}),
   testModel: (providerId, modelId) => invoke('model_test', {providerId, modelId}),
   reliability: id => invoke('connection_reliability', {id}),
+  latestRequests: () => invoke('client_latest_requests'),
+  launcher: () => invoke('launcher_state'),
+  launcherSetUp: () => invoke('launcher_set_up'),
+  launcherRemove: () => invoke('launcher_remove'),
   moveInPool: (id, up) => invoke('connection_move_in_pool', {id, up}),
   setConnectionTerms: (id, terms, source) => invoke('connection_set_terms', {id, terms, source}),
   removeConnection: id => invoke('connection_remove', {id}),
