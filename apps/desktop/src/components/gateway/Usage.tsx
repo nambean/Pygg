@@ -81,10 +81,10 @@ export function Usage() {
     {usage.error && <ErrorNote>{usage.error}</ErrorNote>}
     <UsageAlerts/>
     {exported && (exported.ok ? <p className="group-footnote" role="status">{exported.text}</p> : <ErrorNote>{exported.text}</ErrorNote>)}
-    {quality.data && quality.data.tasks > 0 && <TaskResults q={quality.data}/>}
     {data && data.total.requests === 0 && <Empty icon={<ChartColumn size={40} strokeWidth={1.4}/>} title={t('No Usage Recorded Yet')}>
       {t('Point a client at the gateway and its requests appear here, each with its cost and where that figure comes from.')}
     </Empty>}
+    {data && data.total.requests === 0 && quality.data && quality.data.tasks > 0 && <TaskResults q={quality.data}/>}
     {data && data.total.requests > 0 && <>
       <section className="group">
         <h2>{t('API Costs')}</h2>
@@ -104,6 +104,7 @@ export function Usage() {
       </section>
 
       {overTime.data && <CostOverTime days={Number(range)} buckets={overTime.data}/>}
+      {quality.data && quality.data.tasks > 0 && <TaskResults q={quality.data}/>}
       <RepeatedOutput days={Number(range)}/>
 
       <div className="two-columns">

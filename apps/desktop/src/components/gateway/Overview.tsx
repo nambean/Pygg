@@ -27,16 +27,23 @@ export function Overview({status, onStatus, navigate, onAgents}: {status: Gatewa
   const [configuring, setConfiguring] = useState(false);
 
   const activeClients = clients.data?.filter(c => !c.revokedAt) ?? [];
+  // A connection counts once it can serve: on, with its key, and with models listed.
+  const usable = (connections.data ?? []).some(c => c.enabled && !(c.needsKey && !c.hasKey) && c.models > 0);
   const steps = [
-    {done: (connections.data?.length ?? 0) > 0, icon: <Plug/>, title: t('Connect a provider'),
-      detail: t('An API key or a local runtime such as Ollama. Keys stay in the system’s credential store.'),
+    {done: usable, icon: <Plug/>, title: t('Connect a provider'),
+      detail: (connections.data?.length ?? 0) > 0 && !usable
+        ? t('A connection exists, but none is on with a key and models listed yet. Open Connections to check it.')
+        : t('An API key or a local runtime such as Ollama. Keys stay in the system’s credential store.'),
       action: <button type="button" className="button" onClick={() => navigate('connections', 'connect')}>{t('Connect Provider…')}</button>},
+    {done: activeClients.length > 0, icon: <KeyRound/>, title: t('Connect your coding tool'),
+      detail: t('Codex and OpenCode are set up for you in Agents. For Claude Code, an SDK or another app, create a client token and use the snippet below.'),
+      action: <span className="row-actions">
+        {onAgents && <button type="button" className="button prominent" onClick={onAgents}>{t('Set Up Codex or OpenCode…')}</button>}
+        <button type="button" className="button" onClick={() => navigate('clients', 'create')}>{t('Create Client Token…')}</button>
+      </span>},
     {done: (combos.data?.length ?? 0) > 0, icon: <ListOrdered/>, title: t('Make a combo'), optional: true,
-      detail: t('A named list of models tried in order, so a quota error moves on to the next one.'),
+      detail: t('Not needed for auto. A named list of models tried in order, so a quota error moves on to the next one.'),
       action: <button type="button" className="button" onClick={() => navigate('combos', 'create')}>{t('New Combo…')}</button>},
-    {done: activeClients.length > 0, icon: <KeyRound/>, title: t('Create a client token'),
-      detail: t('Each app that uses the gateway gets its own token and, if you like, a monthly limit.'),
-      action: <button type="button" className="button" onClick={() => navigate('clients', 'create')}>{t('Create Client Token…')}</button>},
   ];
   const ready = steps.every(s => s.done || s.optional);
 
@@ -59,10 +66,10 @@ export function Overview({status, onStatus, navigate, onAgents}: {status: Gatewa
           {step.done ? <span className="value">{t('Done')}</span> : step.action}
         </li>)}
       </ol>
-      {onAgents && <p className="group-footnote">
-        {t('Only want your IDE’s agent to hand tasks to Pygg, run by the agents you already sign in to? That needs no provider here.')}{' '}
-        <button type="button" className="link-button" onClick={onAgents}>{t('Set Up From Your IDE')}<ArrowRight size={12} aria-hidden/></button>
-      </p>}
+      <p className="group-footnote">
+        {t('auto picks a model from your connections for each request; no combo is needed.')}{' '}
+        <button type="button" className="link-button" onClick={() => navigate('combos')}>{t('How auto chooses')}<ArrowRight size={12} aria-hidden/></button>
+      </p>
     </section>}
 
     <ClientSetup baseUrl={status?.baseUrl ?? `http://127.0.0.1:${status?.port ?? 8741}`}

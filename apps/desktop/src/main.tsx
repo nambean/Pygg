@@ -139,7 +139,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
       {id: 'combo', group: gateway, label: t('New Combo…'), keywords: 'fallback', run: () => go('combos', 'create')},
       {id: 'client', group: gateway, label: t('Create Client Token…'), keywords: 'key token', run: () => go('clients', 'create')},
       {id: 'auto', group: gateway, label: t('Simulate auto routing'), keywords: 'auto cheap route', run: () => go('combos')},
-      {id: 'usage-export', group: gateway, label: t('Export usage as CSV…'), keywords: 'ledger csv', run: () => go('usage')},
+      {id: 'usage-export', group: gateway, label: t('Open Usage to export CSV'), keywords: 'ledger csv', run: () => go('usage')},
       {id: 'ide', group: gateway, label: t('Set up an IDE agent…'), keywords: 'claude code codex opencode mcp', run: () => setView({kind: 'agents'})},
     );
     const tasks = t('Tasks');
@@ -152,7 +152,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
     list.push(
       {id: 'sidebar', group: app, label: sidebarOpen ? t('Hide sidebar') : t('Show sidebar'), hint: `${MOD}Shift+L`,
         run: () => setSidebarOpen(open => !open)},
-      {id: 'diagnostics', group: app, label: t('Save Diagnostics…'), keywords: 'support bug report', run: () => setView({kind: 'settings'})},
+      {id: 'diagnostics', group: app, label: t('Open Settings to save diagnostics'), keywords: 'support bug report', run: () => setView({kind: 'settings'})},
       {id: 'language', group: app, label: t('Language'), keywords: 'english tiếng việt', run: () => setView({kind: 'settings'})},
     );
     return list;

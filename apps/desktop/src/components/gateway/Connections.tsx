@@ -95,7 +95,7 @@ export function connectionState(c: Connection): {tone: 'ok' | 'warn' | 'off' | '
   if (c.models === 0) return {tone: 'warn', text: t('No models yet')};
   if (c.health.length) return {tone: 'warn', text: plural(c.health.length, '{n} model cooling down', '{n} models cooling down')};
   // Green only once a check answered: without one, no problem has been seen, which is not the same as working.
-  return check?.ok ? {tone: 'ok', text: t('Checked')} : {tone: 'off', text: t('No problem seen')};
+  return check?.ok ? {tone: 'ok', text: t('Checked')} : {tone: 'off', text: t('Not checked yet')};
 }
 
 export function healthLabel(h: Health): string {
@@ -503,8 +503,10 @@ function PresetPicker({presets, selected, onSelect}: {presets: Preset[]; selecte
 
 function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected: (id: string) => void}) {
   const presets = useGateway(api => api.presets());
-  const [presetId, setPresetId] = useState('gemini');
+  const [presetId, setPresetId] = useState<string | null>(null);
   const preset: Preset | undefined = presets.data?.find(p => p.id === presetId);
+  // The account is saved but its model list could not be read: say so, rather than closing as if all went well.
+  const [lookupFailed, setLookupFailed] = useState<{id: string; error: string} | null>(null);
   const [label, setLabel] = useState('');
   const [endpoint, setEndpoint] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -531,6 +533,10 @@ function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected:
         checks.set(added.id, {at: Date.now(), ok: true, text: t('Reachable · {n} models listed', {n: r.listed})});
       } catch (e) {
         checks.set(added.id, {at: Date.now(), ok: false, text: errorText(e)});
+        gatewayChanged();
+        setLookupFailed({id: added.id, error: errorText(e)});
+        setBusy(false);
+        return;
       }
       gatewayChanged();
       onConnected(added.id);
@@ -540,43 +546,70 @@ function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected:
     }
   };
 
-  return <Sheet title={t('Connect Provider')} subtitle={t('Connecting checks the key by reading the model list. No request is billed.')}
+  if (lookupFailed) {
+    return <Sheet title={t('Account Saved; Models Not Read')} onClose={() => onConnected(lookupFailed.id)} className="narrow"
+      footer={<>
+        <span className="spacer"/>
+        <button type="button" className="button prominent" onClick={() => onConnected(lookupFailed.id)}>{t('Continue')}</button>
+      </>}>
+      <p>{t('Pygg saved the connection but couldn’t read its model list, so the key may be wrong or the provider unreachable. Nothing was billed.')}</p>
+      <ErrorNote>{lookupFailed.error}</ErrorNote>
+      <p className="secondary small">{t('Open the connection to check it again, replace the key, or remove it.')}</p>
+    </Sheet>;
+  }
+
+  const endpointRow = preset && <FormRow label={t('Endpoint')} htmlFor="connection-endpoint"
+    hint={presetId === 'custom-anthropic' ? t('The base URL before /messages, e.g. https://api.example.com/v1')
+      : custom ? t('The base URL before /chat/completions, e.g. https://api.example.com/v1')
+      : preset.defaultBilling === 'local' ? t('Change it if the server runs on another address or port.')
+      : t('Leave empty for the provider’s standard endpoint. Change it if your plan has its own, such as a token plan or a regional endpoint.')}>
+    <input id="connection-endpoint" className="text-input mono" value={endpoint} placeholder={preset.endpoint ?? 'https://…/v1'}
+      onChange={e => setEndpoint(e.target.value)} spellCheck={false}/>
+  </FormRow>;
+  return <Sheet title={preset ? t('Connect {name}', {name: presetName(preset)}) : t('Connect Provider')}
+    subtitle={preset ? t('Connecting checks the key by reading the model list. No request is billed.') : t('Choose a provider. You enter its key next.')}
     onClose={onClose} busy={busy} footer={<>
       <span className="spacer"/>
       <button type="button" className="button" onClick={onClose} disabled={busy}>{t('Cancel')}</button>
-      <button type="button" className="button prominent" onClick={() => connect()} disabled={busy || !canConnect}>
-        {busy && <Spinner/>}{busy ? t('Connecting…') : t('Connect Provider')}</button>
+      {preset && <button type="button" className="button prominent" onClick={() => connect()} disabled={busy || !canConnect}>
+        {busy && <Spinner/>}{busy ? t('Connecting…') : t('Connect Provider')}</button>}
     </>}>
-    <PresetPicker presets={presets.data ?? []} selected={presetId}
-      onSelect={id => { setPresetId(id); setBilling(null); setEndpoint(''); }}/>
+    {!preset && (presets.error ? <ErrorNote>{presets.error}</ErrorNote>
+      : !presets.data ? <Spinner label={t('Loading providers…')}/>
+      : <PresetPicker presets={presets.data} selected={presetId ?? ''}
+        onSelect={id => { setPresetId(id); setBilling(null); setEndpoint(''); setLabel(''); }}/>)}
     {preset && <div className="form">
-      <FormRow label={t('Name')} htmlFor="connection-label" hint={t('Also the first part of model names, e.g. {id}/model.',
-        {id: (label.trim() || preset.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'connection'})}>
-        <input id="connection-label" className="text-input" value={label} placeholder={preset.id === 'custom' ? t('My Provider') : preset.name}
-          onChange={e => setLabel(e.target.value)}/>
-      </FormRow>
-      <FormRow label={t('Endpoint')} htmlFor="connection-endpoint"
-        hint={presetId === 'custom-anthropic' ? t('The base URL before /messages, e.g. https://api.example.com/v1')
-          : custom ? t('The base URL before /chat/completions, e.g. https://api.example.com/v1')
-          : preset.defaultBilling === 'local' ? t('Change it if the server runs on another address or port.')
-          : t('Leave empty for the provider’s standard endpoint. Change it if your plan has its own, such as a token plan or a regional endpoint.')}>
-        <input id="connection-endpoint" className="text-input mono" value={endpoint} placeholder={preset.endpoint ?? 'https://…/v1'}
-          onChange={e => setEndpoint(e.target.value)} spellCheck={false}/>
-      </FormRow>
+      <div className="chosen-preset">
+        <ProviderLogo kind={preset.id} name={preset.name}/>
+        <span className="group-label"><span>{presetName(preset)}</span>
+          {preset.offerNote && <small className="secondary">{preset.offerNote}</small>}</span>
+        <button type="button" className="link-button" disabled={busy} onClick={() => setPresetId(null)}>{t('Change Provider')}</button>
+      </div>
       {preset.id !== 'ollama' && <FormRow label={t('API Key')} htmlFor="connection-key"
         hint={t('Stored in {store}. Pygg never shows it again.', {store: STORE})}>
         <input id="connection-key" className="text-input mono" type="password" value={apiKey} autoComplete="off" spellCheck={false}
-          placeholder={keyRequired ? t('Required') : t('Optional')} onChange={e => setApiKey(e.target.value)}/>
+          placeholder={keyRequired ? t('Required') : t('Optional')} onChange={e => setApiKey(e.target.value)} autoFocus
+          onKeyDown={e => { if (e.key === 'Enter' && canConnect && !busy) connect(); }}/>
         {canSignIn && <div className="sign-in-row">
           <button type="button" className="button" disabled={busy} onClick={() => connect(true)}>{t('Sign In with OpenRouter…')}</button>
           <small className="secondary">{t('Opens openrouter.ai in your browser. After you sign in and allow it, OpenRouter issues a key for Pygg, kept in {store}; you don’t need to copy one.', {store: STORE})}</small>
         </div>}
       </FormRow>}
-      <FormRow label={t('Billing')} htmlFor="connection-billing" hint={billingHint(effectiveBilling, preset?.freeModels)}>
-        <select id="connection-billing" className="popup-button" value={effectiveBilling} onChange={e => setBilling(e.target.value as Billing)}>
-          {BILLINGS.map(b => <option key={b} value={b}>{billingLabel(b)}</option>)}
-        </select>
-      </FormRow>
+      {custom && endpointRow}
+      <details className="advanced">
+        <summary>{t('Name, endpoint and billing')}</summary>
+        <FormRow label={t('Name')} htmlFor="connection-label" hint={t('Also the first part of model names, e.g. {id}/model.',
+          {id: (label.trim() || preset.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'connection'})}>
+          <input id="connection-label" className="text-input" value={label} placeholder={preset.id === 'custom' ? t('My Provider') : preset.name}
+            onChange={e => setLabel(e.target.value)}/>
+        </FormRow>
+        {!custom && endpointRow}
+        <FormRow label={t('Billing')} htmlFor="connection-billing" hint={billingHint(effectiveBilling, preset?.freeModels)}>
+          <select id="connection-billing" className="popup-button" value={effectiveBilling} onChange={e => setBilling(e.target.value as Billing)}>
+            {BILLINGS.map(b => <option key={b} value={b}>{billingLabel(b)}</option>)}
+          </select>
+        </FormRow>
+      </details>
     </div>}
     {error && <ErrorNote>{error}</ErrorNote>}
   </Sheet>;

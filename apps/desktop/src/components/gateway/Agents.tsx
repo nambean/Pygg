@@ -16,6 +16,11 @@ export function Agents() {
   const installed = (agents.data ?? []).filter(a => a.installed);
   return <div className="page">
     <section className="group">
+      <h2>{t('Use Your Models Through Pygg')}</h2>
+      <p className="group-intro">{t('Your coding tool sends its model requests to Pygg, which routes them to your connections with auto, limits and a cost record. Pygg backs up the tool’s configuration first; Remove puts it back.')}</p>
+      <Integrations kind="gateway"/>
+    </section>
+    <section className="group">
       <h2>{t('Agents on This Computer')}</h2>
       <p className="group-intro"><ShieldCheck size={15} aria-hidden/>
         {t('Pygg starts each agent’s own program with the sign-in it already has: a subscription, a free tier or a key it manages. Pygg never reads, stores or shares that sign-in, and never offers it to other apps.')}</p>
@@ -174,10 +179,10 @@ function IdeSetup() {
     ? `# ~/.codex/config.toml\n[mcp_servers.pygg]\ncommand = '${path}'\nargs = ${JSON.stringify(args)}\nenv = { PYGG_TOKEN = "<token>"${url ? `, PYGG_URL = "${url}"` : ''} }\n# Tasks take minutes; Codex gives up on a tool call after 60 s by default.\ntool_timeout_sec = 600\n# Needed for codex exec, which cannot ask: run Pygg's tools without asking each time.\n# default_tools_approval_mode = "approve"`
     : JSON.stringify({mcpServers: {pygg: {command: path, args, env: {PYGG_TOKEN: '<token>', ...(url ? {PYGG_URL: url} : {})}}}}, null, 2);
   return <section className="group">
-    <h2>{t('From Your IDE')}</h2>
+    <h2>{t('Let Your Agent Delegate Tasks')}</h2>
     <div className="group-box ide-setup">
       <p className="group-intro">{t('Your coding agent (Claude Code, Codex, Cursor…) can hand a subtask to Pygg with the pygg_run_task tool. It runs here, on the agents below, in a separate worktree and against your approved checks; your agent reviews the result and keeps or discards it. Tasks appear in Tasks, where paid steps wait for your approval.')}</p>
-      <Integrations/>
+      <Integrations kind="mcp"/>
       <details className="by-hand">
       <summary>{t('Set It Up by Hand')}</summary>
       <ol className="setup-steps">
@@ -208,8 +213,9 @@ const INTEGRATION_STATE: Record<Integration['state'], {tone: 'ok' | 'warn' | 'of
  * One click per agent (ROADMAP D2): Pygg shows what it will change, backs up the agent's configuration, makes a
  * token that may start tasks and reaches no model, registers its MCP server and checks the agent lists it.
  */
-function Integrations() {
-  const list = useGateway(api => api.integrations());
+function Integrations({kind}: {kind: 'mcp' | 'gateway'}) {
+  const all = useGateway(api => api.integrations());
+  const list = {...all, data: all.data?.filter(i => (i.kind ?? 'mcp') === kind)};
   const [planning, setPlanning] = useState<Integration | null>(null);
   const [removing, setRemoving] = useState<Integration | null>(null);
   if (list.error) return <ErrorNote>{list.error}</ErrorNote>;

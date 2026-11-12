@@ -100,7 +100,7 @@ function TaskBudgets() {
     <h2>{t('Task budgets')}</h2>
     <div className="group-box">
       <div className="group-row">
-        <span className="group-label"><label htmlFor="daily-budget">{t('Paid steps per day')}</label>
+        <span className="group-label"><label htmlFor="daily-budget">{t('Daily spending limit for paid task steps')}</label>
           <small>{t('All tasks together. A paid step is refused once it is used, and a cap cannot be more than what is left. Resets at 00:00 UTC.')}</small></span>
         <span className="group-control">{budget.data && <MoneyField id="daily-budget" value={budget.data.limitUsd}
           onSave={v => save(() => call(api => api.setTaskBudget(v)))}/>}</span>
@@ -118,7 +118,11 @@ function MoneyField({id, value, onSave}: {id: string; value: number | null; onSa
   const amount = text.trim() === '' ? null : Number(text.replace(',', '.'));
   const valid = amount === null || (Number.isFinite(amount) && amount > 0);
   const commit = () => { if (valid && amount !== value) onSave(amount); };
-  return <span className={valid ? 'money-input' : 'money-input invalid'}><span aria-hidden>$</span>
-    <input id={id} inputMode="decimal" value={text} placeholder={t('No limit')} onChange={e => setText(e.target.value)}
-      onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') commit(); }}/></span>;
+  return <span className="money-field">
+    <span className={valid ? 'money-input' : 'money-input invalid'}><span aria-hidden>$</span>
+      <input id={id} inputMode="decimal" value={text} placeholder={t('No limit')} onChange={e => setText(e.target.value)}
+        aria-invalid={!valid} aria-describedby={valid ? undefined : `${id}-invalid`}
+        onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') commit(); }}/></span>
+    {!valid && <small id={`${id}-invalid`} className="warn-text">{t('Enter an amount above 0, or leave it empty for no limit.')}</small>}
+  </span>;
 }

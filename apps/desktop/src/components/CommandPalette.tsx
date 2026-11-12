@@ -42,8 +42,9 @@ export function CommandPalette({commands, onClose}: {commands: Command[]; onClos
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(); }
     else if (event.key === 'ArrowDown') { event.preventDefault(); setActive(i => Math.min(i + 1, shown.length - 1)); }
     else if (event.key === 'ArrowUp') { event.preventDefault(); setActive(i => Math.max(i - 1, 0)); }
-    else if (event.key === 'Home') { event.preventDefault(); setActive(0); }
-    else if (event.key === 'End') { event.preventDefault(); setActive(Math.max(shown.length - 1, 0)); }
+    // Home and End move the caret in the search field; with Ctrl they move through the list.
+    else if (event.key === 'Home' && event.ctrlKey) { event.preventDefault(); setActive(0); }
+    else if (event.key === 'End' && event.ctrlKey) { event.preventDefault(); setActive(Math.max(shown.length - 1, 0)); }
     else if (event.key === 'Enter') { event.preventDefault(); run(shown[active]); }
   };
 
