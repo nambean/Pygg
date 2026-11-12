@@ -89,6 +89,8 @@ export function connectionState(c: Connection): {tone: 'ok' | 'warn' | 'off' | '
   if (c.web) {
     if (!c.webAckCurrent) return {tone: 'error', text: t('Warning not acknowledged')};
     if (c.webState && c.webState !== 'signed_in') return {tone: c.webState === 'signed_out' ? 'warn' : 'error', text: webStateLabel(c.webState)};
+    // Signed in, seen by its window: that is the check a web session has (it has no model list to read).
+    if (c.webState === 'signed_in' && c.enabled && !c.health.length) return {tone: 'ok', text: webStateLabel('signed_in')};
   }
   if (!c.enabled) return {tone: 'off', text: t('Disabled')};
   if (c.needsKey && !c.hasKey) return {tone: 'error', text: t('Key missing')};
