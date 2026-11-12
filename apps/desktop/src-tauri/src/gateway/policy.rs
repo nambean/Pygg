@@ -60,6 +60,12 @@ impl ProviderError {
         })
     }
 
+    /// Anthropic answers an account out of credit with HTTP 400 ("Your credit balance is too low to access the
+    /// Anthropic API"), not 402. Found by the P0 benchmark on 2026-11-12.
+    fn is_out_of_credit(&self) -> bool {
+        self.status == 400 && self.message.as_deref().is_some_and(|m| m.to_ascii_lowercase().contains("credit balance is too low"))
+    }
+
     fn code_is(&self, codes: &[&str]) -> bool {
         self.code.as_deref().is_some_and(|c| codes.contains(&c))
     }
@@ -118,6 +124,9 @@ pub fn decide(failure: &Failure) -> Decision {
             match e.status {
                 401 => decision(Next::OtherGroups, mark(false, "invalid_credentials", None), false),
                 400 if e.is_rejected_key() => decision(Next::OtherGroups, mark(false, "invalid_credentials", None), false),
+                // As a 402: ten minutes, since the same words also come back for a request sent with another account's
+                // session (seen when Claude Code inherited the Claude desktop app's variables).
+                400 if e.is_out_of_credit() => decision(Next::OtherGroups, mark(false, "payment_required", wait(Duration::from_secs(600))), false),
                 402 => decision(Next::OtherGroups, mark(false, "payment_required", wait(Duration::from_secs(600))), false),
                 // OpenAI says "insufficient_quota" with a 429 when the account is out of credit: that is the
                 // account, not one model, and it does not pass in 30 seconds.
@@ -213,6 +222,12 @@ mod tests {
         assert_eq!(e.code.as_deref(), Some("insufficient_quota"));
         let mark = decide(&Failure::Http(e)).mark.unwrap();
         assert_eq!((mark.model_scope, mark.state, mark.cooldown), (false, "payment_required", Some(Duration::from_secs(3600))));
+        let anthropic = br#"{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."}}"#;
+        let e = ProviderError::from_response(400, &HeaderMap::new(), anthropic);
+        let decision = decide(&Failure::Http(e));
+        assert_eq!(decision.next, Next::OtherGroups, "another provider may still answer");
+        let mark = decision.mark.unwrap();
+        assert_eq!((mark.model_scope, mark.state), (false, "payment_required"));
         // A plain 429 stays on the one model.
         let plain = decide(&http(429)).mark.unwrap();
         assert_eq!((plain.model_scope, plain.cooldown), (true, Some(RATE_LIMIT_DEFAULT)));
