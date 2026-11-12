@@ -1020,14 +1020,23 @@ fn db_now() -> i64 {
 /// The URL and body for one target, and what a translation had to drop.
 fn upstream_request(incoming: &Incoming, provider: &Provider, model_id: &str, mode: Mode) -> (String, Value, Vec<String>) {
     let accepts_cache = presets::find(&provider.kind).is_some_and(|p| p.accepts_cache_control);
+    let takes_reasoning = presets::find(&provider.kind).is_some_and(|p| p.takes_reasoning);
     let (mut body, dropped) = match mode {
+        // Anthropic checks the signature of every thinking block: one Pygg made from another provider's reasoning
+        // would be refused, so it is left out (ROADMAP B5).
+        Mode::Native if provider.kind == "anthropic" && incoming.surface == Surface::Anthropic => {
+            match anthropic::without_pygg_reasoning(incoming.body) {
+                Some(body) => (body, vec!["thinking (from another provider)".to_string()]),
+                None => (incoming.body.clone(), Vec::new()),
+            }
+        }
         Mode::Native => (incoming.body.clone(), Vec::new()),
         Mode::AnthropicToOpenAi => {
-            let mut dropped = anthropic::untranslated(incoming.body);
+            let mut dropped = anthropic::untranslated(incoming.body, takes_reasoning);
             if !accepts_cache && anthropic::has_cache_control(incoming.body) {
                 dropped.insert(0, "cache_control".to_string());
             }
-            (anthropic::to_openai(incoming.body, accepts_cache), dropped)
+            (anthropic::to_openai(incoming.body, accepts_cache, takes_reasoning), dropped)
         }
         Mode::OpenAiToAnthropic => openai_to_anthropic::to_anthropic(incoming.body),
     };

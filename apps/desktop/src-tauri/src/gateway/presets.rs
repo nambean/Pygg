@@ -38,6 +38,12 @@ pub struct Preset {
     /// What is free is a set of models listed at $0 (OpenRouter's `:free`, Z.AI's Flash), not the account's calls:
     /// on such a connection set as free, a model with a price is paid, and starts off (store.rs, ADR-032).
     pub free_models: bool,
+    /// Takes the model's earlier reasoning back as `reasoning_content` on assistant messages (ROADMAP B5). DeepSeek
+    /// requires it in thinking mode with tools ("must be fully passed back", else HTTP 400); Qwen reads it with
+    /// `preserve_thinking` and ignores it otherwise; Kimi and GLM document keeping it. Other providers do not
+    /// document the field, so it is not sent to them.
+    #[serde(skip)]
+    pub takes_reasoning: bool,
 }
 
 const fn preset(id: &'static str, name: &'static str, endpoint: Option<&'static str>, needs_key: bool,
@@ -48,7 +54,7 @@ const fn preset(id: &'static str, name: &'static str, endpoint: Option<&'static 
         _ => "paid",
     };
     Preset { id, name, endpoint, needs_key, default_billing, wire, strip_model_prefix: None, accepts_cache_control: false,
-        family: None, offer, offer_note: None, free_models: false }
+        family: None, offer, offer_note: None, free_models: false, takes_reasoning: false }
 }
 
 /// A free tier made of $0 models next to paid ones: the connection starts as free, and only those models are on.
@@ -80,12 +86,13 @@ pub const PRESETS: &[Preset] = &[
         ..preset("openrouter", "OpenRouter", Some("https://openrouter.ai/api/v1"), true, "paid", "openai") }, "Free models (:free)"),
     preset("openai", "OpenAI", Some("https://api.openai.com/v1"), true, "paid", "openai"),
     free(preset("groq", "Groq", Some("https://api.groq.com/openai/v1"), true, "unknown", "openai"), "Free plan"),
-    credits(Preset { family: Some("deepseek"), ..preset("deepseek", "DeepSeek", Some("https://api.deepseek.com"), true, "paid", "openai") }, "Granted balance"),
+    credits(Preset { family: Some("deepseek"), takes_reasoning: true, ..preset("deepseek", "DeepSeek", Some("https://api.deepseek.com"), true, "paid", "openai") }, "Granted balance"),
     credits(Preset { family: Some("deepseek"),
         ..preset("deepseek-anthropic", "DeepSeek (Anthropic API)", Some("https://api.deepseek.com/anthropic/v1"), true, "paid", "anthropic") }, "Granted balance"),
     // Alibaba Cloud Model Studio's OpenAI-compatible mode (international). Plans with their own endpoint, such
     // as a token plan, set it when connecting.
-    preset("qwen", "Qwen (Alibaba Model Studio)", Some("https://dashscope-intl.aliyuncs.com/compatible-mode/v1"), true, "unknown", "openai"),
+    Preset { takes_reasoning: true,
+        ..preset("qwen", "Qwen (Alibaba Model Studio)", Some("https://dashscope-intl.aliyuncs.com/compatible-mode/v1"), true, "unknown", "openai") },
     free(preset("mistral", "Mistral", Some("https://api.mistral.ai/v1"), true, "unknown", "openai"), "Free mode, lowest limits"),
     credits(preset("cerebras", "Cerebras", Some("https://api.cerebras.ai/v1"), true, "paid", "openai"), "$5 trial credit, card needed"),
     preset("together", "Together AI", Some("https://api.together.ai/v1"), true, "paid", "openai"),
@@ -96,10 +103,10 @@ pub const PRESETS: &[Preset] = &[
     credits(preset("huggingface", "Hugging Face (Inference Providers)", Some("https://router.huggingface.co/v1"), true, "paid", "openai"), "Monthly credit with PRO"),
     preset("deepinfra", "DeepInfra", Some("https://api.deepinfra.com/v1/openai"), true, "paid", "openai"),
     preset("siliconflow", "SiliconFlow", Some("https://api.siliconflow.com/v1"), true, "unknown", "openai"),
-    Preset { family: Some("moonshot"), ..preset("moonshot", "Kimi (Moonshot)", Some("https://api.moonshot.ai/v1"), true, "paid", "openai") },
+    Preset { family: Some("moonshot"), takes_reasoning: true, ..preset("moonshot", "Kimi (Moonshot)", Some("https://api.moonshot.ai/v1"), true, "paid", "openai") },
     Preset { family: Some("moonshot"),
         ..preset("moonshot-anthropic", "Kimi (Anthropic API)", Some("https://api.moonshot.ai/anthropic/v1"), true, "paid", "anthropic") },
-    free_models(Preset { family: Some("zai"), ..preset("zai", "Z.AI (GLM)", Some("https://api.z.ai/api/paas/v4"), true, "unknown", "openai") }, "Some free Flash models"),
+    free_models(Preset { family: Some("zai"), takes_reasoning: true, ..preset("zai", "Z.AI (GLM)", Some("https://api.z.ai/api/paas/v4"), true, "unknown", "openai") }, "Some free Flash models"),
     free_models(Preset { family: Some("zai"),
         ..preset("zai-anthropic", "Z.AI (Anthropic API)", Some("https://api.z.ai/api/anthropic/v1"), true, "unknown", "anthropic") }, "Some free Flash models"),
     free(preset("cohere", "Cohere", Some("https://api.cohere.ai/compatibility/v1"), true, "unknown", "openai"), "Trial key, 1,000 calls a month"),

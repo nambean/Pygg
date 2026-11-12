@@ -7,9 +7,14 @@
 //!   `anthropic-beta` are forwarded; other client headers are not. The provider's answer body comes back
 //!   unchanged, with its rate-limit and request-id headers.
 //! - **To an OpenAI-compatible connection** it is translated to Chat Completions and back, streamed or not.
-//!   Text, images, tool definitions, tool calls and tool results cross. Thinking does not. Cache markers cross
-//!   only to providers that document accepting them on content parts (OpenRouter); otherwise they are dropped,
-//!   and the response says so in `x-smarttaskrouter-dropped`.
+//!   Text, images, tool definitions, tool calls and tool results cross. Cache markers cross only to providers that
+//!   document accepting them on content parts (OpenRouter); otherwise they are dropped, and the response says so
+//!   in `x-smarttaskrouter-dropped`.
+//! - **Reasoning** (ROADMAP B5): a provider's `reasoning_content` (Qwen, DeepSeek, Kimi, GLM) or `reasoning`
+//!   (OpenRouter) comes back as a `thinking` block signed `REASONING_SIGNATURE`, streamed or not, and earlier
+//!   thinking goes back as `reasoning_content` to providers that document taking it (`Preset::takes_reasoning`;
+//!   DeepSeek answers HTTP 400 in thinking mode with tools without it). The `thinking` setting itself is not
+//!   translated. A block Pygg signed is never sent to Anthropic, which checks signatures.
 
 use super::pricing::Usage;
 use super::{authenticate, forward, parse_body, provider_headers, pump, record_success, route_headers, session_key,
@@ -64,26 +69,48 @@ fn refusal_response(refusal: Refusal) -> Response {
     response
 }
 
-/// Whether the request asks for extended thinking or carries earlier thinking blocks.
-pub fn has_thinking(request: &Value) -> bool {
-    !request["thinking"].is_null()
-        || request["messages"].as_array().is_some_and(|m| m.iter().any(|m| m["content"].as_array()
-            .is_some_and(|blocks| blocks.iter().any(|b| matches!(b["type"].as_str(), Some("thinking" | "redacted_thinking"))))))
+/// The signature on a `thinking` block Pygg made from a provider's reasoning. Not Anthropic's: a request to
+/// Anthropic goes without such blocks (`without_pygg_reasoning`).
+pub const REASONING_SIGNATURE: &str = "pygg-reasoning-v1";
+
+fn blocks_of<'a>(request: &'a Value, kind: &'a str) -> impl Iterator<Item = &'a Value> + 'a {
+    request["messages"].as_array().into_iter().flatten()
+        .flat_map(|m| m["content"].as_array().into_iter().flatten())
+        .filter(move |b| b["type"] == kind)
+}
+
+/// The request without the thinking blocks Pygg signed, for Anthropic's own API, which rejects a signature it did
+/// not make; `None` when there are none.
+pub fn without_pygg_reasoning(request: &Value) -> Option<Value> {
+    if !blocks_of(request, "thinking").any(|b| b["signature"] == REASONING_SIGNATURE) {
+        return None;
+    }
+    let mut out = request.clone();
+    for message in out["messages"].as_array_mut().into_iter().flatten() {
+        if let Some(blocks) = message["content"].as_array_mut() {
+            blocks.retain(|b| !(b["type"] == "thinking" && b["signature"] == REASONING_SIGNATURE));
+        }
+    }
+    Some(out)
 }
 
 /// Everything in a request that `to_openai` does not carry, by name, apart from cache markers (which depend
 /// on the target): thinking, block types other than text, image, tool use and tool result, server tools,
 /// and top-level fields with no Chat Completions counterpart. Reported in `x-smarttaskrouter-dropped`, so
 /// no field is lost without saying so (counter-review CR-08).
-pub fn untranslated(request: &Value) -> Vec<String> {
+pub fn untranslated(request: &Value, takes_reasoning: bool) -> Vec<String> {
     let mut dropped: Vec<String> = Vec::new();
     let mut add = |name: String| {
         if !dropped.contains(&name) {
             dropped.push(name);
         }
     };
-    if has_thinking(request) {
+    // The setting is not translated; earlier thinking crosses only to a provider that takes it back.
+    if !request["thinking"].is_null() || (!takes_reasoning && blocks_of(request, "thinking").next().is_some()) {
         add("thinking".into());
+    }
+    if blocks_of(request, "redacted_thinking").next().is_some() {
+        add("redacted_thinking".into());
     }
     let carried = ["text", "image", "tool_use", "tool_result", "thinking", "redacted_thinking"];
     let blocks = request["system"].as_array().into_iter().flatten()
@@ -175,7 +202,7 @@ fn text_part(block: &Value, keep_cache: bool) -> Value {
 /// Translates a Messages request to Chat Completions. With `keep_cache`, prompt-cache markers stay on the
 /// system and user text parts (for providers that accept them there), and those parts are not merged into
 /// one string, which would lose the markers.
-pub fn to_openai(request: &Value, keep_cache: bool) -> Value {
+pub fn to_openai(request: &Value, keep_cache: bool, takes_reasoning: bool) -> Value {
     let mut messages = Vec::new();
     let system_marked = keep_cache
         && request["system"].as_array().is_some_and(|a| a.iter().any(|b| b.get("cache_control").is_some()));
@@ -208,6 +235,11 @@ pub fn to_openai(request: &Value, keep_cache: bool) -> Value {
             let mut out = json!({ "role": "assistant", "content": if text.is_empty() { Value::Null } else { json!(text) } });
             if !calls.is_empty() {
                 out["tool_calls"] = json!(calls);
+            }
+            let reasoning: String = blocks.iter().filter(|b| b["type"] == "thinking")
+                .filter_map(|b| b["thinking"].as_str()).collect();
+            if takes_reasoning && !reasoning.is_empty() {
+                out["reasoning_content"] = json!(reasoning);
             }
             messages.push(out);
             continue;
@@ -298,10 +330,19 @@ fn parse_arguments(arguments: &Value) -> Value {
     }
 }
 
+/// A provider's reasoning in a message or stream delta: `reasoning_content` (Qwen, DeepSeek, Kimi, GLM) or
+/// `reasoning` (OpenRouter).
+fn reasoning_of(message: &Value) -> Option<&str> {
+    message["reasoning_content"].as_str().or_else(|| message["reasoning"].as_str()).filter(|t| !t.is_empty())
+}
+
 pub fn from_openai(response: &Value, model: &str) -> Value {
     let choice = &response["choices"][0];
     let message = &choice["message"];
     let mut content = Vec::new();
+    if let Some(reasoning) = reasoning_of(message) {
+        content.push(json!({ "type": "thinking", "thinking": reasoning, "signature": REASONING_SIGNATURE }));
+    }
     if let Some(text) = message["content"].as_str().filter(|t| !t.is_empty()) {
         content.push(json!({ "type": "text", "text": text }));
     }
@@ -320,8 +361,8 @@ pub fn from_openai(response: &Value, model: &str) -> Value {
 pub struct StreamTranslator {
     model: String,
     started: bool,
-    /// The open content block: its index, and for a tool call the OpenAI tool-call index it belongs to.
-    open: Option<(usize, Option<String>)>,
+    /// The open content block: its index and kind.
+    open: Option<(usize, Block)>,
     next_index: usize,
     finish: Option<String>,
     pub usage: Option<Usage>,
@@ -330,6 +371,14 @@ pub struct StreamTranslator {
     /// ROADMAP C3: Qwen sends `id: ""` and no name in a call's first chunk, and an Anthropic client rejects a
     /// `tool_use` block without a name); arguments that arrive before then are held and sent after the start.
     tool: Option<ToolCall>,
+}
+
+#[derive(PartialEq)]
+enum Block {
+    Text,
+    Thinking,
+    /// A tool call, with the OpenAI tool-call key it belongs to.
+    Tool(String),
 }
 
 struct ToolCall {
@@ -365,7 +414,11 @@ impl StreamTranslator {
     fn close(&mut self, out: &mut Vec<String>) {
         // A call that never got a name has no block to close; it is dropped, as no client could run it.
         self.tool = None;
-        if let Some((index, _)) = self.open.take() {
+        if let Some((index, kind)) = self.open.take() {
+            if kind == Block::Thinking {
+                out.push(event("content_block_delta", json!({ "type": "content_block_delta", "index": index,
+                    "delta": { "type": "signature_delta", "signature": REASONING_SIGNATURE } })));
+            }
             out.push(event("content_block_stop", json!({ "type": "content_block_stop", "index": index })));
         }
     }
@@ -378,12 +431,25 @@ impl StreamTranslator {
         }
         let Some(choice) = chunk["choices"].get(0) else { return out };
         let delta = &choice["delta"];
-        if let Some(text) = delta["content"].as_str().filter(|t| !t.is_empty()) {
-            if !matches!(self.open, Some((_, None))) {
+        if let Some(reasoning) = reasoning_of(delta) {
+            if !matches!(self.open, Some((_, Block::Thinking))) {
                 self.close(&mut out);
                 let index = self.next_index;
                 self.next_index += 1;
-                self.open = Some((index, None));
+                self.open = Some((index, Block::Thinking));
+                out.push(event("content_block_start", json!({ "type": "content_block_start", "index": index,
+                    "content_block": { "type": "thinking", "thinking": "", "signature": "" } })));
+            }
+            let index = self.open.as_ref().map(|(i, _)| *i).unwrap_or(0);
+            out.push(event("content_block_delta", json!({ "type": "content_block_delta", "index": index,
+                "delta": { "type": "thinking_delta", "thinking": reasoning } })));
+        }
+        if let Some(text) = delta["content"].as_str().filter(|t| !t.is_empty()) {
+            if !matches!(self.open, Some((_, Block::Text))) {
+                self.close(&mut out);
+                let index = self.next_index;
+                self.next_index += 1;
+                self.open = Some((index, Block::Text));
                 out.push(event("content_block_start", json!({ "type": "content_block_start", "index": index,
                     "content_block": { "type": "text", "text": "" } })));
             }
@@ -432,7 +498,7 @@ impl StreamTranslator {
                 current.index = Some(index);
                 let id = current.id.clone().unwrap_or_else(|| format!("toolu_{}", uuid::Uuid::new_v4().simple()));
                 current.id = Some(id.clone());
-                self.open = Some((index, Some(key)));
+                self.open = Some((index, Block::Tool(key)));
                 self.any_tool_call = true;
                 out.push(event("content_block_start", json!({ "type": "content_block_start", "index": index,
                     "content_block": { "type": "tool_use", "id": id, "name": name, "input": {} } })));
@@ -710,7 +776,7 @@ mod tests {
                     { "type": "text", "text": "Now summarize." }] }
             ]
         });
-        let out = to_openai(&request, false);
+        let out = to_openai(&request, false, false);
         let messages = out["messages"].as_array().unwrap();
         assert_eq!(messages[0], json!({ "role": "system", "content": "Be brief." }));
         assert_eq!(messages[2]["content"], "Reading.");
@@ -730,8 +796,58 @@ mod tests {
             "messages": [{ "role": "user", "content": [
                 { "type": "document", "source": { "type": "text", "data": "x" }, "citations": { "enabled": true } },
                 { "type": "text", "text": "hi" }] }] });
-        assert_eq!(untranslated(&request), ["thinking", "document", "citations", "server_tools", "top_k", "metadata"]);
-        assert!(untranslated(&json!({ "messages": [{ "role": "user", "content": "plain" }] })).is_empty());
+        assert_eq!(untranslated(&request, false), ["thinking", "document", "citations", "server_tools", "top_k", "metadata"]);
+        assert!(untranslated(&json!({ "messages": [{ "role": "user", "content": "plain" }] }), false).is_empty());
+    }
+
+    /// ROADMAP B5. DeepSeek's thinking mode with tools answers HTTP 400 unless the model's earlier reasoning comes
+    /// back as `reasoning_content`; an Anthropic client sends it back as a thinking block.
+    #[test]
+    fn reasoning_crosses_both_ways_and_only_to_providers_that_take_it() {
+        let response = json!({ "choices": [{ "finish_reason": "tool_calls", "message": { "reasoning_content": "Need the file.",
+            "content": "", "tool_calls": [{ "id": "c1", "type": "function", "function": { "name": "read", "arguments": "{}" } }] } }] });
+        let out = from_openai(&response, "m");
+        assert_eq!(out["content"][0], json!({ "type": "thinking", "thinking": "Need the file.", "signature": REASONING_SIGNATURE }));
+        assert_eq!(out["content"][1]["type"], "tool_use");
+        let openrouter = from_openai(&json!({ "choices": [{ "message": { "reasoning": "Hmm.", "content": "Hi" } }] }), "m");
+        assert_eq!((openrouter["content"][0]["thinking"].as_str(), openrouter["content"][1]["text"].as_str()), (Some("Hmm."), Some("Hi")));
+
+        let request = json!({ "model": "m", "messages": [
+            { "role": "user", "content": "Open a.txt" },
+            { "role": "assistant", "content": [out["content"][0].clone(), out["content"][1].clone()] },
+            { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": "c1", "content": "hello" }] }] });
+        let to_deepseek = to_openai(&request, false, true);
+        assert_eq!(to_deepseek["messages"][1]["reasoning_content"], "Need the file.");
+        assert!(untranslated(&request, true).is_empty(), "nothing lost on the way to DeepSeek");
+        let elsewhere = to_openai(&request, false, false);
+        assert!(elsewhere["messages"][1].get("reasoning_content").is_none());
+        assert_eq!(untranslated(&request, false), ["thinking"]);
+
+        // To Anthropic itself the block Pygg signed is left out; Anthropic's own blocks stay.
+        let mut mixed = request.clone();
+        mixed["messages"][1]["content"].as_array_mut().unwrap().insert(0,
+            json!({ "type": "thinking", "thinking": "real", "signature": "EqQBCkYIBxgCKkA" }));
+        let cleaned = without_pygg_reasoning(&mixed).unwrap();
+        let kinds: Vec<&str> = cleaned["messages"][1]["content"].as_array().unwrap().iter().map(|b| b["signature"].as_str().unwrap_or("-")).collect();
+        assert_eq!(kinds, ["EqQBCkYIBxgCKkA", "-"]);
+        assert!(without_pygg_reasoning(&cleaned).is_none());
+    }
+
+    #[test]
+    fn streamed_reasoning_is_a_signed_thinking_block_before_the_answer() {
+        let mut t = StreamTranslator::new("m");
+        let mut events = Vec::new();
+        events.extend(t.push(&json!({ "choices": [{ "delta": { "reasoning_content": "Think" } }] })));
+        events.extend(t.push(&json!({ "choices": [{ "delta": { "reasoning_content": "ing." } }] })));
+        events.extend(t.push(&json!({ "choices": [{ "delta": { "content": "ok" }, "finish_reason": "stop" }] })));
+        events.extend(t.finish());
+        assert_eq!(kinds(&events), ["message_start", "content_block_start", "content_block_delta", "content_block_delta",
+            "content_block_delta", "content_block_stop", "content_block_start", "content_block_delta", "content_block_stop",
+            "message_delta", "message_stop"]);
+        assert!(events[1].contains("\"type\":\"thinking\""));
+        assert!(events[2].contains("thinking_delta") && events[3].contains("ing."));
+        assert!(events[4].contains("signature_delta") && events[4].contains(REASONING_SIGNATURE));
+        assert!(events[6].contains("\"index\":1") && events[6].contains("\"type\":\"text\""));
     }
 
     #[test]
