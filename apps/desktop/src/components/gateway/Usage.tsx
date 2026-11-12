@@ -48,7 +48,9 @@ export function Usage() {
     call(api => api.exportUsage(Number(range))).then(path => path && setExported({ok: true, text: t('Saved to {path}', {path})}),
       e => setExported({ok: false, text: errorText(e)})).finally(() => setExporting(false));
   };
-  const toRequests = () => requestsRef.current?.scrollIntoView({behavior: 'smooth', block: 'start'});
+  // Smooth only when the system allows motion (D12).
+  const toRequests = () => requestsRef.current?.scrollIntoView({block: 'start',
+    behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'});
   // A row of the summaries opens the requests behind it, as request logs in other gateways do.
   const pick = (set: (v: string) => void, value: string) => { set(value); setOpenId(null); setTimeout(toRequests, 0); };
 
@@ -118,7 +120,7 @@ export function Usage() {
           </span>
         </div>
         <div className="group-box table-box">
-          <table className="data-table ledger">
+          <table className="data-table ledger" aria-label={t('Requests')}>
             <thead><tr>
               <th scope="col">{t('Time')}</th><th scope="col">{t('Client')}</th><th scope="col">{t('Model')}</th>
               <th scope="col" className="num">{t('Tokens in → out')}</th><th scope="col" className="num">{t('Cost')}</th>
@@ -165,7 +167,7 @@ function GroupTable({title, column, groups, mono, onPick}: {title: string; colum
   return <section className="group">
     <h2>{title}</h2>
     <div className="group-box table-box">
-      <table className="data-table">
+      <table className="data-table" aria-label={title}>
         <thead><tr>
           <th scope="col">{column}</th><th scope="col" className="num">{t('Requests')}</th>
           <th scope="col" className="num">{t('Tokens')}</th><th scope="col" className="num">{t('Known cost')}</th>

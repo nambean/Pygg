@@ -82,7 +82,7 @@ export function AutoRouting() {
       {route.length === 0
         ? <p className="group-footnote error-text">{t('No connected model is eligible: the request would be refused with the reasons below.')}</p>
         : <div className="group-box table-box auto-route">
-          <table className="data-table">
+          <table className="data-table" aria-label={t('Automatic Routing')}>
             <thead><tr>
               <th scope="col" className="narrow">#</th><th scope="col">{t('Model')}</th><th scope="col">{t('Tier')}</th>
               <th scope="col">{t('Billing')}</th><th scope="col">{t('Estimate')}</th><th scope="col">{t('Why')}</th>

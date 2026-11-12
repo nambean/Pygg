@@ -30,7 +30,7 @@ export function Clients({intent, onIntentDone}: {intent?: 'create'; onIntentDone
       : <section className="group">
         <h2>{t('Client Tokens')}</h2>
         <div className="group-box table-box">
-          <table className="data-table">
+          <table className="data-table" aria-label={t('Client Tokens')}>
             <thead><tr>
               <th scope="col">{t('Client')}</th><th scope="col">{t('Token')}</th><th scope="col">{t('Last used')}</th>
               <th scope="col">{t('This month')}</th><th scope="col" className="narrow"><span className="sr-only">{t('Actions')}</span></th>

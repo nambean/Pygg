@@ -278,7 +278,7 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
     {models.data && models.data.length === 0
       ? <p className="group-footnote">{t('No models yet. Check & Refresh Models asks the provider for its list; Add Model… adds one by name.')}</p>
       : <div className="group-box table-box">
-        <table className="data-table">
+        <table className="data-table" aria-label={t('Models')}>
           <thead><tr>
             <th scope="col">{t('Model')}</th><th scope="col">{t('Billing')}</th><th scope="col">{t('Price')}</th>
             <th scope="col">{t('Auto routing')}</th>

@@ -41,16 +41,36 @@ async fn health_check(state: tauri::State<'_, AppState>) -> Result<HealthStatus,
 }
 
 /// The configured 1440×900 is a preference, not a requirement: on a smaller or scaled screen the window
-/// shrinks to fit the monitor's work area (never below the 1024×640 minimum) and is centered.
+/// shrinks to fit the monitor's work area and is centered. The 1024×640 minimum gives way too when the work area
+/// itself is smaller, as on a 1920×1080 screen at 175% or 200%, or 1366×768 at 125% (D12 release checks): a window
+/// larger than the screen cannot be moved or resized back into view.
 fn fit_to_screen(app: &tauri::App) {
     let Some(window) = app.get_webview_window("main") else { return };
     let Ok(Some(monitor)) = window.current_monitor() else { return };
     let scale = monitor.scale_factor();
     let area = monitor.work_area().size.to_logical::<f64>(scale);
-    let width = (area.width - 48.0).min(1440.0).max(1024.0);
-    let height = (area.height - 48.0).min(900.0).max(640.0);
+    let (min_width, min_height) = fitted_minimum(area.width, area.height);
+    let _ = window.set_min_size(Some(tauri::LogicalSize::new(min_width, min_height)));
+    let width = (area.width - 48.0).min(1440.0).max(min_width);
+    let height = (area.height - 48.0).min(900.0).max(min_height);
     let _ = window.set_size(tauri::LogicalSize::new(width, height));
     let _ = window.center();
+}
+
+/// The window's minimum size on a work area of this logical size: 1024×640, or the whole work area when it is smaller.
+fn fitted_minimum(area_width: f64, area_height: f64) -> (f64, f64) {
+    (1024f64.min(area_width), 640f64.min(area_height))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_minimum_window_fits_a_scaled_screen() {
+        assert_eq!(super::fitted_minimum(1920.0, 1040.0), (1024.0, 640.0), "1080p at 100%");
+        // 1080p at 200%: 960×540 logical, less a 24 px taskbar.
+        assert_eq!(super::fitted_minimum(960.0, 516.0), (960.0, 516.0));
+        assert_eq!(super::fitted_minimum(1097.0, 590.0), (1024.0, 590.0), "1080p at 175%");
+    }
 }
 
 pub fn run() {
