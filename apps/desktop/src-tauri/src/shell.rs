@@ -14,6 +14,9 @@ use tauri_plugin_notification::NotificationExt;
 
 const KEEP_IN_TRAY: &str = "app.keep_in_tray";
 const NOTIFY_TASKS: &str = "app.notify_tasks";
+const NOTIFY_SPENDING: &str = "app.notify_spending";
+/// The alerts already notified, so each is told once a day (`<kind>|<client>` → UTC day).
+const SPENDING_NOTIFIED: &str = "app.spending_notified";
 const TRAY_HINT_SHOWN: &str = "app.tray_hint_shown";
 
 /// The argument Pygg is started with at sign-in: it opens in the tray, without its window.
@@ -173,6 +176,47 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
 }
 
 /// A task's runner stopped: the interface reloads, and the user is told when the task needs them.
+/// The spending alerts worth a notification now (store::usage_alerts): a client near or over its monthly limit, a spend
+/// spike, a burst of failures. Unknown costs are left to the Usage screen. Each is notified once per UTC day; the
+/// notification names no client or amount (as ADR-010 keeps task notifications plain), only what to look at.
+pub fn spending_notifications(app: &AppHandle) {
+    if !preference(app, NOTIFY_SPENDING) {
+        return;
+    }
+    let state = app.state::<AppState>();
+    let now = crate::db::now_ms();
+    let day = now / 86_400_000;
+    let (alerts, mut notified) = state.shared.with_db(|db| {
+        let alerts = store::usage_alerts(db, now).unwrap_or_default();
+        let notified: HashMap<String, i64> = store::setting(db, SPENDING_NOTIFIED).ok().flatten()
+            .and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        (alerts, notified)
+    });
+    notified.retain(|_, d| *d == day);
+    let s = app.state::<Strings>();
+    for alert in alerts {
+        let key = format!("{}|{}", alert.kind, alert.client.clone().unwrap_or_default());
+        if notified.contains_key(&key) {
+            continue;
+        }
+        let (title, body) = match alert.kind.as_str() {
+            "over_limit" => (s.get("notify.over_limit.title", "A client has reached its monthly limit"),
+                s.get("notify.over_limit.body", "Its requests are refused until next month or a higher limit. Open Pygg to see Usage.")),
+            "near_limit" => (s.get("notify.near_limit.title", "A client is near its monthly limit"),
+                s.get("notify.near_limit.body", "It has used 80% or more of it. Open Pygg to see Usage.")),
+            "spend_spike" => (s.get("notify.spike.title", "Spending is up"),
+                s.get("notify.spike.body", "The last 24 hours cost three times the week's daily average or more. Open Pygg to see Usage.")),
+            "failures" => (s.get("notify.failures.title", "Many requests are failing"),
+                s.get("notify.failures.body", "Half or more of the last hour's requests failed. Open Pygg to see Usage.")),
+            _ => continue,
+        };
+        let _ = app.notification().builder().title(title).body(body).show();
+        notified.insert(key, day);
+    }
+    let text = serde_json::to_string(&notified).unwrap_or_default();
+    let _ = state.shared.with_db(|db| store::set_setting(db, SPENDING_NOTIFIED, &text));
+}
+
 pub fn task_stopped(app: &AppHandle, state: &str) {
     let _ = app.emit("tasks-changed", ());
     if !preference(app, NOTIFY_TASKS) {
@@ -199,6 +243,8 @@ pub fn task_stopped(app: &AppHandle, state: &str) {
 pub struct Preferences {
     pub keep_in_tray: bool,
     pub notify_tasks: bool,
+    /// Notify when a client nears its limit, spending spikes or requests keep failing.
+    pub notify_spending: bool,
     /// Pygg opens in the tray when the user signs in to Windows.
     pub open_at_sign_in: bool,
 }
@@ -206,6 +252,7 @@ pub struct Preferences {
 #[tauri::command]
 pub fn app_preferences(app: AppHandle) -> Preferences {
     Preferences { keep_in_tray: preference(&app, KEEP_IN_TRAY), notify_tasks: preference(&app, NOTIFY_TASKS),
+        notify_spending: preference(&app, NOTIFY_SPENDING),
         open_at_sign_in: sign_in::enabled() }
 }
 
@@ -218,6 +265,7 @@ pub fn app_set_preference(app: AppHandle, key: String, value: bool) -> Result<Pr
     let key = match key.as_str() {
         "keepInTray" => KEEP_IN_TRAY,
         "notifyTasks" => NOTIFY_TASKS,
+        "notifySpending" => NOTIFY_SPENDING,
         other => return Err(format!("unknown preference {other}")),
     };
     app.state::<AppState>().shared.with_db(|db| store::set_setting(db, key, if value { "true" } else { "false" }))?;

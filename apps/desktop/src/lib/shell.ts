@@ -6,7 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { t } from './i18n';
 import { runningInDesktop } from './native';
 
-export type Preferences = { keepInTray: boolean; notifyTasks: boolean; openAtSignIn: boolean };
+export type Preferences = { keepInTray: boolean; notifyTasks: boolean; notifySpending: boolean; openAtSignIn: boolean };
 
 export function preferences(): Promise<Preferences> {
   return invoke('app_preferences');
@@ -32,6 +32,14 @@ export function sendShellStrings() {
     'notify.review.body': t('It finished, but no check confirmed it. Open Pygg to review the changes.'),
     'notify.failed.title': t('A task did not finish'),
     'notify.failed.body': t('Open Pygg to see why each step stopped.'),
+    'notify.over_limit.title': t('A client has reached its monthly limit'),
+    'notify.over_limit.body': t('Its requests are refused until next month or a higher limit. Open Pygg to see Usage.'),
+    'notify.near_limit.title': t('A client is near its monthly limit'),
+    'notify.near_limit.body': t('It has used 80% or more of it. Open Pygg to see Usage.'),
+    'notify.spike.title': t('Spending is up'),
+    'notify.spike.body': t('The last 24 hours cost three times the week’s daily average or more. Open Pygg to see Usage.'),
+    'notify.failures.title': t('Many requests are failing'),
+    'notify.failures.body': t('Half or more of the last hour’s requests failed. Open Pygg to see Usage.'),
   };
   invoke('ui_strings', {strings}).catch(() => undefined);
 }

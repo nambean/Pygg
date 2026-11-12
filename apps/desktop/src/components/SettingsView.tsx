@@ -74,6 +74,12 @@ function Background() {
           onChange={v => change('keepInTray', v)}/>}</span>
       </div>
       <div className="group-row">
+        <span className="group-label">{t('Notify me about spending')}
+          <small>{t('When a client nears or reaches its monthly limit, spending is three times the week’s average, or many requests fail. Once a day each, checked every ten minutes.')}</small></span>
+        <span className="group-control">{prefs && <Switch label={t('Notify me about spending')} checked={prefs.notifySpending}
+          onChange={v => change('notifySpending', v)}/>}</span>
+      </div>
+      <div className="group-row">
         <span className="group-label">{t('Notify me about tasks')}
           <small>{t('When a paid step waits for approval, or a task is ready, needs review or did not finish. Notifications never show a task’s name or files.')}</small></span>
         <span className="group-control">{prefs && <Switch label={t('Notify me about tasks')} checked={prefs.notifyTasks}

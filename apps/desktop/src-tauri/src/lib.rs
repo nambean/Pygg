@@ -154,6 +154,16 @@ pub fn run() {
             }
             app.manage(state);
             shell::setup_tray(app)?;
+            // Spending alerts as notifications, checked every ten minutes while Pygg runs (shell.rs).
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+                        shell::spending_notifications(&handle);
+                    }
+                });
+            }
             fit_to_screen(app);
             Ok(())
         })
