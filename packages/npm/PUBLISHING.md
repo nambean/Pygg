@@ -2,7 +2,7 @@
 
 > **Status:** Current · developer preview, unsigned, Windows x64 only (owner, 2026-11-12) · ROADMAP D2b · ADR-030
 
-Two packages: `@pygg/win32-x64` holds the native `pygg-cli.exe`, and `pygg` is the launcher that runs it. Publish the platform package first, since `pygg` names it as an optional dependency.
+Two packages: `@pygg/win32-x64` holds the native `pygg-cli.exe`, and `@pygg/cli` is the launcher that runs it as the `pygg` command. Publish the platform package first, since the launcher names it as an optional dependency. (npm refused the unscoped name `pygg` on 2026-11-12 as too close to `pg`, `pkg`, `pug` and others; names under our own scope are not checked that way.)
 
 ## Once: account, sign-in and scope
 
@@ -18,13 +18,13 @@ From the repository root, after a release build (`pnpm tauri build` in `apps/des
 ```powershell
 node scripts/npm-pack.mjs
 npm publish dist/npm/pygg-win32-x64-0.1.0-dev.0.tgz --access public --tag dev
-npm publish dist/npm/pygg-0.1.0-dev.0.tgz --access public --tag dev
+npm publish dist/npm/pygg-cli-0.1.0-dev.0.tgz --access public --tag dev
 ```
 
-`--tag dev` keeps a pre-release off `latest`, and current npm refuses a pre-release version without a tag. People install it with `npm install -g pygg@dev`, then run `pygg doctor`.
+`--tag dev` keeps a pre-release off `latest`, and current npm refuses a pre-release version without a tag. People install it with `npm install -g @pygg/cli@dev`, then run `pygg doctor`.
 
-For the next release, raise `version` in both `package.json` files and the `optionalDependencies` entry in `pygg/package.json` together; `npm-pack.mjs` refuses versions that differ.
+For the next release, raise `version` in both `package.json` files and the `optionalDependencies` entry in `pygg/package.json` (the launcher, `@pygg/cli`) together; `npm-pack.mjs` refuses versions that differ.
 
-## If a name is refused
+## Published
 
-npm can refuse `pygg` as too close to an existing name, or the `pygg` organization can be taken. Then pick another pair, such as `pygg-cli` with `@pygg-cli/win32-x64`, and change the names in both `package.json` files, the launcher (`bin/pygg.js` looks for `@pygg/<platform>-<arch>`) and this file.
+- `@pygg/win32-x64@0.1.0-dev.0`, 2026-11-12 (tags `dev` and `latest`, since it was the package's first version).

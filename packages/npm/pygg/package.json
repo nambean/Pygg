@@ -1,5 +1,5 @@
 {
-  "name": "pygg",
+  "name": "@pygg/cli",
   "version": "0.1.0-dev.0",
   "description": "Pygg from the command line: status, doctor, the MCP server for coding agents, the gateway and agent tools. Developer preview, unsigned, Windows x64 only.",
   "license": "MIT",

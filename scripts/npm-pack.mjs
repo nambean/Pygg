@@ -1,9 +1,10 @@
-// Packs the npm packages for `pygg` (ROADMAP D2, ADR-030) from a release build, without publishing anything.
+// Packs the npm packages for the `pygg` command, @pygg/cli and @pygg/win32-x64 (ROADMAP D2, ADR-030), from a release
+// build, without publishing anything.
 //
 //   node scripts/npm-pack.mjs [--exe PATH] [--out DIR]
 //
 // Copies the release `pygg-cli.exe` (default apps/desktop/src-tauri/target/release/pygg-cli.exe) into
-// packages/npm/win32-x64/bin, then runs `npm pack` for @pygg/win32-x64 and pygg into DIR (default dist/npm). The
+// packages/npm/win32-x64/bin, then runs `npm pack` for @pygg/win32-x64 and @pygg/cli into DIR (default dist/npm). The
 // binary is never committed. Publishing is the owner's step: see packages/npm/PUBLISHING.md.
 import { execSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';

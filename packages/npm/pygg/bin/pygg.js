@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// `pygg` from npm: finds the native `pygg-cli` program and runs it with the same arguments, standard input and output
-// (so `pygg mcp` works as an MCP server for coding agents) and exits with its code. The program comes from the
+// `pygg` from npm (@pygg/cli): finds the native `pygg-cli` program and runs it with the same arguments, standard input
+// and output (so `pygg mcp` works as an MCP server for coding agents) and exits with its code. The program comes from the
 // platform package npm installed next to this one (@pygg/<platform>-<arch>); failing that, from an installed Pygg app.
 'use strict';
 

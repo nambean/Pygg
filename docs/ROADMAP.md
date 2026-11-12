@@ -102,7 +102,7 @@ C3's first pass settled less than it was meant to. All 24 cases passed on OpenCo
 
 Then D2 (integrations hub, `str` and npm), B6 and E, in the order already set. N5 and N10 can run alongside the others; N2 needs N3 to measure the product's own cascade.
 
-**Owner decisions:** the remaining $2.56 covers N2, N6 and N8 as listed (**approved 2026-11-11**); later the same day the owner **raised the benchmark budget to $20 in total** (ADR-028), so N2 can repeat every arm, premium included, and cover harder cases. Still to decide: a code-signing certificate for D3, when distribution starts (2026-11-12: not needed while Pygg is in development); registering the npm name `pygg` and the scope `@pygg` before D2 is published.
+**Owner decisions:** the remaining $2.56 covers N2, N6 and N8 as listed (**approved 2026-11-11**); later the same day the owner **raised the benchmark budget to $20 in total** (ADR-028), so N2 can repeat every arm, premium included, and cover harder cases. Still to decide: a code-signing certificate for D3, when distribution starts (2026-11-12: not needed while Pygg is in development); npm: the owner created the `@pygg` organization and published `@pygg/win32-x64@0.1.0-dev.0` on 2026-11-12; npm refused the unscoped name `pygg` (too close to `pg`, `pkg`, `pug`), so the launcher is `@pygg/cli`, still installing the `pygg` command.
 
 **D. Distribution**
 1. An NSIS installer tried on a clean machine.
