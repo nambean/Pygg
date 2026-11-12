@@ -5,7 +5,8 @@
 import type { Billing, Connection, Model, Target, Tier } from './api';
 
 export type Protocol = 'openai' | 'anthropic';
-export type TemplateOptions = {tools: boolean; minTier: Tier; protocol: Protocol};
+/** allowUntiered: free and local models without a tier may take part, last in their stage (the user's explicit choice). */
+export type TemplateOptions = {tools: boolean; minTier: Tier; protocol: Protocol; allowUntiered?: boolean};
 
 export type TemplateId = 'free-first' | 'subscription-only' | 'plans-first' | 'strong-backup' | 'no-metered' | 'local-only' | 'long-context';
 
@@ -17,15 +18,18 @@ export type Template = {
   minContext?: number;
   /** Only connections served from this computer. */
   loopback?: boolean;
+  /** Its name promises free, local or plan models first: it is not created with paid models alone, and its paid stage
+   * keeps only the cheapest backups. */
+  unpaidFirst?: boolean;
   /** How members are ordered within a stage. */
   order: 'tier-then-cost' | 'cost-then-tier' | 'strongest-then-cost';
 };
 
 export const TEMPLATES: Template[] = [
-  {id: 'free-first', name: 'Free first', defaultName: 'free-first', stages: ['local', 'free', 'paid'], order: 'tier-then-cost',
+  {id: 'free-first', name: 'Free first', defaultName: 'free-first', stages: ['local', 'free', 'paid'], order: 'tier-then-cost', unpaidFirst: true,
     purpose: 'Try models on this computer and free tiers before paid ones; paid models need a known price.'},
   {id: 'plans-first', name: 'Use my plans first', defaultName: 'plans-first', stages: ['subscription', 'local', 'free', 'paid'],
-    order: 'tier-then-cost', purpose: 'Spend the quota you already pay for, then free, then paid as a backup.'},
+    order: 'tier-then-cost', unpaidFirst: true, purpose: 'Spend the quota you already pay for, then free, then paid as a backup.'},
   {id: 'subscription-only', name: 'Subscription only', defaultName: 'subscription', stages: ['subscription'], order: 'tier-then-cost',
     purpose: 'Only your plans. When their quota is out, the request fails instead of spilling into paid usage.'},
   {id: 'strong-backup', name: 'Strong coding, cheap backup', defaultName: 'coding', stages: ['subscription', 'local', 'free', 'paid'],
@@ -51,9 +55,16 @@ export type Resolved = {
   missingStages: Billing[];
   /** Members left out because a combo is kept short. */
   capped: number;
+  /** The template leads with free, local or plan stages, and none of them matched: only paid models are left, so
+   * creating it would contradict its name. */
+  paidOnly: boolean;
+  /** Why the models of each non-paid stage were left out, most common first, for the advice shown. */
+  stageReasons: {stage: Billing; total: number; reasons: [string, number][]}[];
 };
 
 const MAX_MEMBERS = 6;
+/** A paid stage after free ones is a backup: its cheapest two are enough. */
+const MAX_PAID_BACKUPS = 2;
 
 function referenceCost(m: Model): number | null {
   if (!m.price) return null;
@@ -67,10 +78,19 @@ function isLoopback(c: Connection): boolean {
 export function resolve(template: Template, options: TemplateOptions, models: Model[], connections: Connection[]): Resolved {
   const excluded: Resolved['excluded'] = [];
   const candidates: {model: Model; stage: number; cost: number | null; tier: number}[] = [];
+  const reasonsByStage = new Map<Billing, Map<string, number>>();
   for (const m of models) {
     const target = {providerId: m.providerId, modelId: m.modelId};
     const c = connections.find(x => x.id === m.providerId);
-    const no = (why: string) => excluded.push({target, why});
+    const no = (why: string) => {
+      excluded.push({target, why});
+      if (template.stages.includes(m.billing) && m.billing !== 'paid') {
+        const counts = reasonsByStage.get(m.billing) ?? new Map<string, number>();
+        const kind = why.startsWith('tier ') && why.includes('below') ? `tier below ${options.minTier}` : why.replace(/ \d+k, below \d+k$/, ' too small');
+        counts.set(kind, (counts.get(kind) ?? 0) + 1);
+        reasonsByStage.set(m.billing, counts);
+      }
+    };
     if (!c || !c.enabled) { no('its connection is off'); continue; }
     if (!m.enabled) { no('the model is off'); continue; }
     const stage = template.stages.indexOf(m.billing);
@@ -79,14 +99,15 @@ export function resolve(template: Template, options: TemplateOptions, models: Mo
     if (options.protocol === 'openai' && c.wire === 'anthropic') { no('Anthropic-format only; OpenAI-format clients can’t use it'); continue; }
     const caps = m.capabilities;
     if (options.tools && caps.supportsTools !== true) { no(caps.supportsTools === false ? 'does not take tools' : 'tool support unknown'); continue; }
-    if (caps.tier === null) { no('tier not set'); continue; }
-    if (TIER_RANK[caps.tier] < TIER_RANK[options.minTier]) { no(`tier ${caps.tier}, below ${options.minTier}`); continue; }
+    const untieredOk = caps.tier === null && options.allowUntiered && (m.billing === 'free' || m.billing === 'local');
+    if (caps.tier === null && !untieredOk) { no('tier not set'); continue; }
+    if (caps.tier !== null && TIER_RANK[caps.tier] < TIER_RANK[options.minTier]) { no(`tier ${caps.tier}, below ${options.minTier}`); continue; }
     if (template.minContext && (caps.contextTokens ?? 0) < template.minContext) {
       no(caps.contextTokens === null ? 'context size unknown' : `context ${Math.round(caps.contextTokens / 1000)}k, below ${template.minContext / 1000}k`); continue;
     }
     const cost = referenceCost(m);
     if (m.billing === 'paid' && cost === null) { no('paid without a known price'); continue; }
-    candidates.push({model: m, stage, cost, tier: TIER_RANK[caps.tier]});
+    candidates.push({model: m, stage, cost, tier: caps.tier === null ? -1 : TIER_RANK[caps.tier]});
   }
   const byCost = (a: number | null, b: number | null) => (a ?? 0) - (b ?? 0);
   const stable = (a: Model, b: Model) => `${a.providerId}/${a.modelId}`.localeCompare(`${b.providerId}/${b.modelId}`);
@@ -97,16 +118,27 @@ export function resolve(template: Template, options: TemplateOptions, models: Mo
     const rest = candidates.filter(c => c !== best).sort((a, b) => a.stage - b.stage || byCost(a.cost, b.cost) || stable(a.model, b.model));
     ordered = best ? [best, ...rest] : [];
   } else {
-    ordered = [...candidates].sort((a, b) => a.stage - b.stage || (template.order === 'tier-then-cost'
+    // Free, local and plan stages: the strongest first. A paid stage is a backup: the cheapest first, whatever the order.
+    ordered = [...candidates].sort((a, b) => a.stage - b.stage || (template.order === 'tier-then-cost' && a.model.billing !== 'paid'
       ? b.tier - a.tier || byCost(a.cost, b.cost) : byCost(a.cost, b.cost) || b.tier - a.tier) || stable(a.model, b.model));
   }
-  const kept = ordered.slice(0, MAX_MEMBERS);
+  // After free or plan stages, paid models are only backups: keep the cheapest two.
+  const leadsFree = !!template.unpaidFirst;
+  let paidKept = 0;
+  const trimmed = leadsFree ? ordered.filter(c => c.model.billing !== 'paid' || paidKept++ < MAX_PAID_BACKUPS) : ordered;
+  const kept = trimmed.slice(0, MAX_MEMBERS);
   const members = kept.map((c, i) => ({
     target: {providerId: c.model.providerId, modelId: c.model.modelId},
     referenceMicroUsd: c.cost,
     why: [template.order === 'strongest-then-cost' && i === 0 ? 'strongest that qualifies' : null, c.model.billing,
-      c.model.capabilities.tier, c.cost !== null && c.model.billing === 'paid' ? 'priced' : null].filter(Boolean).join(' · '),
+      c.model.capabilities.tier ?? 'tier not set', c.cost !== null && c.model.billing === 'paid' ? 'priced' : null].filter(Boolean).join(' · '),
   }));
   const present = new Set(kept.map(c => c.model.billing));
-  return {members, excluded, missingStages: template.stages.filter(s => !present.has(s)), capped: Math.max(0, ordered.length - MAX_MEMBERS)};
+  const paidOnly = leadsFree && kept.length > 0 && kept.every(c => c.model.billing === 'paid');
+  const stageReasons = template.stages.filter(s => s !== 'paid' && !present.has(s)).map(stage => {
+    const counts = [...(reasonsByStage.get(stage) ?? new Map<string, number>()).entries()].sort((a, b) => b[1] - a[1]);
+    return {stage, total: counts.reduce((n, [, k]) => n + k, 0), reasons: counts.slice(0, 4)};
+  });
+  return {members, excluded, missingStages: template.stages.filter(s => !present.has(s)),
+    capped: Math.max(0, trimmed.length - MAX_MEMBERS), paidOnly, stageReasons};
 }

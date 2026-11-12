@@ -857,6 +857,7 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .template-text small { font-size: 12px; line-height: 1.4; }
 .template-empty { display: grid; gap: 6px; justify-items: start; padding: 12px; border-radius: 8px; background: var(--surface); }
 .template-empty p { margin: 0; }
+.template-empty.warn-box { border: 1px solid color-mix(in srgb, var(--orange) 55%, transparent); margin-bottom: 8px; }
 .template-excluded { font-size: 12px; margin: 6px 0; }
 .template-excluded ul { margin: 6px 0 0; padding-left: 18px; max-height: 180px; overflow: auto; }
 .guarantee-list { list-style: none; margin: 0; padding: 4px 0; }

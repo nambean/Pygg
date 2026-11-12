@@ -17,11 +17,12 @@ export function ComboTemplates({models, connections, existing, onClose, onConnec
   const [tools, setTools] = useState(true);
   const [minTier, setMinTier] = useState<Tier>('T2');
   const [protocol, setProtocol] = useState<Protocol>('anthropic');
+  const [allowUntiered, setAllowUntiered] = useState(false);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const resolved = useMemo(() => template && resolve(template, {tools, minTier, protocol}, models, connections),
-    [template, tools, minTier, protocol, models, connections]);
+  const resolved = useMemo(() => template && resolve(template, {tools, minTier, protocol, allowUntiered}, models, connections),
+    [template, tools, minTier, protocol, allowUntiered, models, connections]);
   const trimmed = name.trim();
   const nameError = !trimmed ? null : /[\s/]/.test(trimmed) ? t('No spaces or slashes.')
     : existing.some(c => c.name === trimmed) ? t('Another combo has this name.') : null;
@@ -47,7 +48,7 @@ export function ComboTemplates({models, connections, existing, onClose, onConnec
       <span className="spacer"/>
       <button type="button" className="button" onClick={onClose} disabled={busy}>{t('Cancel')}</button>
       {template && <button type="button" className="button prominent" onClick={create}
-        disabled={busy || !resolved?.members.length || !trimmed || !!nameError}>{t('Create Combo')}</button>}
+        disabled={busy || !resolved?.members.length || resolved.paidOnly || !trimmed || !!nameError}>{t('Create Combo')}</button>}
     </>}>
     {!template && <div className="template-grid">
       {TEMPLATES.map(tpl => <button key={tpl.id} type="button" className="template-card" onClick={() => pick(tpl)}>
@@ -70,9 +71,26 @@ export function ComboTemplates({models, connections, existing, onClose, onConnec
             <select className="popup-button" value={minTier} onChange={e => setMinTier(e.target.value as Tier)} aria-label={t('Tier at least')}>
               {TIERS.map(x => <option key={x} value={x}>{x}</option>)}
             </select>
+            <label className="checkbox"><input type="checkbox" checked={allowUntiered} onChange={e => setAllowUntiered(e.target.checked)}/>
+              {t('Include free and local models without a tier')}</label>
           </span>
         </FormRow>
       </div>
+      {resolved.paidOnly && <div className="template-empty warn-box" role="alert">
+        <p><b>{t('No free, local or plan model qualified, so this would be paid models only.')}</b> {t('Pygg won’t create a “{name}” combo that always costs money.', {name: t(template.name)})}</p>
+        {resolved.stageReasons.filter(r => r.total > 0).map(r => <p key={r.stage} className="secondary">
+          {t('{stage} models left out: {reasons}.', {stage: r.stage, reasons: r.reasons.map(([why, n]) => `${n} ${why}`).join(', ')})}</p>)}
+        {resolved.stageReasons.every(r => r.total === 0) && <p className="secondary">{t('You have no free, local or plan models connected.')}</p>}
+        <span className="row-actions">
+          {minTier !== 'T0' && <button type="button" className="button small" onClick={() => setMinTier(minTier === 'T2' || minTier === 'T3' || minTier === 'T4' ? 'T1' : 'T0')}>
+            {t('Allow tier {tier}', {tier: minTier === 'T1' ? 'T0' : 'T1'})}</button>}
+          {!allowUntiered && resolved.stageReasons.some(r => r.reasons.some(([why]) => why === 'tier not set')) &&
+            <button type="button" className="button small" onClick={() => setAllowUntiered(true)}>{t('Include models without a tier')}</button>}
+          {tools && <button type="button" className="button small" onClick={() => setTools(false)}>{t('Don’t require tools')}</button>}
+          <button type="button" className="button small" onClick={onConnect}>{t('Connect a Free Provider…')}</button>
+        </span>
+        <p className="secondary">{t('Many free models are listed without their tier or tool support: Providers → Check & Refresh Models, or pygg gateway lookup, fills in what is known. A lower tier lets weaker models answer; without tools, coding agents may fail.')}</p>
+      </div>}
       {resolved.members.length > 0 ? <>
         <ol className="member-list" aria-label={t('Models in order')}>
           {resolved.members.map((m, i) => <li key={`${m.target.providerId}/${m.target.modelId}`} className="member">
