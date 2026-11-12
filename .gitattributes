@@ -3,3 +3,5 @@
 *.cmd text eol=crlf
 # Benchmark results are checked against SHA256SUMS: keep their bytes as committed.
 benchmark/results/** -text
+# The npm launcher runs on every platform; its shebang must not get a CR.
+packages/npm/**/*.js text eol=lf
