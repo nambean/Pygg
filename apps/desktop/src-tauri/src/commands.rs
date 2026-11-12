@@ -534,6 +534,28 @@ pub fn usage_local(state: State<'_, AppState>, days: u32) -> Res<Vec<store::Loca
     state.shared.with_db(|db| store::local_usage(db, since))
 }
 
+/// How long usage history is kept (Settings → Data), and what the last clean-up deleted.
+#[tauri::command]
+pub fn retention_get(state: State<'_, AppState>) -> Res<crate::retention::Retention> {
+    state.shared.with_db(crate::retention::view)
+}
+
+/// Keeps usage history for 30, 90 or 365 days, or forever (`None`); what is older goes now, then once a day.
+#[tauri::command]
+pub fn retention_set(state: State<'_, AppState>, days: Option<u32>) -> Res<crate::retention::Retention> {
+    state.shared.with_db(|db| {
+        crate::retention::set_days(db, days)?;
+        crate::retention::prune(db, crate::db::now_ms())?;
+        crate::retention::view(db)
+    })
+}
+
+/// How many ledger rows keeping `days` days would delete now, for the confirmation; nothing is deleted.
+#[tauri::command]
+pub fn retention_preview(state: State<'_, AppState>, days: u32) -> Res<u64> {
+    state.shared.with_db(|db| crate::retention::would_delete(db, days, crate::db::now_ms()))
+}
+
 /// Every request of the period as CSV, saved where the user picks; `None` when they cancel.
 #[tauri::command]
 pub async fn usage_export(app: tauri::AppHandle, state: State<'_, AppState>, days: u32) -> Res<Option<String>> {

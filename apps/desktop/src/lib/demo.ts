@@ -6,7 +6,7 @@
  */
 import type { AgentInfo, Integration, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
   Health, Model, Preset, Target, Tier, UsageEvent, UsageBucket, UsageGroup, UsageSummary, Account, Wire,
-  LocalUsage, SubscriptionUsage } from './api';
+  LocalUsage, SubscriptionUsage, Retention } from './api';
 import { TIERS } from './api';
 import { SAMPLE_WORKSPACES, sampleTasks } from './sample';
 import type { AttemptView, NewTask, TaskDetail, TaskSummary, WorkspaceView } from './tasks';
@@ -266,6 +266,14 @@ export function demoApi(): GatewayApi {
     }
   }
 
+  // Older history, outside every Usage period, for Settings → Usage History to count and delete.
+  for (let i = 0; i < 12; i++) {
+    events.push({id: `h${i}`, createdAt: now - (40 + i * 15) * 86_400_000, client: 'Scripts', requestedModel: 'coding', provider: 'gemini',
+      model: 'gemini-3.1-flash-lite', inputTokens: 4_000, outputTokens: 300, costMicroUsd: 520, costStatus: 'estimated',
+      costSource: 'price: user', outcome: 'ok', httpStatus: 200, latencyMs: 900, error: null, cacheTokens: null, cacheWriteTokens: null,
+      sessionKey: null, routeMode: 'native', atRiskMicroUsd: null, routeReason: null});
+  }
+
   // `?empty` starts from nothing, to review first-run states.
   if (new URLSearchParams(location.search).has('empty')) {
     connections.length = 0;
@@ -275,6 +283,7 @@ export function demoApi(): GatewayApi {
     events.length = 0;
   }
 
+  let retention: Retention = {days: null, lastRun: null};
   const monthStart = () => { const d = new Date(); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1); };
   function clientView(c: Client & {spend: number}): Client {
     const mine = events.filter(e => e.client === c.name && e.createdAt >= monthStart());
@@ -603,6 +612,18 @@ export function demoApi(): GatewayApi {
       return touch(out);
     },
     exportUsage: async () => { await sleep(200); return 'C:\\Users\\you\\Downloads\\pygg-usage.csv'; },
+    retention: () => touch(retention),
+    // The preview deletes nothing: it only counts what the setting would remove, as retention.rs decides it.
+    retentionPreview: async days => touch(events.filter(e => e.createdAt < Math.min(Date.now() - days * 86_400_000, monthStart())).length),
+    setRetention: async days => {
+      if (days !== null) {
+        const before = Math.min(Date.now() - days * 86_400_000, monthStart());
+        const kept = events.filter(e => e.createdAt >= before);
+        retention = {days, lastRun: {at: Date.now(), before, usageRows: events.length - kept.length, routeDecisions: 0}};
+        events.splice(0, events.length, ...kept);
+      } else retention = {...retention, days};
+      return touch(retention);
+    },
     exportDiagnostics: async () => { await sleep(200); return 'C:\\Users\\you\\Downloads\\pygg-diagnostics.zip'; },
     usageOverTime: async days => {
       const size = days <= 1 ? 3_600_000 : 86_400_000;

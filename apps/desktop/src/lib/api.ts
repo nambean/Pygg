@@ -168,6 +168,12 @@ export type LocalModelUsage = {
 };
 export type LocalUsage = {providerId: string; label: string; kind: string | null; models: LocalModelUsage[]};
 
+/** How long usage history is kept (Settings → Usage History); null is forever. */
+export type RetentionDays = 30 | 90 | 365 | null;
+/** What one clean-up deleted: ledger rows and route decisions created before `before`. */
+export type RetentionRun = {at: number; before: number; usageRows: number; routeDecisions: number};
+export type Retention = {days: RetentionDays; lastRun: RetentionRun | null};
+
 /** How tasks turned out (ROADMAP C4): every paid step counts toward the money per kept result. */
 export type TaskQuality = {
   tasks: number; kept: number; discarded: number; retried: number; cancelled: number;
@@ -265,6 +271,11 @@ export interface GatewayApi {
   usageLocal(days: number): Promise<LocalUsage[]>;
   /** Every request of the period as a CSV file the user saves; the path, or null when they cancel. */
   exportUsage(days: number): Promise<string | null>;
+  retention(): Promise<Retention>;
+  /** Saves the period and deletes what is older now; the rest goes once a day. */
+  setRetention(days: RetentionDays): Promise<Retention>;
+  /** How many requests keeping `days` days would delete now; deletes nothing. */
+  retentionPreview(days: number): Promise<number>;
   /** The redacted diagnostics bundle as a zip the user saves; the path, or null when they cancel. */
   exportDiagnostics(): Promise<string | null>;
   /** How tasks turned out over the last `days`. */
@@ -348,6 +359,9 @@ const native: GatewayApi = {
   usageSubscriptions: days => invoke('usage_subscriptions', {days}),
   usageLocal: days => invoke('usage_local', {days}),
   exportDiagnostics: () => invoke('diagnostics_export'),
+  retention: () => invoke('retention_get'),
+  setRetention: days => invoke('retention_set', {days}),
+  retentionPreview: days => invoke('retention_preview', {days}),
   taskQuality: days => invoke('tasks_quality', {days}),
   agents: () => invoke('agents_detect'),
   runAgent: task => invoke('agent_run', {request: task}),

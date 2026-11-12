@@ -16,6 +16,7 @@ pub mod mcp;
 pub mod messages;
 pub mod process;
 pub mod redact;
+pub mod retention;
 pub mod shell;
 pub mod tasks;
 pub mod vault;
@@ -134,6 +135,18 @@ pub fn run() {
                     }
                 });
             }
+            // Usage history older than the user keeps (Settings → Data) goes at start-up and once a day; forever by default.
+            {
+                let shared = state.shared.clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        if let Err(e) = shared.with_db(|db| retention::prune(db, db::now_ms())) {
+                            eprintln!("usage history clean-up: {e}");
+                        }
+                        tokio::time::sleep(retention::EVERY).await;
+                    }
+                });
+            }
             if state.autostart() {
                 // A busy port is reported in Endpoints rather than stopping the app from opening.
                 let _ = tauri::async_runtime::block_on(state.start());
@@ -218,6 +231,9 @@ pub fn run() {
             commands::usage_export,
             commands::usage_subscriptions,
             commands::usage_local,
+            commands::retention_get,
+            commands::retention_set,
+            commands::retention_preview,
             commands::connection_check_account,
             commands::diagnostics_export,
         ])

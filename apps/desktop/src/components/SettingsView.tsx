@@ -6,6 +6,7 @@ import { call, errorText, gatewayChanged } from '../lib/api';
 import { useGateway } from '../hooks/useGateway';
 import { ErrorNote, Switch } from './ui';
 import { DiagnosticsSettings } from './DiagnosticsSettings';
+import { DataRetentionSettings } from './DataRetentionSettings';
 
 /** Settings (SCREENS.md §5.8): language, the tray and notifications. Gateway settings live in Overview. */
 export function SettingsView({language, onLanguage, onGateway}: {language: LanguageChoice; onLanguage: (choice: LanguageChoice) => void;
@@ -46,6 +47,7 @@ export function SettingsView({language, onLanguage, onGateway}: {language: Langu
       </div>
     </section>
     <DiagnosticsSettings/>
+    <DataRetentionSettings/>
   </div>;
 }
 
