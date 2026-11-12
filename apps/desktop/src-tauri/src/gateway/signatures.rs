@@ -64,9 +64,11 @@ impl SignatureCache {
     /// Prepares a request body for one target: Gemini gets every tool call signed, others get no
     /// `extra_content` at all, since strict APIs reject fields they do not know.
     pub fn apply(&self, body: &mut Value, gemini: bool) {
-        let Some(messages) = body["messages"].as_array_mut() else { return };
+        // `get_mut`, not indexing: indexing a missing key would add it as null, and a provider may refuse a
+        // `"tool_calls": null` on every message, or a `"messages": null` on a Responses API body.
+        let Some(messages) = body.get_mut("messages").and_then(Value::as_array_mut) else { return };
         for message in messages {
-            let Some(calls) = message["tool_calls"].as_array_mut() else { continue };
+            let Some(calls) = message.get_mut("tool_calls").and_then(Value::as_array_mut) else { continue };
             for call in calls {
                 let Some(call) = call.as_object_mut() else { continue };
                 if !gemini {

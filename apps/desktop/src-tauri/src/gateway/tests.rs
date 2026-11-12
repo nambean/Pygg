@@ -19,6 +19,8 @@ impl Secrets for MapSecrets {
 struct Fake {
     calls: Mutex<HashMap<String, usize>>,
     flaky_failed: AtomicBool,
+    /// The last request body the fake received, for the translation tests.
+    last_body: Mutex<Option<Value>>,
 }
 
 impl Fake {
@@ -31,6 +33,7 @@ impl Fake {
 async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody(body): JsonBody<Value>) -> Response {
     let model = body["model"].as_str().unwrap_or("").to_string();
     *fake.calls.lock().unwrap().entry(model.clone()).or_default() += 1;
+    *fake.last_body.lock().unwrap() = Some(body.clone());
     if model == "badkey" {
         return (StatusCode::UNAUTHORIZED, Json(json!({ "error": { "message": "invalid api key" } }))).into_response();
     }
@@ -93,7 +96,13 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
     if body["stream"] == true {
         assert_eq!(body["stream_options"]["include_usage"], true, "the gateway asks for usage");
         let mut sse = String::new();
-        if model == "tooler" {
+        if model == "patcher" {
+            // A call to Codex's free-form `apply_patch`, which reached the provider as a function taking `input`.
+            sse.push_str(&format!("data: {}\n\n", json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0, "id": "call_p",
+                "function": { "name": "apply_patch", "arguments": "{\"input\":\"*** Begin Patch\\n" } }] } }] })));
+            sse.push_str(&format!("data: {}\n\n", json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0,
+                "function": { "arguments": "*** End Patch\"}" } }] }, "finish_reason": "tool_calls" }] })));
+        } else if model == "tooler" {
             sse.push_str(&format!("data: {}\n\n", json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0, "id": "call_1",
                 "function": { "name": "read", "arguments": "{\"path\":" } }] } }] })));
             sse.push_str(&format!("data: {}\n\n", json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0,
@@ -114,6 +123,7 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
 async fn fake_anthropic(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody(body): JsonBody<Value>) -> Response {
     let model = body["model"].as_str().unwrap_or("").to_string();
     *fake.calls.lock().unwrap().entry(model.clone()).or_default() += 1;
+    *fake.last_body.lock().unwrap() = Some(body.clone());
     if headers.get("x-api-key").and_then(|v| v.to_str().ok()) != Some("key-1") || headers.get("anthropic-version").is_none() {
         return (StatusCode::UNAUTHORIZED, Json(json!({ "type": "error", "error": { "type": "authentication_error",
             "message": "missing key or version" } }))).into_response();
@@ -136,6 +146,34 @@ async fn fake_anthropic(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonB
     }
     (limits, Json(json!({ "id": "msg_1", "type": "message", "role": "assistant", "model": model,
         "content": [{ "type": "text", "text": seen }], "stop_reason": "end_turn", "usage": usage }))).into_response()
+}
+
+/// The fake provider's own Responses API, for the native passthrough (ADR-033).
+async fn fake_responses(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody(body): JsonBody<Value>) -> Response {
+    let model = body["model"].as_str().unwrap_or("").to_string();
+    *fake.calls.lock().unwrap().entry(format!("responses:{model}")).or_default() += 1;
+    *fake.last_body.lock().unwrap() = Some(body.clone());
+    if headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) != Some("Bearer key-1") {
+        return (StatusCode::UNAUTHORIZED, Json(json!({ "error": { "message": "bad key" } }))).into_response();
+    }
+    if model == "broken" {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": { "message": "Unsupported parameter: 'x'",
+            "type": "invalid_request_error", "param": "x", "code": "unsupported_parameter" } }))).into_response();
+    }
+    let usage = json!({ "input_tokens": 1000, "input_tokens_details": { "cached_tokens": 800 }, "output_tokens": 500,
+        "output_tokens_details": { "reasoning_tokens": 64 }, "total_tokens": 1500 });
+    let response = json!({ "id": "resp_up", "object": "response", "status": "completed", "model": model,
+        "output": [{ "type": "message", "role": "assistant", "content": [{ "type": "output_text", "text": "native" }] }],
+        "usage": usage });
+    if body["stream"] == true {
+        let sse = format!(
+            "event: response.created\ndata: {}\n\nevent: response.output_text.delta\ndata: {}\n\nevent: response.completed\ndata: {}\n\n",
+            json!({ "type": "response.created", "response": { "id": "resp_up", "status": "in_progress" } }),
+            json!({ "type": "response.output_text.delta", "delta": "native" }),
+            json!({ "type": "response.completed", "response": response }));
+        return ([(header::CONTENT_TYPE, "text/event-stream")], sse).into_response();
+    }
+    Json(response).into_response()
 }
 
 struct Rig {
@@ -169,6 +207,7 @@ async fn rig_on(read_timeout: Duration, store_path: Option<&std::path::Path>) ->
     let upstream_addr = upstream.local_addr().unwrap();
     let app = Router::new()
         .route("/v1/chat/completions", post(fake_openai))
+        .route("/v1/responses", post(fake_responses))
         .route("/v1/models", axum::routing::get(|| async { Json(json!({ "data": [{ "id": "fast" }] })) }))
         .route("/anthropic/v1/messages", post(fake_anthropic))
         .with_state(fake.clone());
@@ -1564,4 +1603,194 @@ fn one_providers_two_api_formats_share_a_quota_group() {
         ("deepseek", "deepseek", "mistral"));
     store::update_provider(&conn, &anthropic.id, None, None, Some(true)).unwrap();
     assert_eq!(store::get_provider(&conn, &anthropic.id).unwrap().unwrap().quota_group, anthropic.id);
+}
+
+// ---------- ADR-033: the Responses API surface ----------
+
+/// A Responses request as Codex sends it, trimmed: instructions, a developer message, a function and a custom tool,
+/// a hosted tool no other provider runs, and the fields Codex always sets.
+fn responses_request(model: &str, stream: bool) -> Value {
+    json!({ "model": model, "stream": stream, "store": false, "include": ["reasoning.encrypted_content"],
+        "reasoning": { "summary": "auto" }, "tool_choice": "auto", "parallel_tool_calls": true, "prompt_cache_key": "t-1",
+        "instructions": "Be brief.",
+        "tools": [
+            { "type": "function", "name": "read", "description": "Read a file", "strict": false,
+                "parameters": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] } },
+            { "type": "custom", "name": "apply_patch", "description": "Edit files",
+                "format": { "type": "grammar", "syntax": "lark", "definition": "start: patch" } },
+            { "type": "web_search", "external_web_access": false }],
+        "input": [{ "type": "message", "role": "developer", "content": [{ "type": "input_text", "text": "Use tools." }] },
+            { "type": "message", "role": "user", "content": [{ "type": "input_text", "text": "ping" }] }] })
+}
+
+/// The `data` of each server-sent event.
+fn responses_events(text: &str) -> Vec<Value> {
+    text.split("\n\n").filter_map(|block| block.lines().find_map(|l| l.strip_prefix("data: ")))
+        .map(|d| serde_json::from_str(d).unwrap()).collect()
+}
+
+#[test]
+fn a_responses_request_reaches_an_openai_format_connection_through_chat_completions() {
+    rt().block_on(async {
+        let rig = rig().await;
+        let response = rig.post("/v1/responses", responses_request("main/fast", false)).await;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.headers()["x-smarttaskrouter-mode"], "translated:responses->openai");
+        assert_eq!(response.headers()["x-smarttaskrouter-route"], "main/fast");
+        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "web_search tool,prompt_cache_key");
+        let body: Value = response.json().await.unwrap();
+        assert_eq!((body["object"].as_str(), body["status"].as_str(), body["model"].as_str()),
+            (Some("response"), Some("completed"), Some("main/fast")));
+        assert_eq!(body["output"][0]["content"][0], json!({ "type": "output_text", "text": "pong", "annotations": [] }));
+        assert_eq!((body["usage"]["input_tokens"].as_u64(), body["usage"]["output_tokens"].as_u64()), (Some(1000), Some(500)));
+
+        // What the provider received: one system message, the user turn, and both tools as functions.
+        let sent = rig.fake.last_body.lock().unwrap().clone().unwrap();
+        assert_eq!(sent["messages"][0], json!({ "role": "system", "content": "Be brief.\n\nUse tools." }));
+        assert_eq!(sent["messages"][1], json!({ "role": "user", "content": "ping" }));
+        let tools: Vec<&str> = sent["tools"].as_array().unwrap().iter().map(|t| t["function"]["name"].as_str().unwrap()).collect();
+        assert_eq!(tools, ["read", "apply_patch"]);
+        assert_eq!(sent["tools"][1]["function"]["parameters"]["properties"]["input"]["type"], "string");
+        assert!(sent.get("input").is_none() && sent.get("instructions").is_none());
+
+        let event = rig.ledger().pop().unwrap();
+        assert_eq!(event.route_mode.as_deref(), Some("translated:responses->openai"));
+        assert_eq!((event.input_tokens, event.output_tokens, event.cost_status.as_str()), (Some(1000), Some(500), "estimated"));
+        assert_eq!(event.cost_micro_usd, Some(300));
+    });
+}
+
+#[test]
+fn a_streamed_custom_tool_call_comes_back_as_codex_reads_it() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.priced("main", "patcher");
+        let response = rig.post_session("/v1/responses", "codex-1", responses_request("main/patcher", true)).await;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "text/event-stream");
+        let events = responses_events(&response.text().await.unwrap());
+        let kinds: Vec<&str> = events.iter().map(|e| e["type"].as_str().unwrap()).collect();
+        assert_eq!(kinds, ["response.created", "response.in_progress", "response.output_item.added",
+            "response.custom_tool_call_input.delta", "response.custom_tool_call_input.done", "response.output_item.done",
+            "response.completed"]);
+        assert_eq!(events[5]["item"], json!({ "id": events[5]["item"]["id"], "type": "custom_tool_call", "status": "completed",
+            "call_id": "call_p", "name": "apply_patch", "input": "*** Begin Patch\n*** End Patch" }));
+        let done = &events[6]["response"];
+        assert_eq!((done["status"].as_str(), done["usage"]["output_tokens"].as_u64()), (Some("completed"), Some(500)));
+
+        // The next turn sends the call and its output back; they reach the provider as a tool call and its result.
+        let mut next = responses_request("main/fast", false);
+        let input = next["input"].as_array_mut().unwrap();
+        input.push(events[5]["item"].clone());
+        input.push(json!({ "type": "custom_tool_call_output", "call_id": "call_p", "output": "Success. Updated a.py" }));
+        let response = rig.post_session("/v1/responses", "codex-1", next).await;
+        assert_eq!(response.status(), 200);
+        let sent = rig.fake.last_body.lock().unwrap().clone().unwrap();
+        assert_eq!(sent["messages"][2]["tool_calls"][0], json!({ "id": "call_p", "type": "function", "function": {
+            "name": "apply_patch", "arguments": "{\"input\":\"*** Begin Patch\\n*** End Patch\"}" } }));
+        assert_eq!(sent["messages"][3], json!({ "role": "tool", "tool_call_id": "call_p", "content": "Success. Updated a.py" }));
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let ledger = rig.ledger();
+        let streamed = &ledger[ledger.len() - 2];
+        assert_eq!((streamed.outcome.as_str(), streamed.output_tokens, streamed.session_key.as_deref()), ("ok", Some(500), Some("codex-1")));
+    });
+}
+
+#[test]
+fn a_responses_request_reaches_an_anthropic_connection_through_two_translations() {
+    rt().block_on(async {
+        let rig = rig().await;
+        let response = rig.post("/v1/responses", responses_request("claude/sonnet", false)).await;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.headers()["x-smarttaskrouter-mode"], "translated:responses->anthropic");
+        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "web_search tool,prompt_cache_key");
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["output"][0]["content"][0]["text"], "cache_control=false thinking=false beta=-");
+        assert_eq!((body["usage"]["input_tokens"].as_u64(), body["usage"]["input_tokens_details"]["cached_tokens"].as_u64()),
+            (Some(1000), Some(900)));
+        let sent = rig.fake.last_body.lock().unwrap().clone().unwrap();
+        assert_eq!(sent["system"], "Be brief.\n\nUse tools.");
+        assert_eq!(sent["tools"][1]["name"], "apply_patch");
+        assert_eq!(sent["tools"][1]["input_schema"]["required"], json!(["input"]));
+
+        let text = rig.post("/v1/responses", responses_request("claude/sonnet", true)).await.text().await.unwrap();
+        let events = responses_events(&text);
+        assert_eq!(events.first().unwrap()["type"], "response.created");
+        let done = events.last().unwrap();
+        assert_eq!(done["type"], "response.completed");
+        assert_eq!(done["response"]["output"][0]["content"][0]["text"], "cache_control=false thinking=false beta=-");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let event = rig.ledger().pop().unwrap();
+        assert_eq!((event.route_mode.as_deref(), event.output_tokens, event.cache_write_tokens),
+            (Some("translated:responses->anthropic"), Some(7), Some(90)));
+    });
+}
+
+#[test]
+fn a_provider_that_serves_responses_gets_the_request_unchanged() {
+    rt().block_on(async {
+        let rig = rig().await;
+        let endpoint = rig.shared.with_db(|db| store::get_provider(db, "main")).unwrap().unwrap().endpoint;
+        let openai = rig.shared.with_db(|db| store::add_provider(db, &NewProvider { kind: "openai", label: "OpenAI",
+            endpoint: &endpoint, credential_ref: Some("provider-main"), default_billing: "paid", wire: "openai" })).unwrap();
+        rig.priced(&openai.id, "gpt");
+        let request = responses_request(&format!("{}/gpt", openai.id), false);
+        let response = rig.post("/v1/responses", request.clone()).await;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.headers()["x-smarttaskrouter-mode"], "native");
+        assert!(response.headers().get("x-smarttaskrouter-dropped").is_none());
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["id"], "resp_up", "the provider's own answer");
+        let sent = rig.fake.last_body.lock().unwrap().clone().unwrap();
+        let mut expected = request.clone();
+        expected["model"] = json!("gpt");
+        assert_eq!(sent, expected, "only the model changed");
+        assert_eq!(rig.fake.count("responses:gpt"), 1);
+        let event = rig.ledger().pop().unwrap();
+        assert_eq!((event.input_tokens, event.cache_tokens, event.output_tokens), (Some(1000), Some(800), Some(500)));
+
+        let text = rig.post("/v1/responses", responses_request(&format!("{}/gpt", openai.id), true)).await.text().await.unwrap();
+        assert!(text.starts_with("event: response.created") && text.contains("\"resp_up\""), "{text}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let event = rig.ledger().pop().unwrap();
+        assert_eq!((event.outcome.as_str(), event.output_tokens), ("ok", Some(500)));
+
+        // The provider's own error body goes back to a client that speaks its format.
+        rig.priced(&openai.id, "broken");
+        let refused = rig.post("/v1/responses", responses_request(&format!("{}/broken", openai.id), false)).await;
+        assert_eq!(refused.status(), 400);
+        let body: Value = refused.json().await.unwrap();
+        assert_eq!(body["error"]["code"], "unsupported_parameter");
+    });
+}
+
+#[test]
+fn responses_errors_are_in_the_openai_format() {
+    rt().block_on(async {
+        let rig = rig().await;
+        let missing = rig.post("/v1/responses", responses_request("nowhere", false)).await;
+        assert_eq!(missing.status(), 404);
+        let body: Value = missing.json().await.unwrap();
+        assert_eq!(body["error"]["type"], "model_not_found");
+
+        let mut chained = responses_request("main/fast", false);
+        chained["previous_response_id"] = json!("resp_1");
+        let refused = rig.post("/v1/responses", chained).await;
+        assert_eq!(refused.status(), 400);
+        let body: Value = refused.json().await.unwrap();
+        assert!(body["error"]["message"].as_str().unwrap().contains("does not store responses"));
+        assert_eq!(rig.fake.count("fast"), 0, "nothing was sent");
+
+        // A translated provider error is described, not passed through in a format the client does not speak.
+        rig.priced("main", "broken");
+        let broken = rig.post("/v1/responses", responses_request("main/broken", false)).await;
+        assert_eq!(broken.status(), 400);
+        let body: Value = broken.json().await.unwrap();
+        assert!(body["error"]["message"].as_str().unwrap().contains("bad field"), "{body}");
+
+        let anonymous = rig.http.post(format!("{}/v1/responses", rig.base)).json(&responses_request("main/fast", false))
+            .send().await.unwrap();
+        assert_eq!(anonymous.status(), 401);
+    });
 }

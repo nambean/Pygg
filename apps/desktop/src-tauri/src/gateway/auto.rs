@@ -74,7 +74,9 @@ impl Needs {
     pub fn of(surface: Surface, body: &Value) -> Needs {
         let tools = body["tools"].as_array().is_some_and(|t| !t.is_empty());
         let image_part = |part: &Value| matches!(part["type"].as_str(), Some("image_url" | "image" | "input_image"));
-        let vision = body["messages"].as_array().is_some_and(|messages| messages.iter().any(|m| {
+        // Chat Completions and Messages carry `messages`; the Responses API carries `input` items.
+        let turns = body["messages"].as_array().or_else(|| body["input"].as_array());
+        let vision = turns.is_some_and(|messages| messages.iter().any(|m| {
             m["content"].as_array().is_some_and(|parts| parts.iter().any(image_part))
         }));
         let max_tokens = ["max_tokens", "max_completion_tokens", "max_output_tokens"].iter().find_map(|k| body[*k].as_u64());

@@ -171,7 +171,7 @@ fn image_part(block: &Value) -> Option<Value> {
 }
 
 /// Removes JSON Schema keys that some OpenAI-compatible providers reject.
-fn clean_schema(schema: &Value) -> Value {
+pub(crate) fn clean_schema(schema: &Value) -> Value {
     match schema {
         Value::Object(map) => {
             let mut out = Map::new();
@@ -553,8 +553,8 @@ pub async fn messages(State(shared): State<Shared>, headers: HeaderMap, body: By
     };
     match forwarded.mode {
         Mode::AnthropicToOpenAi => translated(shared, forwarded, stream, requested).await,
-        // An Anthropic request never takes the OpenAI → Anthropic route; anything else is native.
-        Mode::Native | Mode::OpenAiToAnthropic => native(shared, forwarded, stream).await,
+        // An Anthropic request takes no other translated route; anything else is native.
+        _ => native(shared, forwarded, stream).await,
     }
 }
 

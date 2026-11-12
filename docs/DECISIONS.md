@@ -286,6 +286,20 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Measured on a copy of the owner's store:** OpenRouter went from 432 models on to 16, all listed at $0; Z.AI from 12 paid models on to its 3 free Flash models (`glm-4.7-flash`, `glm-4.5-flash`, `glm-4.6v-flash`), which its list had left out; Cohere (a trial key) kept all 37. Z.AI answered a request for `glm-4.7-flash` with "overloaded" (429), not "unknown model".
 
+## ADR-033 — The gateway serves the Responses API, translated through Chat Completions (2026-11-12)
+
+**Context:** Codex CLI 0.163.0 refuses `wire_api = "chat"` ("no longer supported, set wire_api = responses"), so it could reach Pygg only through MCP tasks, never as a gateway client. Captured Codex traffic (a local capture server, 2026-11-12) has `instructions` empty and its prompt in `developer` messages; `input` items of type `message`, `function_call`, `function_call_output`, `custom_tool_call`, `custom_tool_call_output` and `reasoning`; `function`, `namespace` (nested functions) and `web_search` tools, and Codex's free-form `custom` tool `apply_patch` (a Lark grammar) when its model metadata asks for one; for OpenAI's own models, tools in an `additional_tools` input item; `store: false`, `include: ["reasoning.encrypted_content"]`, `reasoning.summary: "auto"`, `prompt_cache_key`, `client_metadata`. It reads `response.output_item.done` for each item and needs `response.completed` with usage.
+
+**Decision:**
+- **`POST /v1/responses` is a third surface on the same pipeline** (`gateway/responses.rs`): authentication, routing, `auto` and combos, client connection lists, limits and strict holds, the journal, session pins, health and quota, and the ledger are `forward()`'s, as for the other two.
+- **One new translator, Responses ↔ Chat Completions.** An OpenAI-format connection gets Chat Completions. An Anthropic-format connection gets Messages through the existing, tested Chat Completions → Messages translator (B5), and its answer comes back the same two steps. Composing keeps one translator per pair of formats instead of a fourth.
+- **Native passthrough only where a preset says so** (`Preset::serves_responses`): OpenAI. A provider with a partial or beta Responses API is translated.
+- **Custom tools are functions with one string parameter, `input`**, whose description carries the tool's grammar; the call comes back as a `custom_tool_call` with that string. **Namespace tools are flattened** as `<namespace>__<name>` (Chat Completions names allow no dots) and come back with their namespace. Both are found again by name from the request's own tool list, so nothing is kept between requests.
+- **Reasoning:** a provider's reasoning comes back as a `reasoning` item, as summary text when the client asked for a summary and as reasoning text otherwise. Reasoning sent back goes to providers that take it (`takes_reasoning`) as `reasoning_content`. Another provider's encrypted reasoning cannot be passed on, and is named in `x-smarttaskrouter-dropped` (`reasoning`), as are hosted tools (`web_search tool`) and every top-level field the translation does not carry (`prompt_cache_key`, `client_metadata`, …). Nothing is dropped without being named.
+- **Pygg stores no responses.** `previous_response_id`, `conversation` and `background` are refused with HTTP 400; the client sends the whole conversation (Codex does with `store = false`).
+
+**Consequences:** Codex can use any connection, metered like any client; the Responses API's own hosted tools (web search, file search, code interpreter) are not available through a translated connection; Anthropic's prompt cache is not used on the translated path (no `cache_control` markers are invented); a Codex model Codex does not know runs with Codex's fallback metadata unless the user gives it a model catalog (AGENTS.md).
+
 ## Open decisions (not yet finalized)
 
 - ~~First agent benchmark client and model matrix~~: settled by the C3 first pass (OpenCode 1.18.4 through the gateway; see the [report](../benchmark/reports/2026-11-11-c3-first-pass.md)).

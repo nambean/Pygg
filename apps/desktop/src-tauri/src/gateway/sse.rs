@@ -17,13 +17,19 @@ pub struct UsageScanner {
     tool_events: Vec<serde_json::Value>,
     /// Reading an Anthropic Messages stream (`message_start` / `message_delta`) instead of OpenAI chunks.
     anthropic: bool,
-    /// The first `error` event an Anthropic stream carried.
+    /// Reading a Responses API stream (`response.completed` and the like, ADR-033).
+    responses: bool,
+    /// The first `error` event an Anthropic stream carried, or a Responses stream's failure.
     pub error: Option<String>,
 }
 
 impl UsageScanner {
     pub fn anthropic() -> UsageScanner {
         UsageScanner { anthropic: true, ..UsageScanner::default() }
+    }
+
+    pub fn responses() -> UsageScanner {
+        UsageScanner { responses: true, ..UsageScanner::default() }
     }
 
     pub fn feed(&mut self, bytes: &[u8]) {
@@ -56,6 +62,24 @@ impl UsageScanner {
         }
         let Ok(event) = serde_json::from_str::<serde_json::Value>(data) else { return };
         self.chunks += 1;
+        if self.responses {
+            match event["type"].as_str() {
+                Some("response.completed" | "response.incomplete") => {
+                    self.usage = Usage::from_responses(&event["response"]["usage"]);
+                    self.done = true;
+                }
+                Some("response.failed") if self.error.is_none() => {
+                    self.usage = Usage::from_responses(&event["response"]["usage"]);
+                    self.error = Some(event["response"]["error"]["message"].as_str().unwrap_or("response failed").to_string());
+                }
+                Some("error") if self.error.is_none() => {
+                    self.error = Some(event["message"].as_str().or_else(|| event["error"]["message"].as_str())
+                        .unwrap_or("stream error").to_string());
+                }
+                _ => {}
+            }
+            return;
+        }
         if self.anthropic {
             match event["type"].as_str() {
                 Some("message_start") => self.usage = Usage::from_anthropic(&event["message"]["usage"]),
@@ -118,6 +142,24 @@ mod tests {
         let usage = scanner.usage.unwrap();
         assert_eq!((usage.prompt, usage.cached, usage.cache_write, usage.completion), (1000, 900, 90, 42));
         assert!(scanner.done);
+    }
+
+    #[test]
+    fn reads_a_responses_stream() {
+        let stream = concat!(
+            "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"r\"}}\n\n",
+            "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":50,",
+            "\"input_tokens_details\":{\"cached_tokens\":40},\"output_tokens\":3}}}\n\n");
+        let mut scanner = UsageScanner::responses();
+        for piece in stream.as_bytes().chunks(9) {
+            scanner.feed(piece);
+        }
+        let usage = scanner.usage.unwrap();
+        assert_eq!((usage.prompt, usage.cached, usage.completion), (50, 40, 3));
+        assert!(scanner.done && scanner.error.is_none());
+        let mut failed = UsageScanner::responses();
+        failed.feed(b"data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"message\":\"overloaded\"}}}\n");
+        assert_eq!(failed.error.as_deref(), Some("overloaded"));
     }
 
     #[test]
