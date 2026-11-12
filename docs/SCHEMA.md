@@ -1,6 +1,6 @@
 # Store schema
 
-> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v19
+> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v20
 
 The local SQLite store (`db.rs`): every table after all migrations, in order. Credentials are never here: a
 connection holds only a reference to its key in the OS credential store (ADR-002). Client tokens are stored as
@@ -202,6 +202,7 @@ Indexes: `feedback_by_metric`, `feedback_by_target`.
 | `caps_observed_at` | INTEGER | yes |  |  | 0007_auto_routing |
 | `thinking_types` | TEXT | yes |  |  | 0012_request_features |
 | `effort_levels` | TEXT | yes |  |  | 0012_request_features |
+| `enabled_source` | TEXT | yes |  |  | 0020_model_enabled_source |
 
 References: `provider_id` → `providers.id` (on delete cascade).
 

@@ -27,6 +27,8 @@ export type Preset = {
   /** How to start using it, per the provider's docs (docs/PROVIDERS.md). */
   offer: 'free' | 'credits' | 'paid' | 'local' | 'custom';
   offerNote: string | null;
+  /** Its free part is a set of $0 models (OpenRouter's :free): paid ones start off while it is set as free. */
+  freeModels: boolean;
 };
 
 export type HealthState = 'invalid_credentials' | 'forbidden' | 'payment_required' | 'rate_limited' | 'model_unavailable'
@@ -44,6 +46,8 @@ export type Connection = {
   termsSource: string | null; termsCheckedAt: number | null;
   wire: Wire; quotaGroup: string; separateQuota: boolean; quotaConfirmedAt: number | null;
   presetName: string; hasKey: boolean; needsKey: boolean; models: number; health: Health[]; sharesQuotaWith: string[];
+  /** See Preset.freeModels. */
+  freeModels: boolean;
   /** The rate-limit headers its provider last sent, per model (PV-06): as the provider said them. */
   limits?: RateLimits[];
 };
@@ -73,6 +77,9 @@ export type Capabilities = {
 export type Model = {
   providerId: string; modelId: string; billing: Billing; enabled: boolean; price: Price | null; observedAt: number | null;
   capabilities: Capabilities;
+  /** Who last switched it: null (Pygg's default), 'user', or 'free-connection' (off: it has a price on a connection
+   * set as free whose free part is its $0 models; ADR-032). */
+  enabledSource: string | null;
 };
 
 export type AutoAlias = 'auto' | 'auto/cheap';

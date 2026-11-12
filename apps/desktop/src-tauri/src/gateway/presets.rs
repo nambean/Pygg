@@ -35,6 +35,9 @@ pub struct Preset {
     pub offer: &'static str,
     /// The free tier or credit in a few words, as the docs state it.
     pub offer_note: Option<&'static str>,
+    /// What is free is a set of models listed at $0 (OpenRouter's `:free`, Z.AI's Flash), not the account's calls:
+    /// on such a connection set as free, a model with a price is paid, and starts off (store.rs, ADR-032).
+    pub free_models: bool,
 }
 
 const fn preset(id: &'static str, name: &'static str, endpoint: Option<&'static str>, needs_key: bool,
@@ -45,7 +48,12 @@ const fn preset(id: &'static str, name: &'static str, endpoint: Option<&'static 
         _ => "paid",
     };
     Preset { id, name, endpoint, needs_key, default_billing, wire, strip_model_prefix: None, accepts_cache_control: false,
-        family: None, offer, offer_note: None }
+        family: None, offer, offer_note: None, free_models: false }
+}
+
+/// A free tier made of $0 models next to paid ones: the connection starts as free, and only those models are on.
+const fn free_models(p: Preset, note: &'static str) -> Preset {
+    Preset { offer: "free", offer_note: Some(note), free_models: true, default_billing: "free", ..p }
 }
 
 const fn free(p: Preset, note: &'static str) -> Preset {
@@ -68,7 +76,7 @@ pub const PRESETS: &[Preset] = &[
     free(Preset { strip_model_prefix: Some("models/"),
         ..preset("gemini", "Google Gemini", Some("https://generativelanguage.googleapis.com/v1beta/openai"), true, "unknown", "openai") }, "Free tier in Google AI Studio"),
     preset("anthropic", "Anthropic", Some("https://api.anthropic.com/v1"), true, "paid", "anthropic"),
-    free(Preset { accepts_cache_control: true,
+    free_models(Preset { accepts_cache_control: true,
         ..preset("openrouter", "OpenRouter", Some("https://openrouter.ai/api/v1"), true, "paid", "openai") }, "Free models (:free)"),
     preset("openai", "OpenAI", Some("https://api.openai.com/v1"), true, "paid", "openai"),
     free(preset("groq", "Groq", Some("https://api.groq.com/openai/v1"), true, "unknown", "openai"), "Free plan"),
@@ -91,8 +99,8 @@ pub const PRESETS: &[Preset] = &[
     Preset { family: Some("moonshot"), ..preset("moonshot", "Kimi (Moonshot)", Some("https://api.moonshot.ai/v1"), true, "paid", "openai") },
     Preset { family: Some("moonshot"),
         ..preset("moonshot-anthropic", "Kimi (Anthropic API)", Some("https://api.moonshot.ai/anthropic/v1"), true, "paid", "anthropic") },
-    free(Preset { family: Some("zai"), ..preset("zai", "Z.AI (GLM)", Some("https://api.z.ai/api/paas/v4"), true, "unknown", "openai") }, "Some free Flash models"),
-    free(Preset { family: Some("zai"),
+    free_models(Preset { family: Some("zai"), ..preset("zai", "Z.AI (GLM)", Some("https://api.z.ai/api/paas/v4"), true, "unknown", "openai") }, "Some free Flash models"),
+    free_models(Preset { family: Some("zai"),
         ..preset("zai-anthropic", "Z.AI (Anthropic API)", Some("https://api.z.ai/api/anthropic/v1"), true, "unknown", "anthropic") }, "Some free Flash models"),
     free(preset("cohere", "Cohere", Some("https://api.cohere.ai/compatibility/v1"), true, "unknown", "openai"), "Trial key, 1,000 calls a month"),
     Preset { family: Some("minimax"), ..preset("minimax", "MiniMax", Some("https://api.minimax.io/v1"), true, "paid", "openai") },

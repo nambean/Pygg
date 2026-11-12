@@ -15,7 +15,10 @@ const STORE = isMac ? 'Keychain' : 'Windows Credential Manager';
 /** Outcome of the last model refresh per connection, kept while the app is open (not stored). */
 const checks = new Map<string, {at: number; ok: boolean; text: string}>();
 
-function billingHint(billing: Billing): string {
+function billingHint(billing: Billing, freeModels = false): string {
+  if (billing === 'free' && freeModels) {
+    return t('Only the models it lists at $0 are on. A model with a price, or none, starts off; turn one on to use it.');
+  }
   return {
     free: t('Costs are recorded as $0. Use this for free tiers you’re sure about.'),
     local: t('Runs on this computer; API cost is $0.'),
@@ -156,7 +159,7 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
   const [message, setMessage] = useState<{ok: boolean; text: string} | null>(null);
   const [sheet, setSheet] = useState<'key' | 'remove' | 'add-model' | 'quota' | {price: Model} | {caps: Model} | null>(null);
   const [query, setQuery] = useState('');
-  const [show, setShow] = useState<'all' | 'enabled' | 'unpriced'>('all');
+  const [show, setShow] = useState<'all' | 'enabled' | 'free' | 'unpriced'>('all');
   const check = checks.get(c.id);
 
   const refresh = () => {
@@ -177,7 +180,8 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
 
   const shown = useMemo(() => (models.data ?? []).filter(m =>
     m.modelId.toLowerCase().includes(query.trim().toLowerCase())
-    && (show === 'all' || (show === 'enabled' ? m.enabled : !m.price && (m.billing === 'paid' || m.billing === 'unknown')))),
+    && (show === 'all' || (show === 'enabled' ? m.enabled : show === 'free' ? m.billing === 'free' || m.billing === 'local'
+      : !m.price && (m.billing === 'paid' || m.billing === 'unknown')))),
   [models.data, query, show]);
 
   return <section className="group" aria-label={c.label}>
@@ -239,7 +243,7 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
             : call(api => api.updateConnection(c.id, {separateQuota})).then(gatewayChanged)}/></span>
       </div>
       <div className="group-row">
-        <span className="group-label"><label htmlFor={`billing-${c.id}`}>{t('Billing')}</label><small>{billingHint(c.defaultBilling)}</small></span>
+        <span className="group-label"><label htmlFor={`billing-${c.id}`}>{t('Billing')}</label><small>{billingHint(c.defaultBilling, c.freeModels)}</small></span>
         <span className="group-control">
           <select id={`billing-${c.id}`} className="popup-button" value={c.defaultBilling} onChange={e => setBilling(e.target.value as Billing)}>
             {BILLINGS.map(b => <option key={b} value={b}>{billingLabel(b)}</option>)}
@@ -264,6 +268,7 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
         <select className="popup-button" value={show} onChange={e => setShow(e.target.value as typeof show)} aria-label={t('Show')}>
           <option value="all">{t('All models')}</option>
           <option value="enabled">{t('Enabled')}</option>
+          <option value="free">{t('Free')}</option>
           <option value="unpriced">{t('Paid or unknown, no price')}</option>
         </select>
         <button type="button" className="button" onClick={() => setSheet('add-model')}><Plus size={13} aria-hidden/>{t('Add Model…')}</button>
@@ -320,7 +325,9 @@ function ModelRow({model: m, health, onPrice, onCaps, onChange}: {model: Model; 
   return <tr className={m.enabled ? '' : 'disabled-row'}>
     <td className="mono selectable" title={health ? `${m.modelId} · ${health.reason}` : m.modelId}>
       {m.modelId}{health && <> <Badge tone="warn">{healthLabel(health)}</Badge></>}</td>
-    <td>{billingLabel(m.billing)}</td>
+    <td>{billingLabel(m.billing)}{!m.enabled && m.enabledSource === 'free-connection'
+      && <small className="source" title={t('This connection is set as free and this model is not listed at $0, so Pygg turned it off. Turn it on to use it; its cost follows its price, or is Unknown without one.')}>
+        <br/>{t('Off: not $0')}</small>}</td>
     <td className={m.price ? '' : 'secondary'}>{price}{m.price && <small className="source"> · {m.price.source === 'user' ? t('your price') : t('list price')}</small>}</td>
     <td className={m.capabilities.tier ? '' : 'secondary'}>{capsText(m)}</td>
     <td className="narrow"><Switch checked={m.enabled} label={t('Use {model}', {model: m.modelId})}
@@ -457,7 +464,7 @@ function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected:
         <input id="connection-key" className="text-input mono" type="password" value={apiKey} autoComplete="off" spellCheck={false}
           placeholder={keyRequired ? t('Required') : t('Optional')} onChange={e => setApiKey(e.target.value)}/>
       </FormRow>}
-      <FormRow label={t('Billing')} htmlFor="connection-billing" hint={billingHint(effectiveBilling)}>
+      <FormRow label={t('Billing')} htmlFor="connection-billing" hint={billingHint(effectiveBilling, preset?.freeModels)}>
         <select id="connection-billing" className="popup-button" value={effectiveBilling} onChange={e => setBilling(e.target.value as Billing)}>
           {BILLINGS.map(b => <option key={b} value={b}>{billingLabel(b)}</option>)}
         </select>

@@ -448,13 +448,72 @@ mod tests {
         let billing = |m: &str| store::list_models(&conn, None).unwrap().into_iter().find(|x| x.model_id == m).unwrap().billing;
         assert_eq!(billing("deepseek/deepseek-chat"), "paid", "listed at a price, so charged");
         assert_eq!(billing("x/model:free"), "free");
-        assert_eq!(billing("y/unpriced"), "free", "nothing says otherwise");
+        assert_eq!(billing("y/unpriced"), "unknown", "only a $0 listing makes a model free here");
         // The user's own word on a model stands.
         store::update_model(&conn, &p.id, "deepseek/deepseek-chat", None, Some("free"), None).unwrap();
         assert_eq!(billing("deepseek/deepseek-chat"), "free");
         // And the ledger follows: a paid model's success is priced, not "connection marked free".
         let model = store::list_models(&conn, None).unwrap().into_iter().find(|x| x.model_id == "x/model:free").unwrap();
         assert_eq!(model.billing, "free");
+        let provider = store::get_provider(&conn, &p.id).unwrap().unwrap();
+        store::update_model(&conn, &p.id, "deepseek/deepseek-chat", None, Some("unknown"), None).unwrap();
+        assert_eq!(store::pricing_for(&conn, &provider, "deepseek/deepseek-chat").unwrap().0, "paid");
+        assert_eq!(store::pricing_for(&conn, &provider, "x/model:free").unwrap().0, "free");
+
+        // Where the account itself is free (a trial key), a list price does not make a call paid.
+        let trial = store::add_provider(&conn, &NewProvider { kind: "cohere", label: "Cohere", endpoint: "http://c.test",
+            credential_ref: None, default_billing: "free", wire: "openai" }).unwrap();
+        store::import_listed(&conn, &trial.id, &[listed("command-a", Some(price(2_500_000, 10_000_000)))], Some("models.dev")).unwrap();
+        let command = store::list_models(&conn, Some(&trial.id)).unwrap().remove(0);
+        assert_eq!((command.billing.as_str(), command.enabled), ("free", true));
+    }
+
+    #[test]
+    fn a_connection_used_for_its_free_models_starts_with_its_paid_models_off() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let p = store::add_provider(&conn, &NewProvider { kind: "openrouter", label: "OpenRouter", endpoint: "http://o.test",
+            credential_ref: None, default_billing: "free", wire: "openai" }).unwrap();
+        let price = |output: u64| Price { input_micro_per_mtok: output / 4, output_micro_per_mtok: output,
+            cached_input_micro_per_mtok: None, cache_write_micro_per_mtok: None, source: "provider: openrouter /models".into(), observed_at: 1 };
+        let listed = |id: &str, p: Option<Price>| store::Listed { id: id.into(), price: p, ..store::Listed::default() };
+        store::import_listed(&conn, &p.id, &[listed("a/paid", Some(price(1_000_000))), listed("b/chosen", Some(price(2_000_000))),
+            listed("c/model:free", Some(price(0))), listed("d/unpriced", None)], Some("provider: openrouter /models")).unwrap();
+        let state = |m: &str| store::list_models(&conn, None).unwrap().into_iter().find(|x| x.model_id == m)
+            .map(|x| (x.enabled, x.enabled_source)).unwrap();
+        let off = (false, Some(store::OFF_ON_FREE_CONNECTION.to_string()));
+        assert_eq!(state("a/paid"), off);
+        assert_eq!(state("c/model:free"), (true, None));
+        assert_eq!(state("d/unpriced"), off, "not listed at $0: OpenRouter's own routers list no price and may pick a paid model");
+
+        // The user turns a paid one on: it stays on, and is billed as paid.
+        store::update_model(&conn, &p.id, "b/chosen", Some(true), None, None).unwrap();
+        assert_eq!(state("b/chosen"), (true, Some("user".into())));
+        store::apply_free_connection_rule(&conn).unwrap();
+        assert_eq!(state("b/chosen"), (true, Some("user".into())));
+
+        // The connection is now used as paid: what Pygg turned off comes back; the user's choice stays.
+        store::update_provider(&conn, &p.id, None, Some("paid"), None).unwrap();
+        assert_eq!(state("a/paid"), (true, None));
+        store::update_provider(&conn, &p.id, None, Some("free"), None).unwrap();
+        assert_eq!(state("a/paid"), off);
+
+        // A $0 price learned later turns an untouched model on; a price above zero off again.
+        store::update_model(&conn, &p.id, "d/unpriced", None, None, Some(Some(price(0)))).unwrap();
+        assert_eq!(state("d/unpriced"), (true, None));
+        store::update_model(&conn, &p.id, "d/unpriced", None, None, Some(Some(price(500_000)))).unwrap();
+        assert_eq!(state("d/unpriced"), off);
+
+    }
+
+    #[test]
+    fn the_free_model_kinds_in_the_billing_rule_are_the_presets_that_say_so() {
+        let kinds: Vec<&str> = crate::gateway::presets::PRESETS.iter().filter(|p| p.free_models).map(|p| p.id).collect();
+        assert_eq!(kinds, ["openrouter", "zai", "zai-anthropic"]);
+        let listed = store::FREE_MODELS_CONNECTION.split("IN (").nth(1).unwrap().split(')').next().unwrap();
+        assert_eq!(listed.split(", ").map(|k| k.trim_matches('\'')).collect::<Vec<_>>(), kinds);
+        for p in crate::gateway::presets::PRESETS.iter().filter(|p| p.free_models) {
+            assert_eq!(p.default_billing, "free", "{} starts as free", p.id);
+        }
     }
 
     #[test]

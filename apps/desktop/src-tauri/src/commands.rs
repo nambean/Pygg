@@ -151,6 +151,8 @@ pub struct ConnectionView {
     #[serde(flatten)]
     pub provider: Provider,
     pub preset_name: String,
+    /// Its free part is a set of $0 models, so paid ones start off while it is set as free (ADR-032).
+    pub free_models: bool,
     pub has_key: bool,
     pub needs_key: bool,
     pub models: usize,
@@ -174,6 +176,7 @@ fn view(state: &AppState, provider: Provider) -> ConnectionView {
         limits,
         preset_name: preset.map(|p| p.name.to_string()).unwrap_or_else(|| provider.kind.clone()),
         needs_key: preset.map(|p| p.needs_key).unwrap_or(false),
+        free_models: preset.map(|p| p.free_models).unwrap_or(false),
         has_key,
         models,
         health,

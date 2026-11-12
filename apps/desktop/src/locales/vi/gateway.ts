@@ -245,6 +245,11 @@ export const gateway: Record<string, string> = {
   'Connection disabled · skipped': 'Kết nối đã tắt · bỏ qua',
   'priced': 'đã có giá',
   'Not in the model list': 'Không có trong danh sách model',
+  'Only the models it lists at $0 are on. A model with a price, or none, starts off; turn one on to use it.':
+    'Chỉ các model niêm yết $0 được bật. Model có giá hoặc chưa có giá sẽ tắt sẵn; bật model nào thì dùng model đó.',
+  'This connection is set as free and this model is not listed at $0, so Pygg turned it off. Turn it on to use it; its cost follows its price, or is Unknown without one.':
+    'Kết nối này đặt là miễn phí còn model này không niêm yết $0, nên Pygg đã tắt nó. Bật lên để dùng; chi phí tính theo giá của model, hoặc là Unknown nếu chưa có giá.',
+  'Off: not $0': 'Tắt: không phải $0',
 
   // Clients
   'Loading clients…': 'Đang tải client…',

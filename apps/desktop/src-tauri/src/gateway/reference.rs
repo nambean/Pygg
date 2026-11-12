@@ -118,7 +118,15 @@ pub struct Applied {
     pub filled: usize,
     /// Models that got a tier from their price band.
     pub tiered: usize,
+    /// $0 models added from the catalog because the provider's own list leaves them out (`ADDS_FREE_MODELS`).
+    pub added: usize,
 }
+
+/// Providers whose model list leaves out models they offer free: Z.AI listed 12 models for the owner's key on
+/// 2026-11-12, none of its free Flash models (`glm-4.7-flash`, `glm-4.5-flash`, `glm-4.6v-flash`), which its pricing
+/// page and the catalog list at $0. For these, the catalog's $0 models are added (source `models.dev`), so a
+/// connection kept for its free models has them (ADR-032). OpenRouter's own list is complete and is not added to.
+const ADDS_FREE_MODELS: &[&str] = &["zai", "zai-anthropic"];
 
 /// Fills unknown facts and prices from the catalog, then tiers: the naming table first, the price band after.
 pub fn apply(conn: &Connection, catalog: &Value) -> Result<Applied> {
@@ -126,6 +134,17 @@ pub fn apply(conn: &Connection, catalog: &Value) -> Result<Applied> {
     let mut applied = Applied::default();
     for provider in store::list_providers(conn)? {
         let Some(models) = catalog_provider(catalog, &provider) else { continue };
+        if ADDS_FREE_MODELS.contains(&provider.kind.as_str()) {
+            for (id, entry) in models {
+                // A model that answers in text; a $0 image or speech model is priced per item, not per token.
+                let text = entry["modalities"]["output"].as_array().is_none_or(|o| o.iter().any(|v| v == "text"))
+                    && entry["type"].as_str().is_none_or(|t| t == "text" || t == "chat");
+                if text && price_of(entry, now).is_some_and(|p| p.input_micro_per_mtok == 0 && p.output_micro_per_mtok == 0) {
+                    applied.added += conn.execute("INSERT OR IGNORE INTO models (id, provider_id, model_id, observed_at) VALUES (?1, ?2, ?3, ?4)",
+                        params![format!("{}/{id}", provider.id), provider.id, id, now]).map_err(|e| e.to_string())?;
+                }
+            }
+        }
         let mut statement = conn.prepare("SELECT model_id FROM models WHERE provider_id = ?1").map_err(|e| e.to_string())?;
         let ids: Vec<String> = statement.query_map([&provider.id], |r| r.get(0)).map_err(|e| e.to_string())?
             .collect::<rusqlite::Result<_>>().map_err(|e| e.to_string())?;
@@ -158,6 +177,8 @@ pub fn apply(conn: &Connection, catalog: &Value) -> Result<Applied> {
     }
     store::fill_curated_tiers(conn)?;
     applied.tiered = fill_price_band_tiers(conn)?;
+    // A list price filled here can make a model paid on a free connection, which turns it off (ADR-032).
+    store::apply_free_connection_rule(conn)?;
     Ok(applied)
 }
 
@@ -218,7 +239,8 @@ mod tests {
                 "qwen3.7-plus": {"tool_call": false, "cost": {"input": 9, "output": 99}}}},
             "zai": {"models": {"glm-5.3": {"tool_call": true, "cost": {"input": 1, "output": 3.2}, "limit": {"context": 200000, "output": 131072}},
                 "glm-5.2": {"tool_call": true, "cost": {"input": 1, "output": 3.2}, "limit": {"context": 200000, "output": 131072}},
-                "glm-image": {"type": "image", "tool_call": false, "cost": {"input": 0, "output": 0}}}},
+                "glm-image": {"type": "image", "tool_call": false, "cost": {"input": 0, "output": 0}},
+                "glm-4.7-flash": {"tool_call": true, "cost": {"input": 0, "output": 0}, "limit": {"context": 200000, "output": 131072}}}},
             "lmstudio": {"models": {"qwen3:8b": {"tool_call": true}}}
         })
     }
@@ -294,6 +316,27 @@ mod tests {
         assert_eq!(other.capabilities.tier_note.as_deref(), Some(TIER_NOTE));
         let image = model(&conn, &zai, "glm-image");
         assert_eq!((image.capabilities.supports_tools, image.capabilities.tier.as_deref()), (Some(false), None), "a $0 price gives no tier");
+    }
+
+    #[test]
+    fn a_connection_kept_for_free_models_gets_the_free_ones_its_list_leaves_out_and_only_those_on() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let p = store::add_provider(&conn, &NewProvider { kind: "zai", label: "Z.AI", endpoint: "https://api.z.ai/api/paas/v4",
+            credential_ref: None, default_billing: "free", wire: "openai" }).unwrap();
+        store::add_model(&conn, &p.id, "glm-5.3").unwrap();
+        let applied = apply(&conn, &catalog()).unwrap();
+        assert_eq!(applied.added, 1, "glm-4.7-flash; not glm-image, priced per image");
+        let flash = model(&conn, &p.id, "glm-4.7-flash");
+        assert_eq!((flash.enabled, flash.billing.as_str(), flash.capabilities.supports_tools), (true, "free", Some(true)));
+        let paid = model(&conn, &p.id, "glm-5.3");
+        assert_eq!((paid.enabled, paid.billing.as_str(), paid.enabled_source.as_deref()), (false, "paid", Some(store::OFF_ON_FREE_CONNECTION)));
+        assert_eq!(apply(&conn, &catalog()).unwrap().added, 0);
+        // OpenRouter's own list is complete: nothing is added to it.
+        let or = store::add_provider(&conn, &NewProvider { kind: "openrouter", label: "OR", endpoint: "https://openrouter.ai/api/v1",
+            credential_ref: None, default_billing: "free", wire: "openai" }).unwrap();
+        let catalog = json!({"openrouter": {"models": {"x/y:free": {"cost": {"input": 0, "output": 0}}}}});
+        assert_eq!(apply(&conn, &catalog).unwrap().added, 0);
+        assert!(store::list_models(&conn, Some(&or.id)).unwrap().is_empty());
     }
 
     #[test]

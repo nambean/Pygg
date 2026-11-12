@@ -79,6 +79,10 @@ pub fn run() {
             if let Err(e) = gateway::store::fill_curated_tiers(&conn) {
                 eprintln!("could not fill tiers: {e}");
             }
+            // Paid models on a connection used for its free models start off (ADR-032), stores from before included.
+            if let Err(e) = gateway::store::apply_free_connection_rule(&conn) {
+                eprintln!("could not apply the free-connection rule: {e}");
+            }
             let db = Arc::new(Mutex::new(conn));
             let handle = app.handle().clone();
             let runner = tasks::Runner::new(db.clone(), worktrees, tasks::agent_executor())

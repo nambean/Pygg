@@ -1,6 +1,6 @@
 # Decisions
 
-> **Status:** Current · architecture decision records (ADR-001 to ADR-031) · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+> **Status:** Current · architecture decision records (ADR-001 to ADR-032) · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
 
 Architecture decision records, in the style of DownFetch's `docs/DECISIONS.md`. Each decision says what was chosen, why, and what it costs. The product plan is [SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md); the screen design is [design/SCREENS.md](design/SCREENS.md).
 
@@ -272,6 +272,19 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 **How it runs:** at start-up, in the background, and after a connection's model list is refreshed; at most one download a day, kept next to the store (`reference/models.dev.json`) for use offline. The download is a GET of a public file and carries nothing about the user. `gateway lookup` applies it by hand.
 
 **Measured on the owner's store (a copy):** models.dev described 466 of 584 models (Claude 14 of 14, DeepSeek 2 of 2, Z.AI 11 of 12, OpenRouter 373 of 431, Qwen's token plan 14 of 21, Gemini 37 of 63, Cohere 15 of 37; most of the rest are embedding, speech, image or batch variants), filled facts or prices for 98 and tiered 294 by price. `auto` with tools went from no eligible model to a ranked route, Qwen's subscription first.
+
+## ADR-032 — A connection kept for its free models has only those on (2026-11-12)
+
+**Context:** Connect lists OpenRouter under "Free tier" for its `:free` models. The owner connected it and set it as free, and Connections then showed all 432 of its models on, nearly all of them paid. A user who connects OpenRouter for its free models expects only those to be on, and to turn on a paid one when they mean to pay for it. Z.AI's model list, for its part, leaves out its free Flash models altogether.
+
+**Decision:**
+- **Two kinds of free.** For most free tiers the account is free (a trial key, Gemini's free tier): every call costs nothing within limits, so a list price does not make a call paid. For OpenRouter and Z.AI the free part is a set of models listed at $0 next to paid ones; their presets say so (`free_models`) and start as free.
+- **On such a connection set as free, only models listed at $0 are on and free.** A model with a price is paid; one without a price is unknown, never free, since OpenRouter's own routers (`openrouter/auto`) list none and may pick a paid model. Pygg turns both off (`enabled_source = 'free-connection'`, schema v20), and the Models table says why ("Off: not $0").
+- **The user's switch is theirs.** A model the user turns on stays on, billed as paid or unknown. A model Pygg turned off comes back on when that stops being true: the connection is set as paid, or the model's price or billing changes.
+- **The ledger follows the same rule** as ranking (`store.rs` `billing!`): a paid OpenRouter model on a free connection is no longer recorded at $0.
+- **Missing free models are added from the reference catalog** (ADR-031) for Z.AI only, whose list leaves them out; models answering in text only. OpenRouter's own list is complete and is not added to.
+
+**Measured on a copy of the owner's store:** OpenRouter went from 432 models on to 16, all listed at $0; Z.AI from 12 paid models on to its 3 free Flash models (`glm-4.7-flash`, `glm-4.5-flash`, `glm-4.6v-flash`), which its list had left out; Cohere (a trial key) kept all 37. Z.AI answered a request for `glm-4.7-flash` with "overloaded" (429), not "unknown model".
 
 ## Open decisions (not yet finalized)
 

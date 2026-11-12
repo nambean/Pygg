@@ -162,6 +162,7 @@ pub fn update_provider(conn: &Connection, id: &str, enabled: Option<bool>, billi
             return Err(format!("unknown billing type {billing}"));
         }
         conn.execute("UPDATE providers SET default_billing = ?2 WHERE id = ?1", params![id, billing]).map_err(err)?;
+        apply_free_connection_rule(conn)?;
     }
     Ok(())
 }
@@ -180,6 +181,9 @@ pub struct Model {
     pub observed_at: Option<i64>,
     /// What auto routing knows about it (ROADMAP P0-5).
     pub capabilities: Capabilities,
+    /// Who last switched it: `None` (Pygg's default), `user`, or `free-connection` (Pygg turned it off because it
+    /// has a price on a connection set as free; see `apply_free_connection_rule`).
+    pub enabled_source: Option<String>,
 }
 
 pub const TIERS: [&str; 5] = ["T0", "T1", "T2", "T3", "T4"];
@@ -238,15 +242,59 @@ impl Listed {
     }
 }
 
-/// A model's billing is its own, or its connection's when it has none; but a connection set as free that lists a
-/// model at a price above zero is charged for it (OpenRouter lists its paid models next to its `:free` ones), so
-/// such a model is paid, for ranking, holds and the ledger. Found on 2026-11-12: `auto` sent an owner's request to a
-/// paid OpenRouter model as free, and only the account's empty balance (HTTP 402) stopped it being billed as $0.
-const MODEL_COLUMNS: &str = "m.provider_id, m.model_id, CASE WHEN m.billing <> 'unknown' THEN m.billing \
-     WHEN p.default_billing = 'free' AND (COALESCE(json_extract(m.price_json, '$.inputMicroPerMtok'), 0) > 0 \
-       OR COALESCE(json_extract(m.price_json, '$.outputMicroPerMtok'), 0) > 0) THEN 'paid' ELSE p.default_billing END, \
+/// A connection (`p`) set as free whose free part is a set of $0 models (presets.rs `free_models`). The kinds are
+/// checked against the presets by a test.
+macro_rules! free_models_connection {
+    () => { "(p.default_billing = 'free' AND p.kind IN ('openrouter', 'zai', 'zai-anthropic'))" };
+}
+
+/// A model (`m`) listed at a price above zero.
+macro_rules! priced {
+    () => { "(COALESCE(json_extract(m.price_json, '$.inputMicroPerMtok'), 0) > 0 \
+              OR COALESCE(json_extract(m.price_json, '$.outputMicroPerMtok'), 0) > 0)" };
+}
+
+/// A model (`m`) listed at $0 for input and output.
+macro_rules! listed_free {
+    () => { "(m.price_json IS NOT NULL AND COALESCE(json_extract(m.price_json, '$.inputMicroPerMtok'), 0) = 0 \
+              AND COALESCE(json_extract(m.price_json, '$.outputMicroPerMtok'), 0) = 0)" };
+}
+
+/// A model's billing is its own, or its connection's when it has none. On a connection set as free whose free part
+/// is a set of $0 models (OpenRouter lists its paid models next to its `:free` ones), only a model listed at $0 is
+/// free: one at a price is paid, and one without a price is unknown (OpenRouter's own routers, `openrouter/auto`, list
+/// none and may pick a paid model), for ranking, holds and the ledger. Found on 2026-11-12: `auto` sent an owner's
+/// request to a paid OpenRouter model as free, and only the account's empty balance (HTTP 402) stopped it being billed
+/// as $0. Where the account itself is free (a trial key, a free tier), a list price does not make a call paid.
+macro_rules! billing {
+    () => { concat!("CASE WHEN m.billing <> 'unknown' THEN m.billing WHEN ", free_models_connection!(), " AND ", priced!(),
+        " THEN 'paid' WHEN ", free_models_connection!(), " AND NOT ", listed_free!(), " THEN 'unknown' ELSE p.default_billing END") };
+}
+
+const MODEL_COLUMNS: &str = concat!("m.provider_id, m.model_id, ", billing!(), ", \
      m.enabled, m.price_json, m.observed_at, CASE WHEN m.tier IS NULL THEN NULL ELSE 'T' || m.tier END, m.context_tokens, m.max_output_tokens, m.supports_tools, \
-     m.supports_vision, m.caps_source, m.caps_observed_at, m.thinking_types, m.effort_levels, m.tier_source, p.kind";
+     m.supports_vision, m.caps_source, m.caps_observed_at, m.thinking_types, m.effort_levels, m.tier_source, p.kind, m.enabled_source");
+
+/// The SQL condition for such a connection, for the test that checks its kinds against the presets.
+pub const FREE_MODELS_CONNECTION: &str = free_models_connection!();
+
+/// Why Pygg turned a model off: it is not listed at $0, on a connection set as free whose free part is its $0 models.
+pub const OFF_ON_FREE_CONNECTION: &str = "free-connection";
+
+/// On a connection set as free whose free part is a set of $0 models, only the models listed at $0 start on: the
+/// user connected it for those, and turns a paid one (or one without a price) on when they mean to use it (ADR-032).
+/// A model the user switched either way is theirs. A model Pygg turned off is turned back on when that stops being
+/// true (the connection is no longer free, or the model's price or billing changed). Returns (turned off, turned
+/// back on).
+pub fn apply_free_connection_rule(conn: &Connection) -> Result<(usize, usize)> {
+    const PAID_HERE: &str = concat!("SELECT m.id FROM models m JOIN providers p ON p.id = m.provider_id WHERE ",
+        free_models_connection!(), " AND (m.billing = 'paid' OR (m.billing = 'unknown' AND NOT ", listed_free!(), "))");
+    let off = conn.execute(&format!("UPDATE models SET enabled = 0, enabled_source = '{OFF_ON_FREE_CONNECTION}' \
+         WHERE enabled = 1 AND enabled_source IS NULL AND id IN ({PAID_HERE})"), []).map_err(err)?;
+    let on = conn.execute(&format!("UPDATE models SET enabled = 1, enabled_source = NULL \
+         WHERE enabled_source = '{OFF_ON_FREE_CONNECTION}' AND id NOT IN ({PAID_HERE})"), []).map_err(err)?;
+    Ok((off, on))
+}
 
 fn model_row(row: &rusqlite::Row) -> rusqlite::Result<Model> {
     let price: Option<String> = row.get(4)?;
@@ -279,6 +327,7 @@ fn model_row(row: &rusqlite::Row) -> rusqlite::Result<Model> {
             },
             tier_source: row.get(15)?,
         },
+        enabled_source: row.get(17)?,
     })
 }
 
@@ -365,6 +414,7 @@ pub fn import_listed(conn: &Connection, provider_id: &str, listed: &[Listed], so
         }
     }
     fill_curated_tiers(conn)?;
+    apply_free_connection_rule(conn)?;
     Ok(added)
 }
 
@@ -409,7 +459,7 @@ pub fn add_model(conn: &Connection, provider_id: &str, model_id: &str) -> Result
 pub fn update_model(conn: &Connection, provider_id: &str, model_id: &str, enabled: Option<bool>,
     billing: Option<&str>, price: Option<Option<Price>>) -> Result<()> {
     if let Some(enabled) = enabled {
-        conn.execute("UPDATE models SET enabled = ?3 WHERE provider_id = ?1 AND model_id = ?2",
+        conn.execute("UPDATE models SET enabled = ?3, enabled_source = 'user' WHERE provider_id = ?1 AND model_id = ?2",
             params![provider_id, model_id, enabled as i64]).map_err(err)?;
     }
     if let Some(billing) = billing {
@@ -424,6 +474,7 @@ pub fn update_model(conn: &Connection, provider_id: &str, model_id: &str, enable
         conn.execute("UPDATE models SET price_json = ?3 WHERE provider_id = ?1 AND model_id = ?2",
             params![provider_id, model_id, json]).map_err(err)?;
     }
+    apply_free_connection_rule(conn)?;
     Ok(())
 }
 
@@ -433,18 +484,17 @@ pub fn remove_model(conn: &Connection, provider_id: &str, model_id: &str) -> Res
         .map_err(err)
 }
 
-/// Billing and price for a routed model; a model without a row uses its connection's billing type.
+/// Billing and price for a routed model, by the same rule as the model list (`billing!`); a model without a row uses
+/// its connection's billing type.
 pub fn pricing_for(conn: &Connection, provider: &Provider, model_id: &str) -> Result<(String, Option<Price>)> {
     let row: Option<(String, Option<String>)> = conn
-        .query_row("SELECT billing, price_json FROM models WHERE provider_id = ?1 AND model_id = ?2",
+        .query_row(concat!("SELECT ", billing!(), ", m.price_json FROM models m JOIN providers p ON p.id = m.provider_id \
+             WHERE m.provider_id = ?1 AND m.model_id = ?2"),
             params![provider.id, model_id], |r| Ok((r.get(0)?, r.get(1)?)))
         .optional()
         .map_err(err)?;
     Ok(match row {
-        Some((billing, price)) => (
-            if billing == "unknown" { provider.default_billing.clone() } else { billing },
-            price.and_then(|p| serde_json::from_str(&p).ok()),
-        ),
+        Some((billing, price)) => (billing, price.and_then(|p| serde_json::from_str(&p).ok())),
         None => (provider.default_billing.clone(), None),
     })
 }

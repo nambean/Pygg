@@ -133,7 +133,7 @@ pub async fn run(mut args: Vec<String>) {
             println!("{} listed {} models, {added} new", provider.label, ids.len());
             if let Some(catalog) = gateway::reference::current(&shared.http, &gateway::reference::cache_path(&db_path)).await {
                 let applied = shared.with_db(|db| gateway::reference::apply(db, &catalog)).unwrap_or_else(|e| fail(e));
-                println!("models.dev described {}; filled {}; tiered by price {}", applied.matched, applied.filled, applied.tiered);
+                println!("models.dev described {}; filled {}; tiered by price {}; added {} free", applied.matched, applied.filled, applied.tiered, applied.added);
             }
         }
         "lookup" => {
@@ -146,7 +146,7 @@ pub async fn run(mut args: Vec<String>) {
             };
             let applied = shared.with_db(|db| gateway::reference::apply(db, &catalog)).unwrap_or_else(|e| fail(e));
             shared.with_db(gateway::reference::mark_applied);
-            println!("models.dev described {} models; filled {}; tiered by price {}", applied.matched, applied.filled, applied.tiered);
+            println!("models.dev described {} models; filled {}; tiered by price {}; added {} free", applied.matched, applied.filled, applied.tiered, applied.added);
         }
         "create-client" => {
             let name = one("name").unwrap_or_else(|| fail("--name is required"));

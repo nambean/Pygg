@@ -10,7 +10,7 @@ import { TIERS } from './api';
 import { SAMPLE_WORKSPACES, sampleTasks } from './sample';
 import type { AttemptView, NewTask, TaskDetail, TaskSummary, WorkspaceView } from './tasks';
 
-type BasePreset = Omit<Preset, 'offer' | 'offerNote'>;
+type BasePreset = Omit<Preset, 'offer' | 'offerNote' | 'freeModels'>;
 const BASE_PRESETS: BasePreset[] = [
   {id: 'gemini', name: 'Google Gemini', endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai', needsKey: true, defaultBilling: 'unknown', wire: 'openai'},
   {id: 'anthropic', name: 'Anthropic', endpoint: 'https://api.anthropic.com/v1', needsKey: true, defaultBilling: 'paid', wire: 'anthropic'},
@@ -64,8 +64,9 @@ const OFFERS: Record<string, [Preset['offer'], string]> = {
 };
 const PRESETS: Preset[] = BASE_PRESETS.map(p => {
   const offer = OFFERS[p.id];
+  const freeModels = ['openrouter', 'zai', 'zai-anthropic'].includes(p.id);
   return {...p, offer: offer?.[0] ?? (p.endpoint === null ? 'custom' : p.defaultBilling === 'local' ? 'local' : 'paid'),
-    offerNote: offer?.[1] ?? null};
+    offerNote: offer?.[1] ?? null, freeModels, defaultBilling: freeModels ? 'free' : p.defaultBilling};
 });
 
 /** As found on a developer machine: three agents installed, Codex signed in with a ChatGPT plan. */
@@ -103,7 +104,7 @@ function slug(label: string): string {
   return out || 'connection';
 }
 
-type Stored = Omit<Connection, 'presetName' | 'hasKey' | 'needsKey' | 'models' | 'health' | 'sharesQuotaWith' | 'quotaGroup'>
+type Stored = Omit<Connection, 'presetName' | 'hasKey' | 'needsKey' | 'models' | 'health' | 'sharesQuotaWith' | 'quotaGroup' | 'freeModels'>
   & {key: boolean};
 
 export function demoApi(): GatewayApi {
@@ -127,7 +128,7 @@ export function demoApi(): GatewayApi {
     for (const modelId of ids) {
       if (!models.some(m => m.providerId === providerId && m.modelId === modelId)) {
         models.push({providerId, modelId, billing: connections.find(c => c.id === providerId)?.defaultBilling ?? 'unknown',
-          enabled: true, price: null, observedAt: Date.now(), capabilities: {...UNKNOWN}});
+          enabled: true, price: null, observedAt: Date.now(), capabilities: {...UNKNOWN}, enabledSource: null});
       }
     }
   };
@@ -259,6 +260,7 @@ export function demoApi(): GatewayApi {
     const preset = PRESETS.find(p => p.id === c.kind);
     const {key, ...rest} = c;
     return {...rest, quotaGroup: quotaGroup(c), presetName: preset?.name ?? c.kind, hasKey: key, needsKey: preset?.needsKey ?? false,
+      freeModels: preset?.freeModels ?? false,
       models: models.filter(m => m.providerId === c.id).length,
       health: health.filter(h => h.providerId === c.id && (h.untilMs === null || h.untilMs > Date.now())),
       sharesQuotaWith: connections.filter(o => o.id !== c.id && quotaGroup(o) === quotaGroup(c)).map(o => o.label),
