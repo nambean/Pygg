@@ -47,6 +47,9 @@ httpdate = "1"
 winreg = "0.55"
 # The Windows version for the diagnostics bundle (src/diagnostics.rs); already in the tree through tao.
 windows-version = "0.1"
+# The snap layouts overlay over the green window button (src/snap.rs): the same `windows` crate tao, wry and
+# tauri already use (0.62 in Cargo.lock), with the Win32 features it needs. No new crate.
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(unix)'.dependencies]
 # Ending a whole process group on timeout or cancel.

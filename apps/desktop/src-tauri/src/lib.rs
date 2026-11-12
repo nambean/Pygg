@@ -17,6 +17,7 @@ pub mod messages;
 pub mod process;
 pub mod redact;
 pub mod shell;
+pub mod snap;
 pub mod tasks;
 pub mod vault;
 
@@ -218,6 +219,7 @@ pub fn run() {
             commands::usage_export,
             commands::connection_check_account,
             commands::diagnostics_export,
+            snap::window_snap_area,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Pygg");

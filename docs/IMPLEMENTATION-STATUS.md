@@ -212,7 +212,7 @@ Reasoning: OpenRouter's Nemotron returned `reasoning`, and the Anthropic-format 
 - **The counter-review changes against a real provider.** The quota-group hold, HTTP-date resets, the attempt journal and the at-risk accounting were tested against the fake provider only.
 - **Providers other than Gemini, Anthropic, Qwen, Ollama and OpenRouter answering successfully.** OpenAI, Groq, DeepSeek and Mistral gave their real 401 answers (above), and DeepSeek a real 402 for an empty balance (2026-11-12); a successful request only against the fake provider. OpenRouter and Ollama answered live through the owner's gateway on 2026-11-12.
 - **DeepSeek's thinking mode with tools across the Anthropic translation** (B5). Needs a funded DeepSeek account.
-- **Clicking through the native window.** It was checked through screenshots and DevTools-driven commands. The D12 checks for traffic-light controls (snap layouts, scaling, screen readers) remain open.
+- **Clicking through the native window.** It was checked through screenshots and DevTools-driven commands. The D12 checks for traffic-light controls (scaling, screen readers) remain open. Snap layouts on hover over the green button work in a debug build at 100% scaling (an invisible native overlay answers `HTMAXBUTTON`, `snap.rs`); other scales and snapping into a zone are still to check ([D12 report](reports/2026-11-12-d12-release-checks.md#snap-layouts-4)).
 
 ## Designed, not built
 
