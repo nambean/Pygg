@@ -129,6 +129,8 @@ export type Target = { providerId: string; modelId: string };
 export type Combo = { id: string; name: string; members: Target[] };
 
 export type Client = {
+  /** Whether the token can be shown again (a copy is in the credential store). */
+  tokenViewable?: boolean;
   id: string; name: string; tokenPrefix: string; monthlyBudgetMicroUsd: number | null; createdAt: number;
   lastUsedAt: number | null; revokedAt: number | null; monthSpendMicroUsd: number; monthUnknownRequests: number;
   maxConcurrency: number; unknownCostPolicy: 'block' | 'allow'; reservedMicroUsd: number;
@@ -296,6 +298,11 @@ export interface GatewayApi {
   clients(): Promise<Client[]>;
   createClient(name: string, monthlyBudgetUsd: number | null): Promise<{client: Client; token: string}>;
   revokeClient(id: string): Promise<void>;
+  /** A key's token, from its copy in the credential store. */
+  clientToken(id: string): Promise<string>;
+  /** Takes a revoked key off the list. */
+  deleteClient(id: string): Promise<void>;
+  deleteRevokedClients(): Promise<number>;
   setClientBudget(id: string, monthlyBudgetUsd: number | null): Promise<void>;
   setClientPolicy(id: string, policy: {maxConcurrency?: number; unknownCostPolicy?: 'block' | 'allow';
     /** true with allowedConnections restricts the client; false lets it use every connection. */
@@ -411,6 +418,9 @@ const native: GatewayApi = {
   clients: () => invoke('clients_list'),
   createClient: (name, monthlyBudgetUsd) => invoke('client_create', {name, monthlyBudgetUsd}),
   revokeClient: id => invoke('client_revoke', {id}),
+  clientToken: id => invoke('client_token', {id}),
+  deleteClient: id => invoke('client_delete', {id}),
+  deleteRevokedClients: () => invoke('client_delete_revoked'),
   setClientBudget: (id, monthlyBudgetUsd) => invoke('client_set_budget', {id, monthlyBudgetUsd}),
   setClientPolicy: (id, policy) => invoke('client_set_policy', {id, ...policy}),
   setModelCapabilities: (providerId, modelId, capabilities) => invoke('model_set_capabilities', {providerId, modelId, capabilities}),

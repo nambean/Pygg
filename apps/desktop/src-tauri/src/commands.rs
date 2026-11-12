@@ -456,7 +456,8 @@ pub fn auto_simulate(state: State<'_, AppState>, client_id: Option<String>, alia
             None => Client { id: String::new(), name: String::new(), token_prefix: String::new(), monthly_budget_micro_usd: None,
                 created_at: 0, last_used_at: None, revoked_at: None, month_spend_micro_usd: 0, month_unknown_requests: 0,
                 max_concurrency: 8, unknown_cost_policy: "block".into(), reserved_micro_usd: 0, month_at_risk_micro_usd: 0,
-                allowed_connections: None, paid_retries: 0, auto_min_tier: "T2".into(), may_run_tasks: false, require_no_training: false, strict_budget: false },
+                allowed_connections: None, paid_retries: 0, auto_min_tier: "T2".into(), may_run_tasks: false, require_no_training: false, strict_budget: false,
+                token_viewable: false },
         };
         gateway::auto::plan(db, &client, &alias, strategy, &needs)
     })
@@ -556,13 +557,56 @@ fn budget(usd: Option<f64>) -> Res<Option<u64>> {
 #[tauri::command]
 pub fn client_create(state: State<'_, AppState>, name: String, monthly_budget_usd: Option<f64>) -> Res<CreatedClient> {
     let limit = budget(monthly_budget_usd)?;
-    let (client, token) = state.shared.with_db(|db| store::create_client(db, &name, limit))?;
+    let (mut client, token) = state.shared.with_db(|db| store::create_client(db, &name, limit))?;
+    // A copy in the credential store, so the key can be shown again; without one it is shown this once only.
+    let reference = crate::vault::new_client_reference();
+    if crate::vault::store(&reference, &token).is_ok() {
+        state.shared.with_db(|db| store::set_client_token_ref(db, &client.id, Some(&reference)))?;
+        client.token_viewable = true;
+    }
     Ok(CreatedClient { client, token })
+}
+
+/// The token of a key, from its copy in the credential store (Endpoint → API Keys → Show).
+#[tauri::command]
+pub fn client_token(state: State<'_, AppState>, id: String) -> Res<String> {
+    let reference = state.shared.with_db(|db| store::client_token_ref(db, &id))?
+        .ok_or("This key was made before Pygg kept a copy, or it was revoked, so it can't be shown. Create a new one.")?;
+    crate::vault::read(&reference).map_err(|e| e.to_string())?
+        .ok_or_else(|| "The key's copy is missing from the credential store. Create a new key.".into())
 }
 
 #[tauri::command]
 pub fn client_revoke(state: State<'_, AppState>, id: String) -> Res<()> {
-    state.shared.with_db(|db| store::revoke_client(db, &id))
+    // A revoked key's copy is of no use to anyone: it goes with it.
+    let reference = state.shared.with_db(|db| store::client_token_ref(db, &id))?;
+    state.shared.with_db(|db| store::revoke_client(db, &id))?;
+    if let Some(reference) = reference {
+        let _ = crate::vault::remove(&reference);
+        state.shared.with_db(|db| store::set_client_token_ref(db, &id, None))?;
+    }
+    Ok(())
+}
+
+/// Takes a revoked key off the list (its past requests keep its name in Usage).
+#[tauri::command]
+pub fn client_delete(state: State<'_, AppState>, id: String) -> Res<()> {
+    if let Some(reference) = state.shared.with_db(|db| store::delete_client(db, &id))? {
+        let _ = crate::vault::remove(&reference);
+    }
+    Ok(())
+}
+
+/// Deletes every revoked key; returns how many.
+#[tauri::command]
+pub fn client_delete_revoked(state: State<'_, AppState>) -> Res<u32> {
+    let ids = state.shared.with_db(store::revoked_client_ids)?;
+    for id in &ids {
+        if let Some(reference) = state.shared.with_db(|db| store::delete_client(db, id))? {
+            let _ = crate::vault::remove(&reference);
+        }
+    }
+    Ok(ids.len() as u32)
 }
 
 #[tauri::command]

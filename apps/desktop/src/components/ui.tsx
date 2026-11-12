@@ -126,6 +126,20 @@ export function Spinner({label}: {label?: string}) {
     {label ?? <span className="sr-only">{t('Loading…')}</span>}</span>;
 }
 
+/** Placeholder rows while a slow list loads: the shape of what is coming, with a status for screen readers. */
+export function SkeletonRows({count, label}: {count: number; label: string}) {
+  return <div className="skeleton" role="status" aria-label={label}>
+    <ul className="group-box skeleton-list" aria-hidden>
+      {Array.from({length: count}, (_, i) => <li key={i} className="skeleton-row">
+        <span className="skeleton-icon"/>
+        <span className="skeleton-text"><span className="skeleton-bar" style={{width: `${38 + (i * 17) % 30}%`}}/>
+          <span className="skeleton-bar short" style={{width: `${55 + (i * 23) % 35}%`}}/></span>
+      </li>)}
+    </ul>
+    <p className="skeleton-label"><LoaderCircle size={13} className="spin" aria-hidden/>{label}</p>
+  </div>;
+}
+
 /** A centered empty state with an icon, a title, a sentence and an optional action. */
 export function Empty({icon, title, children, action}: {icon: React.ReactNode; title: string; children?: React.ReactNode; action?: React.ReactNode}) {
   return <div className="placeholder">

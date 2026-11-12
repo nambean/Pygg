@@ -806,6 +806,19 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .savings-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .savings-figure { font-size: 17px; font-weight: 600; }
 .savings-detail { margin: 0; font-size: 12px; }
+.skeleton-list { list-style: none; margin: 0; padding: 0; }
+.skeleton-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--separator); }
+.skeleton-row:last-child { border-bottom: 0; }
+.skeleton-icon { width: 26px; height: 26px; border-radius: 7px; background: var(--fill, rgba(127,127,127,.18)); flex-shrink: 0; }
+.skeleton-text { display: grid; gap: 7px; flex: 1; }
+.skeleton-bar { display: block; height: 10px; border-radius: 5px; background: linear-gradient(90deg, rgba(127,127,127,.14) 0%,
+  rgba(127,127,127,.30) 50%, rgba(127,127,127,.14) 100%); background-size: 200% 100%; animation: shimmer 1.3s ease-in-out infinite; }
+.skeleton-bar.short { height: 8px; opacity: .7; }
+.skeleton-label { display: flex; align-items: center; gap: 6px; margin: 8px 2px 0; font-size: 12px; color: var(--secondary); }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton-bar { animation: none; } }
+.token-reveal { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.token-full { font-size: 11px; word-break: break-all; max-width: 280px; }
 .page-intro { color: var(--secondary); margin: 0; font-size: 13px; line-height: 1.5; }
 .endpoint-value { display: inline-flex; align-items: center; gap: 8px; }
 .chosen-preset { display: flex; align-items: center; gap: 10px; padding-bottom: 4px; }

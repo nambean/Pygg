@@ -641,14 +641,11 @@ pub fn records(conn: &Connection) -> Vec<(String, Option<String>)> {
 }
 
 pub async fn list_with(records: Vec<(String, Option<String>)>, homes: &Homes) -> Vec<Integration> {
-    let mut out = Vec::new();
-    for (id, rec) in records {
+    // All at once, in the original order: `claude mcp get` alone takes seconds, as it checks the server.
+    futures_util::future::join_all(records.into_iter().map(|(id, rec)| async move {
         let rec = rec.filter(|s| !s.is_empty()).and_then(|s| serde_json::from_str(&s).ok());
-        if let Ok(i) = describe(&id, homes, rec).await {
-            out.push(i);
-        }
-    }
-    out
+        describe(&id, homes, rec).await.ok()
+    })).await.into_iter().flatten().collect()
 }
 
 pub fn plan(id: &str, server: &Server, homes: &Homes, backup_dir: &Path) -> Result<Plan, String> {

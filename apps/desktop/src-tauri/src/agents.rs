@@ -152,23 +152,24 @@ async fn claude_login(launch: &Launch) -> Option<String> {
 
 /// Every known agent, installed or not, with its version and sign-in state where the CLI reports one.
 pub async fn detect() -> Vec<Detected> {
-    let mut out = Vec::new();
-    for spec in AGENTS {
+    // Every agent, and each agent's two questions, at once: each answer is a program starting up, so asking in turn
+    // made the Agents screen wait for all of them one after another.
+    futures_util::future::join_all(AGENTS.iter().map(|spec| async move {
         let launch = spec.programs.iter().find_map(|p| locate(p));
         let (version, login) = match &launch {
-            Some(launch) => (quick(launch, &["--version"]).await,
+            Some(launch) => futures_util::future::join(quick(launch, &["--version"]), async {
                 match spec.id {
                     "codex" => quick(launch, &["login", "status"]).await,
                     "claude-code" => claude_login(launch).await,
                     _ => None,
-                }),
+                }
+            }).await,
             None => (None, None),
         };
-        out.push(Detected { id: spec.id.into(), name: spec.name.into(), installed: launch.is_some(),
+        Detected { id: spec.id.into(), name: spec.name.into(), installed: launch.is_some(),
             program: launch.map(|l| l.prefix.last().cloned().unwrap_or(l.program)), version, login,
-            sign_in: spec.sign_in.into(), install: spec.install.into() });
-    }
-    out
+            sign_in: spec.sign_in.into(), install: spec.install.into() }
+    })).await
 }
 
 /// A task for an agent.

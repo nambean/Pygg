@@ -553,6 +553,8 @@ pub struct Client {
     /// A strict monthly limit (ROADMAP B4): each request is held at the most it could cost, and a model whose price
     /// or maximum output is unknown is not used.
     pub strict_budget: bool,
+    /// Whether a copy of the token is in the OS credential store, so it can be shown again (migration 0023).
+    pub token_viewable: bool,
 }
 
 impl Client {
@@ -636,15 +638,18 @@ fn client_row(conn: &Connection, row: &rusqlite::Row) -> rusqlite::Result<Client
         may_run_tasks: row.get(12)?,
         require_no_training: row.get(13)?,
         strict_budget: row.get(14)?,
+        token_viewable: row.get(15)?,
     })
 }
 
 const CLIENT_COLUMNS: &str = "id, name, token_prefix, monthly_budget_micro_usd, created_at, last_used_at, revoked_at, \
-    max_concurrency, unknown_cost_policy, allowed_connections, paid_retries, auto_min_tier, may_run_tasks, require_no_training, strict_budget";
+    max_concurrency, unknown_cost_policy, allowed_connections, paid_retries, auto_min_tier, may_run_tasks, require_no_training, strict_budget, \
+    token_ref IS NOT NULL";
 
 pub fn list_clients(conn: &Connection) -> Result<Vec<Client>> {
     let mut stmt = conn
-        .prepare(&format!("SELECT {CLIENT_COLUMNS} FROM gateway_clients ORDER BY revoked_at IS NOT NULL, created_at"))
+        .prepare(&format!("SELECT {CLIENT_COLUMNS} FROM gateway_clients WHERE deleted_at IS NULL \
+            ORDER BY revoked_at IS NOT NULL, created_at"))
         .map_err(err)?;
     let rows = stmt.query_map([], |row| client_row(conn, row)).map_err(err)?;
     rows.collect::<rusqlite::Result<_>>().map_err(err)
@@ -668,6 +673,39 @@ pub fn create_client(conn: &Connection, name: &str, monthly_budget_micro_usd: Op
         .query_row(&format!("SELECT {CLIENT_COLUMNS} FROM gateway_clients WHERE id = ?1"), [&id], |r| client_row(conn, r))
         .map_err(err)?;
     Ok((client, token))
+}
+
+/// The credential-store entry holding a copy of the client's token, if one was kept.
+pub fn client_token_ref(conn: &Connection, id: &str) -> Result<Option<String>> {
+    conn.query_row("SELECT token_ref FROM gateway_clients WHERE id = ?1 AND revoked_at IS NULL", [id], |r| r.get(0))
+        .optional().map_err(err).map(Option::flatten)
+}
+
+pub fn set_client_token_ref(conn: &Connection, id: &str, token_ref: Option<&str>) -> Result<()> {
+    conn.execute("UPDATE gateway_clients SET token_ref = ?2 WHERE id = ?1", params![id, token_ref]).map(|_| ()).map_err(err)
+}
+
+/// Takes a revoked client off the list; returns its token copy's reference, for the caller to delete. A key still in
+/// use is refused: revoke it first.
+pub fn delete_client(conn: &Connection, id: &str) -> Result<Option<String>> {
+    let row: Option<(Option<i64>, Option<String>)> = conn.query_row(
+        "SELECT revoked_at, token_ref FROM gateway_clients WHERE id = ?1 AND deleted_at IS NULL", [id],
+        |r| Ok((r.get(0)?, r.get(1)?))).optional().map_err(err)?;
+    let Some((revoked, token_ref)) = row else { return Err("No such API key".into()) };
+    if revoked.is_none() {
+        return Err("Revoke the key before deleting it.".into());
+    }
+    conn.execute("UPDATE gateway_clients SET deleted_at = ?2, token_ref = NULL WHERE id = ?1", params![id, now_ms()])
+        .map_err(err)?;
+    Ok(token_ref)
+}
+
+/// The revoked clients still listed.
+pub fn revoked_client_ids(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT id FROM gateway_clients WHERE revoked_at IS NOT NULL AND deleted_at IS NULL")
+        .map_err(err)?;
+    let ids = stmt.query_map([], |r| r.get(0)).map_err(err)?.collect::<rusqlite::Result<Vec<String>>>().map_err(err)?;
+    Ok(ids)
 }
 
 pub fn revoke_client(conn: &Connection, id: &str) -> Result<()> {
@@ -2077,6 +2115,23 @@ mod tests {
         set_capabilities(&conn, &p.id, "claude-haiku-5-5", &Capabilities { tier: Some("T1".into()), ..Capabilities::default() }).unwrap();
         fill_curated_tiers(&conn).unwrap();
         assert_eq!(tier("claude-haiku-5-5").tier.as_deref(), Some("T1"));
+    }
+
+    #[test]
+    fn a_revoked_key_can_be_deleted_and_is_then_not_listed() {
+        let conn = db::open_in_memory().unwrap();
+        let (c, token) = create_client(&conn, "Old", None).unwrap();
+        set_client_token_ref(&conn, &c.id, Some("client-x")).unwrap();
+        assert!(list_clients(&conn).unwrap()[0].token_viewable);
+        assert_eq!(client_token_ref(&conn, &c.id).unwrap().as_deref(), Some("client-x"));
+        assert!(delete_client(&conn, &c.id).unwrap_err().contains("Revoke"));
+        revoke_client(&conn, &c.id).unwrap();
+        assert_eq!(client_token_ref(&conn, &c.id).unwrap(), None, "a revoked key is not shown");
+        assert_eq!(revoked_client_ids(&conn).unwrap(), vec![c.id.clone()]);
+        assert_eq!(delete_client(&conn, &c.id).unwrap().as_deref(), Some("client-x"));
+        assert!(list_clients(&conn).unwrap().is_empty());
+        assert!(revoked_client_ids(&conn).unwrap().is_empty());
+        assert!(authenticate(&conn, &token).unwrap().is_none());
     }
 
     #[test]

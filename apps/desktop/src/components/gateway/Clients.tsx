@@ -17,6 +17,7 @@ export function Clients({intent, onIntentDone}: {intent?: 'create'; onIntentDone
   const [creating, setCreating] = useState(intent === 'create');
   const [limit, setLimit] = useState<Client | null>(null);
   const [revoking, setRevoking] = useState<Client | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   useEffect(() => { if (intent === 'create') { setCreating(true); onIntentDone(); } }, [intent, onIntentDone]);
 
   if (clients.loading && !clients.data) return <Spinner label={t('Loading API keys…')}/>;
@@ -45,18 +46,27 @@ export function Clients({intent, onIntentDone}: {intent?: 'create'; onIntentDone
               {[...active, ...revoked].map(c => <tr key={c.id} className={c.revokedAt ? 'disabled-row' : ''}>
                 <td><span className="client-name">{c.name}{c.revokedAt && <> <Badge tone="off">{t('Revoked')}</Badge></>}</span>
                   {!c.revokedAt && <small className="secondary">{policySummary(c)}</small>}</td>
-                <td className="mono secondary">{c.tokenPrefix}…</td>
+                <td className="mono secondary"><TokenCell client={c}/></td>
                 <td className="secondary">{c.lastUsedAt ? ago(c.lastUsedAt) : t('Never')}</td>
                 <td><Spend client={c}/></td>
-                <td className="narrow row-buttons">{!c.revokedAt && <>
-                  <button type="button" className="button small" onClick={() => setLimit(c)}>{t('Limits…')}</button>
-                  <button type="button" className="button small" onClick={() => setRevoking(c)}>{t('Revoke…')}</button>
-                </>}</td>
+                <td className="narrow row-buttons">{!c.revokedAt ? <>
+                  <button type="button" className="button small" onClick={() => setLimit(c)}
+                    aria-label={t('Limits for {name}', {name: c.name})}>{t('Limits…')}</button>
+                  <button type="button" className="button small" onClick={() => setRevoking(c)}
+                    aria-label={t('Revoke {name}', {name: c.name})}>{t('Revoke…')}</button>
+                </> : <button type="button" className="button small" aria-label={t('Delete {name}', {name: c.name})}
+                    onClick={() => call(api => api.deleteClient(c.id)).then(gatewayChanged, e => setDeleteError(errorText(e)))}>{t('Delete')}</button>}</td>
               </tr>)}
             </tbody>
           </table>
         </div>
-        <p className="group-footnote">{t('Tokens are stored only as a fingerprint; a lost token can’t be shown again. Create a new one and revoke the old.')}</p>
+        <p className="group-footnote">
+          {t('Show reads a key back from the Windows Credential Manager; the store keeps only its fingerprint. Keys made before this version can’t be shown: create a new one and revoke the old. A deleted key’s past requests keep its name in Usage.')}
+          {revoked.length > 0 && <>{' '}<button type="button" className="link-button"
+            onClick={() => call(api => api.deleteRevokedClients()).then(gatewayChanged, e => setDeleteError(errorText(e)))}>
+            {plural(revoked.length, 'Delete {n} revoked key', 'Delete {n} revoked keys')}</button></>}
+        </p>
+        {deleteError && <ErrorNote>{deleteError}</ErrorNote>}
       </section>}
 
     {creating && <CreateSheet onClose={() => setCreating(false)}/>}
@@ -66,6 +76,21 @@ export function Clients({intent, onIntentDone}: {intent?: 'create'; onIntentDone
       onClose={() => setRevoking(null)}
       onConfirm={async () => { await call(api => api.revokeClient(revoking.id)); gatewayChanged(); }}/>}
   </>;
+}
+
+/** The key's prefix; Show reads the whole key back from the credential store, when a copy was kept. */
+function TokenCell({client: c}: {client: Client}) {
+  const [token, setToken] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  if (token) return <span className="token-reveal"><span className="selectable token-full">{token}</span>
+    <CopyButton text={token} label={t('Copy')}/>
+    <button type="button" className="link-button" onClick={() => setToken(null)}>{t('Hide')}</button></span>;
+  return <span className="token-reveal">{c.tokenPrefix}…
+    {!c.revokedAt && c.tokenViewable && <button type="button" className="link-button"
+      aria-label={t('Show the key for {name}', {name: c.name})}
+      onClick={() => call(api => api.clientToken(c.id)).then(setToken, e => setError(errorText(e)))}>{t('Show')}</button>}
+    {!c.revokedAt && !c.tokenViewable && <span className="secondary small" title={t('Made before Pygg kept a copy in the Credential Manager, or set in a tool’s own configuration.')}>{t('not viewable')}</span>}
+    {error && <small className="warn-text">{error}</small>}</span>;
 }
 
 function Spend({client: c}: {client: Client}) {

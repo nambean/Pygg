@@ -60,6 +60,7 @@ pub fn set_up(conn: &Connection, now_ms: i64) -> Result<State, String> {
         let _ = store::revoke_client(conn, &client.id);
         return Err(format!("The key could not be kept in the credential store: {e}"));
     }
+    store::set_client_token_ref(conn, &client.id, Some(&vault_ref))?;
     let rec = Record { client_id: client.id, vault_ref, set_up_at: now_ms };
     store::set_setting(conn, SETTING, &serde_json::to_string(&rec).map_err(|e| e.to_string())?)?;
     Ok(state(conn))

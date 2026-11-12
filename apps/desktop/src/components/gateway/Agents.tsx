@@ -4,7 +4,7 @@ import { call, errorText, gatewayChanged, type AgentInfo, type AgentRun, type In
 import { t } from '../../lib/i18n';
 import { tokens } from '../../lib/money';
 import { useGateway } from '../../hooks/useGateway';
-import { Badge, CodeBlock, ConfirmSheet, CopyButton, ErrorNote, FormRow, Segmented, Sheet, Spinner } from '../ui';
+import { Badge, CodeBlock, ConfirmSheet, CopyButton, ErrorNote, FormRow, Segmented, Sheet, SkeletonRows, Spinner } from '../ui';
 
 /**
  * Agents: the official agent CLIs the user already has (Claude Code, Codex CLI, Gemini CLI, OpenCode), each with
@@ -12,7 +12,7 @@ import { Badge, CodeBlock, ConfirmSheet, CopyButton, ErrorNote, FormRow, Segment
  * result is kept as a branch or discarded, and every run is in Usage.
  */
 export function Agents() {
-  const agents = useGateway(api => api.agents());
+  const agents = useGateway(api => api.agents(), [], undefined, 'agents');
   const installed = (agents.data ?? []).filter(a => a.installed);
   return <div className="page">
     <section className="group">
@@ -20,7 +20,7 @@ export function Agents() {
       <p className="group-intro"><ShieldCheck size={15} aria-hidden/>
         {t('Pygg starts each agent’s own program with the sign-in it already has: a subscription, a free tier or a key it manages. Pygg never reads, stores or shares that sign-in, and never offers it to other apps.')}</p>
       {agents.error && <ErrorNote>{agents.error}</ErrorNote>}
-      {!agents.data && agents.loading && <Spinner label={t('Looking for agents…')}/>}
+      {!agents.data && agents.loading && <SkeletonRows count={4} label={t('Looking for agents: asking each one for its version and sign-in…')}/>}
       <ul className="group-box agent-list">
         {(agents.data ?? []).map(a => <AgentRow key={a.id} agent={a}/>)}
       </ul>
@@ -209,12 +209,12 @@ const INTEGRATION_STATE: Record<Integration['state'], {tone: 'ok' | 'warn' | 'of
  * token that may start tasks and reaches no model, registers its MCP server and checks the agent lists it.
  */
 export function Integrations({kind, status}: {kind: 'mcp' | 'gateway'; status?: (i: Integration) => ReactNode}) {
-  const all = useGateway(api => api.integrations());
+  const all = useGateway(api => api.integrations(), [], undefined, 'integrations');
   const list = {...all, data: all.data?.filter(i => (i.kind ?? 'mcp') === kind)};
   const [planning, setPlanning] = useState<Integration | null>(null);
   const [removing, setRemoving] = useState<Integration | null>(null);
   if (list.error) return <ErrorNote>{list.error}</ErrorNote>;
-  if (!list.data) return <Spinner label={t('Asking your agents…')}/>;
+  if (!list.data) return <SkeletonRows count={kind === 'gateway' ? 2 : 3} label={t('Checking what is set up in each tool…')}/>;
   return <>
     <ul className="group-box agent-list integrations">
       {list.data.map(i => {
