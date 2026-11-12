@@ -16,6 +16,73 @@ const KEEP_IN_TRAY: &str = "app.keep_in_tray";
 const NOTIFY_TASKS: &str = "app.notify_tasks";
 const TRAY_HINT_SHOWN: &str = "app.tray_hint_shown";
 
+/// The argument Pygg is started with at sign-in: it opens in the tray, without its window.
+pub const BACKGROUND_ARG: &str = "--background";
+
+/// Whether this process was started at sign-in, to stay in the tray.
+pub fn started_in_background() -> bool {
+    std::env::args().any(|a| a == BACKGROUND_ARG)
+}
+
+/// Opening Pygg when the user signs in to Windows: a value in the user's own Run key, pointing at this program with
+/// `--background`. The key is the truth, so a change made in Windows' Startup apps shows here too.
+#[cfg(windows)]
+mod sign_in {
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
+    use winreg::RegKey;
+
+    const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+    const VALUE: &str = "Pygg";
+
+    pub fn enabled() -> bool {
+        RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(RUN, KEY_READ)
+            .and_then(|key| key.get_value::<String, _>(VALUE)).is_ok_and(|v| !v.trim().is_empty())
+    }
+
+    pub fn set(on: bool) -> Result<(), String> {
+        let (key, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(RUN).map_err(|e| e.to_string())?;
+        if on {
+            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+            key.set_value(VALUE, &format!("\"{}\" {}", exe.display(), super::BACKGROUND_ARG)).map_err(|e| e.to_string())
+        } else {
+            match key.delete_value(VALUE) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+                _ => Ok(()),
+            }
+        }
+    }
+}
+
+/// Writes the real Run key of whoever runs it, so it is not run by default:
+/// `cargo test --lib shell::tests -- --ignored`.
+#[cfg(all(test, windows))]
+mod tests {
+    #[test]
+    #[ignore]
+    fn opening_at_sign_in_is_a_run_value_pointing_here_in_the_background() {
+        let before = super::sign_in::enabled();
+        super::sign_in::set(true).unwrap();
+        assert!(super::sign_in::enabled());
+        let value: String = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+            .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run").unwrap().get_value("Pygg").unwrap();
+        let exe = std::env::current_exe().unwrap();
+        assert_eq!(value, format!("\"{}\" --background", exe.display()));
+        super::sign_in::set(false).unwrap();
+        assert!(!super::sign_in::enabled());
+        super::sign_in::set(false).unwrap();
+        if before {
+            super::sign_in::set(true).unwrap();
+        }
+    }
+}
+
+/// Elsewhere it is not offered yet (ADR-001: Windows first).
+#[cfg(not(windows))]
+mod sign_in {
+    pub fn enabled() -> bool { false }
+    pub fn set(_on: bool) -> Result<(), String> { Err("Opening at sign-in is available on Windows only".into()) }
+}
+
 /// The tray's and the notifications' words in the user's language. The interface sends them when its language
 /// is set (`ui_strings`); until then they are English.
 #[derive(Default)]
@@ -132,15 +199,22 @@ pub fn task_stopped(app: &AppHandle, state: &str) {
 pub struct Preferences {
     pub keep_in_tray: bool,
     pub notify_tasks: bool,
+    /// Pygg opens in the tray when the user signs in to Windows.
+    pub open_at_sign_in: bool,
 }
 
 #[tauri::command]
 pub fn app_preferences(app: AppHandle) -> Preferences {
-    Preferences { keep_in_tray: preference(&app, KEEP_IN_TRAY), notify_tasks: preference(&app, NOTIFY_TASKS) }
+    Preferences { keep_in_tray: preference(&app, KEEP_IN_TRAY), notify_tasks: preference(&app, NOTIFY_TASKS),
+        open_at_sign_in: sign_in::enabled() }
 }
 
 #[tauri::command]
 pub fn app_set_preference(app: AppHandle, key: String, value: bool) -> Result<Preferences, String> {
+    if key == "openAtSignIn" {
+        sign_in::set(value)?;
+        return Ok(app_preferences(app));
+    }
     let key = match key.as_str() {
         "keepInTray" => KEEP_IN_TRAY,
         "notifyTasks" => NOTIFY_TASKS,

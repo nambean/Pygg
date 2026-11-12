@@ -124,7 +124,8 @@ pub fn run() {
         // The window starts hidden (tauri.conf.json) and appears once the page with its start-up screen has
         // loaded, so it never opens blank.
         .on_page_load(|webview, payload| {
-            if payload.event() == tauri::webview::PageLoadEvent::Finished {
+            // Opened at sign-in, Pygg stays in the tray until the user opens it.
+            if payload.event() == tauri::webview::PageLoadEvent::Finished && !shell::started_in_background() {
                 let _ = webview.window().show();
             }
         })

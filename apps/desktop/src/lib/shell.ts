@@ -6,7 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { t } from './i18n';
 import { runningInDesktop } from './native';
 
-export type Preferences = { keepInTray: boolean; notifyTasks: boolean };
+export type Preferences = { keepInTray: boolean; notifyTasks: boolean; openAtSignIn: boolean };
 
 export function preferences(): Promise<Preferences> {
   return invoke('app_preferences');

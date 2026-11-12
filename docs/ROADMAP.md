@@ -124,7 +124,7 @@ Then D2 (integrations hub, `str` and npm), B6 and E, in the order already set. N
   - Usage → Subscriptions and Local Runtime tabs, ledger export and anomaly alerts (SCREENS §5.6);
   - billing-tier views with an account-model entitlement schema (ADR-020, CLI/IDE/npm/Tiers §6), with account pools above;
   - running the benchmark from the app (functional plan §9);
-  - retention settings, launch at sign-in and opt-in telemetry (functional plan §2.7);
+  - retention settings and opt-in telemetry (functional plan §2.7); ~~launch at sign-in~~ (built 2026-11-12, Settings → Background);
   - cancelling a single run on the Agents screen (AGENTS.md);
   - client verification beyond Claude Code, Codex and OpenCode (Aider, Cursor; P1-2), and the Skills/Prompts hub (P2).
 

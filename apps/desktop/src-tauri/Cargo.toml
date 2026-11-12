@@ -42,6 +42,10 @@ sha2 = "0.10"
 # `Retry-After` as an HTTP date (already in the tree through hyper).
 httpdate = "1"
 
+[target.'cfg(windows)'.dependencies]
+# Opening Pygg at sign-in: the user's own Run key (HKCU), no administrator rights.
+winreg = "0.55"
+
 [target.'cfg(unix)'.dependencies]
 # Ending a whole process group on timeout or cancel.
 libc = "0.2"

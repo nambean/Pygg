@@ -58,6 +58,12 @@ function Background() {
     <h2>{t('Background')}</h2>
     <div className="group-box">
       <div className="group-row">
+        <span className="group-label">{t('Open Pygg when you sign in')}
+          <small>{t('Pygg starts in the tray when you sign in to Windows, so the gateway is ready for your tools. Open it from the tray icon.')}</small></span>
+        <span className="group-control">{prefs && <Switch label={t('Open Pygg when you sign in')} checked={prefs.openAtSignIn}
+          onChange={v => change('openAtSignIn', v)}/>}</span>
+      </div>
+      <div className="group-row">
         <span className="group-label">{t('Keep running in the tray')}
           <small>{t('Closing the window keeps the gateway and your tasks running. Quit from the tray icon.')}</small></span>
         <span className="group-control">{prefs && <Switch label={t('Keep running in the tray')} checked={prefs.keepInTray}
