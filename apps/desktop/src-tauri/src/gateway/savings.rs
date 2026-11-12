@@ -50,6 +50,28 @@ pub struct Savings {
     pub left_out_no_tokens: u64,
     /// Failed attempts whose cost is unknown: they may have been billed, so the estimate may be too kind.
     pub failed_unknown_cost: u64,
+    /// A model to propose as the baseline, from evidence: the paid, priced model clients asked for by name most often
+    /// in the period (auto and combo names left out). Never the most expensive one, which would only inflate the
+    /// figure. The user must accept it.
+    pub suggested: Option<String>,
+}
+
+/// The paid model with a price that clients named directly most often since `since`.
+fn suggestion(conn: &Connection, since: i64) -> Result<Option<String>> {
+    let mut stmt = conn.prepare("SELECT requested_model, COUNT(*) AS n FROM usage_events WHERE created_at >= ?1 \
+        AND requested_model LIKE '%/%' AND requested_model NOT LIKE 'auto/%' GROUP BY requested_model ORDER BY n DESC LIMIT 20")
+        .map_err(|e| e.to_string())?;
+    let names: Vec<String> = stmt.query_map(params![since], |r| r.get(0)).map_err(|e| e.to_string())?
+        .collect::<rusqlite::Result<_>>().map_err(|e| e.to_string())?;
+    for name in names {
+        let Some((provider_id, model_id)) = name.split_once('/') else { continue };
+        let Some(provider) = store::get_provider(conn, provider_id)? else { continue };
+        let (billing, price) = store::pricing_for(conn, &provider, model_id)?;
+        if billing == "paid" && price.is_some_and(|p| p.input_micro_per_mtok > 0 || p.output_micro_per_mtok > 0) {
+            return Ok(Some(name));
+        }
+    }
+    Ok(None)
 }
 
 fn baseline_price(conn: &Connection, baseline: &str) -> Result<Option<Price>> {
@@ -65,6 +87,9 @@ pub fn savings(conn: &Connection, since: i64) -> Result<Savings> {
     let baseline = store::setting(conn, BASELINE_SETTING)?.filter(|s| s.contains('/'));
     let price = match &baseline { Some(b) => baseline_price(conn, b)?, None => None };
     let mut out = Savings { baseline: baseline.clone(), baseline_priced: price.is_some(), ..Default::default() };
+    if baseline.is_none() {
+        out.suggested = suggestion(conn, since)?;
+    }
     // Only requests to the user's connections: an agent's own run (`agent:…`) has no connection here.
     let mut stmt = conn.prepare(concat!(
         "SELECT u.outcome, u.input_tokens, u.output_tokens, u.cache_tokens, u.cache_write_tokens, u.cost_micro_usd, ",
@@ -148,6 +173,7 @@ mod tests {
 
         let none = savings(&conn, 0).unwrap();
         assert_eq!((none.baseline.as_deref(), none.compared), (None, 0), "nothing compared without a chosen model");
+        assert_eq!(none.suggested, None, "only a model clients named and that has a price is proposed");
 
         set_baseline(&conn, Some(&format!("{}/strong", p.id))).unwrap();
         let s = savings(&conn, 0).unwrap();
@@ -159,5 +185,13 @@ mod tests {
         // $0.15 for the answer plus $0.02 for the failed attempt.
         assert_eq!((s.routed_micro_usd, s.failed_attempts_micro_usd), (170_000, 20_000));
         assert_eq!((s.left_out_unknown_cost, s.left_out_no_tokens, s.failed_unknown_cost), (1, 1, 1));
+
+        // Asked for by name, paid and priced: proposed while no baseline is chosen.
+        set_baseline(&conn, None).unwrap();
+        store::record_usage(&conn, &UsageRecord { client_id: None, provider_id: &p.id, model_id: "strong",
+            requested_model: &format!("{}/strong", p.id), input_tokens: Some(10), output_tokens: Some(1),
+            cache_tokens: None, cost: &est(1), outcome: "ok", http_status: Some(200), latency_ms: 1, error: None,
+            cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None, repeated_tokens: None }).unwrap();
+        assert_eq!(savings(&conn, 0).unwrap().suggested, Some(format!("{}/strong", p.id)));
     }
 }

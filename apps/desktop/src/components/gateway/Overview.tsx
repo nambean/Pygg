@@ -47,6 +47,7 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
   return <div className="page">
     <GatewayCard status={status} onStatus={onStatus} onConfigure={() => setConfiguring(true)}/>
     <UsageAlerts onOpen={() => navigate('usage')}/>
+    {(usage.data?.total.requests ?? 0) > 0 && <Savings days={1} period={t('last 24 hours')}/>}
     {status?.accountingError && <ErrorNote>
       {t('The last usage entry couldn’t be written: {error}. The request stays in the journal and is recorded with an unknown cost when the gateway next starts. Requests are refused while nothing can be written.', {error: status.accountingError})}
     </ErrorNote>}
@@ -85,7 +86,6 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
           <Stat label={t('Fell back')} value={String(usage.data.total.fallbacks)} note={t('to the next model')}/>
           <Stat label={t('Failed')} value={String(usage.data.total.failed)}/>
         </div>
-        {usage.data.total.requests > 0 && <Savings days={1} compact/>}
         {usage.data.recent.length > 0 ? <ul className="group-box compact-list">
           {usage.data.recent.slice(0, 6).map(e => <li key={e.id} className="compact-row">
             <span className="compact-time">{ago(e.createdAt)}</span>

@@ -470,6 +470,7 @@ export function demoApi(): GatewayApi {
         failedAttemptsMicroUsd: baseline ? failed : 0,
         leftOutUnknownCost: baseline ? ok.filter(e => e.costStatus === 'unknown').length : 0, leftOutNoTokens: 0,
         failedUnknownCost: shown.filter(e => e.outcome !== 'ok' && e.costStatus === 'unknown').length,
+        suggested: baseline ? null : 'anthropic/claude-sonnet-4-5',
       });
     },
     setSavingsBaseline: async baseline => { savingsBaseline = baseline; },

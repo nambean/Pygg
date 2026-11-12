@@ -71,6 +71,8 @@ export type Savings = {
   answered: {free: number; local: number; subscription: number; paid: number; unknown: number};
   compared: number; routedMicroUsd: number; baselineMicroUsd: number; failedAttemptsMicroUsd: number;
   leftOutUnknownCost: number; leftOutNoTokens: number; failedUnknownCost: number;
+  /** A baseline to propose, from evidence: the paid, priced model asked for by name most often. */
+  suggested: string | null;
 };
 
 /** The newest request one API key sent: CLI Tools' "Working". */

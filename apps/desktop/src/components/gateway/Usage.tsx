@@ -87,6 +87,7 @@ export function Usage() {
     </Empty>}
     {data && data.total.requests === 0 && quality.data && quality.data.tasks > 0 && <TaskResults q={quality.data}/>}
     {data && data.total.requests > 0 && <>
+      <Savings days={Number(range)} period={range === '1' ? t('last 24 hours') : t('last {n} days', {n: range})}/>
       <section className="group">
         <h2>{t('API Costs')}</h2>
         <div className="group-box totals">
@@ -104,7 +105,6 @@ export function Usage() {
         </div>
       </section>
 
-      <Savings days={Number(range)}/>
       {overTime.data && <CostOverTime days={Number(range)} buckets={overTime.data}/>}
       {quality.data && quality.data.tasks > 0 && <TaskResults q={quality.data}/>}
       <RepeatedOutput days={Number(range)}/>

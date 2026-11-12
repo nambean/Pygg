@@ -801,11 +801,20 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .client-check.tool-status { margin: 6px 0 0; }
 .launcher-row { margin-bottom: 10px; }
 .launcher-row .code-block { margin-top: 8px; }
-.savings { padding: 12px 14px; display: grid; gap: 6px; }
-.savings.compact { margin-bottom: 10px; }
-.savings-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.savings-figure { font-size: 17px; font-weight: 600; }
-.savings-detail { margin: 0; font-size: 12px; }
+.savings-hero { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 16px 18px;
+  margin-bottom: 18px; border-radius: 10px; background: var(--surface); border: 1px solid color-mix(in srgb, var(--accent, #0B7A4B) 45%, transparent); }
+.savings-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; color: var(--accent-text);
+  background: color-mix(in srgb, var(--accent, #0B7A4B) 16%, transparent); }
+.savings-hero-body { display: grid; gap: 6px; min-width: 0; }
+.savings-hero-line { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.savings-amount { font-size: 34px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--accent-text); }
+.savings-amount.more { color: var(--orange); }
+.savings-caption { font-size: 14px; font-weight: 600; }
+.savings-percent { color: var(--secondary); font-weight: 500; }
+.savings-title { font-size: 17px; font-weight: 650; }
+.savings-line { margin: 0; font-size: 12px; line-height: 1.5; }
+.savings-hero-actions { display: flex; gap: 8px; align-items: center; }
+@media (max-width: 1100px) { .savings-hero { grid-template-columns: auto minmax(0, 1fr); } .savings-hero-actions { grid-column: 2; } }
 .skeleton-list { list-style: none; margin: 0; padding: 0; }
 .skeleton-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--separator); }
 .skeleton-row:last-child { border-bottom: 0; }
