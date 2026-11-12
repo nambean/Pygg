@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
-import { ArrowDown, ChartColumn, ChevronRight } from 'lucide-react';
-import type { CostStatus, Outcome, TaskQuality, UsageEvent, UsageGroup } from '../../lib/api';
+import { ArrowDown, ChartColumn, ChevronRight, FileDown } from 'lucide-react';
+import { call, errorText, type CostStatus, type Outcome, type TaskQuality, type UsageEvent, type UsageGroup } from '../../lib/api';
 import { locale, plural, t } from '../../lib/i18n';
 import { costText, microUsd, sourceText, tokens } from '../../lib/money';
 import { useGateway } from '../../hooks/useGateway';
@@ -40,6 +40,14 @@ export function Usage() {
   const clients = useMemo(() => [...new Set(recent.map(e => e.client ?? ''))].sort(), [recent]);
   const models = useMemo(() => [...new Set(recent.map(e => `${e.provider}/${e.model}`))].sort(), [recent]);
   const requestsRef = useRef<HTMLElement>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exported, setExported] = useState<{ok: boolean; text: string} | null>(null);
+  const exportCsv = () => {
+    setExporting(true);
+    setExported(null);
+    call(api => api.exportUsage(Number(range))).then(path => path && setExported({ok: true, text: t('Saved to {path}', {path})}),
+      e => setExported({ok: false, text: errorText(e)})).finally(() => setExporting(false));
+  };
   const toRequests = () => requestsRef.current?.scrollIntoView({behavior: 'smooth', block: 'start'});
   // A row of the summaries opens the requests behind it, as request logs in other gateways do.
   const pick = (set: (v: string) => void, value: string) => { set(value); setOpenId(null); setTimeout(toRequests, 0); };
@@ -48,6 +56,8 @@ export function Usage() {
     <Segmented label={t('Period')} value={range} onChange={setRange} options={[
       {value: '1', label: t('24 Hours')}, {value: '7', label: t('7 Days')}, {value: '30', label: t('30 Days')}]}/>
     <span className="spacer"/>
+    {(usage.data?.total.requests ?? 0) > 0 && <button type="button" className="button small" disabled={exporting}
+      onClick={exportCsv}><FileDown size={13} aria-hidden/>{t('Export CSV…')}</button>}
     {recent.length > 0 && <button type="button" className="link-button" onClick={toRequests}>
       {t('Requests ({n})', {n: recent.length})}<ArrowDown size={12} aria-hidden/></button>}
   </div>;
@@ -56,6 +66,7 @@ export function Usage() {
   return <div className="page">
     {bar}
     {usage.error && <ErrorNote>{usage.error}</ErrorNote>}
+    {exported && (exported.ok ? <p className="group-footnote" role="status">{exported.text}</p> : <ErrorNote>{exported.text}</ErrorNote>)}
     {quality.data && quality.data.tasks > 0 && <TaskResults q={quality.data}/>}
     {data && data.total.requests === 0 && <Empty icon={<ChartColumn size={40} strokeWidth={1.4}/>} title={t('No Usage Recorded Yet')}>
       {t('Point a client at the gateway and its requests appear here, each with its cost and where that figure comes from.')}

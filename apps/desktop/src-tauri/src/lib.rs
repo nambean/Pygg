@@ -191,6 +191,7 @@ pub fn run() {
             commands::connection_clear_health,
             commands::usage_summary,
             commands::usage_over_time,
+            commands::usage_export,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Pygg");

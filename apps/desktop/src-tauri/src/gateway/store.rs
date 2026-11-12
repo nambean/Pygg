@@ -1391,6 +1391,58 @@ pub fn usage_over_time(conn: &Connection, since: i64, bucket_ms: i64, offset_ms:
     rows.collect::<rusqlite::Result<_>>().map_err(err)
 }
 
+/// A UTC time in milliseconds as `YYYY-MM-DDTHH:MM:SS.mmmZ` (ISO 8601), the form spreadsheets read.
+pub fn iso_utc(ms: i64) -> String {
+    let (days, rest) = (ms.div_euclid(86_400_000), ms.rem_euclid(86_400_000));
+    // Days since 1970-01-01 to a civil date (H. Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z", rest / 3_600_000, rest / 60_000 % 60, rest / 1000 % 60, rest % 1000)
+}
+
+/// One CSV field: quoted when it holds a comma, quote or line break, and a leading `=`, `+`, `@`, tab or carriage return
+/// prefixed with `'`, so a spreadsheet never runs text from a provider's error as a formula.
+fn csv_field(value: &str) -> String {
+    let value = if value.starts_with(['=', '+', '@', '\t', '\r']) { format!("'{value}") } else { value.to_string() };
+    if value.contains([',', '"', '\n', '\r']) { format!("\"{}\"", value.replace('"', "\"\"")) } else { value }
+}
+
+/// Every request since `since`, oldest first, as CSV for a spreadsheet (Usage → Export CSV): the ledger's own figures,
+/// costs in USD with their status and source, unknown costs left empty rather than 0.
+pub fn usage_csv(conn: &Connection, since: i64) -> Result<String> {
+    let mut stmt = conn.prepare(
+        "SELECT u.created_at, COALESCE(c.name, ''), COALESCE(u.requested_model, ''), u.provider, u.model, COALESCE(u.route_mode, ''), \
+         u.outcome, u.http_status, u.input_tokens, u.output_tokens, u.cache_tokens, u.cache_write_tokens, u.cost_micro_usd, \
+         u.cost_status, COALESCE(u.source, ''), u.at_risk_micro_usd, u.latency_ms, COALESCE(u.session_key, ''), \
+         COALESCE(u.route_reason, ''), COALESCE(u.error, '') \
+         FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id WHERE u.created_at >= ?1 ORDER BY u.created_at").map_err(err)?;
+    let usd = |micro: Option<i64>| micro.map(|m| format!("{:.6}", m as f64 / 1e6)).unwrap_or_default();
+    let num = |n: Option<i64>| n.map(|n| n.to_string()).unwrap_or_default();
+    let mut out = String::from("time_utc,client,requested_model,provider,model,route,outcome,http_status,input_tokens,output_tokens,\
+        cache_read_tokens,cache_write_tokens,cost_usd,cost_status,cost_source,at_risk_usd,latency_ms,session,route_reason,error\r\n");
+    let rows = stmt.query_map([since], |r| {
+        let text = |i: usize| r.get::<_, String>(i).map(|s| csv_field(&s));
+        let status: String = r.get(13)?;
+        // An unknown cost is empty, never 0 (ADR-011).
+        let cost = if status == "unknown" { String::new() } else { usd(r.get(12)?) };
+        Ok([iso_utc(r.get(0)?), text(1)?, text(2)?, text(3)?, text(4)?, text(5)?, text(6)?, num(r.get(7)?), num(r.get(8)?),
+            num(r.get(9)?), num(r.get(10)?), num(r.get(11)?), cost, csv_field(&status), text(14)?, usd(r.get(15)?), num(r.get(16)?),
+            text(17)?, text(18)?, text(19)?].join(","))
+    }).map_err(err)?;
+    for row in rows {
+        out.push_str(&row.map_err(err)?);
+        out.push_str("\r\n");
+    }
+    Ok(out)
+}
+
 pub fn usage_summary(conn: &Connection, since: i64, recent_limit: usize) -> Result<UsageSummary> {
     let group = |key_sql: &str| -> Result<Vec<UsageGroup>> {
         let sql = format!(
@@ -1546,6 +1598,14 @@ mod tests {
                 outcome, http_status: Some(200), latency_ms: 12, error: None, cache_write_tokens: None, session_key: None,
                 route_mode: None, route_reason: None }).unwrap();
         }
+        let csv = usage_csv(&conn, 0).unwrap();
+        let lines: Vec<&str> = csv.trim_end().split("\r\n").collect();
+        assert!(lines[0].starts_with("time_utc,client,"));
+        assert_eq!(lines.len() as u64, 1 + usage_summary(&conn, 0, 10).unwrap().total.requests);
+        assert_eq!(iso_utc(0), "1970-01-01T00:00:00.000Z");
+        assert_eq!(iso_utc(1_794_469_641_058), "2026-11-12T07:47:21.058Z");
+        assert_eq!(csv_field("=HYPERLINK(\"x\")"), "\"'=HYPERLINK(\"\"x\"\")\"");
+        assert_eq!(csv_field("a,b"), "\"a,b\"");
         let buckets = usage_over_time(&conn, 0, 86_400_000, 7 * 3_600_000).unwrap();
         assert_eq!(buckets.iter().map(|b| b.requests).sum::<u64>(), usage_summary(&conn, 0, 10).unwrap().total.requests);
         assert!(buckets.iter().all(|b| (b.start + 7 * 3_600_000) % 86_400_000 == 0), "periods start at local midnight");

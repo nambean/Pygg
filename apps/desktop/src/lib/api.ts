@@ -232,6 +232,8 @@ export interface GatewayApi {
   usage(days: number): Promise<UsageSummary>;
   /** Usage per hour for one day, per day for longer, on this computer's clock. */
   usageOverTime(days: number): Promise<UsageBucket[]>;
+  /** Every request of the period as a CSV file the user saves; the path, or null when they cancel. */
+  exportUsage(days: number): Promise<string | null>;
   /** How tasks turned out over the last `days`. */
   taskQuality(days: number): Promise<TaskQuality>;
   agents(): Promise<AgentInfo[]>;
@@ -308,6 +310,7 @@ const native: GatewayApi = {
   autoSimulate: (clientId, alias, needs) => invoke('auto_simulate', {clientId, alias, needs}),
   usage: days => invoke('usage_summary', {days}),
   usageOverTime: days => invoke('usage_over_time', {days, offsetMinutes: -new Date().getTimezoneOffset()}),
+  exportUsage: days => invoke('usage_export', {days}),
   taskQuality: days => invoke('tasks_quality', {days}),
   agents: () => invoke('agents_detect'),
   runAgent: task => invoke('agent_run', {request: task}),

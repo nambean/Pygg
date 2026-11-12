@@ -522,6 +522,7 @@ export function demoApi(): GatewayApi {
         recent: [...list].sort((a, b) => b.createdAt - a.createdAt).slice(0, 200)};
       return touch(summary);
     },
+    exportUsage: async () => { await sleep(200); return 'C:\\Users\\you\\Downloads\\pygg-usage.csv'; },
     usageOverTime: async days => {
       const size = days <= 1 ? 3_600_000 : 86_400_000;
       const offset = -new Date().getTimezoneOffset() * 60_000;

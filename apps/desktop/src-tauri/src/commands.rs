@@ -500,6 +500,24 @@ pub fn usage_summary(state: State<'_, AppState>, days: u32) -> Res<UsageSummary>
     state.shared.with_db(|db| store::usage_summary(db, since, 200))
 }
 
+/// Every request of the period as CSV, saved where the user picks; `None` when they cancel.
+#[tauri::command]
+pub async fn usage_export(app: tauri::AppHandle, state: State<'_, AppState>, days: u32) -> Res<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let days = days.clamp(1, 366) as i64;
+    let now = crate::db::now_ms();
+    // A byte-order mark, so Excel reads the file as UTF-8.
+    let csv = format!("\u{feff}{}", state.shared.with_db(|db| store::usage_csv(db, now - days * 86_400_000))?);
+    let name = format!("pygg-usage-{}.csv", &store::iso_utc(now)[..10]);
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog().file().set_title("Export Usage").set_file_name(&name).add_filter("CSV", &["csv"])
+        .save_file(move |file| { let _ = tx.send(file); });
+    let Some(file) = rx.await.map_err(|e| e.to_string())? else { return Ok(None) };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&path, csv).map_err(|e| format!("Could not write {}: {e}", path.display()))?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
 /// Usage per hour for one day, per day for longer, on the user's clock (`offset_minutes` east of UTC).
 #[tauri::command]
 pub fn usage_over_time(state: State<'_, AppState>, days: u32, offset_minutes: i32) -> Res<Vec<store::UsageBucket>> {
