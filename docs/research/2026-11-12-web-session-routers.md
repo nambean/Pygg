@@ -104,6 +104,46 @@ Only one web-cookie provider: **Grok** — copy `sso` cookie from DevTools → `
 - **Muse agent app (muse.ai, "Hatch")**: only 9router `muse-web`. Paste `hatch_sess`, `hatch_gw`, `hatch_vml`, `hatch_native_auth_device`; renew via `GET https://muse.ai/api/session` (merge `Set-Cookie`); drive `https://muse.ai/thread/new` in Playwright (textarea + Send button, read `div[class*="hatch-agent-bubble-bg"]`, Stop button = generating); **auto-deny approval cards** so the agent cannot act for the user; tools rejected; also image/video generation. Since Muse is an agent that can send email and pay, an automated bridge carries real risk; if built, approval-denial and a clear per-connection risk notice are mandatory.
 - If we build a web-session connection, the pieces worth copying: cookie paste with shape normalisation, per-provider cookie hint, test-connection, encrypted storage in our existing store (on Windows, DPAPI/Credential Manager would be better than anything these projects do), Set-Cookie write-back, 401 → "reconnect" state, 429 → cooldown, fresh/temporary chat per request, static model list, tools rejected or text-emulated, and a fixed risk banner. Skip all stealth/anti-bot layers.
 
+## 9router's web providers, for Pygg's next recipes (2026-11-12)
+
+Pygg's Muse recipe works live: the owner signed in on 2026-11-12 and a test message came back with HTTP 200 in 13.9 s. The owner then asked for the other sign-in-only providers 9router supports, each with its own profile. This section lists every provider in 9router's registry whose `category` is `webCookie`, plus its one no-auth web provider.
+
+**Sources:**
+- 9router `master`: `open-sse/providers/registry/{chatgpt-web,gemini-web,grok-web,perplexity-web,deepseek-web,muse-web,uc-web,veoaifree-web}.js`.
+- 9router executors: `open-sse/executors/{chatgpt-web.js, chatgpt-web/browserSession.js, chatgpt-web/sentinel.js, gemini-web.js, gemini-web/domCapture.js, gemini-web/modeSelection.js, grok-web.js, perplexity-web.js, deepseek-web.js, deepseek-web/pow.js, uc-web.js}`.
+- All at https://github.com/decolua/9router, read 2026-11-12.
+
+**What each column means:**
+- **Seen 2026-11-12:** the public page opened in a plain Chromium tab with nobody signed in. Pygg never signs in to these sites.
+- **Sign-in hosts:** from the page and the providers' known flows. Each must still be checked against the live redirect chain with the debug navigation log (`PYGG_WEB_DEVTOOLS=1`), as Muse's was. Muse's chain was auth.muse.ai → facebook.com → instagram.com → auth.meta.com → muse.ai.
+- **Terms:** from each provider's terms page, not re-read today. All of these consumer terms forbid automated or programmatic access in some form.
+
+| 9router id | Chat page | Sign-in (hosts to allow) | How 9router reaches it | Official API, free tier | Terms; an agent that acts? |
+| --- | --- | --- | --- | --- | --- |
+| `chatgpt-web` | `https://chatgpt.com/` | Seen: Google, Apple, phone or email. The email path goes to `auth.openai.com`; social sign-in uses `accounts.google.com`, `appleid.apple.com`, and maybe `login.live.com` / `login.microsoftonline.com` for Microsoft accounts. The composer was not in the DOM while signed out; a "Send message" button was. | HTTP `/backend-api/f/conversation` with Sentinel and proof-of-work headers solved in Node (`sentinel.js`). It falls back to a Playwright page "when Turnstile is demanded"; the page's own JS then runs Sentinel, Turnstile and proof-of-work. Models are chosen in the request. | OpenAI API: paid, already a Pygg preset. ChatGPT itself has a free plan. | The terms forbid extracting output by automated means (https://openai.com/policies/terms-of-use/). Agent mode and connected apps can act, but only when the user turns them on. A new plain chat does not act. |
+| `gemini-web` | `https://gemini.google.com/app` | `accounts.google.com`. Google's sign-in can pass through `accounts.youtube.com` and regional `google.<tld>` hosts. Google refuses sign-in inside embedded webviews ("This browser or app may not be secure", https://support.google.com/accounts/answer/7675428). | Playwright. Types into the composer, presses Enter, reads `model-response, message-content`, and treats `button[aria-label*="Stop" i]` as "still answering". 9router marks its model-switch selectors as "UNVALIDATED". | Gemini API with a free tier in AI Studio: already a Pygg preset. | Google's terms forbid automated access. Gemini can act through connected Google apps. |
+| `grok-web` | `https://grok.com/` | Seen: `grok.com/sign-in` answered **HTTP 403 with a Cloudflare "Just a moment…" check** before any sign-in; it was still there after 15 s. Sign-in goes through `accounts.x.ai`, with X (`x.com`), Google and Apple. | HTTP `rest/app-chat/conversations/new` with the full cookie header, `cf_clearance` included, and a generated `x-statsig-id`. A Cloudflare challenge is reported as "re-copy the cookie". | xAI API: paid, already a Pygg preset. Grok has a free tier on the web and in X. | xAI's consumer terms forbid automated access. Not an agent that acts. |
+| `perplexity-web` | `https://www.perplexity.ai/` | Email code, Google, Apple. Seen: the page stayed blank in the test tab (it loads late or is behind a check). | HTTP SSE `rest/sse/perplexity_ask` with the session cookie. Seven models, Pro-gated except "Auto". | The Sonar API is paid; Pygg left it out because it moved to Responses-style endpoints (PROVIDERS.md). There is a free web tier. | The terms forbid scraping and automated access. Answers search the web; the Comet browser agent is a separate product. |
+| `deepseek-web` | `https://chat.deepseek.com/` | Seen: redirects to `chat.deepseek.com/sign_in`, which offers email or phone with a password, Google and Apple. | HTTP `/api/v0/chat/completion` with the `userToken` from localStorage, a DeepSeekHashV1 proof-of-work header solved in Node, and copied "fingerprint headers". It deliberately leaves out the signed `x-hif-leim` attestation. | DeepSeek API: cheap, with a granted balance; already a Pygg preset. The web chat is free. | The terms forbid automated access. Not an agent. |
+| `muse-web` | `https://muse.ai/thread/new` | Live: auth.muse.ai → facebook.com → instagram.com → auth.meta.com → muse.ai. Allowed: muse.ai, meta.com, meta.ai, facebook.com, instagram.com, threads.com, threads.net, messenger.com (f8ea72e). | Playwright with pasted cookies (see above). | Meta Model API for the Muse *models*. The agent app has no API. | An agent that acts; Pygg denies its approvals. **Built and live.** |
+| `uc-web` | `https://uncensored.com` | Clerk (`clerk.uncensored.com`). | HTTP to `internal.chatuncensored.ai` with the `__client` cookie. **Image and video models only.** | None. | Adult "uncensored" image and video generation. |
+| `veoaifree-web` | `https://veoaifree.com` | None: no sign-in, a free tier of about 6 requests an hour per IP. | Scraped. Video and image only. | None. | A no-auth scraper (OR-16 rejects these); video only. |
+
+**What 9router does that Pygg does not:**
+- pasted cookies and localStorage tokens;
+- Sentinel and proof-of-work tokens solved outside the page;
+- copied fingerprint headers;
+- "stealth" Chromium builds, `--disable-blink-features=AutomationControlled` and off-screen windows.
+
+Pygg keeps its rule: the site's own page in the user's own signed-in window does whatever the site requires (Turnstile, proof-of-work), and a check the user must answer stops the connection (ADR-035).
+
+**What this means for Pygg:**
+- **Easiest to add, sign-in in the window:** ChatGPT, Perplexity and DeepSeek. All three use the same page-driving recipe shape as Muse: a composer, Send, the last assistant turn, and a Stop button.
+- **Likely to keep asking the user:** Grok. Cloudflare challenged even the unauthenticated sign-in page in a normal Chromium tab. Every such check stops the connection until the user answers it in the window.
+- **Not workable without breaking ADR-035:** Gemini web. Google refuses sign-in in embedded webviews, and getting around that means presenting as another browser, which is fingerprint spoofing.
+- **Out of scope for a text gateway:** UC (image and video only, adult content) and Veo AI Free (no sign-in, a video scraper).
+- **One model per site at first:** the site's default model, the one a new chat opens with. Switching models means clicking the site's model menu; 9router itself calls its selectors for that unvalidated. Named models come only after the default works live.
+
 ## Sources
 - https://github.com/decolua/9router — `open-sse/executors/{muse-web.js, muse-web/session.js, muse-web/dom.js, chatgpt-web.js, gemini-web.js}`, `open-sse/services/browserPool.js`, `open-sse/providers/registry/{muse.js, muse-web.js, chatgpt-web.js}`, `src/shared/constants/providersDisplay.js`
 - https://github.com/diegosouzapw/OmniRoute — `open-sse/executors/{muse-spark-web.ts, muse-spark-web/fresh-access-token.ts, chatgpt-web.ts, claude-web.ts, gemini-web.ts, grok-web.ts}`, `docs/reference/PROVIDER_REFERENCE.md`, `docs/reference/ENVIRONMENT.md`
