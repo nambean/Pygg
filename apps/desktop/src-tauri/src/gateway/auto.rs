@@ -220,6 +220,11 @@ fn judge(conn: &Connection, client: &Client, provider: &Provider, model: &Model,
     min_tier: Option<&str>, needs: &Needs) -> store::Result<Result<(u64, String), String>> {
     let caps = &model.capabilities;
     let no = |reason: String| Ok(Err(reason));
+    // A web session (ADR-035) is slow, unofficial and, for an agent like Muse, acts as the signed-in user: it serves
+    // only a request that names it or a combo the user built, never one auto chose.
+    if super::presets::is_web(&provider.kind) {
+        return no(crate::websession::NOT_FOR_AUTO.into());
+    }
     if let Err(why) = client.allows(provider) {
         return no(why);
     }

@@ -18,6 +18,8 @@ pub struct AppState {
     pub runs: std::sync::Mutex<std::collections::HashMap<String, crate::agents::TaskRun>>,
     /// Smart tasks running in the background (tasks.rs).
     pub tasks: crate::tasks::Runner,
+    /// The web sessions' windows and endpoint (ADR-035); `None` where no window can be opened.
+    pub web: Option<std::sync::Arc<crate::websession::Service>>,
 }
 
 type Res<T> = Result<T, String>;
@@ -166,6 +168,9 @@ pub struct ConnectionView {
     pub account: Option<gateway::quota::Account>,
     /// It has an account endpoint Pygg can read.
     pub reads_account: bool,
+    /// A web session (ADR-035), and whether its warning was acknowledged in its current text.
+    pub web: bool,
+    pub web_ack_current: bool,
 }
 
 fn view(state: &AppState, provider: Provider) -> ConnectionView {
@@ -177,7 +182,10 @@ fn view(state: &AppState, provider: Provider) -> ConnectionView {
         .filter(|p| p.id != provider.id && p.quota_group == provider.quota_group).map(|p| p.label).collect();
     let limits = state.shared.with_db(|db| store::list_limits(db, &provider.id)).unwrap_or_default();
     let account = state.shared.with_db(|db| gateway::quota::saved_account(db, &provider.id));
+    let web = presets::is_web(&provider.kind);
     ConnectionView {
+        web,
+        web_ack_current: web && provider.web_ack_version == Some(crate::websession::WARNING_VERSION),
         limits,
         account,
         reads_account: gateway::quota::account_endpoint(&provider.kind).is_some(),
@@ -206,6 +214,9 @@ pub struct NewConnection {
     pub endpoint: Option<String>,
     pub api_key: Option<String>,
     pub billing: String,
+    /// For a web session (ADR-035): the text of the warning the user acknowledged (`websession::WARNING_VERSION`).
+    #[serde(default)]
+    pub web_ack: Option<i64>,
 }
 
 #[tauri::command]
@@ -227,6 +238,13 @@ pub async fn connection_sign_in(state: State<'_, AppState>, mut connection: NewC
 
 fn add_connection(state: &AppState, connection: NewConnection) -> Res<ConnectionView> {
     let preset = presets::find(&connection.preset).ok_or("Unknown provider")?;
+    // A web session (ADR-035): no key and no password, only the user's acknowledgement of the account risk. It starts
+    // off; the user signs in in its window and turns it on.
+    if preset.web {
+        let ack = connection.web_ack.ok_or("Read and acknowledge the account-risk warning first")?;
+        let provider = state.shared.with_db(|db| store::add_web_provider(db, preset.id, &connection.label, ack))?;
+        return Ok(view(state, provider));
+    }
     let endpoint = connection.endpoint.as_deref().map(str::trim).filter(|e| !e.is_empty())
         .or(preset.endpoint).ok_or("Enter the endpoint URL")?.to_string();
     let label = if connection.label.trim().is_empty() { preset.name } else { connection.label.trim() };
@@ -306,7 +324,15 @@ pub fn connection_set_terms(state: State<'_, AppState>, id: String, terms: Strin
 
 #[tauri::command]
 pub fn connection_remove(state: State<'_, AppState>, id: String) -> Res<()> {
+    let profile = state.shared.with_db(|db| store::get_provider(db, &id))?.and_then(|p| p.web_profile);
     let reference = state.shared.with_db(|db| store::remove_provider(db, &id))?;
+    // A web session's window closes and its profile folder, with the sign-in, is deleted (ADR-035).
+    if let Some(profile) = profile {
+        match &state.web {
+            Some(web) => web.forget(&id, &profile),
+            None => { crate::websession::remove_profile(&state.data_dir.join("websessions"), &profile); }
+        }
+    }
     sync_opencode(&state);
     if let Some(reference) = reference {
         vault::remove(&reference).map_err(|e| e.to_string())?;
@@ -325,6 +351,11 @@ pub struct ImportResult {
 #[tauri::command]
 pub async fn connection_refresh_models(state: State<'_, AppState>, id: String) -> Res<ImportResult> {
     let provider = state.shared.with_db(|db| store::get_provider(db, &id))?.ok_or("Connection not found")?;
+    // A web session's models are its recipe's; the site has no list to ask (ADR-035).
+    if presets::is_web(&provider.kind) {
+        let listed = crate::websession::recipe(&provider.kind).map(|r| r.models.len()).unwrap_or(0);
+        return Ok(ImportResult { listed, added: 0 });
+    }
     let ids = catalog::fetch_models(&state.shared, &provider).await?;
     let source = catalog::list_source(&provider);
     let added = state.shared.with_db(|db| store::import_listed(db, &id, &ids, Some(&source)))?;
@@ -388,6 +419,21 @@ pub fn launcher_set_up(state: State<'_, AppState>) -> Res<LauncherInfo> {
 #[tauri::command]
 pub fn launcher_remove(state: State<'_, AppState>) -> Res<LauncherInfo> {
     state.shared.with_db(crate::launcher::remove).map(launcher_info)
+}
+
+/// Shows a web session's window (ADR-035), where the user signs in on the site's own page, or deals with a check.
+#[tauri::command]
+pub fn web_session_open(state: State<'_, AppState>, id: String) -> Res<()> {
+    state.web.as_ref().ok_or(crate::websession::APP_ONLY)?.show(&id)
+}
+
+/// Opens a new chat in a web session's window to see whether it is signed in, unless a request is using it, and returns
+/// the connection with what was seen (ADR-035).
+#[tauri::command]
+pub async fn web_session_check(state: State<'_, AppState>, id: String) -> Res<ConnectionView> {
+    state.web.as_ref().ok_or(crate::websession::APP_ONLY)?.check(&id).await?;
+    let provider = state.shared.with_db(|db| store::get_provider(db, &id))?.ok_or("Connection not found")?;
+    Ok(view(&state, provider))
 }
 
 /// How a connection's models have answered over the last 30 days (SCREENS §5.4), from the ledger.

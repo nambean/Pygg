@@ -36,6 +36,7 @@ Each preset in `apps/desktop/src-tauri/src/gateway/presets.rs` fills in a provid
 | MiniMax | `https://api.minimax.io/v1` | OpenAI | not stated | not stated | no | https://platform.minimax.io/docs/api-reference/text-openai-api |
 | MiniMax (Anthropic API) | `https://api.minimax.io/anthropic/v1` | Anthropic | — | as above | no | as above |
 | Nebius Token Factory | `https://api.tokenfactory.nebius.com/v1` | OpenAI | context (verbose) | not stated | no | https://docs.tokenfactory.nebius.com/ |
+| Meta (Muse API) | `https://api.meta.ai/v1` | OpenAI (also Anthropic Messages and Responses) | yes | pay as you go; no free tier stated | no | https://dev.meta.ai/docs/ (checked 2026-11-12) |
 
 An Anthropic-format endpoint is written as the base an Anthropic SDK takes plus `/v1`, because the gateway appends `/messages`. Presets for one provider in both formats (DeepSeek, Kimi, Z.AI, MiniMax) share a quota group by default, since they take the same key.
 
@@ -58,12 +59,22 @@ An Anthropic-format endpoint is written as the base an Anthropic SDK takes plus 
 gateway add-connection --preset custom --label "My provider" --endpoint https://api.example.com/v1 --key-env CUSTOM_API_KEY
 ```
 
+## Web session (unofficial)
+
+A site with no API, used through a Pygg window the user signs in to (ADR-035). Off until the user acknowledges the account-risk warning for that connection and signs in; billed as the user's plan with the site, so every cost is unknown; never chosen by `auto`; no tools or images.
+
+| Preset | Site | Models | Recipe from | Live |
+| --- | --- | --- | --- | --- |
+| Muse (muse.ai) | `https://muse.ai`, a new chat at `/thread/new` | `muse` | 9router's `muse-web` executor (MIT), see THIRD_PARTY_NOTICES.md | no: written without a signed-in session; to be confirmed by the owner |
+
+Meta's Muse *models* also have an API (Meta (Muse API), above); the muse.ai agent app has none.
+
 ## Left out
 
 - **GitHub Models**: fully retired as of July 30, 2026, per GitHub's docs.
 - **Perplexity**: Sonar chat completions support ended on September 27, 2026. The API now uses Responses-style endpoints, which the gateway does not speak.
 - **Novita**: its docs do not make clear which base URL OpenAI clients should use. To be added once checked with a request.
-- **Web cookie and session bridges, OAuth bridges into other products' subscriptions, and no-auth scrapers**: see [OMNIROUTE_FEATURE_RESEARCH.md](OMNIROUTE_FEATURE_RESEARCH.md#provider-reference-review-2026-11-11).
+- **Cookie bridges (pasted or imported cookies), OAuth bridges into other products' subscriptions, and no-auth scrapers**: see [OMNIROUTE_FEATURE_RESEARCH.md](OMNIROUTE_FEATURE_RESEARCH.md#provider-reference-review-2026-11-11). A site with no API can be connected as a web session instead (above, ADR-035), where the user signs in themselves and no cookie leaves its window.
 
 ## Reusing OmniRoute code
 

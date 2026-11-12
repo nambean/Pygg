@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { KeyRound, Plug, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
-import { BILLINGS, TIERS, call, errorText, gatewayChanged, type Billing, type Connection, type Health, type Model, type Preset,
-  type ModelTest, type Reliability, type Tier } from '../../lib/api';
+import { AppWindow, KeyRound, Plug, Plus, RefreshCw, Search, ShieldAlert, Trash2 } from 'lucide-react';
+import { BILLINGS, TIERS, WEB_WARNING_VERSION, call, errorText, gatewayChanged, type Billing, type Connection, type Health, type Model,
+  type Preset, type ModelTest, type Reliability, type Tier, type WebState } from '../../lib/api';
 import { ago, windowText } from '../../lib/format';
 import { plural, t } from '../../lib/i18n';
 import { billingLabel, parseUsd, priceText } from '../../lib/money';
@@ -85,6 +85,11 @@ export function Connections({intent, onIntentDone}: {intent?: 'connect'; onInten
 }
 
 export function connectionState(c: Connection): {tone: 'ok' | 'warn' | 'off' | 'error'; text: string} {
+  // A web session (ADR-035): what its window last showed comes first, since it decides whether it can answer at all.
+  if (c.web) {
+    if (!c.webAckCurrent) return {tone: 'error', text: t('Warning not acknowledged')};
+    if (c.webState && c.webState !== 'signed_in') return {tone: c.webState === 'signed_out' ? 'warn' : 'error', text: webStateLabel(c.webState)};
+  }
   if (!c.enabled) return {tone: 'off', text: t('Disabled')};
   if (c.needsKey && !c.hasKey) return {tone: 'error', text: t('Key missing')};
   const whole = c.health.find(h => h.modelId === '');
@@ -96,6 +101,10 @@ export function connectionState(c: Connection): {tone: 'ok' | 'warn' | 'off' | '
   if (c.health.length) return {tone: 'warn', text: plural(c.health.length, '{n} model cooling down', '{n} models cooling down')};
   // Green only once a check answered: without one, no problem has been seen, which is not the same as working.
   return check?.ok ? {tone: 'ok', text: t('Checked')} : {tone: 'off', text: t('Not checked yet')};
+}
+
+export function webStateLabel(state: WebState): string {
+  return {signed_in: t('Signed in'), signed_out: t('Not signed in'), needs_you: t('Needs you'), page_changed: t('Page changed')}[state];
 }
 
 export function healthLabel(h: Health): string {
@@ -189,20 +198,20 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
     <div className="group-heading">
       <h2>{c.label}</h2>
       <span className="heading-actions">
-        <button type="button" className="button" onClick={refresh} disabled={refreshing}>
-          {refreshing ? <Spinner/> : <RefreshCw size={13} aria-hidden/>}{t('Check & Refresh Models')}</button>
-        <button type="button" className="button" onClick={() => setSheet('key')}><KeyRound size={13} aria-hidden/>
-          {c.hasKey ? t('Replace Key…') : t('Add Key…')}</button>
+        {!c.web && <button type="button" className="button" onClick={refresh} disabled={refreshing}>
+          {refreshing ? <Spinner/> : <RefreshCw size={13} aria-hidden/>}{t('Check & Refresh Models')}</button>}
+        {!c.web && <button type="button" className="button" onClick={() => setSheet('key')}><KeyRound size={13} aria-hidden/>
+          {c.hasKey ? t('Replace Key…') : t('Add Key…')}</button>}
         <button type="button" className="button icon-only" onClick={() => setSheet('remove')} aria-label={t('Remove Connection…')}
           title={t('Remove Connection…')}><Trash2 size={14} aria-hidden/></button>
       </span>
     </div>
     <div className="group-box">
-      <div className="group-row">
+      {c.web ? <WebSessionRows connection={c}/> : <div className="group-row">
         <span className="group-label">{t('Authentication')}</span>
         <span className="group-control value">{c.hasKey ? t('API key · stored in {store}', {store: STORE})
           : c.needsKey ? <Badge tone="error">{t('Key missing')}</Badge> : t('No key needed')}</span>
-      </div>
+      </div>}
       <div className="group-row">
         <span className="group-label">{t('Health')}</span>
         <span className="group-control value">{check
@@ -211,14 +220,17 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
       </div>
       {c.health.length > 0 && <div className="group-row stacked"><HealthList connection={c}/></div>}
       {c.readsAccount && <AccountRow connection={c}/>}
-      <div className="group-row">
+      {c.web ? <div className="group-row">
+        <span className="group-label">{t('Billing')}<small>{t('Your plan with the site. The site reports no tokens or price, so every request’s cost is Unknown, never $0.')}</small></span>
+        <span className="group-control value">{billingLabel('subscription')}</span>
+      </div> : <div className="group-row">
         <span className="group-label"><label htmlFor={`billing-${c.id}`}>{t('Billing')}</label><small>{billingHint(c.defaultBilling, c.freeModels)}</small></span>
         <span className="group-control">
           <select id={`billing-${c.id}`} className="popup-button" value={c.defaultBilling} onChange={e => setBilling(e.target.value as Billing)}>
             {BILLINGS.map(b => <option key={b} value={b}>{billingLabel(b)}</option>)}
           </select>
         </span>
-      </div>
+      </div>}
     </div>
     <details className="advanced-box">
       <summary>{t('Advanced: endpoint, API format, rate limits, quota, pool, data use')}</summary>
@@ -227,12 +239,12 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
           <span className="group-label">{t('Endpoint')}</span>
           <span className="group-control value mono selectable">{c.endpoint}</span>
         </div>
-        <div className="group-row">
+        {!c.web && <div className="group-row">
           <span className="group-label">{t('API')}<small>{c.wire === 'anthropic'
             ? t('Anthropic requests (Claude Code) pass through unchanged, prompt cache included. OpenAI-format clients can’t use it yet.')
             : t('OpenAI-format requests pass through unchanged. Anthropic requests are translated, and prompt-cache hints survive only where the provider accepts them.')}</small></span>
           <span className="group-control value">{c.wire === 'anthropic' ? t('Anthropic Messages') : t('OpenAI Chat Completions')}</span>
-        </div>
+        </div>}
         {(c.limits?.length ?? 0) > 0 && <div className="group-row stacked">
           <span className="group-label">{t('Rate limits, as the provider last said')}
             <small>{t('Read from the headers of its last answer for each model. While a limit is used up, auto skips that model until it resets; a provider that sends none shows nothing here.')}</small></span>
@@ -245,7 +257,7 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
             </li>)}
           </ul>
         </div>}
-        <div className="group-row">
+        {!c.web && <div className="group-row">
           <span className="group-label"><label htmlFor={`quota-${c.id}`}>{t('Independent quota confirmed')}</label>
             <small>{c.separateQuota
               ? t('You confirmed on {date} that this connection has its own provider quota. When another connection is rate-limited or refused, this one may still answer. The provider’s own limits still apply.',
@@ -256,8 +268,8 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
           <span className="group-control"><Switch checked={c.separateQuota} label={t('Independent quota confirmed')}
             onChange={separateQuota => separateQuota ? setSheet('quota')
               : call(api => api.updateConnection(c.id, {separateQuota})).then(gatewayChanged)}/></span>
-        </div>
-        <PoolRow connection={c}/>
+        </div>}
+        {!c.web && <PoolRow connection={c}/>}
         <TermsRow connection={c}/>
         <div className="group-row">
           <span className="group-label">{t('Model names')}<small>{t('Clients ask for a model of this connection by this name.')}</small></span>
@@ -314,7 +326,9 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
       onClose={() => setSheet(null)}/>}
     {sheet === 'remove' && <ConfirmSheet title={t('Remove {name}?', {name: c.label})} confirmLabel={t('Remove Connection')}
       message={<>
-        <p>{t('Its key is deleted from {store}, its models leave every combo, and requests for {id}/… stop working.', {store: STORE, id: c.id})}</p>
+        <p>{c.web
+          ? t('Its window closes and its profile folder, with your sign-in to the site, is deleted from this computer. Its models leave every combo, and requests for {id}/… stop working.', {id: c.id})
+          : t('Its key is deleted from {store}, its models leave every combo, and requests for {id}/… stop working.', {store: STORE, id: c.id})}</p>
         <p>{t('Usage already recorded is kept.')}</p>
       </>}
       onClose={() => setSheet(null)}
@@ -457,6 +471,8 @@ const OFFER_GROUPS: {offer: Preset['offer']; title: () => string; hint: () => st
   {offer: 'paid', title: () => t('Paid'), hint: () => t('Billed per token from the start.')},
   {offer: 'local', title: () => t('On this computer'), hint: () => t('Runs locally: no key, no per-token cost.')},
   {offer: 'custom', title: () => t('Custom'), hint: () => t('Any other OpenAI- or Anthropic-compatible endpoint.')},
+  {offer: 'web', title: () => t('Web session (unofficial)'),
+    hint: () => t('A site with no API, used through a window you sign in to. It can put your account at risk.')},
 ];
 
 function presetName(p: Preset): string {
@@ -551,6 +567,10 @@ function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected:
     }
   };
 
+  if (preset?.web) {
+    return <WebConnectSheet preset={preset} onBack={() => setPresetId(null)} onClose={onClose} onConnected={onConnected}/>;
+  }
+
   if (lookupFailed) {
     return <Sheet title={t('Account Saved; Models Not Read')} onClose={() => onConnected(lookupFailed.id)} className="narrow"
       footer={<>
@@ -618,6 +638,117 @@ function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected:
     </div>}
     {error && <ErrorNote>{error}</ErrorNote>}
   </Sheet>;
+}
+
+/** The risks of a web session (ADR-035), as the user acknowledges them before connecting. */
+function WebRisks({siteName}: {siteName: string}) {
+  return <ul className="web-risks">
+    <li>{t('{site}’s terms may forbid automated use. Pygg is not affiliated with it or approved by it.', {site: siteName})}</li>
+    <li>{t('Your account can be limited or banned for it. You carry that risk.')}</li>
+    <li>{t('The site can change at any time and break this connection without notice.')}</li>
+    <li>{t('Pygg types into the site as you, while signed in as you. Muse is an agent with access to the apps you connected to it: Pygg denies every action it asks to take, but anything you send through Pygg is sent from your account.')}</li>
+    <li>{t('No tools or images, no token counts, and it is never chosen by auto: clients use it by naming it, or in a combo you build.')}</li>
+  </ul>;
+}
+
+/** Connecting a web session (ADR-035): the warning, acknowledged for this connection, then a name. No key, no password. */
+function WebConnectSheet({preset, onBack, onClose, onConnected}: {preset: Preset; onBack: () => void; onClose: () => void;
+  onConnected: (id: string) => void}) {
+  const [accepted, setAccepted] = useState(false);
+  const [label, setLabel] = useState('');
+  // `Muse (muse.ai)` → `Muse`, so its models are `muse/muse` (as store::add_web_provider names it).
+  const defaultLabel = preset.name.split(' (')[0];
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const connect = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const added = await call(api => api.addConnection({preset: preset.id, label: label.trim() || defaultLabel, billing: 'subscription',
+        webAck: WEB_WARNING_VERSION}));
+      gatewayChanged();
+      onConnected(added.id);
+    } catch (e) {
+      setError(errorText(e));
+      setBusy(false);
+    }
+  };
+  return <Sheet title={t('Connect {name}', {name: presetName(preset)})} onClose={onClose} busy={busy}
+    subtitle={t('Web session (unofficial). Read this before you connect.')}
+    footer={<>
+      <span className="spacer"/>
+      <button type="button" className="button" onClick={onClose} disabled={busy}>{t('Cancel')}</button>
+      <button type="button" className="button prominent" onClick={connect} disabled={busy || !accepted}>
+        {busy && <Spinner/>}{busy ? t('Connecting…') : t('Connect Web Session')}</button>
+    </>}>
+    <div className="form">
+      <div className="chosen-preset">
+        <ProviderLogo kind={preset.id} name={preset.name}/>
+        <span className="group-label"><span>{presetName(preset)}</span>
+          {preset.offerNote && <small className="secondary">{preset.offerNote}</small>}</span>
+        <button type="button" className="link-button" disabled={busy} onClick={onBack}>{t('Change Provider')}</button>
+      </div>
+      <div className="web-warning" role="note">
+        <ShieldAlert size={16} aria-hidden/>
+        <div>
+          <p><strong>{t('{site} has no API. Pygg would use it the way you do, in a window where you sign in to the site.', {site: preset.name})}</strong></p>
+          <WebRisks siteName={preset.name}/>
+          <p className="secondary small">{t('Pygg never asks for your password and never copies cookies from your browsers. The sign-in stays in this connection’s own folder on this computer, and is deleted when you remove the connection. If the site shows a CAPTCHA or another check, Pygg stops and asks you to deal with it yourself.')}</p>
+        </div>
+      </div>
+      <label className="check-row">
+        <input type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} disabled={busy}/>
+        <span>{t('I understand these risks and accept them for my account on {site}.', {site: preset.name})}</span>
+      </label>
+      <FormRow label={t('Name')} htmlFor="web-connection-label" hint={t('Also the first part of model names, e.g. {id}/muse.',
+        {id: (label.trim() || defaultLabel).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'connection'})}>
+        <input id="web-connection-label" className="text-input" value={label} placeholder={defaultLabel} onChange={e => setLabel(e.target.value)}/>
+      </FormRow>
+      <p className="secondary small">{t('The connection starts off. Next, open its sign-in window, sign in on the site, check the sign-in, then turn it on.')}</p>
+    </div>
+    {error && <ErrorNote>{error}</ErrorNote>}
+  </Sheet>;
+}
+
+/** A web session's rows in its connection (ADR-035): the sign-in, its window, and the risk the user accepted. */
+function WebSessionRows({connection: c}: {connection: Connection}) {
+  const [busy, setBusy] = useState<'open' | 'check' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const run = (which: 'open' | 'check') => {
+    setBusy(which);
+    setError(null);
+    const done = which === 'open' ? call(api => api.openWebSession(c.id)) : call(api => api.checkWebSession(c.id)).then(gatewayChanged);
+    done.catch(e => setError(errorText(e))).finally(() => setBusy(null));
+  };
+  const state = c.webState ?? 'signed_out';
+  return <>
+    <div className="group-row">
+      <span className="group-label">{t('Sign-in')}
+        <small>{c.webStateReason ?? t('Not checked yet.')}{c.webStateAt ? ` · ${ago(c.webStateAt)}` : ''}</small></span>
+      <span className="group-control web-actions">
+        <Badge tone={state === 'signed_in' ? 'ok' : state === 'signed_out' ? 'warn' : 'error'}>{webStateLabel(state)}</Badge>
+        <button type="button" className="button small" onClick={() => run('open')} disabled={busy !== null}>
+          {busy === 'open' ? <Spinner/> : <AppWindow size={13} aria-hidden/>}{t('Open Sign-In Window')}</button>
+        <button type="button" className="button small" onClick={() => run('check')} disabled={busy !== null}>
+          {busy === 'check' && <Spinner/>}{busy === 'check' ? t('Checking…') : t('Check Sign-In')}</button>
+      </span>
+    </div>
+    {error && <div className="group-row stacked"><ErrorNote>{error}</ErrorNote></div>}
+    {state === 'signed_in' && !c.enabled && <div className="group-row">
+      <span className="group-label secondary">{t('Signed in. Turn the connection on in the list above to use it.')}</span>
+    </div>}
+    <div className="group-row stacked">
+      <span className="group-label"><span><ShieldAlert size={13} aria-hidden/> {t('Web session (unofficial)')}</span>
+        <small>{c.webAckCurrent
+          ? t('You accepted the risks on {date}. Pygg drives the site in its own window, one request at a time, and stops at any check the site shows.', {date: new Date(c.webAckAt ?? c.createdAt).toLocaleDateString()})
+          : t('The warning has changed since you accepted it. Remove this connection and connect it again to read and accept the new one; until then it is not used.')}</small></span>
+      <WebRisks siteName={c.presetName}/>
+    </div>
+    <div className="group-row">
+      <span className="group-label">{t('API')}<small>{t('Clients reach it as an OpenAI-format provider; Anthropic and Responses requests are translated. Requests with tools are refused.')}</small></span>
+      <span className="group-control value">{t('The site’s web page, driven by Pygg')}</span>
+    </div>
+  </>;
 }
 
 function KeySheet({connection: c, onClose}: {connection: Connection; onClose: () => void}) {
@@ -716,6 +847,8 @@ function PriceSheet({model: m, onClose, onSaved}: {model: Model; onClose: () => 
 /** A short summary of what auto routing knows about a model. */
 function capsText(m: Model): string {
   const c = m.capabilities;
+  // A web session's model (ADR-035): auto never picks it, whatever its facts say.
+  if (c.source?.startsWith('web session')) return t('Never: web session, used by name');
   if (!c.tier && !c.contextTokens) return t('Not set');
   const parts = [c.tier ? (c.tierSource?.startsWith('curated:') ? t('{tier} (Pygg' + String.fromCharCode(0x2019) + 's table)', {tier: c.tier}) : c.tier) : t('no tier')];
   if (c.contextTokens) parts.push(t('{n}k context', {n: Math.round(c.contextTokens / 1000)}));

@@ -30,8 +30,9 @@ pub struct Preset {
     #[serde(skip)]
     pub family: Option<&'static str>,
     /// What the provider's own docs say about getting started without paying, for grouping in Connect:
-    /// `free` (an ongoing free tier or free models), `credits` (trial or granted credit), `paid`, `local` or
-    /// `custom`. A hint for choosing, not a promise about any account (docs/PROVIDERS.md).
+    /// `free` (an ongoing free tier or free models), `credits` (trial or granted credit), `paid`, `local`,
+    /// `custom`, or `web` (a site with no API, used through a signed-in Pygg window: "Web session (unofficial)",
+    /// ADR-035). A hint for choosing, not a promise about any account (docs/PROVIDERS.md).
     pub offer: &'static str,
     /// The free tier or credit in a few words, as the docs state it.
     pub offer_note: Option<&'static str>,
@@ -49,6 +50,9 @@ pub struct Preset {
     /// with a partial or beta version is translated.
     #[serde(skip)]
     pub serves_responses: bool,
+    /// A web session (ADR-035): the site is driven in the connection's own Pygg window, which Pygg serves as a Chat
+    /// Completions endpoint on loopback (`websession`). `endpoint` is then the site, shown to the user, not called.
+    pub web: bool,
 }
 
 const fn preset(id: &'static str, name: &'static str, endpoint: Option<&'static str>, needs_key: bool,
@@ -59,7 +63,7 @@ const fn preset(id: &'static str, name: &'static str, endpoint: Option<&'static 
         _ => "paid",
     };
     Preset { id, name, endpoint, needs_key, default_billing, wire, strip_model_prefix: None, accepts_cache_control: false,
-        family: None, offer, offer_note: None, free_models: false, takes_reasoning: false, serves_responses: false }
+        family: None, offer, offer_note: None, free_models: false, takes_reasoning: false, serves_responses: false, web: false }
 }
 
 /// A free tier made of $0 models next to paid ones: the connection starts as free, and only those models are on.
@@ -73,6 +77,17 @@ const fn free(p: Preset, note: &'static str) -> Preset {
 
 const fn credits(p: Preset, note: &'static str) -> Preset {
     Preset { offer: "credits", offer_note: Some(note), ..p }
+}
+
+/// A site with no API, used through a Pygg window the user signs in to (ADR-035). Billed as the user's plan with the
+/// site, so the cost is unknown, never $0; `note` names an official API where the provider has one.
+const fn web(id: &'static str, name: &'static str, site: &'static str, note: &'static str) -> Preset {
+    Preset { offer: "web", offer_note: Some(note), web: true, ..preset(id, name, Some(site), false, "subscription", "openai") }
+}
+
+/// Whether a connection of this kind is a web session (ADR-035).
+pub fn is_web(kind: &str) -> bool {
+    find(kind).is_some_and(|p| p.web)
 }
 
 /// The default quota group for a connection of this preset kind.
@@ -118,6 +133,8 @@ pub const PRESETS: &[Preset] = &[
     Preset { family: Some("minimax"), ..preset("minimax", "MiniMax", Some("https://api.minimax.io/v1"), true, "paid", "openai") },
     Preset { family: Some("minimax"),
         ..preset("minimax-anthropic", "MiniMax (Anthropic API)", Some("https://api.minimax.io/anthropic/v1"), true, "paid", "anthropic") },
+    // Meta's API for its Muse models (dev.meta.ai/docs, checked 2026-11-12): OpenAI and Anthropic formats, pay as you go.
+    preset("meta", "Meta (Muse API)", Some("https://api.meta.ai/v1"), true, "paid", "openai"),
     preset("nebius", "Nebius Token Factory", Some("https://api.tokenfactory.nebius.com/v1"), true, "paid", "openai"),
     preset("ollama", "Ollama", Some("http://127.0.0.1:11434/v1"), false, "local", "openai"),
     preset("lmstudio", "LM Studio", Some("http://localhost:1234/v1"), false, "local", "openai"),
@@ -127,6 +144,8 @@ pub const PRESETS: &[Preset] = &[
     preset("jan", "Jan", Some("http://127.0.0.1:1337/v1"), false, "local", "openai"),
     preset("custom", "Custom (OpenAI-compatible)", None, false, "unknown", "openai"),
     preset("custom-anthropic", "Custom (Anthropic-compatible)", None, false, "unknown", "anthropic"),
+    // Meta's personal agent app; its models also have an API (the `meta` preset above), the agent itself has none.
+    web("muse-web", "Muse (muse.ai)", "https://muse.ai", "The Muse models also have an API: Meta (Muse API)"),
 ];
 
 pub fn find(id: &str) -> Option<&'static Preset> {
@@ -144,10 +163,17 @@ mod tests {
         ids.dedup();
         assert_eq!(ids.len(), PRESETS.len(), "ids are unique");
         for p in PRESETS {
-            assert!(["free", "credits", "paid", "local", "custom"].contains(&p.offer), "{}", p.id);
+            assert!(["free", "credits", "paid", "local", "custom", "web"].contains(&p.offer), "{}", p.id);
             assert_eq!(p.offer == "local", p.default_billing == "local", "{}", p.id);
             assert_eq!(p.offer == "custom", p.endpoint.is_none(), "{}", p.id);
-            assert_eq!(p.offer_note.is_some(), matches!(p.offer, "free" | "credits"), "{}", p.id);
+            assert_eq!(p.offer_note.is_some(), matches!(p.offer, "free" | "credits" | "web"), "{}", p.id);
+            // A web session (ADR-035) is billed as the user's plan with the site, has a recipe, and needs no key.
+            assert_eq!(p.offer == "web", p.web, "{}", p.id);
+            if p.web {
+                assert_eq!(p.default_billing, "subscription", "{}", p.id);
+                assert!(!p.needs_key && !p.serves_responses && p.wire == "openai", "{}", p.id);
+                assert!(crate::websession::recipe(p.id).is_some(), "{} has a recipe", p.id);
+            }
             assert!(matches!(p.wire, "openai" | "anthropic"));
             if let Some(family) = p.family {
                 assert!(PRESETS.iter().filter(|q| q.family == Some(family)).count() == 2, "{family} pairs two formats");

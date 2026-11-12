@@ -47,11 +47,22 @@ pub struct Provider {
     /// The pool it belongs to (ADR-034): requests for `<pool>/<model>` try the pool's connections in order.
     pub pool: Option<String>,
     pub pool_rank: Option<i64>,
+    /// A web session's own profile folder name under `websessions/` (ADR-035). Never shown or exported.
+    #[serde(skip)]
+    pub web_profile: Option<String>,
+    /// Which text of the web-session warning the user acknowledged, and when (ADR-035).
+    pub web_ack_version: Option<i64>,
+    pub web_ack_at: Option<i64>,
+    /// `signed_in`, `signed_out`, `needs_you` or `page_changed`, with Pygg's own reason and when it was seen.
+    pub web_state: Option<String>,
+    pub web_state_reason: Option<String>,
+    pub web_state_at: Option<i64>,
 }
 
 const PROVIDER_COLUMNS: &str =
     "id, kind, account_label, COALESCE(endpoint, ''), enabled, credential_ref, default_billing, data_use_terms, created_at, \
-     wire, COALESCE(quota_group, kind), quota_group IS NOT NULL, quota_confirmed_at, terms_source, terms_checked_at, pool, pool_rank";
+     wire, COALESCE(quota_group, kind), quota_group IS NOT NULL, quota_confirmed_at, terms_source, terms_checked_at, pool, pool_rank, \
+     web_profile, web_ack_version, web_ack_at, web_state, web_state_reason, web_state_at";
 
 fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
     let kind: String = row.get(1)?;
@@ -77,6 +88,12 @@ fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
         quota_confirmed_at: row.get(12)?,
         pool: row.get(15)?,
         pool_rank: row.get(16)?,
+        web_profile: row.get(17)?,
+        web_ack_version: row.get(18)?,
+        web_ack_at: row.get(19)?,
+        web_state: row.get(20)?,
+        web_state_reason: row.get(21)?,
+        web_state_at: row.get(22)?,
     })
 }
 
@@ -122,6 +139,9 @@ pub fn add_provider(conn: &Connection, new: &NewProvider) -> Result<Provider> {
     if !matches!(new.wire, "openai" | "anthropic") {
         return Err(format!("unknown wire format {}", new.wire));
     }
+    if super::presets::is_web(new.kind) {
+        return Err("A web session is added with its warning acknowledged (add_web_provider)".into());
+    }
     let endpoint = new.endpoint.trim().trim_end_matches('/');
     if !(endpoint.starts_with("https://") || endpoint.starts_with("http://")) {
         return Err("The endpoint must start with https:// or http://".into());
@@ -142,6 +162,64 @@ pub fn add_provider(conn: &Connection, new: &NewProvider) -> Result<Provider> {
     )
     .map_err(err)?;
     get_provider(conn, &id)?.ok_or_else(|| "connection was not saved".into())
+}
+
+/// Adds a web-session connection (ADR-035) after the user acknowledged the warning `ack_version`. It starts **off**,
+/// billed as the user's plan with the site (cost unknown, never $0), with a profile folder name of its own and the
+/// recipe's models, which take no tools or images. The profile folder itself is created by the window.
+pub fn add_web_provider(conn: &Connection, kind: &str, label: &str, ack_version: i64) -> Result<Provider> {
+    let preset = super::presets::find(kind).filter(|p| p.web).ok_or("Not a web-session provider")?;
+    let recipe = crate::websession::recipe(kind).ok_or("No recipe for this site")?;
+    if ack_version != crate::websession::WARNING_VERSION {
+        return Err("Read and acknowledge the account-risk warning first".into());
+    }
+    // `Muse (muse.ai)` → `Muse`, so its models are `muse/muse`.
+    let label = if label.trim().is_empty() { preset.name.split(" (").next().unwrap_or(preset.name) } else { label.trim() };
+    let base = slug(label);
+    let base = if base == AUTO { format!("{AUTO}-connection") } else { base };
+    let mut id = base.clone();
+    let mut n = 2;
+    while get_provider(conn, &id)?.is_some() {
+        id = format!("{base}-{n}");
+        n += 1;
+    }
+    let now = now_ms();
+    // Random, so a new connection never finds a removed one's folder (and its sign-in) under the same name.
+    let profile = format!("p-{}", uuid::Uuid::new_v4().simple());
+    conn.execute(
+        "INSERT INTO providers (id, kind, account_label, endpoint, credential_ref, default_billing, wire, created_at, enabled, \
+         web_profile, web_ack_version, web_ack_at, web_state, web_state_reason, web_state_at) \
+         VALUES (?1, ?2, ?3, ?4, NULL, 'subscription', ?5, ?6, 0, ?7, ?8, ?6, 'signed_out', ?9, ?6)",
+        params![id, kind, label, preset.endpoint.unwrap_or_default(), preset.wire, now, profile, ack_version,
+            crate::websession::NOT_SIGNED_IN],
+    ).map_err(err)?;
+    let listed: Vec<Listed> = recipe.models.iter().map(|m| Listed {
+        id: m.to_string(), supports_tools: Some(false), supports_vision: Some(false), ..Listed::default() }).collect();
+    import_listed(conn, &id, &listed, Some(crate::websession::CAPS_SOURCE))?;
+    get_provider(conn, &id)?.ok_or_else(|| "connection was not saved".into())
+}
+
+/// Records what a web session's window last showed (ADR-035). `reason` is Pygg's own wording, never the page's text.
+/// Signing in clears the holds a signed-out session left, so the connection is tried again.
+pub fn set_web_state(conn: &Connection, provider_id: &str, state: &str, reason: &str) -> Result<()> {
+    if !crate::websession::STATES.contains(&state) {
+        return Err(format!("unknown web-session state {state}"));
+    }
+    let before: Option<String> = conn.query_row("SELECT web_state FROM providers WHERE id = ?1", [provider_id], |r| r.get(0))
+        .optional().map_err(err)?.flatten();
+    conn.execute("UPDATE providers SET web_state = ?2, web_state_reason = ?3, web_state_at = ?4 WHERE id = ?1",
+        params![provider_id, state, reason, now_ms()]).map_err(err)?;
+    if state == "signed_in" && before.as_deref() != Some("signed_in") {
+        clear_health(conn, provider_id)?;
+    }
+    Ok(())
+}
+
+/// The profile folder names of the web sessions that exist; any other folder under `websessions/` is a leftover.
+pub fn web_profiles(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT web_profile FROM providers WHERE web_profile IS NOT NULL").map_err(err)?;
+    let rows = stmt.query_map([], |r| r.get(0)).map_err(err)?;
+    rows.collect::<rusqlite::Result<_>>().map_err(err)
 }
 
 /// Removes the connection with its models and combo entries; returns its credential reference so the
@@ -165,6 +243,10 @@ pub fn update_provider(conn: &Connection, id: &str, enabled: Option<bool>, billi
     if let Some(billing) = billing {
         if !BILLING.contains(&billing) {
             return Err(format!("unknown billing type {billing}"));
+        }
+        let kind: Option<String> = conn.query_row("SELECT kind FROM providers WHERE id = ?1", [id], |r| r.get(0)).optional().map_err(err)?;
+        if kind.as_deref().is_some_and(super::presets::is_web) && billing != "subscription" {
+            return Err("A web session is billed as your plan with the site: its cost is unknown, so it cannot be set as free or paid".into());
         }
         conn.execute("UPDATE providers SET default_billing = ?2 WHERE id = ?1", params![id, billing]).map_err(err)?;
         apply_free_connection_rule(conn)?;
@@ -1304,6 +1386,9 @@ pub fn set_pool(conn: &Connection, provider_id: &str, pool: Option<&str>) -> Res
     }
     if name == AUTO || get_provider(conn, name)?.is_some() || list_combos(conn)?.iter().any(|c| c.name == name) {
         return Err(format!("{name} is already a connection, a combo or auto; pick another name for the pool"));
+    }
+    if super::presets::is_web(&provider.kind) {
+        return Err("A web session cannot join a pool (ADR-034, ADR-035): pools are for separate API-key accounts".into());
     }
     if !provider.separate_quota {
         return Err("Confirm first that this connection has its own provider quota (Independent quota confirmed): a pool is \

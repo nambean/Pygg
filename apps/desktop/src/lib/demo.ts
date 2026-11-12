@@ -7,7 +7,7 @@
 import type { AgentInfo, Integration, Launcher, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
   Health, Model, Preset, Target, Tier, UsageEvent, UsageBucket, UsageGroup, UsageSummary, Account, Wire,
   LocalUsage, SubscriptionUsage, Retention } from './api';
-import { TIERS } from './api';
+import { TIERS, WEB_WARNING_VERSION } from './api';
 import { SAMPLE_WORKSPACES, sampleTasks } from './sample';
 import type { AttemptView, NewTask, TaskDetail, TaskSummary, WorkspaceView } from './tasks';
 
@@ -40,6 +40,7 @@ const BASE_PRESETS: BasePreset[] = [
     ['cohere', 'Cohere', 'https://api.cohere.ai/compatibility/v1', 'unknown', 'openai'],
     ['minimax', 'MiniMax', 'https://api.minimax.io/v1', 'paid', 'openai'],
     ['minimax-anthropic', 'MiniMax (Anthropic API)', 'https://api.minimax.io/anthropic/v1', 'paid', 'anthropic'],
+    ['meta', 'Meta (Muse API)', 'https://api.meta.ai/v1', 'paid', 'openai'],
     ['nebius', 'Nebius Token Factory', 'https://api.tokenfactory.nebius.com/v1', 'paid', 'openai'],
   ] as const).map(([id, name, endpoint, defaultBilling, wire]): BasePreset => ({id, name, endpoint, needsKey: true, defaultBilling, wire})),
   ...([
@@ -52,6 +53,7 @@ const BASE_PRESETS: BasePreset[] = [
   ] as const).map(([id, name, endpoint]): BasePreset => ({id, name, endpoint, needsKey: false, defaultBilling: 'local', wire: 'openai'})),
   {id: 'custom', name: 'Custom (OpenAI-compatible)', endpoint: null, needsKey: false, defaultBilling: 'unknown', wire: 'openai'},
   {id: 'custom-anthropic', name: 'Custom (Anthropic-compatible)', endpoint: null, needsKey: false, defaultBilling: 'unknown', wire: 'anthropic'},
+  {id: 'muse-web', name: 'Muse (muse.ai)', endpoint: 'https://muse.ai', needsKey: false, defaultBilling: 'subscription', wire: 'openai'},
 ];
 /** What gateway/presets.rs says about starting with each provider. */
 const OFFERS: Record<string, [Preset['offer'], string]> = {
@@ -62,12 +64,13 @@ const OFFERS: Record<string, [Preset['offer'], string]> = {
   deepseek: ['credits', 'Granted balance'], 'deepseek-anthropic': ['credits', 'Granted balance'],
   cerebras: ['credits', '$5 trial credit, card needed'], fireworks: ['credits', 'Small starting credit'],
   huggingface: ['credits', 'Monthly credit with PRO'],
+  'muse-web': ['web', 'The Muse models also have an API: Meta (Muse API)'],
 };
 const PRESETS: Preset[] = BASE_PRESETS.map(p => {
   const offer = OFFERS[p.id];
   const freeModels = ['openrouter', 'zai', 'zai-anthropic'].includes(p.id);
   return {...p, offer: offer?.[0] ?? (p.endpoint === null ? 'custom' : p.defaultBilling === 'local' ? 'local' : 'paid'),
-    offerNote: offer?.[1] ?? null, freeModels, defaultBilling: freeModels ? 'free' : p.defaultBilling};
+    offerNote: offer?.[1] ?? null, freeModels, defaultBilling: freeModels ? 'free' : p.defaultBilling, web: offer?.[0] === 'web'};
 });
 
 /** As found on a developer machine: three agents installed, Codex signed in with a ChatGPT plan. */
@@ -434,6 +437,22 @@ export function demoApi(): GatewayApi {
       await sleep(500);
       const preset = PRESETS.find(p => p.id === connection.preset);
       if (!preset) throw 'Unknown provider';
+      // A web session (ADR-035): no key, off until signed in; the preview has no window, so it never signs in.
+      if (preset.web) {
+        if (connection.webAck !== WEB_WARNING_VERSION) throw 'Read and acknowledge the account-risk warning first';
+        const label = connection.label.trim() || preset.name.split(' (')[0];
+        let id = slug(label), n = 2;
+        while (connections.some(c => c.id === id)) id = `${slug(label)}-${n++}`;
+        connections.push({id, kind: preset.id, label, endpoint: preset.endpoint!, enabled: false, credentialRef: null,
+          defaultBilling: 'subscription', dataUseTerms: 'unknown', termsSource: null, termsCheckedAt: null, createdAt: Date.now(),
+          key: false, wire: 'openai', separateQuota: false, quotaConfirmedAt: null, web: true, webAckCurrent: true,
+          webAckAt: Date.now(), webState: 'signed_out', webStateAt: Date.now(),
+          webStateReason: 'Not signed in yet. Open the sign-in window and sign in on the site.'});
+        addModels(id, ['muse']);
+        models[models.length - 1].capabilities = {...UNKNOWN, supportsTools: false, supportsVision: false,
+          source: 'web session: text only, no tools or images (ADR-035)'};
+        return view(connections[connections.length - 1]);
+      }
       const endpoint = (connection.endpoint?.trim() || preset.endpoint || '').replace(/\/+$/, '');
       if (!endpoint) throw 'Enter the endpoint URL';
       if (!/^https?:\/\//.test(endpoint)) throw 'The endpoint must start with https:// or http://';
@@ -553,9 +572,13 @@ export function demoApi(): GatewayApi {
       for (const combo of combos) combo.members = combo.members.filter(m => m.providerId !== id);
       await sleep(120);
     },
+    // The preview has no window to open or drive.
+    openWebSession: async () => { await sleep(150); throw 'The browser preview cannot open a sign-in window; run the desktop app.'; },
+    checkWebSession: async id => { await sleep(400); return touch(view(find(id))); },
     refreshModels: async id => {
       await sleep(700);
       const c = find(id);
+      if (c.web) return {listed: 1, added: 0};
       if (c.kind !== 'ollama' && !c.key) throw 'The provider refused the key (HTTP 401): API key not valid.';
       const listed = DEMO_MODELS[c.kind] ?? [];
       const before = models.length;
