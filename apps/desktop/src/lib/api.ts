@@ -239,6 +239,8 @@ export interface GatewayApi {
   presets(): Promise<Preset[]>;
   connections(): Promise<Connection[]>;
   addConnection(connection: NewConnection): Promise<Connection>;
+  /** Connects by signing in on the provider's page in the browser, which issues an API key (OpenRouter). */
+  signInConnection(connection: NewConnection): Promise<Connection>;
   updateConnection(id: string, change: {enabled?: boolean; billing?: Billing; separateQuota?: boolean}): Promise<Connection>;
   clearConnectionHealth(id: string): Promise<Connection>;
   /** Reads the account's balance or free allowance from the provider now. */
@@ -349,6 +351,7 @@ const native: GatewayApi = {
   presets: () => invoke('presets_list'),
   connections: () => invoke('connections_list'),
   addConnection: connection => invoke('connection_add', {connection}),
+  signInConnection: connection => invoke('connection_sign_in', {connection}),
   updateConnection: (id, change) => invoke('connection_update', {id, ...change}),
   setConnectionKey: (id, apiKey) => invoke('connection_set_key', {id, apiKey}),
   clearConnectionHealth: id => invoke('connection_clear_health', {id}),

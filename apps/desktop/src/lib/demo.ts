@@ -419,6 +419,8 @@ export function demoApi(): GatewayApi {
     },
     presets: () => touch(PRESETS),
     connections: () => touch(connections.map(view)),
+    // The preview cannot open a browser sign-in; it connects as if the provider had issued a key.
+    async signInConnection(connection) { return this.addConnection({...connection, apiKey: 'sk-or-v1-demo'}); },
     addConnection: async connection => {
       await sleep(500);
       const preset = PRESETS.find(p => p.id === connection.preset);

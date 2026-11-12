@@ -792,3 +792,6 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .pool-members li.current > span:first-child { font-weight: 600; }
 .pool-join { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .pool-join .text-input { width: 150px; }
+
+/* Connect → Sign In with OpenRouter (oauth.rs). */
+.sign-in-row { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; align-items: flex-start; }

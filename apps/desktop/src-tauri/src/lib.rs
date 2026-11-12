@@ -175,6 +175,7 @@ pub fn run() {
             commands::presets_list,
             commands::connections_list,
             commands::connection_add,
+            commands::connection_sign_in,
             commands::connection_update,
             commands::connection_set_key,
             commands::connection_remove,

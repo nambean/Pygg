@@ -210,6 +210,22 @@ pub struct NewConnection {
 
 #[tauri::command]
 pub fn connection_add(state: State<'_, AppState>, connection: NewConnection) -> Res<ConnectionView> {
+    add_connection(&state, connection)
+}
+
+/// Connects a provider by signing in on its own page in the browser, where it offers that (ADR-034, `oauth.rs`):
+/// the provider issues an API key, kept like a typed one. Never a website session or cookie.
+#[tauri::command]
+pub async fn connection_sign_in(state: State<'_, AppState>, mut connection: NewConnection) -> Res<ConnectionView> {
+    if !gateway::oauth::supports(&connection.preset) {
+        return Err("This provider cannot be connected with the browser; enter its API key".into());
+    }
+    let key = gateway::oauth::openrouter_key(&state.shared.http).await?;
+    connection.api_key = Some(key);
+    add_connection(&state, connection)
+}
+
+fn add_connection(state: &AppState, connection: NewConnection) -> Res<ConnectionView> {
     let preset = presets::find(&connection.preset).ok_or("Unknown provider")?;
     let endpoint = connection.endpoint.as_deref().map(str::trim).filter(|e| !e.is_empty())
         .or(preset.endpoint).ok_or("Enter the endpoint URL")?.to_string();
@@ -231,7 +247,7 @@ pub fn connection_add(state: State<'_, AppState>, connection: NewConnection) -> 
         default_billing: &connection.billing, wire: preset.wire,
     }));
     match added {
-        Ok(provider) => Ok(view(&state, provider)),
+        Ok(provider) => Ok(view(state, provider)),
         Err(e) => {
             if let Some(reference) = &reference {
                 let _ = vault::remove(reference);

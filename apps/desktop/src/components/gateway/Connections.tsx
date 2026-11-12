@@ -486,13 +486,15 @@ function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected:
   const keyRequired = preset?.needsKey ?? false;
   const canConnect = !!preset && (!keyRequired || apiKey.trim().length > 0) && (!custom || endpoint.trim().length > 0);
 
-  const connect = async () => {
+  const canSignIn = preset?.id === 'openrouter';
+  const connect = async (signIn = false) => {
     if (!preset) return;
     setBusy(true);
     setError(null);
     try {
-      const added = await call(api => api.addConnection({preset: preset.id, label: label.trim() || preset.name,
-        endpoint: endpoint.trim() || undefined, apiKey: apiKey.trim() || undefined, billing: effectiveBilling}));
+      const connection = {preset: preset.id, label: label.trim() || preset.name, endpoint: endpoint.trim() || undefined,
+        apiKey: signIn ? undefined : apiKey.trim() || undefined, billing: effectiveBilling};
+      const added = await call(api => signIn ? api.signInConnection(connection) : api.addConnection(connection));
       // Connecting checks the key by reading the model list; a failure still keeps the connection.
       try {
         const r = await call(api => api.refreshModels(added.id));
@@ -512,7 +514,7 @@ function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected:
     onClose={onClose} busy={busy} footer={<>
       <span className="spacer"/>
       <button type="button" className="button" onClick={onClose} disabled={busy}>{t('Cancel')}</button>
-      <button type="button" className="button prominent" onClick={connect} disabled={busy || !canConnect}>
+      <button type="button" className="button prominent" onClick={() => connect()} disabled={busy || !canConnect}>
         {busy && <Spinner/>}{busy ? t('Connecting…') : t('Connect Provider')}</button>
     </>}>
     <PresetPicker presets={presets.data ?? []} selected={presetId}
@@ -535,6 +537,10 @@ function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected:
         hint={t('Stored in {store}. Pygg never shows it again.', {store: STORE})}>
         <input id="connection-key" className="text-input mono" type="password" value={apiKey} autoComplete="off" spellCheck={false}
           placeholder={keyRequired ? t('Required') : t('Optional')} onChange={e => setApiKey(e.target.value)}/>
+        {canSignIn && <div className="sign-in-row">
+          <button type="button" className="button" disabled={busy} onClick={() => connect(true)}>{t('Sign In with OpenRouter…')}</button>
+          <small className="secondary">{t('Opens openrouter.ai in your browser. After you sign in and allow it, OpenRouter issues a key for Pygg, kept in {store}; you don’t need to copy one.', {store: STORE})}</small>
+        </div>}
       </FormRow>}
       <FormRow label={t('Billing')} htmlFor="connection-billing" hint={billingHint(effectiveBilling, preset?.freeModels)}>
         <select id="connection-billing" className="popup-button" value={effectiveBilling} onChange={e => setBilling(e.target.value as Billing)}>
