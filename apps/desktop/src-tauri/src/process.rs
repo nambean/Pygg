@@ -62,6 +62,17 @@ impl Outcome {
     }
 }
 
+/// Variables that tie a process to the agent session Pygg itself was started from (Pygg run from a Claude Code
+/// terminal or the Claude desktop app). An agent Pygg starts must be its own session: with these, Claude Code sent
+/// its requests as part of the host's session and organization, and Anthropic refused an API key that had credit
+/// with "credit balance is too low" (found by the P0 benchmark, 2026-11-12). Settings a user gives Claude Code
+/// (`CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CONFIG_DIR` and the like) are kept.
+pub const HOST_SESSION_VARS: &[&str] = &["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_HOST_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH", "CLAUDE_CODE_ORGANIZATION_UUID", "CLAUDE_CODE_ACCOUNT_UUID",
+    "CLAUDE_CODE_USER_EMAIL", "CLAUDE_CODE_OAUTH_SCOPES", "CLAUDE_CODE_EXECPATH", "CLAUDE_CODE_DESKTOP_APP_VERSION",
+    "CLAUDE_AGENT_SDK_VERSION", "CLAUDE_PID"];
+
 /// Runs `spec` until it exits, its time limit passes, or `cancel` resolves.
 pub async fn run(spec: &Spec, cancel: impl std::future::Future<Output = ()>) -> Outcome {
     let started = Instant::now();
@@ -79,6 +90,11 @@ pub async fn run(spec: &Spec, cancel: impl std::future::Future<Output = ()>) -> 
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    for name in HOST_SESSION_VARS {
+        if !spec.env.iter().any(|(k, _)| k == name) {
+            command.env_remove(name);
+        }
+    }
     if let Some(tail) = &spec.raw_tail {
         append_raw(&mut command, tail);
     }
@@ -211,6 +227,19 @@ mod tests {
         let outcome = rt().block_on(run(&spec, std::future::pending()));
         assert_eq!(outcome.exit, Exit::Code(3));
         assert!(outcome.stdout.contains("hello"));
+    }
+
+    /// A child is its own session in its own folder: the host agent's session variables are gone and PWD is its folder.
+    #[test]
+    fn a_child_does_not_inherit_the_host_session_or_its_folder() {
+        std::env::set_var("CLAUDE_CODE_SESSION_ID", "host-session");
+        std::env::set_var("CLAUDE_CODE_USE_BEDROCK", "kept");
+        let listing = if cfg!(windows) { "set" } else { "env" };
+        let dir = std::env::temp_dir();
+        let outcome = rt().block_on(run(&Spec::shell(listing, &dir, Duration::from_secs(20)), std::future::pending()));
+        assert!(!outcome.stdout.contains("host-session"), "the host's session leaked");
+        assert!(outcome.stdout.contains("CLAUDE_CODE_USE_BEDROCK=kept"), "a user's setting is kept");
+        assert!(outcome.stdout.contains(&format!("PWD={}", dir.display())), "PWD is the child's folder");
     }
 
     #[test]
