@@ -94,7 +94,12 @@ Codex recommended native Windows controls instead. The team chose traffic lights
 
 Shortcuts: `Ctrl+1`…`Ctrl+6` the gateway screens in that order, `Ctrl+7` Tasks, `Ctrl+8` Agents, `Ctrl+,` Settings.
 
-Planned next, from the same review: a card per tool with *Configured, waiting for a request → Working* from that tool's own key; a Claude Code launcher that injects the gateway's variables at launch instead of editing its settings; and an *estimated comparison using the same tokens* on Home and Usage (labelled as an estimate, coverage shown, unknown cost never $0). `auto` is described as choosing an eligible model within the user's rules: it does not judge how hard a prompt is.
+Built the same day, from that review:
+- Each set-up tool shows *Configured, waiting for its first request → Working (answered by which model, when)* or *its last request failed*, from the newest request of the tool's own key (`client_latest_requests`).
+- **Claude Code launcher** (`launcher.rs`, `pygg run claude`): a key of its own kept in the Windows Credential Manager and handed to Claude Code at launch with the gateway's address and `auto`. Claude Code's settings are not changed, so plain `claude` keeps the user's Claude plan.
+- **Estimated Savings** (`gateway/savings.rs`) on Usage and Home: the answered requests priced again at a model the user picks, with the same tokens. It counts what it leaves out (unknown cost, no tokens, failed attempts that may have been billed, subscription requests) and is labelled as an estimate.
+
+Still to do: a check before set-up that `auto` has an eligible model for that tool's requests. `auto` is described as choosing an eligible model within the user's rules: it does not judge how hard a prompt is.
 
 The notes below predate this navigation where they name Overview, Connections or Clients.
 
