@@ -779,3 +779,8 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .palette-item.active kbd { color: rgba(255, 255, 255, .85); }
 .palette-empty { padding: 16px 10px; color: var(--secondary); }
 @media (forced-colors: active) { .palette-item.active { background: Highlight; color: HighlightText; forced-color-adjust: none; } }
+
+/* Usage alerts (UsageAlerts.tsx). */
+.usage-alerts { padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.usage-alert { display: flex; gap: 8px; align-items: flex-start; margin: 0; }
+.usage-alert svg { flex: none; margin-top: 2px; }

@@ -1480,6 +1480,58 @@ pub fn usage_csv(conn: &Connection, since: i64) -> Result<String> {
     Ok(out)
 }
 
+/// Something in the ledger worth a look (SCREENS §5.6, anomalies). Each is a plain reading of recorded figures, never
+/// a forecast: a client near or over its monthly limit, a day that cost far more than the week before it, requests whose
+/// cost is unknown, and a burst of failures.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageAlert {
+    /// `near_limit`, `over_limit`, `spend_spike`, `unknown_costs` or `failures`.
+    pub kind: String,
+    pub client: Option<String>,
+    /// The figure that raised it: micro-USD for money, a count for requests.
+    pub value: u64,
+    /// What it was measured against: the limit, the week's daily average, or the requests counted.
+    pub against: u64,
+}
+
+/// A day's known spend at least this many times the daily average of the seven days before it raises `spend_spike`,
+/// if it is also at least `SPIKE_FLOOR_MICRO_USD` (cents are not an anomaly).
+pub const SPIKE_FACTOR: u64 = 3;
+pub const SPIKE_FLOOR_MICRO_USD: u64 = 500_000;
+
+pub fn usage_alerts(conn: &Connection, now: i64) -> Result<Vec<UsageAlert>> {
+    let mut out = Vec::new();
+    for c in list_clients(conn)?.into_iter().filter(|c| c.revoked_at.is_none()) {
+        let Some(limit) = c.monthly_budget_micro_usd.filter(|l| *l > 0) else { continue };
+        let used = c.month_spend_micro_usd + c.reserved_micro_usd;
+        let kind = if used >= limit { "over_limit" } else if used * 5 >= limit * 4 { "near_limit" } else { continue };
+        out.push(UsageAlert { kind: kind.into(), client: Some(c.name), value: used, against: limit });
+    }
+    let day = 86_400_000;
+    let one = |sql: &str, params: &[&dyn rusqlite::ToSql]| -> Result<i64> {
+        conn.query_row(sql, params, |r| r.get::<_, Option<i64>>(0)).map(|v| v.unwrap_or(0)).map_err(err)
+    };
+    let known = "SELECT SUM(cost_micro_usd) FROM usage_events WHERE cost_status <> 'unknown' AND created_at >= ?1 AND created_at < ?2";
+    let today = one(known, &[&(now - day), &now])?.max(0) as u64;
+    let week = one(known, &[&(now - 8 * day), &(now - day)])?.max(0) as u64;
+    let average = week / 7;
+    if week > 0 && today >= SPIKE_FLOOR_MICRO_USD && today >= average.max(1) * SPIKE_FACTOR {
+        out.push(UsageAlert { kind: "spend_spike".into(), client: None, value: today, against: average });
+    }
+    let unknown = one("SELECT COUNT(*) FROM usage_events WHERE cost_status = 'unknown' AND created_at >= ?1", &[&(now - day)])?.max(0) as u64;
+    if unknown >= 5 {
+        out.push(UsageAlert { kind: "unknown_costs".into(), client: None, value: unknown, against: 0 });
+    }
+    let (total, failed): (i64, i64) = conn.query_row(
+        "SELECT COUNT(*), COALESCE(SUM(outcome NOT IN ('ok', 'fallback', 'client_disconnected')), 0) FROM usage_events WHERE created_at >= ?1",
+        [now - 3_600_000], |r| Ok((r.get(0)?, r.get(1)?))).map_err(err)?;
+    if total >= 10 && failed * 2 >= total {
+        out.push(UsageAlert { kind: "failures".into(), client: None, value: failed as u64, against: total as u64 });
+    }
+    Ok(out)
+}
+
 pub fn usage_summary(conn: &Connection, since: i64, recent_limit: usize) -> Result<UsageSummary> {
     let group = |key_sql: &str| -> Result<Vec<UsageGroup>> {
         let sql = format!(
@@ -1793,6 +1845,47 @@ mod tests {
         assert_eq!(resolve(&conn, "coding").unwrap().len(), 1);
         assert_eq!(resolve(&conn, "openrouter/vendor/big").unwrap()[0].1, "vendor/big");
         assert!(resolve(&conn, "nothing").unwrap().is_empty());
+    }
+
+    #[test]
+    fn alerts_say_what_the_ledger_shows_and_nothing_else() {
+        let conn = db::open_in_memory().unwrap();
+        let p = gemini(&conn);
+        let (client, _) = create_client(&conn, "Claude Code", Some(1_000_000)).unwrap();
+        let now = now_ms();
+        let add = |micro: Option<u64>, outcome: &str, ago_ms: i64| {
+            let cost = match micro { Some(m) => Cost::Estimated { micro_usd: m, source: "price: user".into() },
+                None => Cost::Unknown { source: "no price".into() } };
+            record_usage(&conn, &UsageRecord { client_id: Some(&client.id), provider_id: &p.id, model_id: "flash",
+                requested_model: "auto", input_tokens: Some(10), output_tokens: Some(5), cache_tokens: None, cost: &cost,
+                outcome, http_status: Some(200), latency_ms: 12, error: None, cache_write_tokens: None, session_key: None,
+                route_mode: None, route_reason: None }).unwrap();
+            conn.execute("UPDATE usage_events SET created_at = ?1 WHERE id = (SELECT id FROM usage_events ORDER BY rowid DESC LIMIT 1)",
+                [now - ago_ms]).unwrap();
+        };
+        assert!(usage_alerts(&conn, now).unwrap().is_empty(), "nothing recorded, nothing to say");
+
+        // The week before: $0.10 a day. Today: $0.85, more than three times the average and above the floor.
+        for d in 2..=8 {
+            add(Some(100_000), "ok", d * 86_400_000 - 3_600_000);
+        }
+        add(Some(850_000), "ok", 60_000);
+        let kinds = |conn: &Connection| usage_alerts(conn, now).unwrap().into_iter().map(|a| a.kind).collect::<Vec<_>>();
+        let alerts = usage_alerts(&conn, now).unwrap();
+        let spike = alerts.iter().find(|a| a.kind == "spend_spike").unwrap();
+        assert_eq!((spike.value, spike.against), (850_000, 100_000));
+        // $1.55 this month against a $1 limit (the week's rows may fall in last month; today's alone is $0.85, 85%).
+        assert!(kinds(&conn).iter().any(|k| k == "near_limit" || k == "over_limit"));
+
+        for _ in 0..5 {
+            add(None, "ok", 120_000);
+        }
+        assert!(kinds(&conn).contains(&"unknown_costs".to_string()));
+        for _ in 0..6 {
+            add(Some(0), "error", 30_000);
+        }
+        let failures = usage_alerts(&conn, now).unwrap().into_iter().find(|a| a.kind == "failures").unwrap();
+        assert_eq!((failures.value, failures.against), (6, 12), "6 of the last hour's 12 requests failed");
     }
 
     #[test]

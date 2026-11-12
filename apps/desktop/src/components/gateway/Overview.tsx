@@ -8,6 +8,7 @@ import { ago } from '../../lib/format';
 import { useGateway } from '../../hooks/useGateway';
 import { Badge, CodeBlock, CopyButton, ErrorNote, FormRow, Segmented, Sheet, Spinner, Switch } from '../ui';
 import { OutcomeBadge } from './Usage';
+import { UsageAlerts } from './UsageAlerts';
 
 export type GatewayDestination = 'overview' | 'connections' | 'combos' | 'clients' | 'usage';
 export type Navigate = (to: GatewayDestination, intent?: 'connect' | 'create') => void;
@@ -41,6 +42,7 @@ export function Overview({status, onStatus, navigate, onAgents}: {status: Gatewa
 
   return <div className="page">
     <GatewayCard status={status} onStatus={onStatus} onConfigure={() => setConfiguring(true)}/>
+    <UsageAlerts onOpen={() => navigate('usage')}/>
     {status?.accountingError && <ErrorNote>
       {t('The last usage entry couldn’t be written: {error}. The request stays in the journal and is recorded with an unknown cost when the gateway next starts. Requests are refused while nothing can be written.', {error: status.accountingError})}
     </ErrorNote>}

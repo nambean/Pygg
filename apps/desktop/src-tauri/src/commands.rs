@@ -556,6 +556,12 @@ pub fn retention_preview(state: State<'_, AppState>, days: u32) -> Res<u64> {
     state.shared.with_db(|db| crate::retention::would_delete(db, days, crate::db::now_ms()))
 }
 
+/// What in the ledger is worth a look now: limits near or passed, a spend spike, unknown costs, a burst of failures.
+#[tauri::command]
+pub fn usage_alerts(state: State<'_, AppState>) -> Res<Vec<store::UsageAlert>> {
+    state.shared.with_db(|db| store::usage_alerts(db, crate::db::now_ms()))
+}
+
 /// Every request of the period as CSV, saved where the user picks; `None` when they cancel.
 #[tauri::command]
 pub async fn usage_export(app: tauri::AppHandle, state: State<'_, AppState>, days: u32) -> Res<Option<String>> {

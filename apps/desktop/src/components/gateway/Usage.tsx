@@ -7,6 +7,7 @@ import { locale, plural, t } from '../../lib/i18n';
 import { costText, microUsd, sourceText, tokens } from '../../lib/money';
 import { useGateway } from '../../hooks/useGateway';
 import { Badge, Empty, ErrorNote, Segmented, Spinner } from '../ui';
+import { UsageAlerts } from './UsageAlerts';
 import { CostOverTime } from './CostOverTime';
 
 type Range = '1' | '7' | '30';
@@ -77,6 +78,7 @@ export function Usage() {
   return <div className="page">
     {bar}
     {usage.error && <ErrorNote>{usage.error}</ErrorNote>}
+    <UsageAlerts/>
     {exported && (exported.ok ? <p className="group-footnote" role="status">{exported.text}</p> : <ErrorNote>{exported.text}</ErrorNote>)}
     {quality.data && quality.data.tasks > 0 && <TaskResults q={quality.data}/>}
     {data && data.total.requests === 0 && <Empty icon={<ChartColumn size={40} strokeWidth={1.4}/>} title={t('No Usage Recorded Yet')}>

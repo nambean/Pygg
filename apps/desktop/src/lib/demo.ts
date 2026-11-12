@@ -611,6 +611,9 @@ export function demoApi(): GatewayApi {
       });
       return touch(out);
     },
+    // Sample alerts for the preview (ADR-014): one client near its limit, and requests without a price.
+    usageAlerts: async () => touch([{kind: 'near_limit', client: 'Claude Code', value: 8_400_000, against: 10_000_000},
+      {kind: 'unknown_costs', client: null, value: 6, against: 0}]),
     exportUsage: async () => { await sleep(200); return 'C:\\Users\\you\\Downloads\\pygg-usage.csv'; },
     retention: () => touch(retention),
     // The preview deletes nothing: it only counts what the setting would remove, as retention.rs decides it.

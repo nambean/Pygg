@@ -143,6 +143,10 @@ export type UsageEvent = {
   routeReason: string | null;
 };
 
+/** Something in the ledger worth a look; `value` and `against` are micro-USD for money, counts for requests. */
+export type UsageAlert = {kind: 'near_limit' | 'over_limit' | 'spend_spike' | 'unknown_costs' | 'failures'; client: string | null;
+  value: number; against: number};
+
 /** Requests and money in one period of the usage chart (one hour or one day). */
 export type UsageBucket = {
   start: number; requests: number; failed: number; knownMicroUsd: number; actualMicroUsd: number; unknownRequests: number;
@@ -271,6 +275,8 @@ export interface GatewayApi {
   usageLocal(days: number): Promise<LocalUsage[]>;
   /** Every request of the period as a CSV file the user saves; the path, or null when they cancel. */
   exportUsage(days: number): Promise<string | null>;
+  /** What in the ledger is worth a look now. */
+  usageAlerts(): Promise<UsageAlert[]>;
   retention(): Promise<Retention>;
   /** Saves the period and deletes what is older now; the rest goes once a day. */
   setRetention(days: RetentionDays): Promise<Retention>;
@@ -356,6 +362,7 @@ const native: GatewayApi = {
   usage: days => invoke('usage_summary', {days}),
   usageOverTime: days => invoke('usage_over_time', {days, offsetMinutes: -new Date().getTimezoneOffset()}),
   exportUsage: days => invoke('usage_export', {days}),
+  usageAlerts: () => invoke('usage_alerts'),
   usageSubscriptions: days => invoke('usage_subscriptions', {days}),
   usageLocal: days => invoke('usage_local', {days}),
   exportDiagnostics: () => invoke('diagnostics_export'),
