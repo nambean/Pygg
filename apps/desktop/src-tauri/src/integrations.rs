@@ -10,6 +10,11 @@
 //!   project from the folder the agent runs it in. A project file would be committed with the token in it.
 //! - Each integration gets its **own client token**, which may start tasks and reaches no model connection.
 //!   Removing the integration revokes it. The agent's own sign-in is never read or touched (ADR-026).
+//! - **OpenCode's models through Pygg** (`opencode-gateway`, D2c) is the one integration that is not the MCP server:
+//!   a `pygg` provider in OpenCode's configuration, pointed at the gateway with its own client token (a client like
+//!   any other, under its limits in Clients) and the attempt's session header, so a task step's requests are costed
+//!   by Pygg's ledger (tasks.rs). It lists `auto`, `auto/cheap` and the enabled models of enabled connections as
+//!   they are when it is set up.
 use crate::agents::{self, Launch};
 use crate::gateway::store;
 use crate::process::{self, Spec};
@@ -29,8 +34,26 @@ const TOKEN_PLACEHOLDER: &str = "<new-token>";
 pub const TARGETS: [(&str, &str, &str); 3] =
     [("claude-code", "Claude Code", "claude"), ("codex", "Codex CLI", "codex"), ("opencode", "OpenCode", "opencode")];
 
+/// OpenCode's models through Pygg's gateway: a provider entry, not the MCP server.
+pub const OPENCODE_GATEWAY: &str = "opencode-gateway";
+const OPENCODE_GATEWAY_TARGET: (&str, &str, &str) = (OPENCODE_GATEWAY, "OpenCode: models through Pygg", "opencode");
+/// The provider name in OpenCode's configuration, so its models are `pygg/<connection>/<model>`.
+pub const PROVIDER: &str = "pygg";
+
 fn target(id: &str) -> Result<(&'static str, &'static str, &'static str), String> {
+    if id == OPENCODE_GATEWAY {
+        return Ok(OPENCODE_GATEWAY_TARGET);
+    }
     TARGETS.iter().copied().find(|t| t.0 == id).ok_or_else(|| format!("Pygg cannot set up {id}"))
+}
+
+/// Every integration id, in the order shown.
+pub fn ids() -> Vec<&'static str> {
+    TARGETS.iter().map(|t| t.0).chain(std::iter::once(OPENCODE_GATEWAY)).collect()
+}
+
+fn kind_of(id: &str) -> &'static str {
+    if id == OPENCODE_GATEWAY { "gateway" } else { "mcp" }
 }
 
 /// Where each agent keeps the configuration its command edits, following the agents' own variables.
@@ -62,12 +85,38 @@ impl Homes {
 }
 
 /// What the agent is told to start: the app's own program with `mcp` (src/mcp.rs), and the gateway's address when
-/// it is not the default.
-#[derive(Clone, Debug)]
+/// it is not the default. For OpenCode's models through Pygg: the gateway's address and the models it lists.
+#[derive(Clone, Debug, Default)]
 pub struct Server {
     pub program: String,
     pub args: Vec<String>,
     pub url: Option<String>,
+    /// `http://127.0.0.1:<port>`, always.
+    pub gateway_url: String,
+    pub models: Vec<GatewayModel>,
+}
+
+/// A model OpenCode is told about, as Pygg knows it: unknown facts are left out, never guessed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GatewayModel {
+    /// `auto`, `auto/cheap` or `<connection>/<model>`.
+    pub id: String,
+    pub context_tokens: Option<u64>,
+    pub max_output_tokens: Option<u64>,
+    pub supports_tools: Option<bool>,
+}
+
+/// `auto`, `auto/cheap`, then the enabled models of enabled connections.
+pub fn gateway_models(conn: &Connection) -> Vec<GatewayModel> {
+    let enabled: std::collections::HashSet<String> = store::list_providers(conn).unwrap_or_default().into_iter()
+        .filter(|p| p.enabled).map(|p| p.id).collect();
+    let aliases = crate::gateway::auto::ALIASES.iter().map(|a| GatewayModel { id: a.to_string(), context_tokens: None,
+        max_output_tokens: None, supports_tools: Some(true) });
+    let models = store::list_models(conn, None).unwrap_or_default().into_iter()
+        .filter(|m| m.enabled && enabled.contains(&m.provider_id))
+        .map(|m| GatewayModel { id: format!("{}/{}", m.provider_id, m.model_id), context_tokens: m.capabilities.context_tokens,
+            max_output_tokens: m.capabilities.max_output_tokens, supports_tools: m.capabilities.supports_tools });
+    aliases.chain(models).collect()
 }
 
 /// What Pygg remembers about an integration it set up (setting `integration.<id>`).
@@ -93,6 +142,8 @@ fn record(conn: &Connection, id: &str) -> Option<Record> {
 pub struct Integration {
     pub id: String,
     pub name: String,
+    /// `mcp` (Pygg's MCP server in the agent) or `gateway` (the agent's models through Pygg's gateway).
+    pub kind: String,
     pub installed: bool,
     /// `not_installed`, `not_set_up`, `set_up` (by Pygg), `set_up_elsewhere` (an entry named pygg Pygg did not
     /// make) or `removed_elsewhere` (Pygg made it, and it is gone).
@@ -112,6 +163,7 @@ pub struct Integration {
 pub struct Plan {
     pub id: String,
     pub name: String,
+    pub kind: String,
     pub config_path: String,
     pub config_exists: bool,
     /// The command Pygg runs, or the entry it adds, with the token shown as a placeholder.
@@ -124,6 +176,10 @@ pub struct Plan {
 
 fn client_name(name: &str) -> String {
     format!("{name} (MCP)")
+}
+
+fn client_name_for(id: &str, name: &str) -> String {
+    if id == OPENCODE_GATEWAY { "OpenCode (models)".into() } else { client_name(name) }
 }
 
 fn launch(program: &str) -> Option<Launch> {
@@ -238,6 +294,69 @@ fn opencode_has_entry(config: &Option<serde_json::Map<String, Value>>) -> bool {
     config.as_ref().and_then(|c| c.get("mcp")).and_then(|m| m.get(SERVER)).is_some()
 }
 
+/// OpenCode's provider entry for Pygg's gateway. It speaks the Anthropic format, which the gateway serves for every
+/// connection (translating where the connection speaks OpenAI's), and sends the attempt id Pygg gives a task step as
+/// its session header; outside a task the variable is empty and the gateway ignores the header.
+pub fn opencode_provider(server: &Server, token: &str) -> Value {
+    let mut models = serde_json::Map::new();
+    for m in &server.models {
+        let mut entry = serde_json::Map::new();
+        entry.insert("name".into(), json!(m.id));
+        // OpenCode offers no tools to a model marked without them; only a model known not to take them is.
+        entry.insert("tool_call".into(), json!(m.supports_tools != Some(false)));
+        if let (Some(context), Some(output)) = (m.context_tokens, m.max_output_tokens) {
+            entry.insert("limit".into(), json!({"context": context, "output": output}));
+        }
+        models.insert(m.id.clone(), Value::Object(entry));
+    }
+    json!({
+        "npm": "@ai-sdk/anthropic",
+        "name": "Pygg",
+        "options": {
+            "baseURL": format!("{}/v1", server.gateway_url.trim_end_matches('/')),
+            "apiKey": token,
+            "headers": {crate::gateway::SESSION_HEADER: "{env:PYGG_ATTEMPT_ID}"},
+        },
+        "models": models,
+    })
+}
+
+/// The configuration with Pygg's provider added; refused when a provider of that name is already there.
+pub fn with_opencode_provider(config: Option<serde_json::Map<String, Value>>, entry: Value)
+    -> Result<serde_json::Map<String, Value>, String> {
+    let mut config = config.unwrap_or_else(|| {
+        let mut m = serde_json::Map::new();
+        m.insert("$schema".into(), json!("https://opencode.ai/config.json"));
+        m
+    });
+    let providers = config.entry("provider").or_insert_with(|| json!({}));
+    let Value::Object(providers) = providers else { return Err("OpenCode's \"provider\" setting is not an object".into()) };
+    if providers.contains_key(PROVIDER) {
+        return Err(format!("OpenCode already has a provider named {PROVIDER}"));
+    }
+    providers.insert(PROVIDER.into(), entry);
+    Ok(config)
+}
+
+/// The configuration without Pygg's provider (and without `provider` when nothing else was in it).
+pub fn without_opencode_provider(mut config: serde_json::Map<String, Value>) -> serde_json::Map<String, Value> {
+    let empty = match config.get_mut("provider") {
+        Some(Value::Object(providers)) => {
+            providers.remove(PROVIDER);
+            providers.is_empty()
+        }
+        _ => false,
+    };
+    if empty {
+        config.remove("provider");
+    }
+    config
+}
+
+fn opencode_has_provider(config: &Option<serde_json::Map<String, Value>>) -> bool {
+    config.as_ref().and_then(|c| c.get("provider")).and_then(|m| m.get(PROVIDER)).is_some()
+}
+
 /// Writes a file whole: to a temporary file next to it, then renamed over it.
 fn write_atomically(path: &Path, text: &str) -> Result<(), String> {
     if let Some(dir) = path.parent() {
@@ -283,6 +402,12 @@ fn restore_if_changed(config: &Path, backup: Option<&Path>, before: &Option<Vec<
 /// Whether the agent has an entry named pygg, and what it says about it.
 async fn registered(id: &str, homes: &Homes) -> (Option<bool>, Option<String>) {
     let (_, _, program) = match target(id) { Ok(t) => t, Err(_) => return (None, None) };
+    if id == OPENCODE_GATEWAY {
+        return match read_opencode(&homes.opencode) {
+            Ok(config) => (Some(opencode_has_provider(&config)), None),
+            Err(e) => (None, Some(e)),
+        };
+    }
     if id == "opencode" {
         return match read_opencode(&homes.opencode) {
             Ok(config) => (Some(opencode_has_entry(&config)), None),
@@ -311,14 +436,14 @@ async fn describe(id: &str, homes: &Homes, rec: Option<Record>) -> Result<Integr
         (false, _, _) => "not_installed",
         _ => "not_set_up",
     };
-    Ok(Integration { id: id.into(), name: name.into(), installed, state: state.into(), config_path, detail,
+    Ok(Integration { id: id.into(), name: name.into(), kind: kind_of(id).into(), installed, state: state.into(), config_path, detail,
         client_name: rec.as_ref().map(|r| r.client_name.clone()), set_up_at: rec.as_ref().map(|r| r.set_up_at),
         backup: rec.and_then(|r| r.backup) })
 }
 
 /// The records Pygg keeps, read from the store before the slow checks run.
 pub fn records(conn: &Connection) -> Vec<(String, Option<String>)> {
-    TARGETS.iter().map(|t| (t.0.to_string(), store::setting(conn, &record_key(t.0)).ok().flatten())).collect()
+    ids().into_iter().map(|id| (id.to_string(), store::setting(conn, &record_key(id)).ok().flatten())).collect()
 }
 
 pub async fn list_with(records: Vec<(String, Option<String>)>, homes: &Homes) -> Vec<Integration> {
@@ -335,14 +460,17 @@ pub async fn list_with(records: Vec<(String, Option<String>)>, homes: &Homes) ->
 pub fn plan(id: &str, server: &Server, homes: &Homes, backup_dir: &Path) -> Result<Plan, String> {
     let (id, name, program) = target(id)?;
     let config = homes.config(id);
-    let (change, method) = if id == "opencode" {
+    let (change, method) = if id == OPENCODE_GATEWAY {
+        let entry = json!({"provider": {PROVIDER: opencode_provider(server, TOKEN_PLACEHOLDER)}});
+        (serde_json::to_string_pretty(&entry).unwrap_or_default(), "file")
+    } else if id == "opencode" {
         let entry = json!({"mcp": {SERVER: opencode_entry(server, TOKEN_PLACEHOLDER)}});
         (serde_json::to_string_pretty(&entry).unwrap_or_default(), "file")
     } else {
         (shown(program, &add_args(id, server, TOKEN_PLACEHOLDER)), "command")
     };
-    Ok(Plan { id: id.into(), name: name.into(), config_path: config.to_string_lossy().into_owned(),
-        config_exists: config.is_file(), change, method: method.into(), client_name: client_name(name),
+    Ok(Plan { id: id.into(), name: name.into(), kind: kind_of(id).into(), config_path: config.to_string_lossy().into_owned(),
+        config_exists: config.is_file(), change, method: method.into(), client_name: client_name_for(id, name),
         backup_dir: backup_dir.to_string_lossy().into_owned() })
 }
 
@@ -366,12 +494,16 @@ fn save(db: &impl Store, id: &str, rec: Option<&Record>) -> Result<(), String> {
     db.with(|c| store::set_setting(c, &record_key(id), &text))
 }
 
-/// A token that may start tasks and reaches no model connection: the MCP server only uses the task API.
-fn create_client(db: &impl Store, name: &str) -> Result<(String, String), String> {
+/// A token that may start tasks and reaches no model connection: the MCP server only uses the task API. For
+/// OpenCode's models through Pygg, a client like any other: it reaches the connections, may not start tasks, and
+/// its limits are set in Clients.
+fn create_client(db: &impl Store, id: &str, name: &str) -> Result<(String, String), String> {
     db.with(|c| {
         let (client, token) = store::create_client(c, name, None)?;
-        store::set_client_may_run_tasks(c, &client.id, true)?;
-        store::set_client_connections(c, &client.id, Some(&[]))?;
+        if id != OPENCODE_GATEWAY {
+            store::set_client_may_run_tasks(c, &client.id, true)?;
+            store::set_client_connections(c, &client.id, Some(&[]))?;
+        }
         Ok((client.id, token))
     })
 }
@@ -400,17 +532,24 @@ pub async fn apply(id: &str, server: &Server, homes: &Homes, backup_dir: &Path, 
     }
     let config = homes.config(id).to_path_buf();
     // OpenCode's file is checked before anything is created.
-    let opencode = if id == "opencode" { Some(read_opencode(&config)?) } else { None };
+    let opencode = if id == "opencode" || id == OPENCODE_GATEWAY { Some(read_opencode(&config)?) } else { None };
+    if id == OPENCODE_GATEWAY && server.models.len() <= crate::gateway::auto::ALIASES.len() {
+        return Err("No model is enabled in Connections yet, so OpenCode would only get auto. Add a connection first.".into());
+    }
     let before = std::fs::read(&config).ok();
     let backup = back_up(&config, backup_dir, id, now_ms)?;
-    let cname = client_name(name);
-    let (client_id, token) = create_client(db, &cname)?;
+    let cname = client_name_for(id, name);
+    let (client_id, token) = create_client(db, id, &cname)?;
     let undo = |why: String| {
         restore_if_changed(&config, backup.as_deref(), &before);
         revoke(db, &client_id);
         why
     };
     match opencode {
+        Some(current) if id == OPENCODE_GATEWAY => {
+            let updated = with_opencode_provider(current, opencode_provider(server, &token)).map_err(&undo)?;
+            write_opencode(&config, &updated).map_err(&undo)?;
+        }
         Some(current) => {
             let updated = with_opencode_entry(current, opencode_entry(server, &token)).map_err(&undo)?;
             write_opencode(&config, &updated).map_err(&undo)?;
@@ -424,7 +563,7 @@ pub async fn apply(id: &str, server: &Server, homes: &Homes, backup_dir: &Path, 
         }
     }
     if registered(id, homes).await.0 != Some(true) {
-        if id != "opencode" {
+        if id != "opencode" && id != OPENCODE_GATEWAY {
             let _ = run(&launch, remove_args(id)).await;
         }
         return Err(undo(format!("{name} does not list the {SERVER} server after the setup, so it was undone")));
@@ -444,7 +583,10 @@ pub async fn remove(id: &str, homes: &Homes, backup_dir: &Path, db: &impl Store,
     if present == Some(true) {
         let config = homes.config(id).to_path_buf();
         back_up(&config, backup_dir, id, now_ms)?;
-        if id == "opencode" {
+        if id == OPENCODE_GATEWAY {
+            let current = read_opencode(&config)?.unwrap_or_default();
+            write_opencode(&config, &without_opencode_provider(current))?;
+        } else if id == "opencode" {
             let current = read_opencode(&config)?.unwrap_or_default();
             write_opencode(&config, &without_opencode_entry(current))?;
         } else {
@@ -468,7 +610,13 @@ mod tests {
 
     fn server(url: Option<&str>) -> Server {
         Server { program: r"C:\Users\me\AppData\Local\Pygg\Pygg.exe".into(), args: vec!["mcp".into()],
-            url: url.map(String::from) }
+            url: url.map(String::from), gateway_url: "http://127.0.0.1:8741".into(), models: vec![
+                GatewayModel { id: "auto".into(), context_tokens: None, max_output_tokens: None, supports_tools: Some(true) },
+                GatewayModel { id: "anthropic/claude-haiku-5-5".into(), context_tokens: Some(200_000),
+                    max_output_tokens: Some(64_000), supports_tools: Some(true) },
+                GatewayModel { id: "ollama/qwen3:8b".into(), context_tokens: None, max_output_tokens: None, supports_tools: None },
+                GatewayModel { id: "x/embed".into(), context_tokens: None, max_output_tokens: None, supports_tools: Some(false) },
+            ] }
     }
 
     #[test]
@@ -489,7 +637,7 @@ mod tests {
     #[test]
     fn the_plan_shows_a_placeholder_never_a_token() {
         let homes = Homes { claude: "a".into(), codex: "b".into(), opencode: "c".into() };
-        for (id, _, _) in TARGETS {
+        for id in ids() {
             let p = plan(id, &server(None), &homes, Path::new("backups")).unwrap();
             assert!(p.change.contains(TOKEN_PLACEHOLDER) && !p.change.contains("str-"), "{}", p.change);
         }
@@ -536,6 +684,70 @@ mod tests {
     }
 
     #[test]
+    fn opencodes_models_through_pygg_are_a_provider_with_the_session_header_and_only_known_facts() {
+        let entry = opencode_provider(&server(None), "str-m");
+        assert_eq!(entry["npm"], "@ai-sdk/anthropic");
+        assert_eq!(entry["options"]["baseURL"], "http://127.0.0.1:8741/v1");
+        assert_eq!(entry["options"]["apiKey"], "str-m");
+        assert_eq!(entry["options"]["headers"]["x-smarttaskrouter-session"], "{env:PYGG_ATTEMPT_ID}");
+        let models = entry["models"].as_object().unwrap();
+        assert_eq!(models.keys().collect::<Vec<_>>(), ["auto", "anthropic/claude-haiku-5-5", "ollama/qwen3:8b", "x/embed"]);
+        assert_eq!(models["anthropic/claude-haiku-5-5"]["limit"], json!({"context": 200000, "output": 64000}));
+        assert!(models["ollama/qwen3:8b"].get("limit").is_none(), "unknown limits are left out");
+        assert_eq!(models["ollama/qwen3:8b"]["tool_call"], true, "unknown tool support is not taken as none");
+        assert_eq!(models["x/embed"]["tool_call"], false);
+
+        // Added next to the user's own providers, refused twice, removed cleanly.
+        let mut mine = serde_json::Map::new();
+        mine.insert("provider".into(), json!({"x": {"options": {"apiKey": "k"}}}));
+        mine.insert("model".into(), json!("x/y"));
+        let added = with_opencode_provider(Some(mine), entry.clone()).unwrap();
+        assert_eq!(added["provider"].as_object().unwrap().keys().collect::<Vec<_>>(), ["x", "pygg"]);
+        assert!(opencode_has_provider(&Some(added.clone())));
+        assert!(with_opencode_provider(Some(added.clone()), entry.clone()).unwrap_err().contains("already has a provider"));
+        let removed = without_opencode_provider(added);
+        assert_eq!(removed["provider"], json!({"x": {"options": {"apiKey": "k"}}}));
+        let alone = without_opencode_provider(with_opencode_provider(None, entry).unwrap());
+        assert!(!alone.contains_key("provider") && alone.contains_key("$schema"));
+
+        let homes = Homes { claude: "a".into(), codex: "b".into(), opencode: "c".into() };
+        let p = plan(OPENCODE_GATEWAY, &server(None), &homes, Path::new("b")).unwrap();
+        assert_eq!((p.kind.as_str(), p.method.as_str(), p.client_name.as_str()), ("gateway", "file", "OpenCode (models)"));
+        assert!(p.change.contains("<new-token>") && p.change.contains("\"pygg\""), "{}", p.change);
+    }
+
+    #[tokio::test]
+    async fn opencodes_models_through_pygg_set_up_and_removed_in_a_scratch_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let homes = Homes { claude: dir.path().join("c.json"), codex: dir.path().join("x.toml"),
+            opencode: dir.path().join("opencode").join("opencode.json") };
+        std::fs::create_dir_all(dir.path().join("opencode")).unwrap();
+        std::fs::write(&homes.opencode, r#"{"model":"x/y"}"#).unwrap();
+        let db = Db(std::sync::Mutex::new(crate::db::open_in_memory().unwrap()));
+        let backups = dir.path().join("backups");
+        if launch("opencode").is_none() {
+            return; // apply needs OpenCode installed, as a user's would be
+        }
+        let only_auto = Server { models: server(None).models[..1].to_vec(), ..server(None) };
+        assert!(apply(OPENCODE_GATEWAY, &only_auto, &homes, &backups, &db, 1).await.unwrap_err().contains("No model"));
+        let set = apply(OPENCODE_GATEWAY, &server(None), &homes, &backups, &db, 2).await.unwrap();
+        assert_eq!((set.state.as_str(), set.kind.as_str()), ("set_up", "gateway"));
+        let config = read_opencode(&homes.opencode).unwrap().unwrap();
+        assert_eq!(config["model"], "x/y");
+        let token = config["provider"]["pygg"]["options"]["apiKey"].as_str().unwrap().to_string();
+        let (tasks, limited): (bool, Option<String>) = db.with(|c| c.query_row(
+            "SELECT may_run_tasks, allowed_connections FROM gateway_clients WHERE name = 'OpenCode (models)' AND revoked_at IS NULL",
+            [], |r| Ok((r.get(0)?, r.get(1)?)))).unwrap();
+        assert!(!tasks && limited.is_none(), "a client like any other: no tasks, every connection");
+        assert!(token.starts_with("str-"));
+        let gone = remove(OPENCODE_GATEWAY, &homes, &backups, &db, 3).await.unwrap();
+        assert_eq!(gone.state, "not_set_up");
+        assert_eq!(read_opencode(&homes.opencode).unwrap().unwrap(), serde_json::from_str::<serde_json::Map<String, Value>>(r#"{"model":"x/y"}"#).unwrap());
+        let live: i64 = db.with(|c| c.query_row("SELECT COUNT(*) FROM gateway_clients WHERE revoked_at IS NULL", [], |r| r.get(0))).unwrap();
+        assert_eq!(live, 0);
+    }
+
+    #[test]
     fn opencode_with_comments_is_refused_and_left_alone() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("opencode.json");
@@ -569,7 +781,7 @@ mod tests {
         assert!(homes.codex.starts_with(dir.path()) && homes.claude.starts_with(dir.path()));
         let db = Db(std::sync::Mutex::new(crate::db::open_in_memory().unwrap()));
         let exe = std::env::current_exe().unwrap().to_string_lossy().into_owned();
-        let server = Server { program: exe, args: vec!["mcp".into()], url: None };
+        let server = Server { program: exe, args: vec!["mcp".into()], ..Server::default() };
         let backups = dir.path().join("backups");
         for (id, name, program) in TARGETS {
             if launch(program).is_none() {

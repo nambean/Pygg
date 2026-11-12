@@ -158,15 +158,17 @@ export type AgentRun = {
 
 /** How an IDE starts the MCP server: the app's program with `args` (`mcp`). */
 export type McpSetup = { path: string; args: string[]; exists: boolean; url: string };
-/** An agent Pygg can register its MCP server with (integrations.rs). */
+/** An agent Pygg can register its MCP server with, or point at its gateway (integrations.rs). */
 export type Integration = {
   id: string; name: string; installed: boolean;
+  /** 'mcp': Pygg's MCP server in the agent; 'gateway': the agent's models through Pygg's gateway. */
+  kind?: 'mcp' | 'gateway';
   state: 'not_installed' | 'not_set_up' | 'set_up' | 'set_up_elsewhere' | 'removed_elsewhere';
   configPath: string; detail: string | null; clientName: string | null; setUpAt: number | null; backup: string | null;
 };
 /** What setting an integration up would change, shown before the user agrees. */
 export type IntegrationPlan = {
-  id: string; name: string; configPath: string; configExists: boolean; change: string; method: 'command' | 'file';
+  id: string; name: string; kind?: 'mcp' | 'gateway'; configPath: string; configExists: boolean; change: string; method: 'command' | 'file';
   clientName: string; backupDir: string;
 };
 

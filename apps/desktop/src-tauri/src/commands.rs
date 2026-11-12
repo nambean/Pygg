@@ -590,7 +590,8 @@ fn mcp_server(state: &AppState) -> Res<crate::integrations::Server> {
     let path = std::env::current_exe().map_err(|e| e.to_string())?;
     let port = state.port();
     Ok(crate::integrations::Server { program: path.to_string_lossy().into_owned(), args: vec!["mcp".into()],
-        url: (port != gateway::DEFAULT_PORT).then(|| format!("http://127.0.0.1:{port}")) })
+        url: (port != gateway::DEFAULT_PORT).then(|| format!("http://127.0.0.1:{port}")),
+        gateway_url: format!("http://127.0.0.1:{port}"), models: state.shared.with_db(crate::integrations::gateway_models) })
 }
 
 fn integration_backups(state: &AppState) -> std::path::PathBuf {

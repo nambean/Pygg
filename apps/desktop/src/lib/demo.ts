@@ -671,25 +671,32 @@ function demoIntegrations(touch: <T>(value: T) => Promise<T>) {
       detail: null, clientName: null, setUpAt: null, backup: null},
     {id: 'opencode', name: 'OpenCode', installed: true, state: 'set_up_elsewhere', configPath: `${home}\\.config\\opencode\\opencode.json`,
       detail: null, clientName: null, setUpAt: null, backup: null},
+    {id: 'opencode-gateway', name: 'OpenCode: models through Pygg', kind: 'gateway', installed: true, state: 'not_set_up',
+      configPath: `${home}\\.config\\opencode\\opencode.json`, detail: null, clientName: null, setUpAt: null, backup: null},
   ];
   const find = (id: string) => { const i = list.find(x => x.id === id); if (!i) throw `Pygg cannot set up ${id}`; return i; };
   return {
     integrations: () => touch(list),
     integrationPlan: (id: string) => {
       const i = find(id);
-      const change = id === 'opencode'
+      const change = id === 'opencode-gateway'
+        ? JSON.stringify({provider: {pygg: {npm: '@ai-sdk/anthropic', name: 'Pygg', options: {baseURL: 'http://127.0.0.1:8741/v1',
+            apiKey: '<new-token>', headers: {'x-smarttaskrouter-session': '{env:PYGG_ATTEMPT_ID}'}},
+            models: {auto: {name: 'auto', tool_call: true}, 'auto/cheap': {name: 'auto/cheap', tool_call: true},
+              'anthropic/claude-haiku-5-5': {name: 'anthropic/claude-haiku-5-5', tool_call: true, limit: {context: 200000, output: 64000}}}}}}, null, 2)
+        : id === 'opencode'
         ? JSON.stringify({mcp: {pygg: {type: 'local', command: [exe, 'mcp'], environment: {PYGG_TOKEN: '<new-token>'}, enabled: true}}}, null, 2)
         : id === 'codex' ? `codex mcp add pygg --env PYGG_TOKEN=<new-token> -- ${exe} mcp`
         : `claude mcp add --scope user pygg -e PYGG_TOKEN=<new-token> -- ${exe} mcp`;
-      return touch<IntegrationPlan>({id, name: i.name, configPath: i.configPath, configExists: true, change,
-        method: id === 'opencode' ? 'file' : 'command', clientName: `${i.name} (MCP)`,
+      return touch<IntegrationPlan>({id, name: i.name, kind: i.kind ?? 'mcp', configPath: i.configPath, configExists: true, change,
+        method: id.startsWith('opencode') ? 'file' : 'command', clientName: id === 'opencode-gateway' ? 'OpenCode (models)' : `${i.name} (MCP)`,
         backupDir: `${home}\\AppData\\Roaming\\SmartTaskRouter\\integration-backups`});
     },
     applyIntegration: async (id: string) => {
       const i = find(id);
       if (i.state === 'set_up') throw `Pygg is already set up in ${i.name}`;
       if (i.state === 'set_up_elsewhere') throw `${i.name} already has an MCP server named pygg, set up outside Pygg. Remove it here first, or keep using it.`;
-      Object.assign(i, {state: 'set_up', clientName: `${i.name} (MCP)`, setUpAt: Date.now(),
+      Object.assign(i, {state: 'set_up', clientName: id === 'opencode-gateway' ? 'OpenCode (models)' : `${i.name} (MCP)`, setUpAt: Date.now(),
         backup: `${home}\\AppData\\Roaming\\SmartTaskRouter\\integration-backups\\${id}-${Date.now()}`});
       await sleep(600);
       return clone(i);

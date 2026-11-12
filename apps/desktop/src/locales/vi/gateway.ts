@@ -698,6 +698,7 @@ export const gateway: Record<string, string> = {
   'This removes the pygg server from {name} and revokes the token Pygg made for it. The configuration file is backed up first. Tasks already started are not affected.':
     'Thao tác này gỡ server pygg khỏi {name} và thu hồi token Pygg đã tạo cho nó. Tệp cấu hình được sao lưu trước. Các task đã chạy không bị ảnh hưởng.',
   'Set Up Pygg in {name}': 'Cài Pygg vào {name}',
+  'Send OpenCode’s Models through Pygg': 'Cho model của OpenCode đi qua Pygg',
   'Nothing changes until you choose Set Up.': 'Chưa có gì thay đổi cho tới khi bạn chọn Cài đặt.',
   'Setting Up…': 'Đang cài…',
   'Set Up': 'Cài đặt',
@@ -710,6 +711,20 @@ export const gateway: Record<string, string> = {
   'Add this entry to {file}, keeping everything else in it (the new token in place of <new-token>):':
     'Thêm mục này vào {file}, giữ nguyên mọi thứ khác trong tệp (token mới thay cho <new-token>):',
   'Change': 'Thay đổi',
+  'Create a client token, “{client}”, that reaches your connections like any client; set its limits in Clients.':
+    'Tạo một token client, “{client}”, dùng được các kết nối của bạn như mọi client khác; đặt giới hạn cho nó trong Clients.',
+  'Check that the pygg provider is there. If anything fails, the file is put back and the token revoked.':
+    'Kiểm tra provider pygg đã có trong tệp. Nếu có lỗi, tệp được khôi phục và token bị thu hồi.',
+  'OpenCode then lists auto, auto/cheap and the models enabled in Connections under the provider “Pygg”; pick one with /models. The list is the one at setup: after enabling more models, remove this and set it up again. When Pygg runs OpenCode for a task, each request carries the step’s id, so the task shows what Pygg’s ledger recorded for it. OpenCode’s own providers and sign-in are not touched.':
+    'Sau đó OpenCode liệt kê auto, auto/cheap và các model đang bật trong Kết nối dưới provider “Pygg”; chọn bằng /models. Danh sách là danh sách lúc cài: bật thêm model thì gỡ mục này rồi cài lại. Khi Pygg chạy OpenCode cho một task, mỗi request mang id của bước, nên task hiện đúng số tiền sổ chi của Pygg ghi cho bước đó. Provider và đăng nhập riêng của OpenCode không bị động tới.',
+  'OpenCode already has a provider named pygg that Pygg did not make. Pygg leaves it alone.':
+    'OpenCode đã có một provider tên pygg không do Pygg tạo. Pygg không động tới nó.',
+  'OpenCode can use your connections through Pygg, with auto routing, limits and Pygg’s own record of what a task step cost. {file}':
+    'OpenCode có thể dùng các kết nối của bạn qua Pygg, có định tuyến auto, giới hạn chi và sổ chi của Pygg cho từng bước task. {file}',
+  'This removes the pygg provider you added to OpenCode by hand. Its token, if you made one, stays valid until you revoke it in Clients.':
+    'Thao tác này gỡ provider pygg bạn tự thêm vào OpenCode. Token của nó, nếu có, vẫn dùng được cho tới khi bạn thu hồi trong Clients.',
+  'This removes the pygg provider from OpenCode and revokes the token Pygg made for it. The configuration file is backed up first. OpenCode then uses only its own providers.':
+    'Thao tác này gỡ provider pygg khỏi OpenCode và thu hồi token Pygg đã tạo cho nó. Tệp cấu hình được sao lưu trước. Sau đó OpenCode chỉ dùng provider riêng của nó.',
   'Check that {name} lists the pygg server. If anything fails, the file is put back and the token revoked.':
     'Kiểm tra {name} đã thấy server pygg. Nếu có lỗi, tệp được khôi phục và token bị thu hồi.',
   'The entry serves all your projects: the server takes the project from the folder your agent runs in. The token is written into {name}’s own configuration for your user, never into a project file. {name}’s own sign-in is not touched.':

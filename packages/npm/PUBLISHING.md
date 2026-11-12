@@ -28,3 +28,4 @@ For the next release, raise `version` in both `package.json` files and the `opti
 ## Published
 
 - `@pygg/win32-x64@0.1.0-dev.0`, 2026-11-12 (tags `dev` and `latest`, since it was the package's first version).
+- `@pygg/cli@0.1.0-dev.0`, 2026-11-12 (tag `dev`). Installed back from the registry into an empty folder: npm pulled `@pygg/win32-x64` with it, `pygg doctor` found the running app (schema v19) and `pygg mcp` answered `initialize` and `tools/list`.
