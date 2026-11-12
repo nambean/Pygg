@@ -910,7 +910,14 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             None => None,
         };
 
-        let (url, mut body, dropped) = upstream_request(incoming, &provider, &model_id, mode);
+        // What the model takes for thinking, for an OpenAI client's `reasoning_effort` (ROADMAP B5).
+        let thinking = if matches!(mode, Mode::OpenAiToAnthropic | Mode::ResponsesToAnthropic) {
+            let (types, efforts) = shared.with_db(|db| store::thinking_support(db, &provider.id, &model_id)).unwrap_or_default();
+            openai_to_anthropic::ThinkingSupport { types, efforts }
+        } else {
+            openai_to_anthropic::ThinkingSupport::default()
+        };
+        let (url, mut body, dropped) = upstream_request(incoming, &provider, &model_id, mode, &thinking);
         if provider.wire == "openai" {
             // Gemini needs the signatures of earlier tool calls back; others must not see the field.
             if provider.kind == "gemini" {
@@ -1051,7 +1058,8 @@ fn db_now() -> i64 {
 }
 
 /// The URL and body for one target, and what a translation had to drop.
-fn upstream_request(incoming: &Incoming, provider: &Provider, model_id: &str, mode: Mode) -> (String, Value, Vec<String>) {
+fn upstream_request(incoming: &Incoming, provider: &Provider, model_id: &str, mode: Mode,
+    thinking: &openai_to_anthropic::ThinkingSupport) -> (String, Value, Vec<String>) {
     let accepts_cache = presets::find(&provider.kind).is_some_and(|p| p.accepts_cache_control);
     let takes_reasoning = presets::find(&provider.kind).is_some_and(|p| p.takes_reasoning);
     let (mut body, dropped) = match mode {
@@ -1071,13 +1079,22 @@ fn upstream_request(incoming: &Incoming, provider: &Provider, model_id: &str, mo
             }
             (anthropic::to_openai(incoming.body, accepts_cache, takes_reasoning), dropped)
         }
-        Mode::OpenAiToAnthropic => openai_to_anthropic::to_anthropic(incoming.body),
+        Mode::OpenAiToAnthropic => openai_to_anthropic::to_anthropic(incoming.body, thinking),
         Mode::ResponsesToOpenAi => responses::to_chat(incoming.body, takes_reasoning),
-        // Through the tested Chat Completions → Messages translator; what either step drops is named.
+        // Through the tested Chat Completions → Messages translator; what either step drops is named. The Responses
+        // API's `reasoning.effort` crosses as `reasoning_effort`, and is named by its own name if it cannot.
         Mode::ResponsesToAnthropic => {
-            let (chat, mut dropped) = responses::to_chat(incoming.body, false);
-            let (body, more) = openai_to_anthropic::to_anthropic(&chat);
-            dropped.extend(more.into_iter().filter(|m| !dropped.contains(m)).collect::<Vec<_>>());
+            let (mut chat, mut dropped) = responses::to_chat(incoming.body, false);
+            if let Some(effort) = incoming.body["reasoning"]["effort"].as_str() {
+                chat["reasoning_effort"] = json!(effort);
+                dropped.retain(|d| d != "reasoning.effort");
+            }
+            let (body, more) = openai_to_anthropic::to_anthropic(&chat, thinking);
+            let more = more.into_iter().map(|m| match m.strip_prefix("reasoning_effort") {
+                Some(rest) => format!("reasoning.effort{rest}"),
+                None => m,
+            });
+            dropped.extend(more.filter(|m| !dropped.contains(m)).collect::<Vec<_>>());
             (body, dropped)
         }
     };

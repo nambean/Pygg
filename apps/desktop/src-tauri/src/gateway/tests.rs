@@ -140,6 +140,35 @@ async fn fake_anthropic(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonB
         !body["thinking"].is_null(), headers.get("anthropic-beta").and_then(|v| v.to_str().ok()).unwrap_or("-"));
     let usage = json!({ "input_tokens": 10, "cache_read_input_tokens": 900, "cache_creation_input_tokens": 90, "output_tokens": 5 });
     let limits = [("anthropic-ratelimit-requests-remaining", "99"), ("request-id", "req_a1")];
+    if model == "thinker" {
+        // Thinks aloud about the thinking it was asked for, then a redacted block, then the answer (ROADMAP B5).
+        // Not asked to think: an empty block, as Claude's default `display: "omitted"` sends.
+        let thought = if body["thinking"].is_null() { String::new() } else {
+            format!("thinking={} effort={}", body["thinking"]["type"].as_str().unwrap_or("-"),
+                body["output_config"]["effort"].as_str().unwrap_or("-")) };
+        if body["stream"] == true {
+            let events = [
+                json!({ "type": "message_start", "message": { "id": "msg_t", "usage": usage } }),
+                json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "thinking", "thinking": "", "signature": "" } }),
+                json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "thinking_delta", "thinking": thought } }),
+                json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "signature_delta", "signature": "EqQBsig" } }),
+                json!({ "type": "content_block_stop", "index": 0 }),
+                json!({ "type": "content_block_start", "index": 1, "content_block": { "type": "redacted_thinking", "data": "secret" } }),
+                json!({ "type": "content_block_stop", "index": 1 }),
+                json!({ "type": "content_block_start", "index": 2, "content_block": { "type": "text", "text": "" } }),
+                json!({ "type": "content_block_delta", "index": 2, "delta": { "type": "text_delta", "text": seen } }),
+                json!({ "type": "content_block_stop", "index": 2 }),
+                json!({ "type": "message_delta", "delta": { "stop_reason": "end_turn" }, "usage": { "output_tokens": 7 } }),
+                json!({ "type": "message_stop" }),
+            ];
+            let sse: String = events.iter().map(|e| format!("event: {}\ndata: {e}\n\n", e["type"].as_str().unwrap())).collect();
+            return ([(header::CONTENT_TYPE, "text/event-stream")], limits, sse).into_response();
+        }
+        return (limits, Json(json!({ "id": "msg_t", "type": "message", "role": "assistant", "model": model,
+            "content": [{ "type": "thinking", "thinking": thought, "signature": "EqQBsig" },
+                { "type": "redacted_thinking", "data": "secret" }, { "type": "text", "text": seen }],
+            "stop_reason": "end_turn", "usage": usage }))).into_response();
+    }
     if body["stream"] == true {
         let sse = format!(
             "event: message_start\ndata: {}\n\nevent: content_block_delta\ndata: {}\n\nevent: message_delta\ndata: {}\n\nevent: message_stop\ndata: {{\"type\":\"message_stop\"}}\n\n",
@@ -640,6 +669,125 @@ fn an_openai_request_reaches_an_anthropic_connection_through_translation() {
         tokio::time::sleep(Duration::from_millis(100)).await;
         let event = rig.ledger().pop().unwrap();
         assert_eq!((event.output_tokens, event.outcome.as_str()), (Some(7), "ok"));
+    });
+}
+
+/// A Claude model that takes adaptive thinking and three effort levels, as Anthropic's model list reports one.
+fn add_thinker(rig: &Rig, efforts: &[&str]) {
+    rig.priced("claude", "thinker");
+    rig.shared.with_db(|db| store::set_capabilities(db, "claude", "thinker", &store::Capabilities {
+        thinking_types: Some(vec!["adaptive".into()]), effort_levels: Some(efforts.iter().map(|e| e.to_string()).collect()),
+        ..store::Capabilities::default() })).unwrap();
+}
+
+/// ROADMAP B5, the other direction: an OpenAI client's `reasoning_effort` reaches Claude as thinking, and Claude's
+/// thinking comes back as `reasoning_content`, streamed or not; `redacted_thinking` does not.
+#[test]
+fn reasoning_crosses_an_openai_to_anthropic_translation_both_ways() {
+    rt().block_on(async {
+        let rig = rig().await;
+        add_thinker(&rig, &["low", "medium", "high"]);
+        let request = |stream: bool| json!({ "model": "claude/thinker", "reasoning_effort": "xhigh", "temperature": 0.3, "stream": stream,
+            "messages": [{ "role": "user", "content": "ping" },
+                { "role": "assistant", "content": "pong", "reasoning_content": "earlier thought" },
+                { "role": "user", "content": "again" }] });
+        let response = rig.post("/v1/chat/completions", request(false)).await;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "reasoning_content,temperature (with thinking)");
+        let sent = rig.fake.last_body.lock().unwrap().clone().unwrap();
+        assert_eq!(sent["thinking"], json!({ "type": "adaptive", "display": "summarized" }));
+        assert_eq!(sent["output_config"], json!({ "effort": "high" }), "xhigh is not listed: the nearest lower level");
+        assert!(sent.get("temperature").is_none());
+        assert_eq!(sent["messages"][1], json!({ "role": "assistant", "content": [{ "type": "text", "text": "pong" }] }),
+            "earlier reasoning has no signature, so it stays behind");
+        let body: Value = response.json().await.unwrap();
+        let message = &body["choices"][0]["message"];
+        assert_eq!(message["reasoning_content"], "thinking=adaptive effort=high");
+        assert_eq!(message["content"], "cache_control=false thinking=true beta=-");
+        assert!(!body.to_string().contains("secret"), "redacted thinking is dropped: {body}");
+
+        let text = rig.post("/v1/chat/completions", request(true)).await.text().await.unwrap();
+        let deltas: Vec<Value> = text.lines().filter_map(|l| l.strip_prefix("data: ")).filter(|d| *d != "[DONE]")
+            .map(|d| serde_json::from_str::<Value>(d).unwrap()["choices"][0]["delta"].clone()).collect();
+        let reasoning = deltas.iter().position(|d| d["reasoning_content"] == "thinking=adaptive effort=high");
+        let answer = deltas.iter().position(|d| d["content"] == "cache_control=false thinking=true beta=-");
+        assert!(matches!((reasoning, answer), (Some(r), Some(a)) if r < a), "reasoning before the answer: {text}");
+        assert!(!text.contains("secret") && !text.contains("EqQBsig"), "{text}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(rig.ledger().pop().unwrap().outcome, "ok");
+
+        // DeepSeek's switch on its own: thinking at the model's default level.
+        let deepseek = json!({ "model": "claude/thinker", "thinking": { "type": "enabled" }, "messages": [{ "role": "user", "content": "ping" }] });
+        let response = rig.post("/v1/chat/completions", deepseek).await;
+        assert!(response.headers().get("x-smarttaskrouter-dropped").is_none());
+        let sent = rig.fake.last_body.lock().unwrap().clone().unwrap();
+        assert_eq!((sent["thinking"]["type"].as_str(), sent.get("output_config")), (Some("adaptive"), None));
+    });
+}
+
+#[test]
+fn reasoning_effort_is_dropped_and_named_where_claude_cannot_take_it() {
+    rt().block_on(async {
+        let rig = rig().await;
+        add_thinker(&rig, &["low", "medium", "high"]);
+        // Nothing is known of `sonnet`'s thinking.
+        let mut unknown = chat("claude/sonnet");
+        unknown["reasoning_effort"] = json!("low");
+        let response = rig.post("/v1/chat/completions", unknown).await;
+        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "reasoning_effort (unknown whether the model thinks)");
+        assert!(rig.fake.last_body.lock().unwrap().clone().unwrap()["thinking"].is_null());
+        // Anthropic refuses thinking with a forced tool choice.
+        let forced = json!({ "model": "claude/thinker", "reasoning_effort": "high", "tool_choice": "required",
+            "tools": [{ "type": "function", "function": { "name": "read", "parameters": { "type": "object" } } }],
+            "messages": [{ "role": "user", "content": "ping" }] });
+        let response = rig.post("/v1/chat/completions", forced).await;
+        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "reasoning_effort (with a forced tool choice)");
+        assert!(rig.fake.last_body.lock().unwrap().clone().unwrap()["thinking"].is_null());
+        // `none` sends nothing: Claude's own default applies.
+        let mut none = chat("claude/thinker");
+        none["reasoning_effort"] = json!("none");
+        let response = rig.post("/v1/chat/completions", none).await;
+        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "reasoning_effort (none)");
+        let body: Value = response.json().await.unwrap();
+        assert!(body["choices"][0]["message"].get("reasoning_content").is_none(), "an empty thought is not sent: {body}");
+    });
+}
+
+/// The Responses API reaches Claude through the same translation: `reasoning.effort` is carried, and Claude's
+/// thinking comes back as a reasoning summary item, streamed or not.
+#[test]
+fn a_responses_client_gets_claudes_thinking_as_a_reasoning_summary() {
+    rt().block_on(async {
+        let rig = rig().await;
+        add_thinker(&rig, &["low", "medium", "high"]);
+        let request = |stream: bool, effort: &str| {
+            let mut r = responses_request("claude/thinker", stream);
+            r["reasoning"] = json!({ "effort": effort, "summary": "auto" });
+            r
+        };
+        let response = rig.post("/v1/responses", request(false, "low")).await;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "web_search tool,prompt_cache_key");
+        let sent = rig.fake.last_body.lock().unwrap().clone().unwrap();
+        assert_eq!(sent["output_config"]["effort"], "low");
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["output"][0]["type"], "reasoning");
+        assert_eq!(body["output"][0]["summary"][0], json!({ "type": "summary_text", "text": "thinking=adaptive effort=low" }));
+        assert_eq!(body["output"][1]["content"][0]["text"], "cache_control=false thinking=true beta=-");
+
+        let text = rig.post("/v1/responses", request(true, "low")).await.text().await.unwrap();
+        let events = responses_events(&text);
+        assert!(events.iter().any(|e| e["type"] == "response.reasoning_summary_text.delta" && e["delta"] == "thinking=adaptive effort=low"), "{text}");
+        let done = &events.last().unwrap()["response"];
+        assert_eq!(done["output"][0]["summary"][0]["text"], "thinking=adaptive effort=low");
+        assert_eq!(done["output"][1]["content"][0]["text"], "cache_control=false thinking=true beta=-");
+
+        // A level the model cannot take is named by the Responses API's own name; thinking is still asked for.
+        add_thinker(&rig, &["high"]);
+        let response = rig.post("/v1/responses", request(false, "minimal")).await;
+        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "web_search tool,prompt_cache_key,reasoning.effort (level)");
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["output"][0]["summary"][0]["text"], "thinking=adaptive effort=-");
     });
 }
 

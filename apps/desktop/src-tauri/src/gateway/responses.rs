@@ -6,7 +6,9 @@
 //!   native passthrough: only `model` is replaced, and the provider's answer comes back unchanged.
 //! - **To any other OpenAI-format connection** it is translated to Chat Completions and back, streamed or not.
 //! - **To an Anthropic-format connection** it is translated to Chat Completions and then, by the tested
-//!   `openai_to_anthropic` translator, to Messages; the answer comes back the same two steps.
+//!   `openai_to_anthropic` translator, to Messages; the answer comes back the same two steps. `reasoning.effort`
+//!   crosses there as `reasoning_effort` (Claude's thinking, ROADMAP B5), and Claude's thinking comes back as a
+//!   `reasoning` item like any provider's reasoning.
 //!
 //! What crosses: `instructions` and system or developer messages, user and assistant messages with text and
 //! images, `function_call` / `function_call_output`, Codex's free-form `custom` tools (a function with one string
