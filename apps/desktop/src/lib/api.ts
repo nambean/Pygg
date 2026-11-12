@@ -49,11 +49,20 @@ export type Connection = {
   presetName: string; hasKey: boolean; needsKey: boolean; models: number; health: Health[]; sharesQuotaWith: string[];
   /** See Preset.freeModels. */
   freeModels: boolean;
+  account?: Account | null;
+  /** Pygg can read its account's balance or free allowance. */
+  readsAccount?: boolean;
   /** The rate-limit headers its provider last sent, per model (PV-06): as the provider said them. */
   limits?: RateLimits[];
 };
 
-export type RateLimits = {modelId: string; headers: Record<string, string>; httpStatus: number | null; observedAt: number};
+/** A limit a provider stated: what it allows, what is left, when it resets (ms). */
+export type QuotaWindow = {kind: string; limit: number | null; remaining: number | null; resetsAt: number | null};
+export type RateLimits = {modelId: string; headers: Record<string, string>; httpStatus: number | null; observedAt: number;
+  windows?: QuotaWindow[]};
+/** An account's balance or free allowance, as its provider's account endpoint said. */
+export type Account = {source: string; observedAt: number; balance: number | null; currency: string | null;
+  available: boolean | null; usedToday: number | null; freeRequests: QuotaWindow | null};
 
 export type Price = {
   inputMicroPerMtok: number; outputMicroPerMtok: number; cachedInputMicroPerMtok: number | null;
@@ -200,6 +209,8 @@ export interface GatewayApi {
   addConnection(connection: NewConnection): Promise<Connection>;
   updateConnection(id: string, change: {enabled?: boolean; billing?: Billing; separateQuota?: boolean}): Promise<Connection>;
   clearConnectionHealth(id: string): Promise<Connection>;
+  /** Reads the account's balance or free allowance from the provider now. */
+  checkAccount(id: string): Promise<Connection>;
   /** Records what the provider's terms say about training on requests; no_training needs a source. */
   setConnectionTerms(id: string, terms: 'no_training' | 'may_train' | 'unknown', source: string | null): Promise<Connection>;
   setConnectionKey(id: string, apiKey: string): Promise<Connection>;
@@ -293,6 +304,7 @@ const native: GatewayApi = {
   updateConnection: (id, change) => invoke('connection_update', {id, ...change}),
   setConnectionKey: (id, apiKey) => invoke('connection_set_key', {id, apiKey}),
   clearConnectionHealth: id => invoke('connection_clear_health', {id}),
+  checkAccount: id => invoke('connection_check_account', {id}),
   setConnectionTerms: (id, terms, source) => invoke('connection_set_terms', {id, terms, source}),
   removeConnection: id => invoke('connection_remove', {id}),
   refreshModels: id => invoke('connection_refresh_models', {id}),

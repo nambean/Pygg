@@ -126,6 +126,8 @@ pub fn run() {
                             Err(e) => eprintln!("reference catalog: {e}"),
                         });
                     }
+                    // What each account has left, where the provider has an endpoint for it (quota.rs).
+                    gateway::quota::refresh_accounts(&shared).await;
                     // OpenCode's list of Pygg's models follows what the catalog filled (integrations.rs).
                     if let Err(e) = integrations::sync_opencode_models(&shared, &integrations::Homes::from_env()) {
                         eprintln!("OpenCode's model list: {e}");
@@ -214,6 +216,7 @@ pub fn run() {
             commands::usage_summary,
             commands::usage_over_time,
             commands::usage_export,
+            commands::connection_check_account,
             commands::diagnostics_export,
         ])
         .run(tauri::generate_context!())

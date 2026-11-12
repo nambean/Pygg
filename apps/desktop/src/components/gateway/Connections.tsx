@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { KeyRound, Plug, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
-import { BILLINGS, TIERS, call, errorText, gatewayChanged, type Billing, type Connection, type Health, type Model, type Preset,
+import { BILLINGS, TIERS, call, errorText, gatewayChanged, type Billing, type Connection, type Health, type Model, type Preset, type QuotaWindow,
   type Tier } from '../../lib/api';
 import { ago } from '../../lib/format';
 import { plural, t } from '../../lib/i18n';
@@ -219,14 +219,16 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
           : c.health.length ? t('See below') : t('No problems seen')}</span>
       </div>
       {c.health.length > 0 && <div className="group-row stacked"><HealthList connection={c}/></div>}
+      {c.readsAccount && <AccountRow connection={c}/>}
       {(c.limits?.length ?? 0) > 0 && <div className="group-row stacked">
         <span className="group-label">{t('Rate limits, as the provider last said')}
-          <small>{t('Copied from the headers of its last answer for each model. Pygg does not route on them, and a provider that sends none shows nothing here.')}</small></span>
+          <small>{t('Read from the headers of its last answer for each model. While a limit is used up, auto skips that model until it resets; a provider that sends none shows nothing here.')}</small></span>
         <ul className="limit-list">
           {c.limits!.map(l => <li key={l.modelId}>
             <span className="mono">{l.modelId}</span>
             <small className="secondary">{ago(l.observedAt)}{l.httpStatus && l.httpStatus !== 200 ? ` · HTTP ${l.httpStatus}` : ''}</small>
-            <span className="limit-values mono">{Object.entries(l.headers).map(([k, v]) => `${k.replace(/^(anthropic-ratelimit-|x-ratelimit-)/, '')}: ${v}`).join(' · ')}</span>
+            <span className="limit-values" title={Object.entries(l.headers).map(([k, v]) => `${k}: ${v}`).join('\n')}>
+              {(l.windows?.length ? l.windows.map(windowText) : Object.entries(l.headers).map(([k, v]) => `${k}: ${v}`)).join(' · ')}</span>
           </li>)}
         </ul>
       </div>}
@@ -315,6 +317,45 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
     {sheet && typeof sheet === 'object' && 'price' in sheet && <PriceSheet model={sheet.price} onClose={() => setSheet(null)}
       onSaved={() => { models.reload(); gatewayChanged(); }}/>}
   </section>;
+}
+
+/** One stated limit in words: "requests: 12 of 50 left, resets 14:00". */
+function windowText(w: QuotaWindow): string {
+  const names: Record<string, string> = {requests: t('requests'), tokens: t('tokens'), input_tokens: t('input tokens'),
+    output_tokens: t('output tokens'), free_requests_per_day: t('free requests today'), retry: t('asked to wait')};
+  const name = names[w.kind] ?? w.kind;
+  const left = w.remaining === null ? '' : w.limit !== null
+    ? t('{left} of {limit} left', {left: w.remaining.toLocaleString(), limit: w.limit.toLocaleString()})
+    : t('{left} left', {left: w.remaining.toLocaleString()});
+  const reset = w.resetsAt && w.resetsAt > Date.now()
+    ? t('resets {time}', {time: new Date(w.resetsAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}) : '';
+  return [name + (left ? `: ${left}` : ''), reset].filter(Boolean).join(', ');
+}
+
+/** What the account has left, from the provider's own account endpoint (OpenRouter /key, DeepSeek /user/balance). */
+function AccountRow({connection: c}: {connection: Connection}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const a = c.account;
+  const check = () => {
+    setBusy(true);
+    setError(null);
+    call(api => api.checkAccount(c.id)).then(gatewayChanged, e => setError(errorText(e))).finally(() => setBusy(false));
+  };
+  const parts = a ? [
+    a.balance !== null ? t('{amount} left', {amount: `${a.balance.toFixed(2)} ${a.currency ?? ''}`.trim()}) : null,
+    a.available === false ? t('the provider says paid calls are not possible now') : null,
+    a.usedToday !== null ? t('{amount} used today', {amount: `$${a.usedToday.toFixed(2)}`}) : null,
+    a.freeRequests ? windowText(a.freeRequests) : null,
+  ].filter(Boolean) : [];
+  return <div className="group-row">
+    <span className="group-label">{t('Account, as the provider says')}
+      <small>{a ? t('Read from {source} {when}. Pygg asks again at start-up and when you check the models.', {source: a.source, when: ago(a.observedAt)})
+        : t('The provider can say what the account has left. Nothing has been read yet.')}</small>
+      {error && <small className="warn-text">{error}</small>}</span>
+    <span className="group-control value">{parts.length ? parts.join(' · ') : a ? t('Nothing stated') : ''}
+      <button type="button" className="button small" disabled={busy} onClick={check}>{t('Check Now')}</button></span>
+  </div>;
 }
 
 function ModelRow({model: m, health, onPrice, onCaps, onChange}: {model: Model; health?: Health; onPrice: () => void; onCaps: () => void;

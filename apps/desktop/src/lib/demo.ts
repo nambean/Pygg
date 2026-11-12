@@ -5,7 +5,7 @@
  * costs) closely enough for design review, not as a test of them.
  */
 import type { AgentInfo, Integration, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
-  Health, Model, Preset, Target, Tier, UsageEvent, UsageBucket, UsageGroup, UsageSummary, Wire } from './api';
+  Health, Model, Preset, Target, Tier, UsageEvent, UsageBucket, UsageGroup, UsageSummary, Account, Wire } from './api';
 import { TIERS } from './api';
 import { SAMPLE_WORKSPACES, sampleTasks } from './sample';
 import type { AttemptView, NewTask, TaskDetail, TaskSummary, WorkspaceView } from './tasks';
@@ -111,6 +111,7 @@ export function demoApi(): GatewayApi {
   const now = Date.now();
   let status: GatewayStatus = {state: 'running', port: 8741, baseUrl: 'http://127.0.0.1:8741', error: null, autostart: true,
     accountingError: null, finishing: false};
+  const accounts = new Map<string, Account>();
   const connections: Stored[] = [
     {id: 'gemini', kind: 'gemini', label: 'Gemini', endpoint: PRESETS[0].endpoint!, enabled: true, credentialRef: 'provider-demo1',
       defaultBilling: 'unknown', dataUseTerms: 'unknown', termsSource: null, termsCheckedAt: null, createdAt: now - 6 * 86_400_000, key: true, wire: 'openai', separateQuota: false, quotaConfirmedAt: null},
@@ -261,6 +262,7 @@ export function demoApi(): GatewayApi {
     const {key, ...rest} = c;
     return {...rest, quotaGroup: quotaGroup(c), presetName: preset?.name ?? c.kind, hasKey: key, needsKey: preset?.needsKey ?? false,
       freeModels: preset?.freeModels ?? false,
+      readsAccount: c.kind === 'openrouter' || c.kind === 'deepseek', account: accounts.get(c.id) ?? null,
       models: models.filter(m => m.providerId === c.id).length,
       health: health.filter(h => h.providerId === c.id && (h.untilMs === null || h.untilMs > Date.now())),
       sharesQuotaWith: connections.filter(o => o.id !== c.id && quotaGroup(o) === quotaGroup(c)).map(o => o.label),
@@ -391,6 +393,15 @@ export function demoApi(): GatewayApi {
       const c = find(id);
       c.key = true;
       for (let i = health.length - 1; i >= 0; i--) if (health[i].providerId === id) health.splice(i, 1);
+      return touch(view(c));
+    },
+    // As OpenRouter's /key would answer for a key that has never bought credit (sample figures, ADR-014).
+    checkAccount: async id => {
+      const c = connections.find(x => x.id === id);
+      if (!c) throw 'Connection not found';
+      if (c.kind === 'openrouter') accounts.set(id, {source: 'openrouter /key', observedAt: Date.now(), balance: null, currency: null,
+        available: null, usedToday: 0,
+        freeRequests: {kind: 'free_requests_per_day', limit: 50, remaining: 38, resetsAt: Math.ceil(Date.now() / 86_400_000) * 86_400_000}});
       return touch(view(c));
     },
     clearConnectionHealth: async id => {

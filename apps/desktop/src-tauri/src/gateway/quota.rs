@@ -3,6 +3,8 @@
 //! account endpoint where it has one (OpenRouter's `/key`, DeepSeek's `/user/balance`). Nothing is estimated: a
 //! provider that states nothing has no quota here, and unknown stays unknown.
 
+use super::store::{self, Model, Provider};
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -189,13 +191,82 @@ pub fn deepseek_balance(body: &Value, now: i64) -> Option<Account> {
     })
 }
 
-/// The account endpoint of a connection kind, relative to its endpoint, and how to read it.
+/// The account endpoint of a connection kind, relative to its endpoint, and how to read it. DeepSeek's Anthropic
+/// endpoint lives under `/anthropic`, so only its OpenAI connection asks.
 pub fn account_endpoint(kind: &str) -> Option<(&'static str, fn(&Value, i64) -> Option<Account>)> {
     match kind {
         "openrouter" => Some(("/key", openrouter_key)),
-        "deepseek" | "deepseek-anthropic" => Some(("/user/balance", deepseek_balance)),
+        "deepseek" => Some(("/user/balance", deepseek_balance)),
         _ => None,
     }
+}
+
+fn account_key(provider_id: &str) -> String {
+    format!("quota.account.{provider_id}")
+}
+
+/// The account as last read, if it was.
+pub fn saved_account(conn: &Connection, provider_id: &str) -> Option<Account> {
+    store::setting(conn, &account_key(provider_id)).ok().flatten().and_then(|s| serde_json::from_str(&s).ok())
+}
+
+pub fn save_account(conn: &Connection, provider_id: &str, account: &Account) -> store::Result<()> {
+    store::set_setting(conn, &account_key(provider_id), &serde_json::to_string(account).unwrap_or_default())
+}
+
+/// Reads the connection's account endpoint (a GET with its key, no prompt, never billed); `Ok(None)` for a kind
+/// without one.
+pub async fn fetch_account(shared: &super::Shared, provider: &Provider) -> Result<Option<Account>, String> {
+    let Some((path, read)) = account_endpoint(&provider.kind) else { return Ok(None) };
+    let Some(reference) = &provider.credential_ref else { return Ok(None) };
+    let Some(key) = shared.secrets.read(reference)? else { return Ok(None) };
+    let url = format!("{}{path}", provider.endpoint.trim_end_matches('/'));
+    let response = shared.http.get(&url).bearer_auth(&key).send().await
+        .map_err(|e| crate::redact::redact(&format!("Could not reach {url}: {e}"), &[&key]))?;
+    let status = response.status();
+    let text = response.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        return Err(format!("The provider's account endpoint answered HTTP {}", status.as_u16()));
+    }
+    let body: Value = serde_json::from_str(&text).map_err(|_| "The account endpoint's answer is not JSON".to_string())?;
+    Ok(read(&body, crate::db::now_ms()))
+}
+
+/// Reads and keeps the account of every enabled connection that has an account endpoint; errors are left out (the
+/// last reading stays).
+pub async fn refresh_accounts(shared: &super::Shared) {
+    let providers = shared.with_db(store::list_providers).unwrap_or_default();
+    for provider in providers.into_iter().filter(|p| p.enabled && account_endpoint(&p.kind).is_some()) {
+        if let Ok(Some(account)) = fetch_account(shared, &provider).await {
+            let _ = shared.with_db(|db| save_account(db, &provider.id, &account));
+        }
+    }
+}
+
+/// The windows a model's last answer stated, parsed.
+pub fn windows_of(limits: &store::RateLimits) -> Vec<Window> {
+    from_headers(&limits.headers, limits.observed_at)
+}
+
+/// Why `auto` should not pick this model now: the provider said a limit of it is used up until a time still ahead
+/// (its rate-limit headers, or OpenRouter's free-model requests for the day). A statement, never an estimate.
+pub fn exhausted(conn: &Connection, provider: &Provider, model: &Model, now: i64) -> store::Result<Option<String>> {
+    let until = |at: i64| crate::gateway::store::iso_utc(at).replace('T', " ")[..16].to_string() + " UTC";
+    for limits in store::list_limits(conn, &provider.id)?.into_iter().filter(|l| l.model_id == model.model_id) {
+        if let Some((window, at)) = windows_of(&limits).into_iter().find_map(|w| w.exhausted_at(now).map(|at| (w, at))) {
+            let what = if window.kind == "retry" { "asked to wait".to_string() } else { format!("{} limit used up", window.kind.replace('_', " ")) };
+            return Ok(Some(format!("the provider said: {what} until {}", until(at))));
+        }
+    }
+    if provider.kind == "openrouter" && model.billing == "free" {
+        if let Some(window) = saved_account(conn, &provider.id).and_then(|a| a.free_requests) {
+            if let Some(at) = window.exhausted_at(now) {
+                return Ok(Some(format!("the free models' {} requests for today are used up until {}",
+                    window.limit.unwrap_or_default(), until(at))));
+            }
+        }
+    }
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -259,5 +330,30 @@ mod tests {
             "granted_balance": "0.00", "topped_up_balance": "1.87"}]}), now).unwrap();
         assert_eq!((ds.balance, ds.currency.as_deref(), ds.available), (Some(1.87), Some("USD"), Some(true)));
         assert!(account_endpoint("gemini").is_none());
+    }
+
+    #[test]
+    fn auto_skips_a_model_whose_limit_the_provider_said_is_used_up() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let p = store::add_provider(&conn, &store::NewProvider { kind: "openrouter", label: "OR", endpoint: "http://o.test",
+            credential_ref: None, default_billing: "free", wire: "openai" }).unwrap();
+        let price = crate::gateway::pricing::Price { source: "x".into(), ..Default::default() };
+        let listed = |id: &str| store::Listed { id: id.into(), price: Some(price.clone()), ..store::Listed::default() };
+        store::import_listed(&conn, &p.id, &[listed("a:free"), listed("b:free")], Some("x")).unwrap();
+        let model = |id: &str| store::list_models(&conn, Some(&p.id)).unwrap().into_iter().find(|m| m.model_id == id).unwrap();
+        let now = crate::db::now_ms();
+        let soon = (now + 60_000).to_string();
+        store::record_limits(&conn, &p.id, "a:free", 429, &[("x-ratelimit-limit".into(), "20".into()),
+            ("x-ratelimit-remaining".into(), "0".into()), ("x-ratelimit-reset".into(), soon)]).unwrap();
+        let why = exhausted(&conn, &p, &model("a:free"), now).unwrap().unwrap();
+        assert!(why.starts_with("the provider said: requests limit used up until"), "{why}");
+        assert_eq!(exhausted(&conn, &p, &model("b:free"), now).unwrap(), None);
+        // After the reset the model is eligible again.
+        assert_eq!(exhausted(&conn, &p, &model("a:free"), now + 120_000).unwrap(), None);
+
+        // The day's free requests, from OpenRouter's /key, hold every free model until midnight UTC.
+        save_account(&conn, &p.id, &Account { free_requests: Some(Window { kind: "free_requests_per_day".into(), limit: Some(50),
+            remaining: Some(0), resets_at: Some(now + 3_600_000) }), ..Account::default() }).unwrap();
+        assert!(exhausted(&conn, &p, &model("b:free"), now).unwrap().unwrap().contains("50 requests for today"));
     }
 }

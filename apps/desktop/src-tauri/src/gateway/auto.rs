@@ -228,6 +228,9 @@ fn judge(conn: &Connection, client: &Client, provider: &Provider, model: &Model,
     if let Some((holder, hold)) = store::group_hold(conn, provider, &model.model_id)? {
         return no(format!("shares limits with {}, which is {}", holder.label, hold.state.replace('_', " ")));
     }
+    if let Some(why) = super::quota::exhausted(conn, provider, model, crate::db::now_ms())? {
+        return no(why);
+    }
     if strategy == Strategy::Tier {
         let Some(tier) = caps.tier.as_deref() else { return no("no tier set".into()) };
         let floor = min_tier.unwrap_or("T0");

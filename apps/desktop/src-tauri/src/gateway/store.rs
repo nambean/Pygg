@@ -951,6 +951,9 @@ pub struct RateLimits {
     pub headers: std::collections::BTreeMap<String, String>,
     pub http_status: Option<u16>,
     pub observed_at: i64,
+    /// The headers read as limits, what is left and when they reset (quota.rs).
+    #[serde(default)]
+    pub windows: Vec<super::quota::Window>,
 }
 
 /// Whether a header is one a provider uses to say how much is left, or when to come back.
@@ -981,8 +984,13 @@ pub fn list_limits(conn: &Connection, provider_id: &str) -> Result<Vec<RateLimit
         headers: serde_json::from_str(&r.get::<_, String>(1)?).unwrap_or_default(),
         http_status: r.get::<_, Option<i64>>(2)?.map(|v| v as u16),
         observed_at: r.get(3)?,
+        windows: Vec::new(),
     })).map_err(err)?;
-    rows.collect::<rusqlite::Result<_>>().map_err(err)
+    let mut out: Vec<RateLimits> = rows.collect::<rusqlite::Result<_>>().map_err(err)?;
+    for limits in &mut out {
+        limits.windows = super::quota::from_headers(&limits.headers, limits.observed_at);
+    }
+    Ok(out)
 }
 
 pub fn clear_health(conn: &Connection, provider_id: &str) -> Result<()> {

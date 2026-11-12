@@ -162,6 +162,10 @@ pub struct ConnectionView {
     pub shares_quota_with: Vec<String>,
     /// The rate-limit headers its provider last sent, per model (PV-06): as the provider said, never estimated.
     pub limits: Vec<store::RateLimits>,
+    /// Its account's balance or free allowance, as its account endpoint last said (quota.rs).
+    pub account: Option<gateway::quota::Account>,
+    /// It has an account endpoint Pygg can read.
+    pub reads_account: bool,
 }
 
 fn view(state: &AppState, provider: Provider) -> ConnectionView {
@@ -172,8 +176,11 @@ fn view(state: &AppState, provider: Provider) -> ConnectionView {
     let shares_quota_with = state.shared.with_db(store::list_providers).unwrap_or_default().into_iter()
         .filter(|p| p.id != provider.id && p.quota_group == provider.quota_group).map(|p| p.label).collect();
     let limits = state.shared.with_db(|db| store::list_limits(db, &provider.id)).unwrap_or_default();
+    let account = state.shared.with_db(|db| gateway::quota::saved_account(db, &provider.id));
     ConnectionView {
         limits,
+        account,
+        reads_account: gateway::quota::account_endpoint(&provider.kind).is_some(),
         preset_name: preset.map(|p| p.name.to_string()).unwrap_or_else(|| provider.kind.clone()),
         needs_key: preset.map(|p| p.needs_key).unwrap_or(false),
         free_models: preset.map(|p| p.free_models).unwrap_or(false),
@@ -311,7 +318,20 @@ pub async fn connection_refresh_models(state: State<'_, AppState>, id: String) -
         state.shared.with_db(|db| { let _ = gateway::reference::apply(db, &catalog); gateway::reference::mark_applied(db); });
     }
     sync_opencode(&state);
+    if let Ok(Some(account)) = gateway::quota::fetch_account(&state.shared, &provider).await {
+        let _ = state.shared.with_db(|db| gateway::quota::save_account(db, &id, &account));
+    }
     Ok(ImportResult { listed: ids.len(), added })
+}
+
+/// Reads the connection's account endpoint now (balance, free allowance) and keeps what it says.
+#[tauri::command]
+pub async fn connection_check_account(state: State<'_, AppState>, id: String) -> Res<ConnectionView> {
+    let provider = state.shared.with_db(|db| store::get_provider(db, &id))?.ok_or("Connection not found")?;
+    if let Some(account) = gateway::quota::fetch_account(&state.shared, &provider).await? {
+        state.shared.with_db(|db| gateway::quota::save_account(db, &id, &account))?;
+    }
+    Ok(view(&state, provider))
 }
 
 // ---------- Models ----------

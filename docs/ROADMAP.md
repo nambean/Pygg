@@ -113,7 +113,7 @@ Then D2 (integrations hub, `str` and npm), B6 and E, in the order already set. N
 **E. Later, after data or reconfirmation**
 - Account pools, for API-key and token-plan connections only: agents keep their own sign-in, so subscriptions cannot be pooled (ADR-026).
 - The Policies page with strategies and a simulator; multi-stage plans.
-- Quota tracking for free tiers and subscriptions, where a provider or agent states it (OmniRoute OR-03 §6).
+- Quota tracking for free tiers and subscriptions, where a provider or agent states it (OmniRoute OR-03 §6). **Built 2026-11-12** for what providers state: rate-limit headers read as limits, what is left and when they reset, and `auto` skipping a model whose stated limit is used up until it resets; OpenRouter's `/key` (credit left, today's usage, the free models' daily requests) and DeepSeek's `/user/balance`, read at start-up, on a model refresh and with Check Now (`gateway/quota.rs`). Subscriptions run by agents state nothing Pygg can read, so they stay unknown.
 - Compression, deduplication and cache-aware scoring (P1-3, P1-4; OmniRoute OR-06 to OR-08), shadow and opt-in first.
 - More `auto` aliases (`auto/fast`, `auto/coding`, `auto/local`, `auto/available`, `auto/quality`; OmniRoute OR-01, OR-20): **not planned** until the benchmark shows `auto` and `auto/cheap` are not enough.
 - Designed in the older plans and placed here, unordered, until data or a request moves one up (2026-11-11 docs review):
