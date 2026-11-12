@@ -433,8 +433,10 @@ pub fn launcher_remove(state: State<'_, AppState>) -> Res<LauncherInfo> {
 }
 
 /// Shows a web session's window (ADR-035), where the user signs in on the site's own page, or deals with a check.
+/// Async on purpose: a synchronous command runs on the main thread, and building a WebView2 window there waits for
+/// that same thread, so the window never opened and the button kept spinning (found by the owner, 2026-11-12).
 #[tauri::command]
-pub fn web_session_open(state: State<'_, AppState>, id: String) -> Res<()> {
+pub async fn web_session_open(state: State<'_, AppState>, id: String) -> Res<()> {
     state.web.as_ref().ok_or(crate::websession::APP_ONLY)?.show(&id)
 }
 
