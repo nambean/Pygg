@@ -397,7 +397,9 @@ function ModelRow({model: m, health, onPrice, onCaps, onChange}: {model: Model; 
   return <tr className={m.enabled ? '' : 'disabled-row'}>
     <td className="mono selectable" title={health ? `${m.modelId} · ${health.reason}` : m.modelId}>
       {m.modelId}{health && <> <Badge tone="warn">{healthLabel(health)}</Badge></>}</td>
-    <td>{billingLabel(m.billing)}{!m.enabled && m.enabledSource === 'free-connection'
+    <td>{billingLabel(m.billing)}{!m.enabled && m.enabledSource === 'media-model' && <small className="source"
+      title={t('The model catalog says this model makes audio, video or images, priced per item rather than per token, so Pygg turned it off. Turn it on if you mean to use it.')}>
+      <br/>{t('Off: makes media')}</small>}{!m.enabled && m.enabledSource === 'free-connection'
       && <small className="source" title={t('This connection is set as free and this model is not listed at $0, so Pygg turned it off. Turn it on to use it; its cost follows its price, or is Unknown without one.')}>
         <br/>{t('Off: not $0')}</small>}</td>
     <td className={m.price ? '' : 'secondary'}>{price}{m.price && <small className="source"> · {m.price.source === 'user' ? t('your price') : t('list price')}</small>}</td>

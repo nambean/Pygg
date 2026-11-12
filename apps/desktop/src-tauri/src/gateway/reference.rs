@@ -120,7 +120,12 @@ pub struct Applied {
     pub tiered: usize,
     /// $0 models added from the catalog because the provider's own list leaves them out (`ADDS_FREE_MODELS`).
     pub added: usize,
+    /// Models turned off because they make audio, video or images (`MEDIA_OFF`).
+    pub media_off: usize,
 }
+
+/// Why Pygg turned a model off: the catalog says it makes audio, video or images, priced per item rather than per token.
+pub const MEDIA_OFF: &str = "media-model";
 
 /// Providers whose model list leaves out models they offer free: Z.AI listed 12 models for the owner's key on
 /// 2026-11-12, none of its free Flash models (`glm-4.7-flash`, `glm-4.5-flash`, `glm-4.6v-flash`), which its pricing
@@ -151,6 +156,16 @@ pub fn apply(conn: &Connection, catalog: &Value) -> Result<Applied> {
         for id in ids {
             let Some(entry) = models.get(&id) else { continue };
             applied.matched += 1;
+            // A model that makes audio, video or images (Google's Lyria, its TTS and image models) is priced per item,
+            // not per token, and answers a coding agent with an error: the P0 benchmark saw `auto/cheap` send OpenCode's
+            // title requests to Lyria at "$0". Pygg turns it off, saying why; the user's own switch stays theirs.
+            let makes_media = entry["modalities"]["output"].as_array()
+                .is_some_and(|o| o.iter().any(|v| v == "audio" || v == "video" || v == "image"));
+            if makes_media {
+                applied.media_off += conn.execute(&format!("UPDATE models SET enabled = 0, enabled_source = '{MEDIA_OFF}' \
+                    WHERE provider_id = ?1 AND model_id = ?2 AND enabled = 1 AND enabled_source IS NULL"),
+                    params![provider.id, id]).map_err(|e| e.to_string())?;
+            }
             let vision = entry["modalities"]["input"].as_array().map(|m| m.iter().any(|v| v == "image"));
             let changed = conn.execute(
                 "UPDATE models SET \
@@ -337,6 +352,23 @@ mod tests {
         let catalog = json!({"openrouter": {"models": {"x/y:free": {"cost": {"input": 0, "output": 0}}}}});
         assert_eq!(apply(&conn, &catalog).unwrap().added, 0);
         assert!(store::list_models(&conn, Some(&or.id)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_model_that_makes_audio_or_images_is_turned_off_and_says_why() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let g = add(&conn, "gemini", "https://g.test", &["lyria-3-clip-preview", "gemini-3.5-flash", "mine-tts"]);
+        store::update_model(&conn, &g, "mine-tts", Some(true), None, None).unwrap();
+        let catalog = json!({"google": {"models": {
+            "lyria-3-clip-preview": {"tool_call": false, "cost": {"input": 0, "output": 0}, "modalities": {"input": ["text"], "output": ["text", "audio"]}},
+            "gemini-3.5-flash": {"tool_call": true, "cost": {"input": 0.3, "output": 2.5}, "modalities": {"input": ["text"], "output": ["text"]}},
+            "mine-tts": {"modalities": {"output": ["audio"]}}}}});
+        let applied = apply(&conn, &catalog).unwrap();
+        assert_eq!(applied.media_off, 1);
+        let lyria = model(&conn, &g, "lyria-3-clip-preview");
+        assert_eq!((lyria.enabled, lyria.enabled_source.as_deref()), (false, Some(MEDIA_OFF)));
+        assert!(model(&conn, &g, "gemini-3.5-flash").enabled);
+        assert!(model(&conn, &g, "mine-tts").enabled, "the user's own switch stays");
     }
 
     #[test]
