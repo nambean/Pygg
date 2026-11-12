@@ -300,6 +300,11 @@ pub async fn connection_refresh_models(state: State<'_, AppState>, id: String) -
     let ids = catalog::fetch_models(&state.shared, &provider).await?;
     let source = catalog::list_source(&provider);
     let added = state.shared.with_db(|db| store::import_listed(db, &id, &ids, Some(&source)))?;
+    // What the provider's list left out is looked up (ADR-031): the user only enters a key.
+    let cache = gateway::reference::cache_path(&state.data_dir.join("store.sqlite3"));
+    if let Some(catalog) = gateway::reference::current(&state.shared.http, &cache).await {
+        state.shared.with_db(|db| { let _ = gateway::reference::apply(db, &catalog); gateway::reference::mark_applied(db); });
+    }
     Ok(ImportResult { listed: ids.len(), added })
 }
 

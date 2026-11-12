@@ -52,7 +52,7 @@ pub async fn run(mut args: Vec<String>) {
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent).unwrap_or_else(|e| fail(e));
     }
-    let command = if args.is_empty() { fail("usage: gateway [--db PATH] serve|add-connection|remove-connection|refresh-models|create-client|combo|list|usage") } else { args.remove(0) };
+    let command = if args.is_empty() { fail("usage: gateway [--db PATH] serve|add-connection|remove-connection|refresh-models|lookup|create-client|combo|list|usage") } else { args.remove(0) };
     let mut flags: HashMap<String, Vec<String>> = HashMap::new();
     let mut iter = args.into_iter();
     while let Some(flag) = iter.next() {
@@ -131,6 +131,22 @@ pub async fn run(mut args: Vec<String>) {
             let source = catalog::list_source(&provider);
             let added = shared.with_db(|db| store::import_listed(db, &id, &ids, Some(&source))).unwrap_or_else(|e| fail(e));
             println!("{} listed {} models, {added} new", provider.label, ids.len());
+            if let Some(catalog) = gateway::reference::current(&shared.http, &gateway::reference::cache_path(&db_path)).await {
+                let applied = shared.with_db(|db| gateway::reference::apply(db, &catalog)).unwrap_or_else(|e| fail(e));
+                println!("models.dev described {}; filled {}; tiered by price {}", applied.matched, applied.filled, applied.tiered);
+            }
+        }
+        "lookup" => {
+            // Fills what the providers' lists leave out from the reference catalog (ADR-031); --refresh yes fetches it.
+            let path = gateway::reference::cache_path(&db_path);
+            let catalog = if one("refresh").as_deref() == Some("yes") {
+                gateway::reference::fetch(&shared.http, &path).await.unwrap_or_else(|e| fail(e))
+            } else {
+                gateway::reference::current(&shared.http, &path).await.unwrap_or_else(|| fail("no reference catalog: models.dev could not be reached"))
+            };
+            let applied = shared.with_db(|db| gateway::reference::apply(db, &catalog)).unwrap_or_else(|e| fail(e));
+            shared.with_db(gateway::reference::mark_applied);
+            println!("models.dev described {} models; filled {}; tiered by price {}", applied.matched, applied.filled, applied.tiered);
         }
         "create-client" => {
             let name = one("name").unwrap_or_else(|| fail("--name is required"));

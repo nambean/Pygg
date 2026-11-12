@@ -1,6 +1,6 @@
 # Decisions
 
-> **Status:** Current · architecture decision records (ADR-001 to ADR-030) · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+> **Status:** Current · architecture decision records (ADR-001 to ADR-031) · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
 
 Architecture decision records, in the style of DownFetch's `docs/DECISIONS.md`. Each decision says what was chosen, why, and what it costs. The product plan is [SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md); the screen design is [design/SCREENS.md](design/SCREENS.md).
 
@@ -256,6 +256,22 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
   6. npm, after the name is registered and binaries are signed (owner decisions).
 - **H1's A/B (2026-11-12, [report](../benchmark/reports/2026-11-12-h1-handoff-ab.md)):** no case for `evidence` as the default, so **`tail` stays the default**. An exploratory run (3 arms × 36) found one nominal saving, about 12% fewer step-2 input tokens. The pre-registered confirmatory run was cut off at 25 pairs (inconclusive by its rule) and did not repeat that saving. `evidence` stays available per task. Its open question is whether it helps when the first step reaches its checks and fails; that needs a different first step. PV-02 therefore stays deferred: H1 has not yet been shown to help.
 - **Deferred, unchanged:** PV-03, PV-07, PV-08 (the adaptive part, which is evaluated only on benchmark replays, never as a live shadow), PV-09 (as a feature; its deterministic rules go into the H1 builder) and PV-10.
+
+## ADR-031 — The user enters a key; the app looks up the rest (2026-11-12)
+
+**Context:** the owner connected eight providers and pointed OpenCode at Pygg. `auto` with tools then refused all 584 models: Claude's list does not state tool support, most models had no tier, no model outside OpenRouter had a price, and OpenRouter had been set as free. The owner: users cannot be expected to know model presets; they enter a key, and looking things up is the app's job.
+
+**Decision:**
+- **A reference catalog fills what a provider's own list leaves out.** Pygg reads [models.dev](https://models.dev), the open catalog OpenCode uses, keyed by each provider's own model ids. It fills context, maximum output, tool and image support, and the list price, only where they are unknown. The provider's own list comes first, and what the user set is never touched. A connection is matched to the catalog by its API address first (so Qwen's token plan is not confused with Qwen's pay-as-you-go API), then by its kind; local runtimes are never matched. Every fact names its source (`models.dev`), and a price from it reads "models.dev list price".
+- **ADR-011 is kept, and read this way:** a catalog list price is a list price, the same kind of figure as a provider's own model list states. It gives estimated costs, never actual ones, and the user's own price replaces it.
+- **Every model gets a tier.** Pygg's naming table (`curated:v1`) comes first; a model it does not know gets one from its list price band (`price-band:v1`: output under $1 per million tokens is T1, under $5 T2, under $20 T3, above T4), and `auto` says "from its list price". A $0 price gives no tier. A tier the user set stays theirs.
+- **Claude models take tools** (`curated:v1`, Anthropic documents tool use for every Claude model), since Anthropic's list does not say so.
+- **A connection set as free does not make a priced model free:** a model listed at a price above zero is paid, for ranking, holds and the ledger.
+- **When nothing is eligible, the refusal groups its reasons** by connection and reason, so hundreds of models still say what to fix.
+
+**How it runs:** at start-up, in the background, and after a connection's model list is refreshed; at most one download a day, kept next to the store (`reference/models.dev.json`) for use offline. The download is a GET of a public file and carries nothing about the user. `gateway lookup` applies it by hand.
+
+**Measured on the owner's store (a copy):** models.dev described 466 of 584 models (Claude 14 of 14, DeepSeek 2 of 2, Z.AI 11 of 12, OpenRouter 373 of 431, Qwen's token plan 14 of 21, Gemini 37 of 63, Cohere 15 of 37; most of the rest are embedding, speech, image or batch variants), filled facts or prices for 98 and tiered 294 by price. `auto` with tools went from no eligible model to a ranked route, Qwen's subscription first.
 
 ## Open decisions (not yet finalized)
 

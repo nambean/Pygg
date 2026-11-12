@@ -29,6 +29,7 @@ pub mod policy;
 pub mod presets;
 pub mod probe;
 pub mod pricing;
+pub mod reference;
 pub mod signatures;
 pub mod sse;
 pub mod store;

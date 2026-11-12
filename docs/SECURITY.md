@@ -19,6 +19,7 @@ Report a vulnerability privately: through the repository's Security tab (private
 | Where data goes | Per connection, data-use terms the user recorded; a client can require providers that do not train on its data, enforced on every route; a sensitive workspace asks before every agent step | `gateway/store.rs`, `tasks.rs` |
 | The user's code | Agents work in a Git worktree of a recorded commit, never in the user's checkout; results are kept as a new branch or a patch only when the user says so | `isolation.rs` |
 | Output and logs | Secrets are removed from agent and check output before it is stored or shown; notifications name no task or file | `redact.rs`, `shell.rs` |
+| Outbound requests of its own | Apart from what clients and agents send through it, Pygg contacts only the providers the user connected and, at most once a day, [models.dev](https://models.dev) for its public model catalog (ADR-031): a plain GET that carries no key, token or prompt | `gateway/reference.rs` |
 | Sign-ins of agents | Agent CLIs run with their own sign-in; Pygg never reads, stores or forwards it, and never bridges web sessions, cookies or other products' OAuth (ADR-026) | `agents.rs` |
 
 ## What the user is trusted with

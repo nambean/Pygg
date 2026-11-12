@@ -88,6 +88,20 @@ pub fn run() {
             let state = AppState { shared, server: tokio::sync::Mutex::new(None), last_error: Mutex::new(None),
                 data_dir: dir.clone(), runs: Mutex::new(Default::default()),
                 tasks: runner };
+            // Facts the providers' lists leave out are looked up in the reference catalog (ADR-031), at most once a
+            // day, in the background; the cached copy serves offline.
+            {
+                let shared = state.shared.clone();
+                let cache = gateway::reference::cache_path(&path);
+                tauri::async_runtime::spawn(async move {
+                    if let Some(catalog) = gateway::reference::current(&shared.http, &cache).await {
+                        shared.with_db(|db| match gateway::reference::apply(db, &catalog) {
+                            Ok(_) => gateway::reference::mark_applied(db),
+                            Err(e) => eprintln!("reference catalog: {e}"),
+                        });
+                    }
+                });
+            }
             if state.autostart() {
                 // A busy port is reported in Endpoints rather than stopping the app from opening.
                 let _ = tauri::async_runtime::block_on(state.start());

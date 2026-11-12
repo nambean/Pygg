@@ -183,7 +183,11 @@ pub fn plan(conn: &Connection, client: &Client, alias: &str, strategy: Strategy,
                 let reason = match strategy {
                     Strategy::Tier => format!("tier {}{} (minimum {}); {}; {reason_cost}",
                         tier.as_deref().unwrap_or("?"),
-                        if model.capabilities.tier_source.as_deref() == Some(store::CURATED) { " from Pygg's table" } else { "" },
+                        match model.capabilities.tier_source.as_deref() {
+                            Some(store::CURATED) => " from Pygg's table",
+                            Some(super::reference::TIER_SOURCE) => " from its list price",
+                            _ => "",
+                        },
                         min_tier.as_deref().unwrap_or("?"), model.billing),
                     Strategy::Cheap => format!("{}; {reason_cost}", model.billing),
                 };

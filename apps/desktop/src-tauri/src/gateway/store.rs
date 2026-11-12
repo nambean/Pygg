@@ -274,6 +274,7 @@ fn model_row(row: &rusqlite::Row) -> rusqlite::Result<Model> {
             tier_note: match row.get::<_, Option<String>>(15)?.as_deref() {
                 Some(super::tiers::SOURCE) => super::tiers::suggest(&row.get::<_, String>(16)?, &row.get::<_, String>(1)?)
                     .map(|(_, why)| why.to_string()),
+                Some(super::reference::TIER_SOURCE) => Some(super::reference::TIER_NOTE.to_string()),
                 _ => None,
             },
             tier_source: row.get(15)?,
