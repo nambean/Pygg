@@ -34,7 +34,7 @@ const DEFAULT_TIMEOUT_SECS: u64 = 900;
 const CHECK_TIMEOUT: Duration = Duration::from_secs(600);
 /// How much of a failed check's output the next step is given.
 const HANDOFF_CHARS: usize = 1500;
-const NO_CHANGES: &str = "The agent made no changes";
+use crate::messages::{self as m, fill, NO_CHANGES};
 const NO_CHANGES_HANDOFF: &str = "The previous attempt ended without changing any file. The task needs changes to the files.";
 
 fn new_id() -> String {
@@ -617,7 +617,7 @@ fn set_phase(conn: &Connection, id: &str, phase: &str) -> rusqlite::Result<()> {
 
 fn step_label(step: &Step) -> String {
     let name = agents::find(&step.agent).map(|a| a.name).unwrap_or(step.agent.as_str());
-    format!("{name} · {}", step.model.as_deref().unwrap_or("default model"))
+    fill(m::LABEL, &[&name, &step.model.as_deref().unwrap_or(m::DEFAULT_MODEL)])
 }
 
 enum Opened {
@@ -660,9 +660,7 @@ fn open_attempt(conn: &Connection, task_id: &str, stage_id: &str, index: usize, 
     }
     if paid {
         if let Some(0) = remaining(conn, &workspace)? {
-            set_task(conn, task_id, "blocked", None, Some(&format!(
-                "Step {} ({}) is paid, and today's budget for paid steps is used; it resets at 00:00 UTC. Raise the \
-                 budget in Settings, or start the task again after the reset.", index + 1, step_label(step))))?;
+            set_task(conn, task_id, "blocked", None, Some(&fill(m::BUDGET_USED, &[&(index + 1), &step_label(step)])))?;
             return Ok(Opened::Declined);
         }
     }
@@ -682,10 +680,9 @@ fn open_attempt(conn: &Connection, task_id: &str, stage_id: &str, index: usize, 
 
 fn ask_reason(index: usize, step: &Step, paid: bool) -> String {
     if paid {
-        format!("Step {} ({}) is marked paid, so it waits for your approval.", index + 1, step_label(step))
+        fill(m::WAITS_PAID, &[&(index + 1), &step_label(step)])
     } else {
-        format!("Step {} ({}) waits for your approval: the workspace is sensitive, so every step asks before an agent \
-                 sees its code.", index + 1, step_label(step))
+        fill(m::WAITS_SENSITIVE, &[&(index + 1), &step_label(step)])
     }
 }
 /// What earlier runs of an agent and model cost by the agent's own report (its list-price estimate): the basis of
@@ -1005,10 +1002,8 @@ fn unresponsive(conn: &Connection, step: &Step) -> rusqlite::Result<Option<Strin
         .query_map(params![step.agent, step_label(step)], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
         .collect::<rusqlite::Result<_>>()?;
     let silent_timeout = |(detail, finished, output): &(Option<String>, Option<i64>, Option<i64>)|
-        detail.as_deref() == Some("timed out") && finished.is_some_and(|f| f >= since) && output.unwrap_or(0) == 0;
-    Ok((last.len() == 2 && last.iter().all(silent_timeout)).then(|| format!(
-        "Skipped: {} timed out on its last two runs in the past 30 minutes without answering, so Pygg did not wait for it again",
-        step_label(step))))
+        detail.as_deref() == Some(m::TIMED_OUT) && finished.is_some_and(|f| f >= since) && output.unwrap_or(0) == 0;
+    Ok((last.len() == 2 && last.iter().all(silent_timeout)).then(|| fill(m::SKIPPED, &[&step_label(step)])))
 }
 
 /// Records a step that was not run, so the task's history shows why the ladder moved on.
@@ -1167,7 +1162,7 @@ impl Runner {
                         (SELECT id FROM attempts WHERE stage_id = ?1)", params![row.stage_id, now_ms()]).map_err(err)?;
             tx.execute("UPDATE attempts SET state = 'canceled', finished_at = ?2 WHERE stage_id = ?1 AND state IN ('waiting', 'running')",
                 params![row.stage_id, now_ms()]).map_err(err)?;
-            set_task(&tx, id, "canceled", None, Some("You stopped it")).map_err(err)?;
+            set_task(&tx, id, "canceled", None, Some(m::STOPPED)).map_err(err)?;
             signal(&tx, "cancelled", "task", id, true, "user").map_err(err)?;
             audit(&tx, "task.canceled", id, serde_json::json!({})).map_err(err)?;
             tx.commit().map_err(err)
@@ -1223,9 +1218,9 @@ impl Runner {
             if approve {
                 set_task(&tx, id, "running", Some("preparing"), None).map_err(err)?;
             } else {
-                close_attempt(&tx, &attempt, "canceled", Some("You declined this step")).map_err(err)?;
+                close_attempt(&tx, &attempt, "canceled", Some(m::DECLINED_STEP)).map_err(err)?;
                 signal(&tx, "declined", "attempt", &attempt, true, "user").map_err(err)?;
-                set_task(&tx, id, "blocked", None, Some("You declined the step it was waiting on")).map_err(err)?;
+                set_task(&tx, id, "blocked", None, Some(m::DECLINED_TASK)).map_err(err)?;
             }
             audit(&tx, if approve { "approval.approved" } else { "approval.denied" }, id,
                 serde_json::json!({"attempt": attempt, "capMicroUsd": cap})).map_err(err)?;
@@ -1257,7 +1252,7 @@ impl Runner {
         let Some((mut index, mut carried)) = resume_point(&attempts) else { return Ok(()) };
         let mut last_failure = attempts.iter().rev().find(|a| a.outcome == "failed").and_then(|a| a.escalation_reason.clone());
         let stop = |runner: &Runner| runner.with_db(|c| {
-            set_task(c, id, "canceled", None, Some("You stopped it"))?;
+            set_task(c, id, "canceled", None, Some(m::STOPPED))?;
             signal(c, "cancelled", "task", id, true, "user")
         }).map_err(err);
         // Set when a paid step went over its cap: the ladder stops there instead of trying further steps.
@@ -1268,11 +1263,11 @@ impl Runner {
                 return stop(self);
             }
             if let Some(why) = halt.take() {
-                let reason = format!("{why}. Pygg stopped before trying another step.");
+                let reason = fill(m::HALTED, &[&why]);
                 return self.with_db(|c| set_task(c, id, "blocked", None, Some(&reason))).map_err(err);
             }
             let Some(step) = row.policy.steps.get(index) else {
-                let reason = format!("Every step failed. Last: {}", last_failure.as_deref().unwrap_or("no attempt ran"));
+                let reason = fill(m::ALL_FAILED, &[&last_failure.as_deref().unwrap_or(m::NO_ATTEMPT)]);
                 return self.with_db(|c| set_task(c, id, "check_failed", None, Some(&reason))).map_err(err);
             };
             // A step whose service has stopped answering is skipped, unless it is the last one left to try.
@@ -1304,7 +1299,7 @@ impl Runner {
                 Ok(run) => run,
                 Err(e) => {
                     // The agent could not start (not installed, the workspace moved): try the next step.
-                    let reason = format!("{name} could not run: {e}");
+                    let reason = fill(m::COULD_NOT_RUN, &[&name, &e]);
                     self.with_db(|c| {
                         c.execute("UPDATE attempts SET detail = ?2 WHERE id = ?1", params![attempt, e])?;
                         close_attempt(c, &attempt, "failed", Some(&reason))
@@ -1323,20 +1318,19 @@ impl Runner {
             // Pygg's ledger, whatever the agent estimates; otherwise the agent's own estimate is all there is. Claude
             // Code stops at the cap itself; the others can only be checked afterwards.
             let (reported, whose) = match through_pygg {
-                Some((known, 0)) => (Some(known), "Pygg's ledger".to_string()),
+                Some((known, 0)) => (Some(known), m::PYGG_LEDGER.to_string()),
                 Some(_) => (None, String::new()),
-                None => (run.usage.estimate_usd.map(|u| (u * 1e6).round().max(0.0) as u64), format!("{name}'s own estimate")),
+                None => (run.usage.estimate_usd.map(|u| (u * 1e6).round().max(0.0) as u64), fill(m::OWN_ESTIMATE, &[&name])),
             };
             let over_cap = match (cap, reported) {
-                (Some(cap), Some(cost)) if cost > cap => Some(format!("{whose} for this step, ${:.2}, is over your cap of ${:.2}",
-                    usd(cost), usd(cap))),
+                (Some(cap), Some(cost)) if cost > cap => Some(fill(m::OVER_CAP,
+                    &[&whose, &format!("{:.2}", usd(cost)), &format!("{:.2}", usd(cap))])),
                 _ => None,
             };
             let unchecked = match through_pygg {
-                Some((_, unpriced)) if unpriced > 0 => Some(format!("{unpriced} of this step's requests through Pygg had no \
-                    price (enter the model's price in Connections), so your cap for this step could not be checked")),
+                Some((_, unpriced)) if unpriced > 0 => Some(fill(m::UNPRICED, &[&unpriced])),
                 _ => (reported.is_none() && !agents::enforces_budget(&step.agent))
-                    .then(|| format!("{name} reported no cost, so your cap for this step could not be checked")),
+                    .then(|| fill(m::NO_COST, &[&name])),
             };
             let cost_note = over_cap.clone().or_else(|| unchecked.filter(|_| cap.is_some()));
             halt = over_cap;
@@ -1359,7 +1353,7 @@ impl Runner {
             }
             if run.outcome != "ok" {
                 let detail = run.usage.error.clone().unwrap_or_else(|| run.exit.clone());
-                let reason = format!("{name} did not finish: {}", last_chars(&detail, 300));
+                let reason = fill(m::DID_NOT_FINISH, &[&name, &last_chars(&detail, 300)]);
                 drop_worktree(self)?;
                 self.with_db(|c| close_attempt(c, &attempt, "failed", Some(&reason))).map_err(err)?;
                 // The agent's own failure says nothing about the code, so the next step starts with the task alone.
@@ -1375,16 +1369,15 @@ impl Runner {
                     close_attempt(c, &attempt, "failed", Some(NO_CHANGES))
                 }).map_err(err)?;
                 carried = Some(NO_CHANGES_HANDOFF.into());
-                last_failure = Some(format!("{name}: {NO_CHANGES}"));
+                last_failure = Some(fill(m::LAST_FAILURE, &[&name, &NO_CHANGES]));
                 index += 1;
                 continue;
             }
-            let with_note = |reason: &str| match &cost_note { Some(note) => format!("{reason} {note}."), None => reason.to_string() };
             if row.policy.checks.is_empty() {
                 return self.with_db(|c| {
                     close_attempt(c, &attempt, "done", None)?;
                     set_task(c, id, "needs_review", None,
-                        Some(&with_note("No checks are approved for this workspace, so nothing confirmed the result. Review the changes yourself.")))
+                        Some(&match &cost_note { Some(note) => fill(m::NO_CHECKS_NOTE, &[note]), None => m::NO_CHECKS.to_string() }))
                 }).map_err(err);
             }
 
@@ -1416,23 +1409,25 @@ impl Runner {
                         close_attempt(c, &attempt, "passed", None)?;
                         signal(c, "checks_passed", "attempt", &attempt, true, "check")?;
                         if touched.is_empty() {
-                            set_task(c, id, "checks_passed", None, cost_note.as_ref().map(|n| format!("{n}.")).as_deref())
+                            set_task(c, id, "checks_passed", None, cost_note.as_ref().map(|n| fill(m::NOTE, &[n])).as_deref())
                         } else {
-                            set_task(c, id, "needs_review", None, Some(&with_note(&format!(
-                                "The checks passed, but this attempt changed {}, which defines them. Review the changes before trusting the result.",
-                                touched.join(", ")))))
+                            let files = touched.join(", ");
+                            set_task(c, id, "needs_review", None, Some(&match &cost_note {
+                                Some(note) => fill(m::CHANGED_DEFINITIONS_NOTE, &[&files, note]),
+                                None => fill(m::CHANGED_DEFINITIONS, &[&files]),
+                            }))
                         }
                     }).map_err(err);
                 }
                 Some(failed) => {
-                    let reason = format!("`{}` {}", failed.command, failed.detail);
+                    let reason = fill(m::CHECK_FAILED, &[&failed.command, &failed.detail]);
                     carried = Some(handoff(failed));
                     drop_worktree(self)?;
                     self.with_db(|c| {
                         close_attempt(c, &attempt, "failed", Some(&reason))?;
                         signal(c, "checks_passed", "attempt", &attempt, false, "check")
                     }).map_err(err)?;
-                    last_failure = Some(format!("{name}: {reason}"));
+                    last_failure = Some(fill(m::LAST_FAILURE, &[&name, &reason]));
                     index += 1;
                 }
             }
@@ -1503,8 +1498,8 @@ pub fn discard(conn: &Connection, id: &str) -> Result<()> {
     forget_worktree(&tx, &attempt.id).map_err(err)?;
     tx.execute("UPDATE tasks SET result = 'discarded', \
                 state = CASE state WHEN 'needs_review' THEN 'canceled' ELSE state END, \
-                reason = CASE state WHEN 'needs_review' THEN 'You discarded the result' ELSE reason END, updated_at = ?2 WHERE id = ?1",
-        params![id, now_ms()]).map_err(err)?;
+                reason = CASE state WHEN 'needs_review' THEN ?3 ELSE reason END, updated_at = ?2 WHERE id = ?1",
+        params![id, now_ms(), m::DISCARDED]).map_err(err)?;
     signal(&tx, "result_kept", "task", id, false, "user").map_err(err)?;
     audit(&tx, "task.discarded", id, serde_json::json!({})).map_err(err)?;
     tx.commit().map_err(err)
@@ -1585,9 +1580,8 @@ pub fn recover(conn: &Connection, worktrees: &Path) -> Result<usize> {
     let tx = conn.unchecked_transaction().map_err(err)?;
     tx.execute("UPDATE attempts SET state = 'canceled', detail = COALESCE(detail, 'The app closed while it ran'), finished_at = ?1 \
                 WHERE state = 'running'", [now]).map_err(err)?;
-    let interrupted = tx.execute("UPDATE tasks SET state = 'interrupted', phase = NULL, \
-                reason = 'The app closed while this task ran. Retry runs the step again from the same code.', updated_at = ?1 \
-                WHERE state = 'running'", [now]).map_err(err)?;
+    let interrupted = tx.execute("UPDATE tasks SET state = 'interrupted', phase = NULL, reason = ?2, updated_at = ?1 \
+                WHERE state = 'running'", params![now, m::INTERRUPTED]).map_err(err)?;
     tx.execute("UPDATE task_stages SET state = 'interrupted' WHERE state = 'running'", []).map_err(err)?;
     tx.commit().map_err(err)?;
 

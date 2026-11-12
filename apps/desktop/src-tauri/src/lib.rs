@@ -12,6 +12,7 @@ pub mod handoff;
 pub mod integrations;
 pub mod isolation;
 pub mod mcp;
+pub mod messages;
 pub mod process;
 pub mod redact;
 pub mod shell;

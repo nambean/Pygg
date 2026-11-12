@@ -1,4 +1,5 @@
 import { Check, Circle, Eye, Hourglass, LoaderCircle, SkipForward, X } from 'lucide-react';
+import { engineText } from '../lib/engineText';
 import { t } from '../lib/i18n';
 import type { Attempt, AttemptOutcome, Billing } from '../lib/tasks';
 
@@ -9,7 +10,7 @@ import type { Attempt, AttemptOutcome, Billing } from '../lib/tasks';
 export function AttemptSequence({attempts}: {attempts: Attempt[]}) {
   return <ol className="attempts" aria-label={t('Attempts')}>
     {attempts.map((attempt, index) => <li key={index} className={`attempt ${attempt.outcome}`}
-      title={`${attempt.model} · ${billingLabel(attempt.billing)} · ${outcomeLabel(attempt.outcome)}`}>
+      title={`${engineText(attempt.model)} · ${billingLabel(attempt.billing)} · ${outcomeLabel(attempt.outcome)}`}>
       {index > 0 && <span className="attempt-arrow" aria-hidden>→</span>}
       <span className="attempt-chip">
         <OutcomeIcon outcome={attempt.outcome}/>

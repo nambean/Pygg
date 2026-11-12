@@ -69,12 +69,13 @@ pub async fn run(command: &str, dir: &Path, timeout: Duration, secrets: &[&str],
     cancel: impl std::future::Future<Output = ()>) -> CheckResult {
     let spec = Spec::shell(command, dir, timeout);
     let outcome = process::run(&spec, cancel).await;
+    use crate::messages::{self as m, fill};
     let detail = match &outcome.exit {
-        Exit::Code(code) => format!("exited {code}"),
-        Exit::Abnormal => "ended abnormally".into(),
-        Exit::TimedOut => "timed out".into(),
-        Exit::Canceled => "canceled".into(),
-        Exit::FailedToStart(e) => format!("could not start: {e}"),
+        Exit::Code(code) => fill(m::EXITED, &[code]),
+        Exit::Abnormal => m::ABNORMAL.into(),
+        Exit::TimedOut => m::TIMED_OUT.into(),
+        Exit::Canceled => m::CANCELED.into(),
+        Exit::FailedToStart(e) => fill(m::COULD_NOT_START, &[e]),
     };
     let combined = format!("{}{}", outcome.stdout, outcome.stderr);
     let tail: String = {

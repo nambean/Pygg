@@ -292,7 +292,7 @@ pub fn read_usage(agent: &str, stdout: &str) -> AgentUsage {
             u.model = doc["modelUsage"].as_object().and_then(|m| m.keys().next().cloned());
             u.result = doc["result"].as_str().map(String::from);
             if doc["is_error"] == true {
-                u.error = u.result.clone().or(Some("the agent reported an error".into()));
+                u.error = u.result.clone().or(Some(crate::messages::AGENT_ERROR.into()));
             }
         }
         "gemini-cli" => {
@@ -357,15 +357,16 @@ pub const ATTEMPT_ENV: &str = "PYGG_ATTEMPT_ID";
 /// the result measured. The worktree is kept for the user to keep as a branch or discard.
 pub async fn run(request: &TaskRequest, worktrees: &Path, cancel: impl std::future::Future<Output = ()>)
     -> Result<TaskRun, String> {
-    let spec = find(&request.agent).ok_or_else(|| format!("unknown agent {}", request.agent))?;
+    use crate::messages::{self as m, fill};
+    let spec = find(&request.agent).ok_or_else(|| fill(m::UNKNOWN_AGENT, &[&request.agent]))?;
     if request.prompt.trim().is_empty() {
-        return Err("Describe the task".into());
+        return Err(m::DESCRIBE.into());
     }
     if !isolation::is_repository(&request.workspace) {
-        return Err("The workspace must be a Git repository: the agent works on a separate copy of it.".into());
+        return Err(m::NOT_A_REPOSITORY_WORKSPACE.into());
     }
     let launch = spec.programs.iter().find_map(|p| locate(p))
-        .ok_or_else(|| format!("{} is not installed, or not on PATH. See {}", spec.name, spec.install))?;
+        .ok_or_else(|| fill(m::NOT_INSTALLED, &[&spec.name, &spec.install]))?;
     let id = uuid::Uuid::new_v4().simple().to_string();
     let base = match request.base.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
         Some(base) => base.to_string(),
@@ -392,12 +393,12 @@ pub async fn run(request: &TaskRequest, worktrees: &Path, cancel: impl std::futu
     let usage = read_usage(spec.id, &outcome.stdout);
     let stat = isolation::changes(&worktree).unwrap_or_default();
     let (status, exit) = match &outcome.exit {
-        Exit::Code(0) if usage.error.is_none() => ("ok", "exit 0".to_string()),
-        Exit::Code(code) => ("failed", format!("exit {code}")),
-        Exit::Abnormal => ("failed", "ended abnormally".to_string()),
-        Exit::TimedOut => ("timed_out", "timed out".to_string()),
-        Exit::Canceled => ("canceled", "canceled".to_string()),
-        Exit::FailedToStart(e) => ("not_started", format!("could not start: {e}")),
+        Exit::Code(0) if usage.error.is_none() => ("ok", fill(m::EXIT, &[&0])),
+        Exit::Code(code) => ("failed", fill(m::EXIT, &[code])),
+        Exit::Abnormal => ("failed", m::ABNORMAL.to_string()),
+        Exit::TimedOut => ("timed_out", m::TIMED_OUT.to_string()),
+        Exit::Canceled => ("canceled", m::CANCELED.to_string()),
+        Exit::FailedToStart(e) => ("not_started", fill(m::COULD_NOT_START, &[e])),
     };
     let tail = |text: &str| text.chars().rev().take(1500).collect::<Vec<_>>().into_iter().rev().collect::<String>();
     Ok(TaskRun {

@@ -194,4 +194,92 @@ export const tasks: Record<string, string> = {
   'This step would let the agent read and change this workspace’s code. Pygg cannot yet check where an agent sends it, so it asks first.':
     'Bước này cho agent đọc và sửa code của workspace này. Pygg chưa kiểm được agent gửi code đi đâu, nên hỏi trước.',
   'Allow This Step': 'Cho phép bước này',
+
+  // Engine text (src/lib/engineText.ts, src-tauri/src/messages.rs)
+  "Step {0} ({1}) is paid, and today's budget for paid steps is used; it resets at 00:00 UTC. Raise the budget in Settings, or start the task again after the reset.":
+    "Bước {0} ({1}) là bước trả phí, mà ngân sách hôm nay cho bước trả phí đã hết; ngân sách đặt lại lúc 00:00 UTC. Hãy nâng ngân sách trong Cài đặt, hoặc chạy lại tác vụ sau giờ đó.",
+  "Step {0} ({1}) is marked paid, so it waits for your approval.":
+    "Bước {0} ({1}) là bước trả phí, nên chờ bạn duyệt.",
+  "Step {0} ({1}) waits for your approval: the workspace is sensitive, so every step asks before an agent sees its code.":
+    "Bước {0} ({1}) chờ duyệt: workspace này nhạy cảm, nên mọi bước đều hỏi trước khi agent được xem code.",
+  "You stopped it":
+    "Bạn đã dừng tác vụ",
+  "You declined the step it was waiting on":
+    "Bạn đã từ chối bước mà tác vụ đang chờ",
+  "{0}. Pygg stopped before trying another step.":
+    "{0}. Pygg đã dừng, không thử bước tiếp theo.",
+  "Every step failed. Last: {0}":
+    "Mọi bước đều thất bại. Lần cuối: {0}",
+  "no attempt ran":
+    "chưa có lần chạy nào",
+  "No checks are approved for this workspace, so nothing confirmed the result. Review the changes yourself.":
+    "Workspace này chưa có check nào được duyệt, nên chưa có gì xác nhận kết quả. Hãy tự xem lại các thay đổi.",
+  "No checks are approved for this workspace, so nothing confirmed the result. Review the changes yourself. {0}.":
+    "Workspace này chưa có check nào được duyệt, nên chưa có gì xác nhận kết quả. Hãy tự xem lại các thay đổi. {0}.",
+  "The checks passed, but this attempt changed {0}, which defines them. Review the changes before trusting the result.":
+    "Các check đã qua, nhưng lần chạy này sửa {0}, là nơi định nghĩa các check đó. Hãy xem lại thay đổi trước khi tin kết quả.",
+  "The checks passed, but this attempt changed {0}, which defines them. Review the changes before trusting the result. {1}.":
+    "Các check đã qua, nhưng lần chạy này sửa {0}, là nơi định nghĩa các check đó. Hãy xem lại thay đổi trước khi tin kết quả. {1}.",
+  "{0}.":
+    "{0}.",
+  "You discarded the result":
+    "Bạn đã bỏ kết quả",
+  "The app closed while this task ran. Retry runs the step again from the same code.":
+    "Ứng dụng bị đóng khi tác vụ đang chạy. Chạy lại sẽ chạy lại bước đó từ cùng phiên bản code.",
+  "{0} for this step, ${1}, is over your cap of ${2}":
+    "{0} cho bước này là ${1}, vượt mức trần ${2} của bạn",
+  "Pygg's ledger":
+    "Sổ chi của Pygg",
+  "{0}'s own estimate":
+    "Ước tính của chính {0}",
+  "{0} of this step's requests through Pygg had no price (enter the model's price in Connections), so your cap for this step could not be checked":
+    "{0} request của bước này qua Pygg chưa có giá (nhập giá model trong Kết nối), nên không kiểm được mức trần của bước",
+  "{0} reported no cost, so your cap for this step could not be checked":
+    "{0} không báo chi phí, nên không kiểm được mức trần của bước",
+  "Skipped: {0} timed out on its last two runs in the past 30 minutes without answering, so Pygg did not wait for it again":
+    "Bỏ qua: {0} đã hết giờ mà không trả lời ở hai lần chạy gần nhất trong 30 phút qua, nên Pygg không chờ nữa",
+  "You declined this step":
+    "Bạn đã từ chối bước này",
+  "{0} could not run: {1}":
+    "{0} không chạy được: {1}",
+  "{0} did not finish: {1}":
+    "{0} không chạy xong: {1}",
+  "The agent made no changes":
+    "Agent không sửa gì",
+  "`{0}` {1}":
+    "`{0}` {1}",
+  "{0}: {1}":
+    "{0}: {1}",
+  "exit {0}":
+    "thoát với mã {0}",
+  "exited {0}":
+    "thoát với mã {0}",
+  "ended abnormally":
+    "kết thúc bất thường",
+  "timed out":
+    "hết giờ",
+  "canceled":
+    "đã huỷ",
+  "could not start: {0}":
+    "không khởi động được: {0}",
+  "the agent reported an error":
+    "agent báo lỗi",
+  "unknown agent {0}":
+    "không biết agent {0}",
+  "Describe the task":
+    "Hãy mô tả tác vụ",
+  "The workspace must be a Git repository: the agent works on a separate copy of it.":
+    "Workspace phải là một Git repository: agent làm việc trên một bản sao riêng của nó.",
+  "{0} is not installed, or not on PATH. See {1}":
+    "{0} chưa được cài, hoặc không có trong PATH. Xem {1}",
+  "{0} is not a Git repository":
+    "{0} không phải là Git repository",
+  "Git was not found on this computer":
+    "Không tìm thấy Git trên máy này",
+  "A branch named {0} already exists":
+    "Đã có nhánh tên {0}",
+  "git {0} failed: {1}":
+    "git {0} thất bại: {1}",
+  "{0} · {1}":
+    "{0} · {1}",
 };

@@ -3,6 +3,7 @@ import { Check, ChevronLeft, FileDown, GitBranch, Play, RotateCcw, Square, Trash
 import { call, errorText, gatewayChanged } from '../lib/api';
 import { taskCost } from '../lib/format';
 import { t } from '../lib/i18n';
+import { engineText } from '../lib/engineText';
 import { tokens } from '../lib/money';
 import { AGENT_NAMES, type ApprovalView, type AttemptView, type TaskDetail as Detail } from '../lib/tasks';
 import { useGateway } from '../hooks/useGateway';
@@ -87,7 +88,7 @@ function Actions({task, onChanged}: {task: Detail; onChanged: () => void}) {
   }, [task.id, resultId]);
 
   return <section className="group task-actions">
-    {task.reason && <p className={task.state === 'checks_passed' || task.state === 'manually_accepted' ? 'group-footnote' : 'warning-note'}>{task.reason}</p>}
+    {task.reason && <p className={task.state === 'checks_passed' || task.state === 'manually_accepted' ? 'group-footnote' : 'warning-note'}>{engineText(task.reason)}</p>}
     {task.result === 'kept' && task.resultBranch && <p className="ok-note">
       {t('Kept as branch {branch}. Your checkout was not changed.', {branch: task.resultBranch})}</p>}
     {task.result === 'discarded' && <p className="group-footnote">{t('The result was discarded.')}</p>}
@@ -155,7 +156,7 @@ function ApprovalPanel({approval: a, busy, onDecide}: {approval: ApprovalView; b
   const money = (micro: number) => `$${(micro / 1e6).toFixed(2)}`;
   if (!a.paid) return <div className="group-box approval-panel">
     <div className="agent-result-head"><Badge tone="warn">{t('Sensitive workspace')}</Badge>
-      <span className="mono">{t('Step {n}', {n: a.step + 1})} · {a.label}</span></div>
+      <span className="mono">{t('Step {n}', {n: a.step + 1})} · {engineText(a.label)}</span></div>
     <p className="secondary">{t('This step would let the agent read and change this workspace’s code. Pygg cannot yet check where an agent sends it, so it asks first.')}</p>
     <div className="form-actions">
       <button type="button" className="button prominent" disabled={busy} onClick={() => onDecide(true, null)}>
@@ -166,7 +167,7 @@ function ApprovalPanel({approval: a, busy, onDecide}: {approval: ApprovalView; b
   </div>;
   return <div className="group-box approval-panel">
     <div className="agent-result-head"><Badge tone="warn">{t('Paid step')}</Badge>
-      <span className="mono">{t('Step {n}', {n: a.step + 1})} · {a.label}</span></div>
+      <span className="mono">{t('Step {n}', {n: a.step + 1})} · {engineText(a.label)}</span></div>
     <p className="secondary">{e.highMicroUsd === null || e.lowMicroUsd === null
       ? t('No estimate: this agent and model have no earlier run that reported a cost.')
       : e.lowMicroUsd === e.highMicroUsd
@@ -196,13 +197,13 @@ function AttemptRow({attempt: a}: {attempt: AttemptView}) {
     <span className={`attempt-number ${a.outcome}`}>{a.number}</span>
     <div className="attempt-body">
       <div className="attempt-line">
-        <span className="mono selectable">{a.label}</span>
+        <span className="mono selectable">{engineText(a.label)}</span>
         <small className="secondary">{t('Step {n}', {n: a.step + 1})} · T{a.tier} · {billingLabel(a.billing)}
           {a.agentModel ? ` · ${a.agentModel}` : ''}</small>
         <span className="spacer"/>
         <span className="value">{a.outcome === 'running' ? <><Play size={11} aria-hidden/> {outcomeLabel(a.outcome)}</> : outcomeLabel(a.outcome)}</span>
       </div>
-      {a.escalationReason && <p className="secondary">{a.escalationReason}</p>}
+      {a.escalationReason && <p className="secondary">{engineText(a.escalationReason)}</p>}
       {(a.filesChanged !== null || a.inputTokens !== null) && <p className="secondary">
         {a.filesChanged !== null && t('{files} files, +{ins} −{del}', {files: a.filesChanged, ins: a.insertions ?? 0, del: a.deletions ?? 0})}
         {a.inputTokens !== null && ` · ${t('{input} in · {output} out', {input: tokens(a.inputTokens), output: tokens(a.outputTokens ?? 0)})}`}
@@ -216,7 +217,7 @@ function AttemptRow({attempt: a}: {attempt: AttemptView}) {
       {a.checks.length > 0 && <ul className="check-results">
         {a.checks.map(c => <li key={c.command} className={c.passed ? 'passed' : 'failed'}>
           {c.passed ? <Check size={12} aria-hidden/> : <X size={12} aria-hidden/>}
-          <span className="mono">{c.command}</span><small className="secondary">{c.detail} · {t('{s} s', {s: (c.durationMs / 1000).toFixed(1)})}</small>
+          <span className="mono">{c.command}</span><small className="secondary">{engineText(c.detail)} · {t('{s} s', {s: (c.durationMs / 1000).toFixed(1)})}</small>
         </li>)}
       </ul>}
       {a.handoffSent && <details><summary>{t('What it was told about earlier attempts')}</summary>

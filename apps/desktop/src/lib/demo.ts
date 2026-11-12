@@ -574,7 +574,7 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'worksp
     const waiting = attempts.find(a => a.outcome === 'waiting');
     return {...s, prompt: s.title, strategy: 'free_first', reason: s.state === 'interrupted'
       ? 'The app closed while this task ran. Retry runs the step again from the same code.'
-      : s.state === 'waiting_approval' ? 'Step 2 is marked paid, so it waits for your approval.' : null,
+      : s.state === 'waiting_approval' ? `Step 2 (${s.attempts[1]?.model ?? 'Claude Code · default model'}) is marked paid, so it waits for your approval.` : null,
       result: null, resultBranch: null, baseRevision: 'a91e7e7', workspaceName: ws.name, workspacePath: ws.path,
       policy: {steps: s.attempts.map((a, i) => ({agent: attempts[i].agent, model: null, tier: a.tier, billing: a.billing})), checks,
         allowShell: false, timeoutSecs: 900},
@@ -645,7 +645,7 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'worksp
     decideTask: async (id, approve, capUsd) => { await sleep(150);
       if (approve && !(capUsd && capUsd > 0)) throw 'Set a spending cap for this paid step';
       set(id, approve ? {state: 'running', phase: 'generating', reason: null, approval: null, attempts: get(id).attempts.map(a => a.outcome === 'waiting' ? {...a, outcome: 'running'} : a)}
-        : {state: 'blocked', reason: 'You declined the paid step, and no step after it is free to run', attempts: get(id).attempts.map(a => a.outcome === 'waiting' ? {...a, outcome: 'canceled'} : a)}); },
+        : {state: 'blocked', reason: 'You declined the step it was waiting on', attempts: get(id).attempts.map(a => a.outcome === 'waiting' ? {...a, outcome: 'canceled'} : a)}); },
     retryTask: async id => { if (get(id).state !== 'interrupted') throw 'Only an interrupted task can be retried';
       set(id, {state: 'running', phase: 'preparing', reason: null}); },
     taskDiff: () => touch(DEMO_DIFF),

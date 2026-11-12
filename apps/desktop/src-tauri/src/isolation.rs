@@ -15,13 +15,15 @@ pub enum IsolationError {
     Git { args: String, message: String },
 }
 
+use crate::messages::{self as m, fill};
+
 impl std::fmt::Display for IsolationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            IsolationError::NotARepository(p) => write!(f, "{} is not a Git repository", p.display()),
-            IsolationError::GitMissing => write!(f, "Git was not found on this computer"),
-            IsolationError::BranchExists(b) => write!(f, "A branch named {b} already exists"),
-            IsolationError::Git { args, message } => write!(f, "git {args} failed: {message}"),
+            IsolationError::NotARepository(p) => f.write_str(&fill(m::NOT_A_REPOSITORY, &[&p.display()])),
+            IsolationError::GitMissing => f.write_str(m::GIT_MISSING),
+            IsolationError::BranchExists(b) => f.write_str(&fill(m::BRANCH_EXISTS, &[b])),
+            IsolationError::Git { args, message } => f.write_str(&fill(m::GIT_FAILED, &[args, message])),
         }
     }
 }
