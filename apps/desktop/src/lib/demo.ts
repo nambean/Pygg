@@ -5,7 +5,8 @@
  * costs) closely enough for design review, not as a test of them.
  */
 import type { AgentInfo, Integration, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
-  Health, Model, Preset, Target, Tier, UsageEvent, UsageBucket, UsageGroup, UsageSummary, Account, Wire } from './api';
+  Health, Model, Preset, Target, Tier, UsageEvent, UsageBucket, UsageGroup, UsageSummary, Account, Wire,
+  LocalUsage, SubscriptionUsage } from './api';
 import { TIERS } from './api';
 import { SAMPLE_WORKSPACES, sampleTasks } from './sample';
 import type { AttemptView, NewTask, TaskDetail, TaskSummary, WorkspaceView } from './tasks';
@@ -92,6 +93,7 @@ const DEMO_MODELS: Record<string, string[]> = {
   groq: ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b'],
   deepseek: ['deepseek-chat', 'deepseek-reasoner'],
   ollama: ['qwen2.5-coder:7b', 'llama3.2:3b'],
+  qwen: ['qwen3-coder-plus', 'qwen3-coder-flash'],
   custom: [],
 };
 
@@ -121,6 +123,8 @@ export function demoApi(): GatewayApi {
       defaultBilling: 'paid', dataUseTerms: 'unknown', termsSource: null, termsCheckedAt: null, createdAt: now - 5 * 86_400_000, key: true, wire: 'openai', separateQuota: false, quotaConfirmedAt: null},
     {id: 'ollama', kind: 'ollama', label: 'Ollama', endpoint: PRESETS[5].endpoint!, enabled: true, credentialRef: null,
       defaultBilling: 'local', dataUseTerms: 'unknown', termsSource: null, termsCheckedAt: null, createdAt: now - 4 * 86_400_000, key: false, wire: 'openai', separateQuota: false, quotaConfirmedAt: null},
+    {id: 'qwen-plan', kind: 'qwen', label: 'Qwen Coding Plan', endpoint: PRESETS.find(p => p.id === 'qwen')!.endpoint!, enabled: true, credentialRef: 'provider-demo4',
+      defaultBilling: 'subscription', dataUseTerms: 'unknown', termsSource: null, termsCheckedAt: null, createdAt: now - 3 * 86_400_000, key: true, wire: 'openai', separateQuota: false, quotaConfirmedAt: null},
   ];
   const UNKNOWN: Capabilities = {tier: null, contextTokens: null, maxOutputTokens: null, supportsTools: null, supportsVision: null,
     thinkingTypes: null, effortLevels: null, tierSource: null, tierNote: null, source: null, observedAt: null};
@@ -137,6 +141,7 @@ export function demoApi(): GatewayApi {
   addModels('anthropic', DEMO_MODELS.anthropic);
   addModels('openrouter', DEMO_MODELS.openrouter);
   addModels('ollama', DEMO_MODELS.ollama);
+  addModels('qwen-plan', DEMO_MODELS.qwen);
   const priced = models.find(m => m.modelId === 'gemini-3.1-flash-lite')!;
   priced.price = {inputMicroPerMtok: 100_000, outputMicroPerMtok: 400_000, cachedInputMicroPerMtok: 25_000, source: 'user', observedAt: now - 86_400_000};
   const sonnet = models.find(m => m.modelId === 'claude-sonnet-4-5')!;
@@ -240,6 +245,27 @@ export function demoApi(): GatewayApi {
     }
   }
 
+  // A coding plan billed by the month, and more local runs: the Subscriptions and Local Runtime tabs (SCREENS.md §5.6).
+  for (let i = 0; i < 40; i++) {
+    const at = now - Math.round(i * 55 * 60_000 * (0.6 + random()));
+    const input = Math.round(3_000 + random() * 40_000), output = Math.round(200 + random() * 3_000);
+    const base = {createdAt: at, client: 'Claude Code', error: null, cacheTokens: null, cacheWriteTokens: null, sessionKey: null,
+      routeMode: 'native', atRiskMicroUsd: null, routeReason: null, httpStatus: 200};
+    if (i % 3 === 2) {
+      const small = i % 2 === 0;
+      events.push({...base, id: `l${i}`, requestedModel: 'local-first', provider: 'ollama', model: small ? 'llama3.2:3b' : 'qwen2.5-coder:7b',
+        inputTokens: input, outputTokens: output, costMicroUsd: 0, costStatus: 'estimated', costSource: 'local model', outcome: 'ok',
+        latencyMs: Math.round((small ? 1_500 : 6_000) + random() * 9_000)});
+    } else {
+      const failed = random() < 0.06;
+      events.push({...base, id: `s${i}`, requestedModel: 'qwen-plan/qwen3-coder-plus', provider: 'qwen-plan',
+        model: i % 5 === 0 ? 'qwen3-coder-flash' : 'qwen3-coder-plus', inputTokens: failed ? null : input, outputTokens: failed ? null : output,
+        costMicroUsd: null, costStatus: 'unknown', costSource: 'subscription: counts against a quota, not money',
+        outcome: failed ? 'error' : 'ok', httpStatus: failed ? 429 : 200, latencyMs: Math.round(800 + random() * 4_000),
+        error: failed ? 'Qwen answered HTTP 429: Requests rate limit exceeded.' : null});
+    }
+  }
+
   // `?empty` starts from nothing, to review first-run states.
   if (new URLSearchParams(location.search).has('empty')) {
     connections.length = 0;
@@ -267,9 +293,31 @@ export function demoApi(): GatewayApi {
       health: health.filter(h => h.providerId === c.id && (h.untilMs === null || h.untilMs > Date.now())),
       sharesQuotaWith: connections.filter(o => o.id !== c.id && quotaGroup(o) === quotaGroup(c)).map(o => o.label),
       // Illustrative: what Anthropic's API sends with an answer.
-      limits: c.kind === 'anthropic' ? [{modelId: 'claude-sonnet-4-5', httpStatus: 200, observedAt: Date.now() - 6 * 60_000, headers: {
+      limits: c.kind === 'qwen' ? planLimits() : c.kind === 'anthropic' ? [{modelId: 'claude-sonnet-4-5', httpStatus: 200, observedAt: Date.now() - 6 * 60_000, headers: {
         'anthropic-ratelimit-requests-limit': '50', 'anthropic-ratelimit-requests-remaining': '49',
         'anthropic-ratelimit-tokens-remaining': '39000', 'anthropic-ratelimit-tokens-reset': '2026-11-12T02:31:00Z'}}] : []};
+  }
+  /** Illustrative: the windows a coding plan states with each answer, already read as quota.rs reads them. */
+  function planLimits() {
+    const observedAt = Date.now() - 3 * 60_000;
+    return [{modelId: 'qwen3-coder-plus', httpStatus: 200, observedAt, headers: {'x-ratelimit-limit-requests': '6000',
+      'x-ratelimit-remaining-requests': '5212', 'x-ratelimit-reset-requests': '4h12m'},
+      windows: [{kind: 'requests', limit: 6000, remaining: 5212, resetsAt: observedAt + (4 * 60 + 12) * 60_000}]}];
+  }
+  /** Which tab a ledger row belongs to, as store.rs `row_billing!` decides it. */
+  function rowBilling(e: UsageEvent): Billing {
+    if (e.costSource.startsWith('subscription')) return 'subscription';
+    if (e.costSource === 'local model') return 'local';
+    if ((e.costMicroUsd ?? 0) > 0) return 'paid';
+    return connections.find(c => c.id === e.provider)?.defaultBilling ?? 'unknown';
+  }
+  const tally = (list: UsageEvent[]) => ({requests: list.length, notOk: list.filter(e => e.outcome !== 'ok').length,
+    inputTokens: list.reduce((s, e) => s + (e.inputTokens ?? 0), 0), outputTokens: list.reduce((s, e) => s + (e.outputTokens ?? 0), 0),
+    lastUsedAt: list.length ? Math.max(...list.map(e => e.createdAt)) : null});
+  function median(values: number[]): number | null {
+    if (!values.length) return null;
+    const sorted = [...values].sort((a, b) => a - b), mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : Math.ceil((sorted[mid - 1] + sorted[mid]) / 2);
   }
   function find(id: string): Stored {
     const c = connections.find(x => x.id === id);
@@ -532,6 +580,27 @@ export function demoApi(): GatewayApi {
         byModel: groups(list, e => `${e.provider}/${e.model}`), byClient: groups(list, e => e.client ?? ''),
         recent: [...list].sort((a, b) => b.createdAt - a.createdAt).slice(0, 200)};
       return touch(summary);
+    },
+    usageSubscriptions: async days => {
+      const list = events.filter(e => e.createdAt >= Date.now() - days * 86_400_000 && rowBilling(e) === 'subscription');
+      const out: SubscriptionUsage[] = connections.filter(c => c.defaultBilling === 'subscription').map(c => {
+        const v = view(c);
+        return {providerId: c.id, label: c.label, kind: c.kind, ...tally(list.filter(e => e.provider === c.id)), limits: v.limits ?? [],
+          account: v.account ?? null};
+      });
+      return touch(out.sort((a, b) => b.requests - a.requests));
+    },
+    usageLocal: async days => {
+      const list = events.filter(e => e.createdAt >= Date.now() - days * 86_400_000 && rowBilling(e) === 'local');
+      const out: LocalUsage[] = connections.filter(c => c.defaultBilling === 'local').map(c => {
+        const mine = list.filter(e => e.provider === c.id);
+        const models = [...new Set(mine.map(e => e.model))].map(model => {
+          const rows = mine.filter(e => e.model === model);
+          return {model, ...tally(rows), medianLatencyMs: median(rows.filter(e => e.outcome === 'ok' && e.latencyMs !== null).map(e => e.latencyMs!))};
+        }).sort((a, b) => b.requests - a.requests);
+        return {providerId: c.id, label: c.label, kind: c.kind, models};
+      });
+      return touch(out);
     },
     exportUsage: async () => { await sleep(200); return 'C:\\Users\\you\\Downloads\\pygg-usage.csv'; },
     exportDiagnostics: async () => { await sleep(200); return 'C:\\Users\\you\\Downloads\\pygg-diagnostics.zip'; },

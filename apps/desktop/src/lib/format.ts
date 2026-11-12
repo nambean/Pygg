@@ -1,4 +1,5 @@
 import { locale, t } from './i18n';
+import type { QuotaWindow } from './api';
 import type { TaskCost } from './tasks';
 
 /** "$0.08", "$3.42", "$0.004": two decimals, three for sub-cent amounts. Never used for unknown values. */
@@ -44,4 +45,17 @@ export function taskCost(cost: TaskCost): string {
     parts.push(cost.unknownCalls === 1 ? t('1 call unknown') : t('{n} calls unknown', {n: cost.unknownCalls}));
   }
   return parts.length ? parts.join(' · ') : usd(0);
+}
+
+/** One stated limit in words: "requests: 12 of 50 left, resets 14:00". */
+export function windowText(w: QuotaWindow): string {
+  const names: Record<string, string> = {requests: t('requests'), tokens: t('tokens'), input_tokens: t('input tokens'),
+    output_tokens: t('output tokens'), free_requests_per_day: t('free requests today'), retry: t('asked to wait')};
+  const name = names[w.kind] ?? w.kind;
+  const left = w.remaining === null ? '' : w.limit !== null
+    ? t('{left} of {limit} left', {left: w.remaining.toLocaleString(), limit: w.limit.toLocaleString()})
+    : t('{left} left', {left: w.remaining.toLocaleString()});
+  const reset = w.resetsAt && w.resetsAt > Date.now()
+    ? t('resets {time}', {time: new Date(w.resetsAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}) : '';
+  return [name + (left ? `: ${left}` : ''), reset].filter(Boolean).join(', ');
 }

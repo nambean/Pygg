@@ -216,6 +216,8 @@ pub fn run() {
             commands::usage_summary,
             commands::usage_over_time,
             commands::usage_export,
+            commands::usage_subscriptions,
+            commands::usage_local,
             commands::connection_check_account,
             commands::diagnostics_export,
         ])

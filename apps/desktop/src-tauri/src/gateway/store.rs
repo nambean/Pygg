@@ -1554,6 +1554,179 @@ pub fn usage_summary(conn: &Connection, since: i64, recent_limit: usize) -> Resu
     Ok(UsageSummary { since, total, by_model, by_client, recent })
 }
 
+// ---------- Subscriptions and local runtime (Usage tabs, SCREENS.md §5.6) ----------
+
+/// How a ledger row was billed, for the Usage tabs. The row says so itself where its cost source does (`pricing.rs`:
+/// "subscription: …" and "local model"); a row that cost money is not either; otherwise the model's billing now, by
+/// the same rule as the model list (`billing!`). Rows from an agent's own sign-in (`route_mode = 'agent'`) are on no
+/// connection and are left out by the callers.
+macro_rules! row_billing {
+    () => { concat!("CASE WHEN u.source LIKE 'subscription%' THEN 'subscription' WHEN u.source = 'local model' THEN 'local' \
+        WHEN COALESCE(u.cost_micro_usd, 0) > 0 THEN 'paid' ELSE ", billing!(), " END") };
+}
+
+/// One subscription connection: what went through it in the period, and the limits its provider last stated.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscriptionUsage {
+    pub provider_id: String,
+    /// The connection's label; the id when the connection was removed since.
+    pub label: String,
+    pub kind: Option<String>,
+    pub requests: u64,
+    /// Requests that ended in an error or fell back to another model.
+    pub not_ok: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub last_used_at: Option<i64>,
+    /// The rate-limit windows from the provider's last answer, per model (`list_limits`). Empty: none stated.
+    pub limits: Vec<RateLimits>,
+    /// The account's balance or allowance as last read, where the provider has an endpoint for it.
+    pub account: Option<super::quota::Account>,
+}
+
+/// One model on a local connection: requests, tokens and how long they took.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalModelUsage {
+    pub model: String,
+    pub requests: u64,
+    pub not_ok: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    /// The median time taken by its successful requests; `None` when none succeeded.
+    pub median_latency_ms: Option<u64>,
+    pub last_used_at: Option<i64>,
+}
+
+/// One local connection (Ollama, LM Studio, …) and its models.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalUsage {
+    pub provider_id: String,
+    pub label: String,
+    pub kind: Option<String>,
+    /// Busiest first; empty when nothing ran on it in the period.
+    pub models: Vec<LocalModelUsage>,
+}
+
+/// One (connection, model) total of the rows of one billing since `since`, with the latency of each successful row.
+struct Tally {
+    provider_id: String,
+    model: String,
+    requests: u64,
+    not_ok: u64,
+    input_tokens: u64,
+    output_tokens: u64,
+    last_used_at: i64,
+    ok_latencies: Vec<u64>,
+}
+
+fn tally(conn: &Connection, billing: &str, since: i64) -> Result<Vec<Tally>> {
+    let sql = concat!("SELECT u.provider, u.model, u.outcome, u.input_tokens, u.output_tokens, u.latency_ms, u.created_at \
+         FROM usage_events u LEFT JOIN providers p ON p.id = u.provider \
+         LEFT JOIN models m ON m.provider_id = u.provider AND m.model_id = u.model \
+         WHERE u.created_at >= ?1 AND COALESCE(u.route_mode, '') <> 'agent' AND (", row_billing!(), ") = ?2 \
+         ORDER BY u.provider, u.model");
+    let mut stmt = conn.prepare(sql).map_err(err)?;
+    let mut rows = stmt.query(params![since, billing]).map_err(err)?;
+    let mut out: Vec<Tally> = Vec::new();
+    while let Some(r) = rows.next().map_err(err)? {
+        let (provider_id, model): (String, String) = (r.get(0).map_err(err)?, r.get(1).map_err(err)?);
+        let outcome: String = r.get(2).map_err(err)?;
+        let n = |i: usize| r.get::<_, Option<i64>>(i).map(|v| v.unwrap_or(0).max(0) as u64).map_err(err);
+        let (input, output) = (n(3)?, n(4)?);
+        let latency: Option<i64> = r.get(5).map_err(err)?;
+        let at: i64 = r.get(6).map_err(err)?;
+        if !out.last().is_some_and(|t| t.provider_id == provider_id && t.model == model) {
+            out.push(Tally { provider_id, model, requests: 0, not_ok: 0, input_tokens: 0, output_tokens: 0, last_used_at: at,
+                ok_latencies: Vec::new() });
+        }
+        let t = out.last_mut().expect("pushed above");
+        t.requests += 1;
+        t.input_tokens += input;
+        t.output_tokens += output;
+        t.last_used_at = t.last_used_at.max(at);
+        if outcome == "ok" {
+            if let Some(ms) = latency {
+                t.ok_latencies.push(ms.max(0) as u64);
+            }
+        } else {
+            t.not_ok += 1;
+        }
+    }
+    Ok(out)
+}
+
+/// The middle value; the mean of the two middle ones for an even count.
+fn median(mut values: Vec<u64>) -> Option<u64> {
+    if values.is_empty() {
+        return None;
+    }
+    values.sort_unstable();
+    let mid = values.len() / 2;
+    Some(if values.len() % 2 == 1 { values[mid] } else { (values[mid - 1] + values[mid]).div_ceil(2) })
+}
+
+/// The connections billed `billing` now (as a connection or for one of its models), with their label and kind, plus
+/// those named only by ledger rows (removed since): (id, label, kind).
+fn connections_billed(conn: &Connection, billing: &str, seen: &[String]) -> Result<Vec<(String, String, Option<String>)>> {
+    let mut stmt = conn.prepare(concat!("SELECT p.id, p.account_label, p.kind FROM providers p WHERE p.default_billing = ?1 \
+         OR EXISTS (SELECT 1 FROM models m WHERE m.provider_id = p.id AND (", billing!(), ") = ?1) ORDER BY p.account_label")).map_err(err)?;
+    let mut out: Vec<(String, String, Option<String>)> = stmt
+        .query_map([billing], |r| Ok((r.get(0)?, r.get(1)?, Some(r.get(2)?)))).map_err(err)?
+        .collect::<rusqlite::Result<_>>().map_err(err)?;
+    for id in seen {
+        if !out.iter().any(|(known, ..)| known == id) {
+            let found = get_provider(conn, id)?;
+            out.push((id.clone(), found.as_ref().map_or_else(|| id.clone(), |p| p.label.clone()), found.map(|p| p.kind)));
+        }
+    }
+    Ok(out)
+}
+
+/// Usage → Subscriptions: each subscription connection's requests and tokens since `since`, and the limits its provider
+/// last stated. A subscription is paid for by the month, so no request has a price here.
+pub fn subscription_usage(conn: &Connection, since: i64) -> Result<Vec<SubscriptionUsage>> {
+    let tallies = tally(conn, "subscription", since)?;
+    let seen: Vec<String> = tallies.iter().map(|t| t.provider_id.clone()).collect();
+    let mut out = Vec::new();
+    for (provider_id, label, kind) in connections_billed(conn, "subscription", &seen)? {
+        let mine: Vec<&Tally> = tallies.iter().filter(|t| t.provider_id == provider_id).collect();
+        out.push(SubscriptionUsage {
+            requests: mine.iter().map(|t| t.requests).sum(),
+            not_ok: mine.iter().map(|t| t.not_ok).sum(),
+            input_tokens: mine.iter().map(|t| t.input_tokens).sum(),
+            output_tokens: mine.iter().map(|t| t.output_tokens).sum(),
+            last_used_at: mine.iter().map(|t| t.last_used_at).max(),
+            limits: list_limits(conn, &provider_id)?,
+            account: super::quota::saved_account(conn, &provider_id),
+            provider_id, label, kind,
+        });
+    }
+    out.sort_by(|a, b| b.requests.cmp(&a.requests).then_with(|| a.label.cmp(&b.label)));
+    Ok(out)
+}
+
+/// Usage → Local runtime: each local connection's models with their requests, tokens and median time since `since`.
+/// The API cost is $0; electricity and the computer's time are not measured.
+pub fn local_usage(conn: &Connection, since: i64) -> Result<Vec<LocalUsage>> {
+    let tallies = tally(conn, "local", since)?;
+    let seen: Vec<String> = tallies.iter().map(|t| t.provider_id.clone()).collect();
+    let mut out = Vec::new();
+    for (provider_id, label, kind) in connections_billed(conn, "local", &seen)? {
+        let mut models: Vec<LocalModelUsage> = tallies.iter().filter(|t| t.provider_id == provider_id).map(|t| LocalModelUsage {
+            model: t.model.clone(), requests: t.requests, not_ok: t.not_ok, input_tokens: t.input_tokens,
+            output_tokens: t.output_tokens, median_latency_ms: median(t.ok_latencies.clone()), last_used_at: Some(t.last_used_at),
+        }).collect();
+        models.sort_by(|a, b| b.requests.cmp(&a.requests).then_with(|| a.model.cmp(&b.model)));
+        out.push(LocalUsage { provider_id, label, kind, models });
+    }
+    let total = |l: &LocalUsage| l.models.iter().map(|m| m.requests).sum::<u64>();
+    out.sort_by(|a, b| total(b).cmp(&total(a)).then_with(|| a.label.cmp(&b.label)));
+    Ok(out)
+}
+
 // ---------- Settings ----------
 
 pub fn setting(conn: &Connection, key: &str) -> Result<Option<String>> {
@@ -1653,6 +1826,59 @@ mod tests {
         assert_eq!(summary.recent.len(), 3);
         let client = list_clients(&conn).unwrap().remove(0);
         assert_eq!((client.month_spend_micro_usd, client.month_unknown_requests), (3000, 1));
+    }
+
+    #[test]
+    fn subscription_and_local_requests_are_counted_apart_from_money() {
+        use super::super::pricing::{self, Usage};
+        let conn = db::open_in_memory().unwrap();
+        let new = |kind, label, billing| add_provider(&conn, &NewProvider { kind, label, endpoint: "https://example.test/v1",
+            credential_ref: None, default_billing: billing, wire: "openai" }).unwrap();
+        let plan = new("qwen", "Qwen token plan", "subscription");
+        let ollama = new("ollama", "Ollama", "local");
+        let paid = new("openrouter", "OpenRouter", "paid");
+        let _idle_plan = new("zai", "GLM plan", "subscription");
+        let usage = Usage { prompt: 100, completion: 20, ..Default::default() };
+        let record = |provider: &str, model: &str, cost: &Cost, outcome: &str, latency_ms: u64, route_mode: Option<&str>| {
+            record_usage(&conn, &UsageRecord { client_id: None, provider_id: provider, model_id: model, requested_model: model,
+                input_tokens: Some(100), output_tokens: Some(20), cache_tokens: None, cost, outcome, http_status: Some(200),
+                latency_ms, error: None, cache_write_tokens: None, session_key: None, route_mode, route_reason: None }).unwrap();
+        };
+        let quota = pricing::resolve("subscription", None, Some(&usage));
+        let local = pricing::resolve("local", None, Some(&usage));
+        record(&plan.id, "qwen3-coder-plus", &quota, "ok", 900, None);
+        record(&plan.id, "qwen3-coder-plus", &quota, "ok", 1100, None);
+        // A failure before the provider answered says nothing about billing; the connection's billing decides.
+        record(&plan.id, "qwen3-coder-plus", &Cost::Estimated { micro_usd: 0, source: "could not connect".into() }, "error", 5, None);
+        for ms in [300, 100, 200, 10_000] {
+            record(&ollama.id, "qwen2.5-coder:7b", &local, if ms == 10_000 { "error" } else { "ok" }, ms, None);
+        }
+        record(&ollama.id, "llama3.2:3b", &local, "ok", 40, None);
+        record(&paid.id, "qwen/qwen3-coder", &Cost::Actual { micro_usd: 900, source: "provider response".into() }, "ok", 700, None);
+        // An agent's own sign-in is on no connection.
+        record("agent:codex", "gpt-5", &Cost::Unknown { source: "subscription: agent".into() }, "ok", 60_000, Some("agent"));
+        // Left out: before the period.
+        conn.execute("UPDATE usage_events SET created_at = 5 WHERE model = 'llama3.2:3b'", []).unwrap();
+        record_limits(&conn, &plan.id, "qwen3-coder-plus", 200, &[("x-ratelimit-limit-requests".into(), "2000".into()),
+            ("x-ratelimit-remaining-requests".into(), "1997".into())]).unwrap();
+
+        let subs = subscription_usage(&conn, 1_000).unwrap();
+        let ids: Vec<&str> = subs.iter().map(|s| s.provider_id.as_str()).collect();
+        assert_eq!(ids, [plan.id.as_str(), "glm-plan"], "busiest first; a plan with no requests still shows");
+        let s = &subs[0];
+        assert_eq!((s.label.as_str(), s.requests, s.not_ok, s.input_tokens, s.output_tokens), ("Qwen token plan", 3, 1, 300, 60));
+        assert_eq!(s.limits[0].windows[0].limit, Some(2000));
+        assert!(subs[1].limits.is_empty() && subs[1].requests == 0 && subs[1].last_used_at.is_none());
+
+        let locals = local_usage(&conn, 1_000).unwrap();
+        assert_eq!(locals.len(), 1);
+        assert_eq!(locals[0].label, "Ollama");
+        assert_eq!(locals[0].models, [LocalModelUsage { model: "qwen2.5-coder:7b".into(), requests: 4, not_ok: 1, input_tokens: 400,
+            output_tokens: 80, median_latency_ms: Some(200), last_used_at: locals[0].models[0].last_used_at }],
+            "the median is of successful requests only, and an old request is outside the period");
+        assert_eq!(local_usage(&conn, 0).unwrap()[0].models.len(), 2);
+        assert_eq!(median(vec![100, 300]), Some(200));
+        assert_eq!(median(Vec::new()), None);
     }
 
     #[test]
