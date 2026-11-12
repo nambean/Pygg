@@ -1,0 +1,16 @@
+{
+  "name": "@pygg/win32-x64",
+  "version": "0.1.0-dev.0",
+  "description": "The native pygg-cli program for Windows x64, used by the pygg package. Developer preview, unsigned.",
+  "license": "MIT",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/"
+  ],
+  "preferUnplugged": true
+}

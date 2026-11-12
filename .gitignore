@@ -20,3 +20,6 @@ target-*/
 /apps/desktop/src-tauri/gen/
 # Benchmark run output (reports are committed under benchmark/reports/)
 /benchmark/runs/
+
+# The native program copied in by scripts/npm-pack.mjs; never committed.
+/packages/npm/*/bin/*.exe
