@@ -79,6 +79,25 @@ Codex recommended native Windows controls instead. The team chose traffic lights
 
 ### 2.2 Sidebar
 
+**Navigation since 2026-11-12 (owner: setup as familiar as 9router and OmniRoute; reviewed with Codex).** Most people turn Pygg on and then work in their own IDE or CLI. The sidebar therefore follows the order of setting it up, with the names those gateways use:
+
+| Screen | What it holds |
+| --- | --- |
+| **Home** | Gateway status. Before the first use: two steps, *Connect a provider* (done once a connection is on, has its key and lists models) and *Set up your coding tool* (opens CLI Tools). After: today's requests, cost, unknown-cost count, alerts |
+| **Providers** | The connections (code: `Connections.tsx`). The detail shows authentication, health, account and billing; endpoint, API format, rate limits, quota, pool, data use and model names sit under **Advanced** |
+| **Endpoint** | Gateway card (start/stop, port), the base URLs to copy (OpenAI-compatible `/v1`, Anthropic root, model `auto`), and **API Keys**: Pygg's own client tokens with their limits (code: `Clients.tsx`) |
+| **CLI Tools** | One-click setup (Codex, OpenCode: backup, own key, write, check, undo) and *Set Up by Hand* (Claude Code, OpenCode, editors such as Cline and Continue, OpenAI SDK, curl), then whether the newest request worked |
+| **Combos** | Ordered fallback lists, and how `auto` chooses (the simulator) |
+| **Usage** | Spending first, then routing, requests and task results |
+| **Smart Tasks · Experimental** | Tasks, Workspaces, Policies, Agents (agent CLIs, MCP delegation, Run a Task). On hold; the app no longer opens on a waiting task, the count still shows it |
+| **Settings** | App preferences, background, diagnostics, task budgets |
+
+Shortcuts: `Ctrl+1`…`Ctrl+6` the gateway screens in that order, `Ctrl+7` Tasks, `Ctrl+8` Agents, `Ctrl+,` Settings.
+
+Planned next, from the same review: a card per tool with *Configured, waiting for a request → Working* from that tool's own key; a Claude Code launcher that injects the gateway's variables at launch instead of editing its settings; and an *estimated comparison using the same tokens* on Home and Usage (labelled as an estimate, coverage shown, unknown cost never $0). `auto` is described as choosing an eligible model within the user's rules: it does not judge how hard a prompt is.
+
+The notes below predate this navigation where they name Overview, Connections or Clients.
+
 - Groups and rows follow DownFetch (`SidebarGroup`, `SidebarItem`): 28px rows, accent icons, quiet selected background, counts in secondary text. **Needs Approval** uses the emphasized count.
 - **Tasks** filters are views of one collection. Running excludes tasks waiting for approval. Stopped covers canceled and interrupted tasks, with the difference shown in the row. Completed is a navigation category, not a correctness claim; rows still say **Checks Passed** or **Manually Accepted**.
 - **Workspaces:** selecting a workspace scopes the current filter and its counts to that workspace. Selecting it again returns to all workspaces. The toolbar title always names the scope ("All Tasks · smarttaskrouter") so filtered counts are not mistaken for totals.

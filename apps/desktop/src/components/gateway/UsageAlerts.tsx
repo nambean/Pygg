@@ -12,8 +12,8 @@ function alertText(a: UsageAlert): string {
       {client: a.client ?? '', used: microUsd(a.value), limit: microUsd(a.against)});
     case 'spend_spike': return t('The last 24 hours cost {today}, against {average} a day over the week before.',
       {today: microUsd(a.value), average: microUsd(a.against)});
-    case 'unknown_costs': return plural(a.value, '{n} request in the last 24 hours has no known cost: give its model a price in Connections.',
-      '{n} requests in the last 24 hours have no known cost: give their models a price in Connections.');
+    case 'unknown_costs': return plural(a.value, '{n} request in the last 24 hours has no known cost: give its model a price in Providers.',
+      '{n} requests in the last 24 hours have no known cost: give their models a price in Providers.');
     case 'failures': return t('{failed} of the last hour’s {total} requests failed.', {failed: a.value, total: a.against});
   }
 }

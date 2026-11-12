@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Bot, ChartColumn, FolderGit2, Gauge, KeyRound, ListOrdered, ListTodo, PanelLeft, Plug, Plus, Search, Settings as SettingsIcon,
-  SlidersHorizontal } from 'lucide-react';
+import { Bot, ChartColumn, FolderGit2, House, Link2, ListOrdered, ListTodo, PanelLeft, Plug, Plus, Search, Settings as SettingsIcon,
+  SlidersHorizontal, TerminalSquare } from 'lucide-react';
 import './styles.css';
 import brandMark from './assets/brand-mark.svg';
 import { applyLanguage, LanguageContext, loadLanguage, resolve, t, type Language, type LanguageChoice } from './lib/i18n';
@@ -23,8 +23,9 @@ import { TaskList } from './components/TaskList';
 import { needsChecks, WorkspacesView } from './components/WorkspacesView';
 import { WindowControls } from './components/WindowControls';
 import { ErrorNote, Segmented, Spinner } from './components/ui';
-import { Clients } from './components/gateway/Clients';
+import { CliTools } from './components/gateway/CliTools';
 import { Combos } from './components/gateway/Combos';
+import { Endpoint } from './components/gateway/Endpoint';
 import { Connections } from './components/gateway/Connections';
 import { Overview, type GatewayDestination } from './components/gateway/Overview';
 import { Usage } from './components/gateway/Usage';
@@ -41,11 +42,13 @@ type View =
   | {kind: 'settings'};
 type Intent = 'connect' | 'create';
 
+// The gateway's screens in the order of setting it up, named as 9router and OmniRoute name theirs (SCREENS.md §2).
 const GATEWAY: {kind: GatewayDestination; title: string; icon: React.ReactElement}[] = [
-  {kind: 'overview', title: 'Overview', icon: <Gauge/>},
-  {kind: 'connections', title: 'Connections', icon: <Plug/>},
+  {kind: 'overview', title: 'Home', icon: <House/>},
+  {kind: 'connections', title: 'Providers', icon: <Plug/>},
+  {kind: 'endpoint', title: 'Endpoint', icon: <Link2/>},
+  {kind: 'tools', title: 'CLI Tools', icon: <TerminalSquare/>},
   {kind: 'combos', title: 'Combos', icon: <ListOrdered/>},
-  {kind: 'clients', title: 'Clients', icon: <KeyRound/>},
   {kind: 'usage', title: 'Usage', icon: <ChartColumn/>},
 ];
 const FILTER_TITLES: Record<TaskFilter, string> = {
@@ -55,7 +58,7 @@ const FILTER_TITLES: Record<TaskFilter, string> = {
 const PRIMARY: Partial<Record<GatewayDestination, {label: string; intent: Intent}>> = {
   connections: {label: 'Connect Provider…', intent: 'connect'},
   combos: {label: 'New Combo…', intent: 'create'},
-  clients: {label: 'Create Client Token…', intent: 'create'},
+  endpoint: {label: 'Create API Key…', intent: 'create'},
 };
 
 // Windows and Linux draw no title bar (tauri.windows.conf.json), so the app draws its own controls there.
@@ -85,15 +88,6 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
   const counts = useMemo(() => Object.fromEntries(FILTERS.map(f => [f, allTasks.filter(task => matchesFilter(task, f)).length])) as
     Record<TaskFilter, number>, [allTasks]);
   const attention = allTasks.filter(needsAttention).length;
-  // A paid step waiting when the app opens is the first thing to see, not the gateway's setup (UX review, 2026-11-12).
-  const openedOnce = useRef(false);
-  useEffect(() => {
-    if (openedOnce.current || !taskList.data) return;
-    openedOnce.current = true;
-    if (taskList.data.some(task => task.state === 'waiting_approval')) {
-      setView(current => current.kind === 'overview' ? {kind: 'tasks', filter: 'approval'} : current);
-    }
-  }, [taskList.data]);
 
   const go = useCallback((kind: GatewayDestination, next?: Intent) => { setView({kind}); setIntent(next); }, []);
   const intentDone = useCallback(() => setIntent(undefined), []);
@@ -112,8 +106,8 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
       }
       const index = Number(key) - 1;
       if (index >= 0 && index < GATEWAY.length) { event.preventDefault(); go(GATEWAY[index].kind); }
-      else if (key === '6') { event.preventDefault(); setView({kind: 'tasks', filter: 'all'}); }
-      else if (key === '7') { event.preventDefault(); setView({kind: 'agents'}); }
+      else if (key === '7') { event.preventDefault(); setView({kind: 'tasks', filter: 'all'}); }
+      else if (key === '8') { event.preventDefault(); setView({kind: 'agents'}); }
       else if (key === 'n' && (view.kind === 'tasks' || view.kind === 'task')) { event.preventDefault(); newTask(); }
       else if (key === ',') { event.preventDefault(); setView({kind: 'settings'}); }
       else if (key === 'f' && view.kind === 'tasks') { event.preventDefault(); searchRef.current?.focus(); }
@@ -127,8 +121,8 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
     const nav = t('Go to');
     const list: Command[] = [
       ...GATEWAY.map((g, i) => ({id: `go-${g.kind}`, group: nav, label: t(g.title), hint: `${MOD}${i + 1}`, run: () => go(g.kind)})),
-      {id: 'go-tasks', group: nav, label: t('Tasks'), hint: `${MOD}6`, run: () => setView({kind: 'tasks', filter: 'all'})},
-      {id: 'go-agents', group: nav, label: t('Agents'), hint: `${MOD}7`, run: () => setView({kind: 'agents'})},
+      {id: 'go-tasks', group: nav, label: t('Tasks'), hint: `${MOD}7`, run: () => setView({kind: 'tasks', filter: 'all'})},
+      {id: 'go-agents', group: nav, label: t('Agents'), hint: `${MOD}8`, run: () => setView({kind: 'agents'})},
       {id: 'go-workspaces', group: nav, label: t('Workspaces'), run: () => setView({kind: 'workspaces'})},
       {id: 'go-policies', group: nav, label: t('Policies'), run: () => setView({kind: 'policies'})},
       {id: 'go-settings', group: nav, label: t('Settings'), hint: `${MOD},`, run: () => setView({kind: 'settings'})},
@@ -137,10 +131,11 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
     list.push(
       {id: 'connect', group: gateway, label: t('Connect Provider…'), keywords: 'add key api', run: () => go('connections', 'connect')},
       {id: 'combo', group: gateway, label: t('New Combo…'), keywords: 'fallback', run: () => go('combos', 'create')},
-      {id: 'client', group: gateway, label: t('Create Client Token…'), keywords: 'key token', run: () => go('clients', 'create')},
+      {id: 'client', group: gateway, label: t('Create API Key…'), keywords: 'key token client', run: () => go('endpoint', 'create')},
       {id: 'auto', group: gateway, label: t('Simulate auto routing'), keywords: 'auto cheap route', run: () => go('combos')},
       {id: 'usage-export', group: gateway, label: t('Open Usage to export CSV'), keywords: 'ledger csv', run: () => go('usage')},
-      {id: 'ide', group: gateway, label: t('Set up an IDE agent…'), keywords: 'claude code codex opencode mcp', run: () => setView({kind: 'agents'})},
+      {id: 'ide', group: gateway, label: t('Set up a coding tool'), keywords: 'claude code codex opencode cline continue cli', run: () => go('tools')},
+      {id: 'mcp', group: gateway, label: t('Let an IDE agent delegate tasks (MCP)'), keywords: 'mcp agent smart task', run: () => setView({kind: 'agents'})},
     );
     const tasks = t('Tasks');
     list.push(
@@ -184,17 +179,15 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
           {GATEWAY.map((g, i) => <SidebarItem key={g.kind} icon={g.icon} label={t(g.title)} shortcut={`${MOD}${i + 1}`}
             selected={view.kind === g.kind} onSelect={() => go(g.kind)}/>)}
         </SidebarGroup>
-        <SidebarGroup title={t('Agents')}>
-          <SidebarItem icon={<Bot/>} label={t('Agents')} shortcut={`${MOD}7`}
-            selected={view.kind === 'agents'} onSelect={() => setView({kind: 'agents'})}/>
-        </SidebarGroup>
-        <SidebarGroup title={t('Smart Tasks')}>
-          <SidebarItem icon={<ListTodo/>} label={t('Tasks')} count={attention} emphasized shortcut={`${MOD}6`}
+        <SidebarGroup title={t('Smart Tasks · Experimental')}>
+          <SidebarItem icon={<ListTodo/>} label={t('Tasks')} count={attention} emphasized shortcut={`${MOD}7`}
             selected={view.kind === 'tasks' || view.kind === 'task' || view.kind === 'new'} onSelect={() => setView({kind: 'tasks', filter: 'all'})}/>
           <SidebarItem icon={<FolderGit2/>} label={t('Workspaces')} count={workspaces.filter(needsChecks).length} emphasized
             title={t('Workspaces')} selected={view.kind === 'workspaces'} onSelect={() => setView({kind: 'workspaces'})}/>
           <SidebarItem icon={<SlidersHorizontal/>} label={t('Policies')}
             selected={view.kind === 'policies'} onSelect={() => setView({kind: 'policies'})}/>
+          <SidebarItem icon={<Bot/>} label={t('Agents')} shortcut={`${MOD}8`}
+            selected={view.kind === 'agents'} onSelect={() => setView({kind: 'agents'})}/>
         </SidebarGroup>
         <SidebarGroup title={t('App')}>
           <SidebarItem icon={<SettingsIcon/>} label={t('Settings')} shortcut={`${MOD},`}
@@ -236,10 +229,12 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
       </p>}
 
       <div className="content">
-        {view.kind === 'overview' && <Overview status={status} onStatus={setStatus} navigate={go} onAgents={() => setView({kind: 'agents'})}/>}
+        {view.kind === 'overview' && <Overview status={status} onStatus={setStatus} navigate={go}/>}
         {view.kind === 'connections' && <Connections intent={intent === 'connect' ? 'connect' : undefined} onIntentDone={intentDone}/>}
         {view.kind === 'combos' && <Combos intent={intent === 'create' ? 'create' : undefined} onIntentDone={intentDone}/>}
-        {view.kind === 'clients' && <Clients intent={intent === 'create' ? 'create' : undefined} onIntentDone={intentDone}/>}
+        {view.kind === 'endpoint' && <Endpoint status={status} onStatus={setStatus} intent={intent === 'create' ? 'create' : undefined}
+          onIntentDone={intentDone}/>}
+        {view.kind === 'tools' && <CliTools status={status} navigate={go}/>}
         {view.kind === 'usage' && <Usage/>}
         {view.kind === 'agents' && <Agents/>}
         {view.kind === 'tasks' && <>
@@ -265,7 +260,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
           <button type="button" className="button" onClick={() => setView({kind: 'settings'})}>{t('Daily Budget in Settings')}</button>
           <button type="button" className="button" onClick={newTask}>{t('Steps and Strategy in New Task')}</button>
         </PendingView>}
-        {view.kind === 'settings' && <SettingsView language={language} onLanguage={onLanguage} onGateway={() => go('overview')}/>}
+        {view.kind === 'settings' && <SettingsView language={language} onLanguage={onLanguage} onGateway={() => go('endpoint')}/>}
       </div>
     </main>
     {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)}/>}

@@ -99,7 +99,7 @@ export function Usage() {
             <span className={data.total.unknownRequests ? 'warn-text' : ''}>
               {plural(data.total.unknownRequests, '{n} request with unknown cost', '{n} requests with unknown cost')}</span>
           </div>
-          <p className="group-footnote">{t('Unknown costs are not in the total. Give a model a price in Connections to estimate them.')}</p>
+          <p className="group-footnote">{t('Unknown costs are not in the total. Give a model a price in Providers to estimate them.')}</p>
         </div>
       </section>
 
@@ -161,7 +161,7 @@ function Subscriptions({days}: {days: number}) {
   if (subs.error && !subs.data) return <ErrorNote>{subs.error}</ErrorNote>;
   const list = subs.data ?? [];
   if (list.length === 0) return <Empty icon={<CalendarClock size={40} strokeWidth={1.4}/>} title={t('No Subscriptions')}>
-    {t('Set a connection’s billing to Subscription in Connections, for a plan paid by the month. Its requests are counted here against the plan, not as money.')}
+    {t('Set a connection’s billing to Subscription in Providers, for a plan paid by the month. Its requests are counted here against the plan, not as money.')}
   </Empty>;
   return <section className="group">
     <h2>{t('Subscriptions')}</h2>
@@ -205,7 +205,7 @@ function LocalRuntime({days}: {days: number}) {
   if (local.error && !local.data) return <ErrorNote>{local.error}</ErrorNote>;
   const list = local.data ?? [];
   if (list.length === 0) return <Empty icon={<Cpu size={40} strokeWidth={1.4}/>} title={t('No Local Runtime')}>
-    {t('Add Ollama, LM Studio or another server on this computer in Connections. The requests it answers are counted here.')}
+    {t('Add Ollama, LM Studio or another server on this computer in Providers. The requests it answers are counted here.')}
   </Empty>;
   const models = list.flatMap(l => l.models);
   const requests = models.reduce((n, m) => n + m.requests, 0);

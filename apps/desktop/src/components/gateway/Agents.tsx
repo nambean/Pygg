@@ -16,11 +16,6 @@ export function Agents() {
   const installed = (agents.data ?? []).filter(a => a.installed);
   return <div className="page">
     <section className="group">
-      <h2>{t('Use Your Models Through Pygg')}</h2>
-      <p className="group-intro">{t('Your coding tool sends its model requests to Pygg, which routes them to your connections with auto, limits and a cost record. Pygg backs up the tool’s configuration first; Remove puts it back.')}</p>
-      <Integrations kind="gateway"/>
-    </section>
-    <section className="group">
       <h2>{t('Agents on This Computer')}</h2>
       <p className="group-intro"><ShieldCheck size={15} aria-hidden/>
         {t('Pygg starts each agent’s own program with the sign-in it already has: a subscription, a free tier or a key it manages. Pygg never reads, stores or shares that sign-in, and never offers it to other apps.')}</p>
@@ -213,7 +208,7 @@ const INTEGRATION_STATE: Record<Integration['state'], {tone: 'ok' | 'warn' | 'of
  * One click per agent (ROADMAP D2): Pygg shows what it will change, backs up the agent's configuration, makes a
  * token that may start tasks and reaches no model, registers its MCP server and checks the agent lists it.
  */
-function Integrations({kind}: {kind: 'mcp' | 'gateway'}) {
+export function Integrations({kind}: {kind: 'mcp' | 'gateway'}) {
   const all = useGateway(api => api.integrations());
   const list = {...all, data: all.data?.filter(i => (i.kind ?? 'mcp') === kind)};
   const [planning, setPlanning] = useState<Integration | null>(null);
@@ -314,7 +309,7 @@ function SetUpSheet({integration: i, onClose}: {integration: Integration; onClos
     <p className="secondary small">{codex
       ? t('Your default model and provider are not changed. Run codex --profile pygg to use Pygg with auto, or codex --profile pygg -m <connection>/<model> for a model from Connections. Requests through this provider carry the id of the task step Pygg is running, if any, so a task shows what Pygg’s ledger recorded for it. Codex’s own sign-in is not touched.')
       : i.kind === 'gateway'
-      ? t('OpenCode then lists auto, auto/cheap and the models enabled in Connections under the provider “Pygg”; pick one with /models. Pygg keeps the list current as models are enabled, disabled or looked up; only the list changes. When Pygg runs OpenCode for a task, each request carries the step’s id, so the task shows what Pygg’s ledger recorded for it. OpenCode’s own providers and sign-in are not touched.')
+      ? t('OpenCode then lists auto, auto/cheap and the models enabled in Providers under the provider “Pygg”; pick one with /models. Pygg keeps the list current as models are enabled, disabled or looked up; only the list changes. When Pygg runs OpenCode for a task, each request carries the step’s id, so the task shows what Pygg’s ledger recorded for it. OpenCode’s own providers and sign-in are not touched.')
       : t('The entry serves all your projects: the server takes the project from the folder your agent runs in. The token is written into {name}’s own configuration for your user, never into a project file. {name}’s own sign-in is not touched.', {name: i.name})}</p>
     {error && <ErrorNote>{error}</ErrorNote>}
   </Sheet>;

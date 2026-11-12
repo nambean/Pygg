@@ -8,7 +8,10 @@ import { ago } from '../../lib/format';
 import { useGateway } from '../../hooks/useGateway';
 import { Badge, ConfirmSheet, CopyButton, Empty, ErrorNote, FormRow, Sheet, Spinner } from '../ui';
 
-/** Clients (SCREENS.md §5.7): one token per app that uses the gateway, each with an optional monthly limit. */
+/**
+ * API Keys (SCREENS.md §5.7, inside Endpoint): Pygg's own keys, one per app that uses the gateway, each with an optional
+ * monthly limit. Not the provider keys, which stay with their connection.
+ */
 export function Clients({intent, onIntentDone}: {intent?: 'create'; onIntentDone: () => void}) {
   const clients = useGateway(api => api.clients(), [], 15_000);
   const [creating, setCreating] = useState(intent === 'create');
@@ -16,21 +19,24 @@ export function Clients({intent, onIntentDone}: {intent?: 'create'; onIntentDone
   const [revoking, setRevoking] = useState<Client | null>(null);
   useEffect(() => { if (intent === 'create') { setCreating(true); onIntentDone(); } }, [intent, onIntentDone]);
 
-  if (clients.loading && !clients.data) return <div className="page"><Spinner label={t('Loading clients…')}/></div>;
+  if (clients.loading && !clients.data) return <Spinner label={t('Loading API keys…')}/>;
   const list = clients.data ?? [];
   const active = list.filter(c => !c.revokedAt);
   const revoked = list.filter(c => c.revokedAt);
-  return <div className="page">
+  return <>
     {clients.error && <ErrorNote>{clients.error}</ErrorNote>}
     {list.length === 0
-      ? <Empty icon={<KeyRound size={40} strokeWidth={1.4}/>} title={t('No Client Tokens Yet')}
-          action={<button type="button" className="button prominent" onClick={() => setCreating(true)}>{t('Create Client Token…')}</button>}>
-          {t('Every app that sends requests through the gateway needs a token. Give each one its own, so you can see what each spends and revoke one without touching the others.')}
-        </Empty>
+      ? <section className="group">
+        <h2>{t('API Keys')}</h2>
+        <Empty icon={<KeyRound size={40} strokeWidth={1.4}/>} title={t('No API Keys Yet')}
+          action={<button type="button" className="button prominent" onClick={() => setCreating(true)}>{t('Create API Key…')}</button>}>
+          {t('Every app that sends requests through the gateway needs a Pygg API key. Give each one its own, so you can see what each spends and revoke one without touching the others. CLI Tools makes them for Codex and OpenCode.')}
+        </Empty></section>
       : <section className="group">
-        <h2>{t('Client Tokens')}</h2>
+        <h2>{t('API Keys')}</h2>
+        <p className="group-intro">{t('Pygg’s own keys for your apps, not your providers’ keys.')}</p>
         <div className="group-box table-box">
-          <table className="data-table" aria-label={t('Client Tokens')}>
+          <table className="data-table" aria-label={t('API Keys')}>
             <thead><tr>
               <th scope="col">{t('Client')}</th><th scope="col">{t('Token')}</th><th scope="col">{t('Last used')}</th>
               <th scope="col">{t('This month')}</th><th scope="col" className="narrow"><span className="sr-only">{t('Actions')}</span></th>
@@ -59,7 +65,7 @@ export function Clients({intent, onIntentDone}: {intent?: 'create'; onIntentDone
       message={<p>{t('Requests with this token are refused from now on. Its usage history is kept.')}</p>}
       onClose={() => setRevoking(null)}
       onConfirm={async () => { await call(api => api.revokeClient(revoking.id)); gatewayChanged(); }}/>}
-  </div>;
+  </>;
 }
 
 function Spend({client: c}: {client: Client}) {
@@ -237,7 +243,7 @@ function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void})
       </FormRow>
       <FormRow label={t('Data use')} htmlFor="no-training"
         hint={noTraining
-          ? t('Requests go only to connections whose terms you recorded as not training on requests, under Connections → Data use. Not recorded counts as may train.')
+          ? t('Requests go only to connections whose terms you recorded as not training on requests, under Providers → Advanced → Data use. Not recorded counts as may train.')
           : t('Any connection may answer, whatever its terms say about training.')}>
         <label className="check-row"><input id="no-training" type="checkbox" checked={noTraining}
           onChange={e => setNoTraining(e.target.checked)}/>{t('Only providers that do not train on requests')}</label>

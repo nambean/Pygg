@@ -204,16 +204,6 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
           : c.needsKey ? <Badge tone="error">{t('Key missing')}</Badge> : t('No key needed')}</span>
       </div>
       <div className="group-row">
-        <span className="group-label">{t('Endpoint')}</span>
-        <span className="group-control value mono selectable">{c.endpoint}</span>
-      </div>
-      <div className="group-row">
-        <span className="group-label">{t('API')}<small>{c.wire === 'anthropic'
-          ? t('Anthropic requests (Claude Code) pass through unchanged, prompt cache included. OpenAI-format clients can’t use it yet.')
-          : t('OpenAI-format requests pass through unchanged. Anthropic requests are translated, and prompt-cache hints survive only where the provider accepts them.')}</small></span>
-        <span className="group-control value">{c.wire === 'anthropic' ? t('Anthropic Messages') : t('OpenAI Chat Completions')}</span>
-      </div>
-      <div className="group-row">
         <span className="group-label">{t('Health')}</span>
         <span className="group-control value">{check
           ? <span title={check.text}>{check.ok ? check.text : <Badge tone="error">{check.text}</Badge>} · {t('checked {time}', {time: new Date(check.at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})})}</span>
@@ -221,31 +211,6 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
       </div>
       {c.health.length > 0 && <div className="group-row stacked"><HealthList connection={c}/></div>}
       {c.readsAccount && <AccountRow connection={c}/>}
-      {(c.limits?.length ?? 0) > 0 && <div className="group-row stacked">
-        <span className="group-label">{t('Rate limits, as the provider last said')}
-          <small>{t('Read from the headers of its last answer for each model. While a limit is used up, auto skips that model until it resets; a provider that sends none shows nothing here.')}</small></span>
-        <ul className="limit-list">
-          {c.limits!.map(l => <li key={l.modelId}>
-            <span className="mono">{l.modelId}</span>
-            <small className="secondary">{ago(l.observedAt)}{l.httpStatus && l.httpStatus !== 200 ? ` · HTTP ${l.httpStatus}` : ''}</small>
-            <span className="limit-values" title={Object.entries(l.headers).map(([k, v]) => `${k}: ${v}`).join('\n')}>
-              {(l.windows?.length ? l.windows.map(windowText) : Object.entries(l.headers).map(([k, v]) => `${k}: ${v}`)).join(' · ')}</span>
-          </li>)}
-        </ul>
-      </div>}
-      <div className="group-row">
-        <span className="group-label"><label htmlFor={`quota-${c.id}`}>{t('Independent quota confirmed')}</label>
-          <small>{c.separateQuota
-            ? t('You confirmed on {date} that this connection has its own provider quota. When another connection is rate-limited or refused, this one may still answer. The provider’s own limits still apply.',
-                {date: new Date(c.quotaConfirmedAt ?? c.createdAt).toLocaleDateString()})
-            : c.sharesQuotaWith.length
-              ? t('Shares limits with {names}. While one is rate-limited or refused, the others aren’t used for the same model; using a second key to get around a limit can break the provider’s terms.', {names: c.sharesQuotaWith.join(', ')})
-              : t('Assumed to share limits with other {provider} connections you add. Turn on only if the provider gives it a separate quota, for example a different organization.', {provider: c.presetName})}</small></span>
-        <span className="group-control"><Switch checked={c.separateQuota} label={t('Independent quota confirmed')}
-          onChange={separateQuota => separateQuota ? setSheet('quota')
-            : call(api => api.updateConnection(c.id, {separateQuota})).then(gatewayChanged)}/></span>
-      </div>
-      <PoolRow connection={c}/>
       <div className="group-row">
         <span className="group-label"><label htmlFor={`billing-${c.id}`}>{t('Billing')}</label><small>{billingHint(c.defaultBilling, c.freeModels)}</small></span>
         <span className="group-control">
@@ -254,12 +219,52 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
           </select>
         </span>
       </div>
-      <TermsRow connection={c}/>
-      <div className="group-row">
-        <span className="group-label">{t('Model names')}<small>{t('Clients ask for a model of this connection by this name.')}</small></span>
-        <span className="group-control value mono selectable">{c.id}/&lt;model&gt;</span>
-      </div>
     </div>
+    <details className="advanced-box">
+      <summary>{t('Advanced: endpoint, API format, rate limits, quota, pool, data use')}</summary>
+      <div className="group-box">
+        <div className="group-row">
+          <span className="group-label">{t('Endpoint')}</span>
+          <span className="group-control value mono selectable">{c.endpoint}</span>
+        </div>
+        <div className="group-row">
+          <span className="group-label">{t('API')}<small>{c.wire === 'anthropic'
+            ? t('Anthropic requests (Claude Code) pass through unchanged, prompt cache included. OpenAI-format clients can’t use it yet.')
+            : t('OpenAI-format requests pass through unchanged. Anthropic requests are translated, and prompt-cache hints survive only where the provider accepts them.')}</small></span>
+          <span className="group-control value">{c.wire === 'anthropic' ? t('Anthropic Messages') : t('OpenAI Chat Completions')}</span>
+        </div>
+        {(c.limits?.length ?? 0) > 0 && <div className="group-row stacked">
+          <span className="group-label">{t('Rate limits, as the provider last said')}
+            <small>{t('Read from the headers of its last answer for each model. While a limit is used up, auto skips that model until it resets; a provider that sends none shows nothing here.')}</small></span>
+          <ul className="limit-list">
+            {c.limits!.map(l => <li key={l.modelId}>
+              <span className="mono">{l.modelId}</span>
+              <small className="secondary">{ago(l.observedAt)}{l.httpStatus && l.httpStatus !== 200 ? ` · HTTP ${l.httpStatus}` : ''}</small>
+              <span className="limit-values" title={Object.entries(l.headers).map(([k, v]) => `${k}: ${v}`).join('\n')}>
+                {(l.windows?.length ? l.windows.map(windowText) : Object.entries(l.headers).map(([k, v]) => `${k}: ${v}`)).join(' · ')}</span>
+            </li>)}
+          </ul>
+        </div>}
+        <div className="group-row">
+          <span className="group-label"><label htmlFor={`quota-${c.id}`}>{t('Independent quota confirmed')}</label>
+            <small>{c.separateQuota
+              ? t('You confirmed on {date} that this connection has its own provider quota. When another connection is rate-limited or refused, this one may still answer. The provider’s own limits still apply.',
+                  {date: new Date(c.quotaConfirmedAt ?? c.createdAt).toLocaleDateString()})
+              : c.sharesQuotaWith.length
+                ? t('Shares limits with {names}. While one is rate-limited or refused, the others aren’t used for the same model; using a second key to get around a limit can break the provider’s terms.', {names: c.sharesQuotaWith.join(', ')})
+                : t('Assumed to share limits with other {provider} connections you add. Turn on only if the provider gives it a separate quota, for example a different organization.', {provider: c.presetName})}</small></span>
+          <span className="group-control"><Switch checked={c.separateQuota} label={t('Independent quota confirmed')}
+            onChange={separateQuota => separateQuota ? setSheet('quota')
+              : call(api => api.updateConnection(c.id, {separateQuota})).then(gatewayChanged)}/></span>
+        </div>
+        <PoolRow connection={c}/>
+        <TermsRow connection={c}/>
+        <div className="group-row">
+          <span className="group-label">{t('Model names')}<small>{t('Clients ask for a model of this connection by this name.')}</small></span>
+          <span className="group-control value mono selectable">{c.id}/&lt;model&gt;</span>
+        </div>
+      </div>
+    </details>
     {message && (message.ok ? <p className="group-footnote ok-note" role="status">{message.text}</p> : <ErrorNote>{message.text}</ErrorNote>)}
 
     <div className="group-heading models-heading">

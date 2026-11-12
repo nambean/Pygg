@@ -145,7 +145,7 @@ function ComboSheet({combo, connections, models, existing, onClose}: {
       {members.length === 0 && <li className="member empty secondary">{t('Add at least one model.')}</li>}
     </ol>
     {sharedGroups(members, connections).map(labels => <p key={labels.join()} className="group-footnote warn-text" role="note">
-      {t('{connections} share one quota: when one is refused for its quota or rate limit, the gateway does not try the others for that model, since they would be refused too. If they are separate accounts, confirm that in Connections.',
+      {t('{connections} share one quota: when one is refused for its quota or rate limit, the gateway does not try the others for that model, since they would be refused too. If they are separate accounts, confirm that in Providers.',
         {connections: labels.join(', ')})}</p>)}
     <div className="form">
       <FormRow label={t('Add model')} htmlFor="combo-add">

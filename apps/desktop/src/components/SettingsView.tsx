@@ -33,8 +33,8 @@ export function SettingsView({language, onLanguage, onGateway}: {language: Langu
       <h2>{t('Gateway')}</h2>
       <div className="group-box">
         <div className="group-row">
-          <span className="group-label">{t('Port and start-up')}<small>{t('Set in Overview, next to the gateway’s address.')}</small></span>
-          <span className="group-control"><button type="button" className="button" onClick={onGateway}>{t('Open Overview')}</button></span>
+          <span className="group-label">{t('Port and start-up')}<small>{t('Set in Endpoint, next to the gateway’s address.')}</small></span>
+          <span className="group-control"><button type="button" className="button" onClick={onGateway}>{t('Open Endpoint')}</button></span>
         </div>
       </div>
     </section>

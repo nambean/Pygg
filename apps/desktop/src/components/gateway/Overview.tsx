@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { ArrowRight, CircleAlert, CircleCheck, Circle, KeyRound, ListOrdered, Plug, Power, Settings2, TerminalSquare } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowRight, CircleAlert, CircleCheck, Circle, KeyRound, Plug, Power, Settings2, TerminalSquare } from 'lucide-react';
 import { call, errorText, gatewayChanged, type GatewayStatus, type UsageEvent } from '../../lib/api';
 import { t } from '../../lib/i18n';
 import { isMac } from '../../lib/platform';
@@ -10,18 +10,20 @@ import { Badge, CodeBlock, CopyButton, ErrorNote, FormRow, Segmented, Sheet, Spi
 import { OutcomeBadge } from './Usage';
 import { UsageAlerts } from './UsageAlerts';
 
-export type GatewayDestination = 'overview' | 'connections' | 'combos' | 'clients' | 'usage';
+/** The gateway's screens, in the sidebar's order: the path a 9router or OmniRoute user knows. */
+export type GatewayDestination = 'overview' | 'connections' | 'endpoint' | 'tools' | 'combos' | 'usage';
 export type Navigate = (to: GatewayDestination, intent?: 'connect' | 'create') => void;
 
-type ClientKind = 'claude' | 'opencode' | 'sdk' | 'curl';
+export type ClientKind = 'claude' | 'opencode' | 'editor' | 'sdk' | 'curl';
 type Shell = 'powershell' | 'posix';
 
-/** Overview (home): the gateway's state, what is left to set up, how to point a client at it, and today's traffic. */
-export function Overview({status, onStatus, navigate, onAgents}: {status: GatewayStatus | null; onStatus: (s: GatewayStatus) => void;
-  navigate: Navigate; onAgents?: () => void}) {
+/**
+ * Home: is Pygg working, and what is it costing. Before the first request, two steps (a provider, then a tool);
+ * after it, today's traffic. How to point a tool at the gateway lives in CLI Tools, the address and keys in Endpoint.
+ */
+export function Overview({status, onStatus, navigate}: {status: GatewayStatus | null; onStatus: (s: GatewayStatus) => void;
+  navigate: Navigate}) {
   const connections = useGateway(api => api.connections());
-  const combos = useGateway(api => api.combos());
-  const models = useGateway(api => api.models());
   const clients = useGateway(api => api.clients());
   const usage = useGateway(api => api.usage(1), [], 10_000);
   const [configuring, setConfiguring] = useState(false);
@@ -32,20 +34,14 @@ export function Overview({status, onStatus, navigate, onAgents}: {status: Gatewa
   const steps = [
     {done: usable, icon: <Plug/>, title: t('Connect a provider'),
       detail: (connections.data?.length ?? 0) > 0 && !usable
-        ? t('A connection exists, but none is on with a key and models listed yet. Open Connections to check it.')
+        ? t('A connection exists, but none is on with a key and models listed yet. Open Providers to check it.')
         : t('An API key or a local runtime such as Ollama. Keys stay in the system’s credential store.'),
       action: <button type="button" className="button" onClick={() => navigate('connections', 'connect')}>{t('Connect Provider…')}</button>},
-    {done: activeClients.length > 0, icon: <KeyRound/>, title: t('Connect your coding tool'),
-      detail: t('Codex and OpenCode are set up for you in Agents. For Claude Code, an SDK or another app, create a client token and use the snippet below.'),
-      action: <span className="row-actions">
-        {onAgents && <button type="button" className="button prominent" onClick={onAgents}>{t('Set Up Codex or OpenCode…')}</button>}
-        <button type="button" className="button" onClick={() => navigate('clients', 'create')}>{t('Create Client Token…')}</button>
-      </span>},
-    {done: (combos.data?.length ?? 0) > 0, icon: <ListOrdered/>, title: t('Make a combo'), optional: true,
-      detail: t('Not needed for auto. A named list of models tried in order, so a quota error moves on to the next one.'),
-      action: <button type="button" className="button" onClick={() => navigate('combos', 'create')}>{t('New Combo…')}</button>},
+    {done: activeClients.length > 0, icon: <KeyRound/>, title: t('Set up your coding tool'),
+      detail: t('Codex and OpenCode in one click; Claude Code, editors and SDKs with a snippet. Use the model auto.'),
+      action: <button type="button" className="button prominent" onClick={() => navigate('tools')}>{t('Open CLI Tools')}</button>},
   ];
-  const ready = steps.every(s => s.done || s.optional);
+  const ready = steps.every(s => s.done);
 
   return <div className="page">
     <GatewayCard status={status} onStatus={onStatus} onConfigure={() => setConfiguring(true)}/>
@@ -60,26 +56,18 @@ export function Overview({status, onStatus, navigate, onAgents}: {status: Gatewa
         {steps.map(step => <li key={step.title} className={step.done ? 'step done' : 'step'}>
           <span className="step-check" aria-hidden>{step.done ? <CircleCheck size={18}/> : <Circle size={18}/>}</span>
           <span className="group-label">
-            <span>{step.title}{step.optional && <span className="optional"> · {t('optional')}</span>}</span>
+            <span>{step.title}</span>
             <small>{step.detail}</small>
           </span>
           {step.done ? <span className="value">{t('Done')}</span> : step.action}
         </li>)}
       </ol>
       <p className="group-footnote">
-        {t('auto picks a model from your connections for each request; no combo is needed.')}{' '}
+        {t('Then work in your IDE or terminal as usual. auto picks a model from your connections for each request, within your limits; no combo is needed.')}{' '}
         <button type="button" className="link-button" onClick={() => navigate('combos')}>{t('How auto chooses')}<ArrowRight size={12} aria-hidden/></button>
       </p>
     </section>}
-
-    <ClientSetup baseUrl={status?.baseUrl ?? `http://127.0.0.1:${status?.port ?? 8741}`}
-      routes={useMemo(() => [
-        {value: 'auto', label: t('auto (automatic)')}, {value: 'auto/cheap', label: t('auto/cheap (automatic, lowest cost)')},
-        ...(combos.data ?? []).map(c => ({value: c.name, label: t('{name} (combo)', {name: c.name})})),
-        ...(models.data ?? []).filter(m => m.enabled).map(m => ({value: `${m.providerId}/${m.modelId}`, label: `${m.providerId}/${m.modelId}`})),
-      ], [combos.data, models.data])}
-      hasToken={activeClients.length > 0} onCreateToken={() => navigate('clients', 'create')}/>
-    {usage.data && <ClientCheck last={usage.data.recent[0]} onOpen={() => navigate('usage')}/>}
+    {ready && usage.data && <ClientCheck last={usage.data.recent[0]} onOpen={() => navigate('usage')}/>}
 
     <section className="group">
       <div className="group-heading">
@@ -117,7 +105,7 @@ export function Overview({status, onStatus, navigate, onAgents}: {status: Gatewa
  * The last step of setting up a client: seeing that it works. Other gateways leave this to the user; here the
  * newest request says so, or says that none has arrived yet. Nothing is sent to check it, so nothing is spent.
  */
-function ClientCheck({last, onOpen}: {last: UsageEvent | undefined; onOpen: () => void}) {
+export function ClientCheck({last, onOpen}: {last: UsageEvent | undefined; onOpen: () => void}) {
   const open = <button type="button" className="link-button" onClick={onOpen}>{t('See it in Usage')}<ArrowRight size={12} aria-hidden/></button>;
   if (!last) return <p className="client-check waiting" role="status">
     <Circle size={14} aria-hidden/>{t('No request yet. Start the client with these settings; its first request shows here within seconds.')}</p>;
@@ -136,7 +124,7 @@ function Stat({label, value, note}: {label: string; value: string; note?: string
   </div>;
 }
 
-function GatewayCard({status, onStatus, onConfigure}: {status: GatewayStatus | null; onStatus: (s: GatewayStatus) => void; onConfigure: () => void}) {
+export function GatewayCard({status, onStatus, onConfigure}: {status: GatewayStatus | null; onStatus: (s: GatewayStatus) => void; onConfigure: () => void}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const act = (f: () => Promise<GatewayStatus>) => {
@@ -176,7 +164,7 @@ function GatewayCard({status, onStatus, onConfigure}: {status: GatewayStatus | n
   </section>;
 }
 
-function ConfigureSheet({status, onStatus, onClose}: {status: GatewayStatus; onStatus: (s: GatewayStatus) => void; onClose: () => void}) {
+export function ConfigureSheet({status, onStatus, onClose}: {status: GatewayStatus; onStatus: (s: GatewayStatus) => void; onClose: () => void}) {
   const [port, setPort] = useState(String(status.port));
   const [autostart, setAutostart] = useState(status.autostart);
   const [busy, setBusy] = useState(false);
@@ -209,7 +197,7 @@ function ConfigureSheet({status, onStatus, onClose}: {status: GatewayStatus; onS
   </Sheet>;
 }
 
-function ClientSetup({baseUrl, routes, hasToken, onCreateToken}: {
+export function ClientSetup({baseUrl, routes, hasToken, onCreateToken}: {
   baseUrl: string; routes: {value: string; label: string}[]; hasToken: boolean; onCreateToken: () => void;
 }) {
   const [kind, setKind] = useState<ClientKind>('claude');
@@ -220,15 +208,16 @@ function ClientSetup({baseUrl, routes, hasToken, onCreateToken}: {
   const notes: Record<ClientKind, string> = {
     claude: t('Claude Code talks the Anthropic Messages API. To an Anthropic connection it passes through unchanged, prompt cache included; other connections get a translation. The session header keeps each terminal on one model.'),
     opencode: t('Add this provider to opencode.json in your project or ~/.config/opencode/. The fixed session header keeps OpenCode on one model of a combo.'),
+    editor: t('For Cline, Continue, Roo Code and other editors that call the API from this computer: choose an OpenAI-compatible provider and fill in these fields. Editors that send requests from their own servers can’t reach 127.0.0.1.'),
     sdk: t('Any OpenAI-compatible SDK works the same way: base URL, token, and a route as the model. Send one session header per conversation to keep it on one model.'),
     curl: t('A quick check from a terminal.'),
   };
   return <section className="group">
-    <h2>{t('Connect a Client')}</h2>
+    <h2>{t('Set Up by Hand')}</h2>
     <div className="group-box client-setup">
       <div className="client-setup-bar">
         <Segmented label={t('Client')} value={kind} onChange={setKind} options={[
-          {value: 'claude', label: 'Claude Code'}, {value: 'opencode', label: 'OpenCode'},
+          {value: 'claude', label: 'Claude Code'}, {value: 'opencode', label: 'OpenCode'}, {value: 'editor', label: t('Editors')},
           {value: 'sdk', label: t('OpenAI SDK')}, {value: 'curl', label: 'curl'}]}/>
         <span className="spacer"/>
         <label className="inline-field">
@@ -245,8 +234,8 @@ function ClientSetup({baseUrl, routes, hasToken, onCreateToken}: {
       <p className="client-setup-note">
         {notes[kind]}{' '}
         {hasToken
-          ? t('Set SMARTTASKROUTER_TOKEN to the token you saved when you created the client.')
-          : <>{t('You’ll need a client token first.')} <button type="button" className="link-button" onClick={onCreateToken}>{t('Create Client Token…')}</button></>}
+          ? t('Set SMARTTASKROUTER_TOKEN to the Pygg API key you saved when you created it.')
+          : <>{t('You’ll need a Pygg API key first.')} <button type="button" className="link-button" onClick={onCreateToken}>{t('Create API Key…')}</button></>}
       </p>
     </div>
   </section>;
@@ -265,6 +254,10 @@ export function snippetFor(kind: ClientKind, shell: Shell, baseUrl: string, mode
         + '\n$env:ANTHROPIC_CUSTOM_HEADERS = "x-smarttaskrouter-session: $([guid]::NewGuid())"\nclaude'
       : vars.map(([k, v]) => `export ${k}=${v === '%TOKEN%' ? '"$SMARTTASKROUTER_TOKEN"' : `"${v}"`}`).join('\n')
         + '\nexport ANTHROPIC_CUSTOM_HEADERS="x-smarttaskrouter-session: $(uuidgen)"\nclaude';
+  }
+  if (kind === 'editor') {
+    return [`Provider:  OpenAI Compatible`, `Base URL:  ${v1}`, `API key:   your Pygg API key (SMARTTASKROUTER_TOKEN)`,
+      `Model:     ${model}`].join('\n');
   }
   if (kind === 'opencode') {
     return JSON.stringify({
