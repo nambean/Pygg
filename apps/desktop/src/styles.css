@@ -602,7 +602,8 @@ td.row-buttons .button + .button { margin-inline-start: 4px; }
 .agent-result .form-actions .text-input { flex: 1 1 220px; }
 .agent-result summary { cursor: pointer; font-size: 12px; color: var(--accent-text); }
 .log-tail { max-height: 280px; overflow: auto; margin: 6px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--field);
-  font: 11px/1.45 var(--font-mono, ui-monospace, monospace); white-space: pre-wrap; }
+  font: 11px/1.45 var(--font-mono, ui-monospace, monospace); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* A grid column sizes to its widest child unless told otherwise; a long agent log no longer widens the attempt. */
 .diff-box { position: relative; }
 .diff-section { margin-top: 10px; }
 .diff-section-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -674,7 +675,7 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .task-actions .form-actions { margin-top: 0; }
 .task-actions .warning-note { margin: 0; }
 .attempt-detail { align-items: flex-start; }
-.attempt-body { flex: 1; min-width: 0; display: grid; gap: 4px; font-size: 12px; }
+.attempt-body { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; font-size: 12px; }
 .attempt-body p { margin: 0; }
 .attempt-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .attempt-line .spacer { flex: 1; }
