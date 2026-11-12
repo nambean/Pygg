@@ -556,6 +556,13 @@ pub fn retention_preview(state: State<'_, AppState>, days: u32) -> Res<u64> {
     state.shared.with_db(|db| crate::retention::would_delete(db, days, crate::db::now_ms()))
 }
 
+/// Repeated tool output in the period's requests (P1-4, shadow): measured, never removed.
+#[tauri::command]
+pub fn usage_shadow(state: State<'_, AppState>, days: u32) -> Res<store::ShadowSummary> {
+    let since = crate::db::now_ms() - days.clamp(1, 366) as i64 * 86_400_000;
+    state.shared.with_db(|db| store::shadow_summary(db, since))
+}
+
 /// What in the ledger is worth a look now: limits near or passed, a spend spike, unknown costs, a burst of failures.
 #[tauri::command]
 pub fn usage_alerts(state: State<'_, AppState>) -> Res<Vec<store::UsageAlert>> {

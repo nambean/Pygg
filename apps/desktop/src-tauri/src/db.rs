@@ -26,6 +26,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0018_rate_limits.sql"),
     include_str!("../migrations/0019_step_cost_source.sql"),
     include_str!("../migrations/0020_model_enabled_source.sql"),
+    include_str!("../migrations/0021_repeated_tokens.sql"),
 ];
 
 pub const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;

@@ -1689,7 +1689,7 @@ mod tests {
                             requested_model: "anthropic/claude-haiku-5-5", input_tokens: Some(1000), output_tokens: Some(50),
                             cache_tokens: None, cost: &cost, outcome: "ok", http_status: Some(200), latency_ms: 5, error: None,
                             cache_write_tokens: None, session_key: Some(&request.attempt_id), route_mode: Some("native"),
-                            route_reason: None,
+                            route_reason: None, repeated_tokens: None,
                         }).unwrap();
                     }
                     Act::Fail => outcome = "failed",

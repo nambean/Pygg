@@ -33,6 +33,7 @@ pub mod pricing;
 pub mod reference;
 pub mod responses;
 pub mod signatures;
+pub mod shadow;
 pub mod sse;
 pub mod store;
 pub mod task_api;
@@ -624,6 +625,8 @@ pub struct Forwarded {
     /// Why auto routing chose this target, and the header that says so (ROADMAP P0-5).
     pub route_reason: Option<String>,
     pub auto_header: Option<String>,
+    /// Tool output the request repeated from earlier in itself (P1-4, shadow; `shadow.rs`).
+    pub repeated_tokens: Option<u64>,
     /// The journaled attempt, settled by `record_success`.
     journal: Option<Attempt>,
     _inflight: InflightGuard,
@@ -853,7 +856,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         let started = Instant::now();
         let settle_failure = |journal: Attempt, status: Option<u16>, cost: Cost, outcome: &str, error: &str| {
             journal.settle(shared, &UsageRecord {
-                session_key: incoming.session, route_mode: Some(mode.label()), route_reason: route_reason.as_deref(),
+                session_key: incoming.session, route_mode: Some(mode.label()), route_reason: route_reason.as_deref(), repeated_tokens: None,
                 ..UsageRecord::failed(&client.id, &provider.id, &model_id, requested, &cost, outcome, status,
                     started.elapsed().as_millis() as u64, error)
             });
@@ -961,6 +964,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                     response, provider, model_id, billing, price, started, attempt, mode, dropped,
                     session: incoming.session.map(String::from), pinned, client_id: client.id.clone(),
                     requested: requested.to_string(), auto_header, route_reason, journal: Some(journal), _inflight: inflight,
+                    repeated_tokens: shadow::repeated_tokens(incoming.surface, incoming.body),
                 });
             }
             Ok(response) => {
@@ -1134,6 +1138,7 @@ pub fn record_success(shared: &Shared, mut forwarded: Forwarded, usage: Option<&
         latency_ms: forwarded.started.elapsed().as_millis() as u64, error,
         cache_write_tokens: usage.map(|u| u.cache_write), session_key: forwarded.session.as_deref(),
         route_mode: Some(forwarded.mode.label()), route_reason: forwarded.route_reason.as_deref(),
+        repeated_tokens: forwarded.repeated_tokens,
     };
     if let Some(journal) = journal {
         journal.settle(shared, &record);

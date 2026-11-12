@@ -612,6 +612,9 @@ export function demoApi(): GatewayApi {
       return touch(out);
     },
     // Sample alerts for the preview (ADR-014): one client near its limit, and requests without a price.
+    // Sample figures (ADR-014): an agent that re-read a few files.
+    usageShadow: async () => touch({requests: 48, requestsWithRepeats: 11, repeatedTokens: 38_400, inputTokens: 1_420_000,
+      cacheReadTokens: 1_050_000}),
     usageAlerts: async () => touch([{kind: 'near_limit', client: 'Claude Code', value: 8_400_000, against: 10_000_000},
       {kind: 'unknown_costs', client: null, value: 6, against: 0}]),
     exportUsage: async () => { await sleep(200); return 'C:\\Users\\you\\Downloads\\pygg-usage.csv'; },

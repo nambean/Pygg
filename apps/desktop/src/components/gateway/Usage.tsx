@@ -8,6 +8,7 @@ import { costText, microUsd, sourceText, tokens } from '../../lib/money';
 import { useGateway } from '../../hooks/useGateway';
 import { Badge, Empty, ErrorNote, Segmented, Spinner } from '../ui';
 import { UsageAlerts } from './UsageAlerts';
+import { RepeatedOutput } from './RepeatedOutput';
 import { CostOverTime } from './CostOverTime';
 
 type Range = '1' | '7' | '30';
@@ -103,6 +104,7 @@ export function Usage() {
       </section>
 
       {overTime.data && <CostOverTime days={Number(range)} buckets={overTime.data}/>}
+      <RepeatedOutput days={Number(range)}/>
 
       <div className="two-columns">
         <GroupTable title={t('By Model')} column={t('Model')} groups={data.byModel} mono onPick={key => pick(setModel, key)}/>

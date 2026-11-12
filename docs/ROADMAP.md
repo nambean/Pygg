@@ -54,7 +54,7 @@ Details and verification: [Implementation Status](IMPLEMENTATION-STATUS.md). Dec
 1. **Developer integrations:** verify Claude Code, OpenCode, Aider, Codex and IDE targets one by one with test fixtures; maintain exact version/capability matrix. Package a headless CLI installer/npm launcher after supported OS builds, without cloning the Rust gateway in Node. Current CLI binary is `gateway serve`; `str start` is a proposed future interface.
 2. ~~**Owned Auto Chat**~~: withdrawn (ADR-028, no Auto Chat in the app). **External client-managed chat stays opaque**: no context injected or reconstructed.
 3. **Cache-aware route scoring:** account/model affinity, measured cache read/write, cost to rebuild and quality consequences. Prefer staying when switching adds cost.
-4. **Token reduction:** only deterministic, reversible dedup/noisy new tool-output filtering in **shadow and opt-in** first; verify prefix hash/cache parity before enabling defaults. Never silently rewrite external agent history.
+4. **Token reduction:** (**shadow measurement built 2026-11-12**, schema v21: each request's repeated tool output is counted, never removed, and Usage → Repeated Tool Output weighs it against input and cache reads; nothing is changed until those figures justify an opt-in) only deterministic, reversible dedup/noisy new tool-output filtering in **shadow and opt-in** first; verify prefix hash/cache parity before enabling defaults. Never silently rewrite external agent history.
 5. **Benchmarks and quality feedback:** measured cost per accepted result, failures, user revisions and manual time estimates. LLM classifiers only with a strict input/cost budget and only at explicit classification boundaries.
 
 ## Revised plan after ADR-026 and ADR-027 (2026-11-11 docs review)

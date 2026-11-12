@@ -451,7 +451,7 @@ pub fn record_for(conn: &Connection, run: &TaskRun, attempt_id: Option<&str>) ->
         input_tokens: run.usage.input_tokens, output_tokens: run.usage.output_tokens, cache_tokens: run.usage.cache_read_tokens,
         cost: &cost, outcome: if run.outcome == "ok" { "ok" } else { "error" }, http_status: None,
         latency_ms: run.duration_ms, error: error.as_deref(), cache_write_tokens: run.usage.cache_write_tokens,
-        session_key: None, route_mode: Some("agent"), route_reason: None,
+        session_key: None, route_mode: Some("agent"), route_reason: None, repeated_tokens: None,
     };
     let Some(attempt_id) = attempt_id else { return store::record_usage(conn, &record) };
     // The entry and its attempt link land together or not at all.

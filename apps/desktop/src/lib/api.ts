@@ -143,6 +143,10 @@ export type UsageEvent = {
   routeReason: string | null;
 };
 
+/** Repeated tool output in a period's requests (P1-4, shadow): measured, never removed. Tokens are about-figures. */
+export type ShadowSummary = {requests: number; requestsWithRepeats: number; repeatedTokens: number; inputTokens: number;
+  cacheReadTokens: number};
+
 /** Something in the ledger worth a look; `value` and `against` are micro-USD for money, counts for requests. */
 export type UsageAlert = {kind: 'near_limit' | 'over_limit' | 'spend_spike' | 'unknown_costs' | 'failures'; client: string | null;
   value: number; against: number};
@@ -277,6 +281,8 @@ export interface GatewayApi {
   exportUsage(days: number): Promise<string | null>;
   /** What in the ledger is worth a look now. */
   usageAlerts(): Promise<UsageAlert[]>;
+  /** Repeated tool output in the last `days` (shadow). */
+  usageShadow(days: number): Promise<ShadowSummary>;
   retention(): Promise<Retention>;
   /** Saves the period and deletes what is older now; the rest goes once a day. */
   setRetention(days: RetentionDays): Promise<Retention>;
@@ -363,6 +369,7 @@ const native: GatewayApi = {
   usageOverTime: days => invoke('usage_over_time', {days, offsetMinutes: -new Date().getTimezoneOffset()}),
   exportUsage: days => invoke('usage_export', {days}),
   usageAlerts: () => invoke('usage_alerts'),
+  usageShadow: days => invoke('usage_shadow', {days}),
   usageSubscriptions: days => invoke('usage_subscriptions', {days}),
   usageLocal: days => invoke('usage_local', {days}),
   exportDiagnostics: () => invoke('diagnostics_export'),

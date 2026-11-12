@@ -231,6 +231,7 @@ pub fn run() {
             commands::usage_over_time,
             commands::usage_export,
             commands::usage_alerts,
+            commands::usage_shadow,
             commands::usage_subscriptions,
             commands::usage_local,
             commands::retention_get,

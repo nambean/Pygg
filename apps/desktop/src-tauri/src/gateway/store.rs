@@ -1259,6 +1259,8 @@ pub struct UsageRecord<'a> {
     pub route_mode: Option<&'a str>,
     /// Why auto routing chose this target (ROADMAP P0-5).
     pub route_reason: Option<&'a str>,
+    /// Tool output this request repeated from earlier in itself, in about-tokens (P1-4, shadow: measured, never removed).
+    pub repeated_tokens: Option<u64>,
 }
 
 impl<'a> UsageRecord<'a> {
@@ -1267,7 +1269,7 @@ impl<'a> UsageRecord<'a> {
         outcome: &'a str, http_status: Option<u16>, latency_ms: u64, error: &'a str) -> UsageRecord<'a> {
         UsageRecord { client_id: Some(client_id), provider_id, model_id, requested_model, input_tokens: None,
             output_tokens: None, cache_tokens: None, cost, outcome, http_status, latency_ms, error: Some(error),
-            cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None }
+            cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None , repeated_tokens: None}
     }
 }
 
@@ -1311,7 +1313,7 @@ impl PendingUsage {
             cache_tokens: self.cache_tokens, cost: &self.cost, outcome: &self.outcome, http_status: self.http_status,
             latency_ms: self.latency_ms, error: self.error.as_deref(), cache_write_tokens: self.cache_write_tokens,
             session_key: self.session_key.as_deref(), route_mode: self.route_mode.as_deref(),
-            route_reason: self.route_reason.as_deref(),
+            route_reason: self.route_reason.as_deref(), repeated_tokens: None,
         }
     }
 }
@@ -1326,14 +1328,15 @@ fn insert_usage(conn: &Connection, r: &UsageRecord, at_risk_micro: Option<u64>) 
     conn.execute(
         "INSERT INTO usage_events (id, client_id, provider, model, input_tokens, output_tokens, cache_tokens, \
          cost_micro_usd, cost_status, source, created_at, outcome, http_status, latency_ms, requested_model, error, \
-         cache_write_tokens, session_key, route_mode, at_risk_micro_usd, route_reason) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+         cache_write_tokens, session_key, route_mode, at_risk_micro_usd, route_reason, repeated_tokens) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
         params![
             uuid::Uuid::new_v4().to_string(), r.client_id, r.provider_id, r.model_id,
             r.input_tokens.map(|v| v as i64), r.output_tokens.map(|v| v as i64), r.cache_tokens.map(|v| v as i64),
             r.cost.micro_usd().map(|v| v as i64), r.cost.status(), r.cost.source(), now, r.outcome,
             r.http_status, r.latency_ms as i64, r.requested_model, r.error,
             r.cache_write_tokens.map(|v| v as i64), r.session_key, r.route_mode, at_risk_micro.map(|v| v as i64), r.route_reason,
+            r.repeated_tokens.map(|v| v as i64),
         ],
     )?;
     if let Some(client) = r.client_id {
@@ -1478,6 +1481,28 @@ pub fn usage_csv(conn: &Connection, since: i64) -> Result<String> {
         out.push_str("\r\n");
     }
     Ok(out)
+}
+
+/// What deduplicating repeated tool output could have saved in a period (P1-4, shadow): requests that carried tool
+/// output, the about-tokens they repeated, and their input and cache-read tokens to weigh it against.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShadowSummary {
+    pub requests: u64,
+    pub requests_with_repeats: u64,
+    pub repeated_tokens: u64,
+    pub input_tokens: u64,
+    pub cache_read_tokens: u64,
+}
+
+pub fn shadow_summary(conn: &Connection, since: i64) -> Result<ShadowSummary> {
+    conn.query_row("SELECT COUNT(*), COALESCE(SUM(repeated_tokens > 0), 0), COALESCE(SUM(repeated_tokens), 0), \
+        COALESCE(SUM(input_tokens), 0), COALESCE(SUM(cache_tokens), 0) FROM usage_events \
+        WHERE created_at >= ?1 AND repeated_tokens IS NOT NULL AND outcome = 'ok'", [since], |r| {
+        let n = |i: usize| r.get::<_, i64>(i).map(|v| v.max(0) as u64);
+        Ok(ShadowSummary { requests: n(0)?, requests_with_repeats: n(1)?, repeated_tokens: n(2)?, input_tokens: n(3)?,
+            cache_read_tokens: n(4)? })
+    }).map_err(err)
 }
 
 /// Something in the ledger worth a look (SCREENS §5.6, anomalies). Each is a plain reading of recorded figures, never
@@ -1859,7 +1884,7 @@ mod tests {
             record_usage(&conn, &UsageRecord { client_id: Some(&client.id), provider_id: &p.id, model_id: "flash",
                 requested_model: "auto", input_tokens: Some(10), output_tokens: Some(5), cache_tokens: None, cost: &cost,
                 outcome, http_status: Some(200), latency_ms: 12, error: None, cache_write_tokens: None, session_key: None,
-                route_mode: None, route_reason: None }).unwrap();
+                route_mode: None, route_reason: None , repeated_tokens: None}).unwrap();
             conn.execute("UPDATE usage_events SET created_at = ?1 WHERE id = (SELECT id FROM usage_events ORDER BY rowid DESC LIMIT 1)",
                 [now - ago_ms]).unwrap();
         };
@@ -1899,7 +1924,7 @@ mod tests {
             record_usage(&conn, &UsageRecord { client_id: Some(&client.id), provider_id: &p.id, model_id: "flash",
                 requested_model: "coding", input_tokens: Some(10), output_tokens: Some(5), cache_tokens: None, cost,
                 outcome, http_status: Some(200), latency_ms: 12, error: None, cache_write_tokens: None, session_key: None,
-                route_mode: None, route_reason: None }).unwrap();
+                route_mode: None, route_reason: None , repeated_tokens: None}).unwrap();
         }
         let csv = usage_csv(&conn, 0).unwrap();
         let lines: Vec<&str> = csv.trim_end().split("\r\n").collect();
@@ -1935,7 +1960,7 @@ mod tests {
         let record = |provider: &str, model: &str, cost: &Cost, outcome: &str, latency_ms: u64, route_mode: Option<&str>| {
             record_usage(&conn, &UsageRecord { client_id: None, provider_id: provider, model_id: model, requested_model: model,
                 input_tokens: Some(100), output_tokens: Some(20), cache_tokens: None, cost, outcome, http_status: Some(200),
-                latency_ms, error: None, cache_write_tokens: None, session_key: None, route_mode, route_reason: None }).unwrap();
+                latency_ms, error: None, cache_write_tokens: None, session_key: None, route_mode, route_reason: None , repeated_tokens: None}).unwrap();
         };
         let quota = pricing::resolve("subscription", None, Some(&usage));
         let local = pricing::resolve("local", None, Some(&usage));
