@@ -16,6 +16,21 @@ export async function nativeHealth(): Promise<HealthStatus | null> {
   return invoke<HealthStatus>('health_check');
 }
 
+/** The green window button's rectangle in physical pixels from the window's top left (src-tauri/src/snap.rs). */
+export type SnapArea = { x: number; y: number; width: number; height: number };
+
+/**
+ * Tells the core where the green window button is, so Windows 11 offers snap layouts over it; `null` removes the
+ * overlay. Windows only; elsewhere, and in a browser preview, it does nothing.
+ */
+export function setSnapArea(area: SnapArea | null): Promise<void> {
+  if (!runningInDesktop) return Promise.resolve();
+  return invoke('window_snap_area', { area });
+}
+
+/** The core's event when the pointer enters (`true`) or leaves (`false`) the snap overlay. */
+export const SNAP_HOVER_EVENT = 'window-snap-hover';
+
 // Language is kept per device. Until the core stores settings (a later step), the web view's storage
 // holds it; storage can be unavailable, so every access is guarded.
 const LANGUAGE_KEY = 'smarttaskrouter.language';

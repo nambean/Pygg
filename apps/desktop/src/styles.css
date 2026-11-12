@@ -97,12 +97,12 @@ button { cursor: default; }
 }
 .window-controls .light svg { width: 8px; height: 8px; opacity: 0; fill: none; stroke: rgba(0, 0, 0, .55); stroke-width: 1.2; stroke-linecap: round; }
 .window-controls .zoom-glyph { fill: rgba(0, 0, 0, .55); stroke: none; }
-.window-controls:hover .light svg, .window-controls .light:focus-visible svg { opacity: 1; }
+.window-controls:hover .light svg, .window-controls.pointer-on-zoom .light svg, .window-controls .light:focus-visible svg { opacity: 1; }
 .window-controls .close { background: #FF5F57; }
 .window-controls .minimize { background: #FEBC2E; }
 .window-controls .zoom { background: #28C840; }
 .window-controls .light:active { filter: brightness(.85); }
-.window-controls.inactive:not(:hover) .light { background: color-mix(in srgb, var(--label) 16%, transparent); box-shadow: inset 0 0 0 .5px var(--separator); }
+.window-controls.inactive:not(:hover):not(.pointer-on-zoom) .light { background: color-mix(in srgb, var(--label) 16%, transparent); box-shadow: inset 0 0 0 .5px var(--separator); }
 
 /* ---------- Sidebar ---------- */
 .sidebar { display: flex; flex-direction: column; min-height: 0; background: var(--sidebar); border-inline-end: 1px solid var(--separator); }

@@ -6,6 +6,8 @@ ADR-012 keeps DownFetch's traffic-light window controls on Windows. That costs W
 
 **Result:** 5 problems fixed; 1 failure that needs a native change; 1 decision for the owner; 9 checks still to do natively.
 
+**Update, same day:** the failure (#4, snap layouts on hover) is fixed with a native overlay and checked in a debug build on Windows 11; see [Snap layouts](#snap-layouts-4).
+
 ## Checklist
 
 | # | Check | Result | Notes |
@@ -13,8 +15,8 @@ ADR-012 keeps DownFetch's traffic-light window controls on Windows. That costs W
 | 1 | Close, minimize and maximize by mouse | **native** | The buttons call Tauri's `close`, `minimize` and `toggleMaximize`; the capabilities allow all three. The preview has no window. |
 | 2 | Close, minimize and maximize by keyboard | **pass** (code) / **native** | They are real `<button>`s in the Tab order, and their glyphs show on focus. Alt+Space (the system menu) and Alt+F4 come from Windows, so check them natively. |
 | 3 | Double-clicking the drag region maximizes and restores | **native** | The sidebar header, toolbar, title and spacer carry `data-tauri-drag-region`, which handles double-click with the `internal-toggle-maximize` permission the app grants. |
-| 4 | Windows 11 snap layouts when hovering over maximize | **fail** | Windows shows the snap flyout only for a window that answers `WM_NCHITTEST` with `HTMAXBUTTON` over its maximize button. The window has `decorations: false`, and its buttons are HTML, so there is no flyout. **Needs a native change:** subclass the window procedure to return `HTMAXBUTTON` over the green button's rectangle (the interface sends that rectangle when it changes), or adopt a plugin that does this. This is not done here: it can only be built and checked in the running app. |
-| 5 | `Win+Arrow`, `Win+Z` and dragging to a screen edge | **native** | These depend on the window keeping `WS_MAXIMIZEBOX` and `WS_THICKFRAME`. tao keeps them without decorations, but check natively. `Win+Z` is the keyboard way to reach snap layouts while #4 fails. |
+| 4 | Windows 11 snap layouts when hovering over maximize | **fixed** (debug build, 100% scaling) / **native** at other scales | Windows shows the snap flyout only for a window that answers `WM_NCHITTEST` with `HTMAXBUTTON` over its maximize button. The buttons are HTML inside WebView2, whose child windows cover the client area, so the main window's procedure never sees that hit test. An invisible native child window now sits over the green button and answers `HTMAXBUTTON` (`snap.rs`). Details and what is left: [Snap layouts](#snap-layouts-4). |
+| 5 | `Win+Arrow`, `Win+Z` and dragging to a screen edge | **native** | These depend on the window keeping `WS_MAXIMIZEBOX` and `WS_THICKFRAME`. tao keeps them without decorations, but check natively. `Win+Z` is the keyboard way to reach snap layouts. |
 | 6 | Each control has an accessible name and role | **fixed** | The green button was named "Zoom", the macOS term. Windows screen readers announce "Maximize" or "Restore" on native caption buttons, so it is now named for its state, which comes from `isMaximized` and is updated on resize (`WindowControls.tsx`). Close and Minimize were already right, inside a group named "Window". |
 | 7 | Inactive-window and hover states match DownFetch | **pass** (code) / **native** | The same component and CSS as DownFetch: grey when the window loses focus, glyphs on hover. Compare side by side in the native app. |
 | 8 | Hit targets usable at 100–200% scaling | **owner decision** | The lights are 12×12 CSS px with an 8 px gap, as in DownFetch and macOS. That is below WCAG 2.2's 24×24 px minimum target size (2.5.8, AA): the 20 px between centers is also under the spacing exception. A larger invisible hit area would need 12 px gaps, which changes the look the team chose. Scaling enlarges them in physical pixels but not relative to the other controls. |
@@ -24,6 +26,27 @@ ADR-012 keeps DownFetch's traffic-light window controls on Windows. That costs W
 | 12 | Screen reader: names, roles, structure (from the accessibility tree) | **fixed** / **native** | Every screen has one `h1` (the toolbar title) and `h2` sections. The sidebar marks the current screen with `aria-current="page"`. Sheets are `role="dialog"` with `aria-modal` and a name. Spinners, saved and error notes are `status` or `alert` live regions. No control lacked a name (icon buttons have `aria-label`, decorative icons are `aria-hidden`). Fixed: the five data tables had no accessible name, and now carry their section's heading. **Native:** listen to the app with Narrator and NVDA, especially the live regions on Tasks and the approval sheet. |
 | 13 | Reduced motion | **fixed** | The spinner, the switch and the row chevron already stopped animating under `prefers-reduced-motion`. Usage's "Requests" link still scrolled smoothly; it now jumps (`Usage.tsx`). Nothing else animates. |
 | 14 | High contrast (Windows contrast themes, `forced-colors`) | **fixed** (code) / **native** | Windows' contrast themes drop box-shadows and replace backgrounds. So the old focus ring vanished, the window buttons became blank circles (their glyphs are hidden until hover), selected items and segments lost their only cue, and the switches and chart bars disappeared. A `@media (forced-colors: active)` block now gives controls system-colored borders, shows the window-button glyphs, and marks selections and switches with `Highlight`; the outline focus ring takes the system color. The browser preview cannot emulate forced colors, so **check it natively** with each contrast theme. `prefers-contrast: more` already raised separators and secondary text. |
+
+## Snap layouts (#4)
+
+**How it works.** Subclassing the main window cannot work here: WebView2's own child windows (another process) are under the pointer, so Windows asks them, not Pygg's window, and they cannot be subclassed. The fix follows `tauri-plugin-snap-layout` and `tauri-plugin-frame` (tauri-apps/tauri#4531 is open upstream). `tauri-plugin-decorum` instead presses `Win+Z` for the user, which moves focus and needs a key-simulation crate. No plugin was added: the overlay is one small module (`snap.rs`, with its tests) on the `windows` crate already in the tree (0.62, through tao and wry), with five Win32 features.
+
+- `src-tauri/src/snap.rs`: the `window_snap_area` command places a child window of class `PyggSnapOverlay` (`WS_CHILD | WS_CLIPSIBLINGS`, no layered or transparent style, no brush, never paints) on top of the web view, over the button. It answers `WM_NCHITTEST` with `HTMAXBUTTON`. A press and release on it posts `SC_MAXIMIZE` or `SC_RESTORE` to the window. A right click does nothing, as on the page. Entering and leaving (`TrackMouseEvent`, non-client) send `window-snap-hover` to the page. Windows only; elsewhere the command does nothing.
+- `WindowControls.tsx` (Windows only): sends the green button's rectangle in physical pixels (CSS pixels × `devicePixelRatio`, which covers display scaling and page zoom) on mount, on the button's resize, on window resize, on a change of text direction, and when `devicePixelRatio` changes (moving to a screen with other scaling). It sends nothing on unmount, which hides the overlay. The core rounds outwards and refuses a rectangle that is not finite, empty, or over 256 px a side, so a wrong value can never cover the page (unit tests).
+- `styles.css`: `.pointer-on-zoom` shows the glyphs and active colors while the pointer is on the overlay, because the page no longer sees `:hover` there.
+
+**Checked** in a debug build (`cargo build`, the Vite UI on another port, a scratch `PYGG_DATA_DIR` and another identifier, so the installed Pygg and its store were not touched), Windows 11 build 26200, 100% scaling, by moving the real pointer from a script:
+
+- The overlay is a child of the Tauri window above `WRY_WEBVIEW`, exactly over the button (12×12 px at client 60,20). `WindowFromPoint` at the button's center returns it, and its hit test answers 9 (`HTMAXBUTTON`).
+- Hovering opens the snap layouts flyout, both restored and maximized. All three glyphs show while hovering, and the green button stays visible (the overlay paints nothing).
+- Clicking maximizes; clicking again restores. Each click toggled once (the page's own `onClick` does not also fire). After each change the overlay follows the button.
+
+**Still to check natively:**
+
+1. At 125%, 150% and 200% scaling, and after dragging the window to a monitor with other scaling: the flyout opens over the whole button, and not beside it.
+2. Choosing a layout in the flyout snaps Pygg (the window's minimum width of 1024 px may keep it out of narrow zones; Microsoft asks for 500 effective px or less).
+3. With the window inactive (grey lights), one click maximizes.
+4. Known trade-offs: the browser tooltip "Maximize" no longer shows on mouse hover (the native flyout replaces it), and the pressed shade (`:active`) does not show on a mouse press. Keyboard, Narrator and NVDA still use the HTML button, unchanged.
 
 ## Fixed in this pass
 
@@ -37,7 +60,7 @@ Strings: "Maximize" and "Restore" are new, in English inside `t()`. The Vietname
 
 ## Still needs the native app, a real screen reader or the owner
 
-1. **Snap layouts on hover** (#4): a native `WM_NCHITTEST` change, then a check on Windows 11.
+1. **Snap layouts on hover** (#4): built and checked at 100% scaling; scaling, snapping into a zone and the inactive window are left (see [Snap layouts](#snap-layouts-4)).
 2. **Target size of the window buttons** (#8): the owner decides between the DownFetch look and 24 px targets.
 3. In the packaged app on Windows 11: #1, #2 (Alt+Space, Alt+F4), #3, #5, #7. Also a real 200% monitor and Windows' Text size setting (#10).
 4. Narrator and NVDA (#12); each Windows contrast theme (#14).
