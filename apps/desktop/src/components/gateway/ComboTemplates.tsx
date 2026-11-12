@@ -36,7 +36,10 @@ export function ComboTemplates({models, connections, existing, onClose, onConnec
   const create = () => {
     if (!resolved) return;
     setBusy(true);
-    call(api => api.saveCombo(null, trimmed, resolved.members.map(m => m.target))).then(() => { gatewayChanged(); onClose(); },
+    call(async api => {
+      const saved = await api.saveCombo(null, trimmed, resolved.members.map(m => m.target));
+      if (template?.strategy) await api.setComboStrategy(saved.id, template.strategy);
+    }).then(() => { gatewayChanged(); onClose(); },
       e => { setError(errorText(e)); setBusy(false); });
   };
 

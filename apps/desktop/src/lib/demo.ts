@@ -519,6 +519,15 @@ export function demoApi(): GatewayApi {
       if (e.outcome === 'ok') { r.ok += 1; if (e.latencyMs !== null) r.ms.push(e.latencyMs); }
       return acc;
     }, {})).map(([modelId, r]) => ({modelId, requests: r.n, ok: r.ok, medianLatencyMs: r.ms.length ? r.ms.sort((a, b) => a - b)[Math.floor(r.ms.length / 2)] : null}))),
+    setComboStrategy: async (id, strategy) => { const c = combos.find(x => x.id === id); if (c) c.strategy = strategy; await sleep(80); },
+    testCombo: async name => {
+      await sleep(900);
+      const combo = combos.find(c => c.name === name);
+      const first = combo?.members[0];
+      return first ? {ok: true, text: 'ok', latencyMs: 910, inputTokens: 14, outputTokens: 2, route: 'native',
+        answeredBy: `${first.providerId}/${first.modelId}`, attempts: 1} : {ok: false, text: 'No such combo', latencyMs: 1, inputTokens: null,
+        outputTokens: null, route: '', answeredBy: '', attempts: 0};
+    },
     testModel: async () => { await sleep(600); return {ok: true, text: 'ok', latencyMs: 640, inputTokens: 14, outputTokens: 2, route: 'native'}; },
     setConnectionPool: async (id, pool) => {
       const c = find(id);

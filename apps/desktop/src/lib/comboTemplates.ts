@@ -8,7 +8,7 @@ export type Protocol = 'openai' | 'anthropic';
 /** allowUntiered: free and local models without a tier may take part, last in their stage (the user's explicit choice). */
 export type TemplateOptions = {tools: boolean; minTier: Tier; protocol: Protocol; allowUntiered?: boolean};
 
-export type TemplateId = 'free-first' | 'subscription-only' | 'plans-first' | 'strong-backup' | 'no-metered' | 'local-only' | 'long-context';
+export type TemplateId = 'free-first' | 'subscription-only' | 'plans-first' | 'strong-backup' | 'no-metered' | 'local-only' | 'long-context' | 'cheapest';
 
 export type Template = {
   id: TemplateId; name: string; purpose: string; defaultName: string;
@@ -21,6 +21,8 @@ export type Template = {
   /** Its name promises free, local or plan models first: it is not created with paid models alone, and its paid stage
    * keeps only the cheapest backups. */
   unpaidFirst?: boolean;
+  /** The combo's strategy: `cheapest` re-orders the members for each request by its estimated cost. */
+  strategy?: 'cheapest';
   /** How members are ordered within a stage. */
   order: 'tier-then-cost' | 'cost-then-tier' | 'strongest-then-cost';
 };
@@ -41,6 +43,9 @@ export const TEMPLATES: Template[] = [
     purpose: 'Keep code on this computer: models served from 127.0.0.1 or localhost only.'},
   {id: 'long-context', name: 'Long-context coding', defaultName: 'long-context', stages: ['local', 'free', 'subscription', 'paid'],
     minContext: 200_000, order: 'cost-then-tier', purpose: 'Every member takes large requests (200k context or more), cheapest first.'},
+  {id: 'cheapest', name: 'Cheapest for each request', defaultName: 'cheapest', stages: ['local', 'free', 'subscription', 'paid'],
+    order: 'cost-then-tier', strategy: 'cheapest',
+    purpose: 'Qualifying models re-ordered for every request by its estimated cost: free, local and plan first, unknown prices last.'},
 ];
 
 /** Reference workload for ordering by price: 2,000 tokens in, 1,000 out. A static order cannot be cheapest for every request. */

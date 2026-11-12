@@ -683,6 +683,26 @@ fn estimate_micro_with(body: &Value, price: &Price, output_tokens: u64) -> u64 {
     per(estimate_input_tokens(body), input_price) + per(output_tokens, price.output_micro_per_mtok)
 }
 
+/// A `cheapest` combo (migration 0025): its members by this request's estimated cost. Free, local and subscription
+/// members count as $0 (a plan is quota, not money); a member whose price is unknown goes last, in its listed order.
+fn cheapest_first(shared: &Shared, targets: &mut Vec<(Provider, String)>, body: &Value, combo: &str,
+    reasons: &mut HashMap<(String, String), String>) {
+    let mut keyed: Vec<(Option<u64>, usize, (Provider, String))> = std::mem::take(targets).into_iter().enumerate().map(|(i, (p, m))| {
+        let (billing, price) = shared.with_db(|db| store::pricing_for(db, &p, &m)).unwrap_or(("unknown".into(), None));
+        let cost = if is_free(&billing) || billing == "subscription" { Some(0) } else { price.as_ref().map(|price| estimate_micro(body, price)) };
+        (cost, i, (p, m))
+    }).collect();
+    keyed.sort_by_key(|(cost, i, _)| (cost.is_none(), cost.unwrap_or(0), *i));
+    for (cost, _, (p, m)) in keyed {
+        let why = match cost {
+            Some(micro) => format!("combo {combo}, cheapest first: about ${:.4} for this request", micro as f64 / 1e6),
+            None => format!("combo {combo}, cheapest first: price unknown, tried last"),
+        };
+        reasons.insert((p.id.clone(), m.clone()), why);
+        targets.push((p, m));
+    }
+}
+
 fn is_free(billing: &str) -> bool {
     matches!(billing, "free" | "local")
 }
@@ -712,8 +732,14 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
     let mut reasons: HashMap<(String, String), String> = HashMap::new();
     let mut auto_plan: Option<auto::Plan> = None;
     let mut targets = match auto::strategy(requested) {
-        None => shared.with_db(|db| store::resolve(db, requested))
-            .map_err(|e| Refusal::new(StatusCode::INTERNAL_SERVER_ERROR, "api_error", e))?,
+        None => {
+            let mut targets = shared.with_db(|db| store::resolve(db, requested))
+                .map_err(|e| Refusal::new(StatusCode::INTERNAL_SERVER_ERROR, "api_error", e))?;
+            if shared.with_db(|db| store::combo_strategy(db, requested)).ok().flatten().as_deref() == Some("cheapest") {
+                cheapest_first(shared, &mut targets, incoming.body, requested, &mut reasons);
+            }
+            targets
+        }
         Some(Err(message)) => return Err(Refusal::new(StatusCode::NOT_FOUND, "model_not_found", message)),
         Some(Ok(strategy)) => {
             let needs = auto::Needs::of(incoming.surface, incoming.body);

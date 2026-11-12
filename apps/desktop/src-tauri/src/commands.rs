@@ -461,6 +461,13 @@ pub async fn model_test(state: State<'_, AppState>, provider_id: String, model_i
     gateway::model_test::run(&state.shared, &provider_id, &model_id).await
 }
 
+/// Sends one short request to a combo by its name, through its real route (Combos → Test). The member that answered,
+/// and how many calls it took, come back; the request is recorded in Usage like any other.
+#[tauri::command]
+pub async fn combo_test(state: State<'_, AppState>, name: String) -> Res<gateway::model_test::TestResult> {
+    gateway::model_test::run_requested(&state.shared, &name).await
+}
+
 /// Puts a connection in a pool, or takes it out with `None` (ADR-034).
 #[tauri::command]
 pub fn connection_set_pool(state: State<'_, AppState>, id: String, pool: Option<String>) -> Res<ConnectionView> {
@@ -583,6 +590,12 @@ pub fn combos_list(state: State<'_, AppState>) -> Res<Vec<Combo>> {
 #[tauri::command]
 pub fn combo_save(state: State<'_, AppState>, id: Option<String>, name: String, members: Vec<Target>) -> Res<Combo> {
     state.shared.with_db(|db| store::save_combo(db, id.as_deref(), &name, &members))
+}
+
+/// `order` or `cheapest` (migration 0025).
+#[tauri::command]
+pub fn combo_set_strategy(state: State<'_, AppState>, id: String, strategy: String) -> Res<()> {
+    state.shared.with_db(|db| store::set_combo_strategy(db, &id, &strategy))
 }
 
 #[tauri::command]

@@ -1330,14 +1330,30 @@ pub struct Combo {
     pub id: String,
     pub name: String,
     pub members: Vec<Target>,
+    /// `order` (as listed) or `cheapest` (by each request's estimated cost; migration 0025).
+    pub strategy: String,
+}
+
+pub const COMBO_STRATEGIES: [&str; 2] = ["order", "cheapest"];
+
+pub fn set_combo_strategy(conn: &Connection, id: &str, strategy: &str) -> Result<()> {
+    if !COMBO_STRATEGIES.contains(&strategy) {
+        return Err(format!("unknown combo strategy {strategy}"));
+    }
+    conn.execute("UPDATE combos SET strategy = ?2 WHERE id = ?1", params![id, strategy]).map(|_| ()).map_err(err)
+}
+
+/// The strategy of the combo with this name, if it is one.
+pub fn combo_strategy(conn: &Connection, name: &str) -> Result<Option<String>> {
+    conn.query_row("SELECT strategy FROM combos WHERE name = ?1", [name], |r| r.get(0)).optional().map_err(err)
 }
 
 pub fn list_combos(conn: &Connection) -> Result<Vec<Combo>> {
-    let mut stmt = conn.prepare("SELECT id, name FROM combos ORDER BY name").map_err(err)?;
-    let heads: Vec<(String, String)> =
-        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
+    let mut stmt = conn.prepare("SELECT id, name, strategy FROM combos ORDER BY name").map_err(err)?;
+    let heads: Vec<(String, String, String)> =
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
     let mut combos = Vec::new();
-    for (id, name) in heads {
+    for (id, name, strategy) in heads {
         let mut members = conn
             .prepare("SELECT provider_id, model_id FROM combo_members WHERE combo_id = ?1 ORDER BY position")
             .map_err(err)?;
@@ -1346,7 +1362,7 @@ pub fn list_combos(conn: &Connection) -> Result<Vec<Combo>> {
             .map_err(err)?
             .collect::<rusqlite::Result<_>>()
             .map_err(err)?;
-        combos.push(Combo { id, name, members });
+        combos.push(Combo { id, name, members, strategy });
     }
     Ok(combos)
 }

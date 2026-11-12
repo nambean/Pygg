@@ -103,7 +103,9 @@ export type Launcher = {setUp: boolean; clientId: string | null; clientName: str
   cliPath: string | null};
 
 /** What one short test request to a model came back with. */
-export type ModelTest = {ok: boolean; text: string; latencyMs: number; inputTokens: number | null; outputTokens: number | null; route: string};
+export type ModelTest = {ok: boolean; text: string; latencyMs: number; inputTokens: number | null; outputTokens: number | null; route: string;
+  /** connection/model that answered (for a combo, its member), and the upstream calls it took. */
+  answeredBy?: string; attempts?: number};
 
 /** An account's balance or free allowance, as its provider's account endpoint said. */
 export type Account = {source: string; observedAt: number; balance: number | null; currency: string | null;
@@ -148,7 +150,8 @@ export type AutoPlan = { alias: AutoAlias; strategy: 'tier' | 'cheap'; minTier: 
 export const AUTO_ROUTE_LENGTH = 5;
 
 export type Target = { providerId: string; modelId: string };
-export type Combo = { id: string; name: string; members: Target[] };
+/** strategy: 'order' (as listed) or 'cheapest' (by each request's estimated cost). */
+export type Combo = { id: string; name: string; members: Target[]; strategy?: 'order' | 'cheapest' };
 
 export type Client = {
   /** Whether the token can be shown again (a copy is in the credential store). */
@@ -294,6 +297,9 @@ export interface GatewayApi {
   checkAccount(id: string): Promise<Connection>;
   /** Sends one short request to a model and reports what came back (Test Model). */
   testModel(providerId: string, modelId: string): Promise<ModelTest>;
+  /** One short request to a combo, through its real route. */
+  testCombo(name: string): Promise<ModelTest>;
+  setComboStrategy(id: string, strategy: 'order' | 'cheapest'): Promise<void>;
   /** How a connection's models have answered over the last 30 days. */
   reliability(connectionId: string): Promise<Reliability[]>;
   /** The newest request of each API key. */
@@ -427,6 +433,8 @@ const native: GatewayApi = {
   checkAccount: id => invoke('connection_check_account', {id}),
   setConnectionPool: (id, pool) => invoke('connection_set_pool', {id, pool}),
   testModel: (providerId, modelId) => invoke('model_test', {providerId, modelId}),
+  testCombo: name => invoke('combo_test', {name}),
+  setComboStrategy: (id, strategy) => invoke('combo_set_strategy', {id, strategy}),
   reliability: id => invoke('connection_reliability', {id}),
   latestRequests: () => invoke('client_latest_requests'),
   clientDefaults: () => invoke('client_defaults'),

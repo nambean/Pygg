@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowRight, ArrowUp, LayoutTemplate, ListOrdered, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowRight, ArrowUp, GripVertical, LayoutTemplate, ListOrdered, Trash2, X } from 'lucide-react';
 import { call, errorText, gatewayChanged, type Combo, type Connection, type Model, type Target } from '../../lib/api';
 import { plural, t } from '../../lib/i18n';
 import { billingLabel } from '../../lib/money';
@@ -52,7 +52,7 @@ export function Combos({intent, onIntentDone, onConnect}: {intent?: 'create'; on
           {list.map(combo => <li key={combo.id} className="combo-row">
             <div className="combo-head">
               <span className="combo-name mono selectable">{combo.name}</span>
-              <span className="secondary">{t('Ordered fallback')} · {plural(combo.members.length, '{n} model', '{n} models')}
+              <span className="secondary">{combo.strategy === 'cheapest' ? t('Cheapest first') : t('Ordered fallback')} · {plural(combo.members.length, '{n} model', '{n} models')}
                 {(() => {
                   const off = combo.members.filter(m => !connections.data?.find(c => c.id === m.providerId)?.enabled).length;
                   const missing = combo.members.filter(m => !modelOf(m)).length;
@@ -61,6 +61,7 @@ export function Combos({intent, onIntentDone, onConnect}: {intent?: 'create'; on
                 })()}</span>
               <span className="spacer"/>
               <CopyButton text={combo.name} label={t('Copy Name')}/>
+              <ComboTestButton name={combo.name}/>
               <button type="button" className="button" onClick={() => setEditing(combo)}>{t('Edit…')}</button>
               <button type="button" className="button icon-only" aria-label={t('Delete {name}', {name: combo.name})} title={t('Delete')}
                 onClick={() => setDeleting(combo)}><Trash2 size={14} aria-hidden/></button>
@@ -99,6 +100,31 @@ export function Combos({intent, onIntentDone, onConnect}: {intent?: 'create'; on
   </div>;
 }
 
+/**
+ * Sends one short request to the combo by its name, through its real route: says which member answered and whether
+ * members before it failed. It asks first, as a paid member may answer; nothing is sent when the editor opens.
+ */
+function ComboTestButton({name}: {name: string}) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [ok, setOk] = useState(true);
+  const run = () => {
+    if (!window.confirm(t('Send one short request to {name}? Its first available member answers; a paid one costs a fraction of a cent, recorded in Usage.', {name}))) return;
+    setBusy(true);
+    setResult(null);
+    call(api => api.testCombo(name)).then(r => {
+      setOk(r.ok);
+      setResult(r.ok ? (r.attempts && r.attempts > 1
+        ? t('Answered by {model} in {ms} ms, after {n} members failed', {model: r.answeredBy ?? '', ms: String(r.latencyMs), n: String(r.attempts - 1)})
+        : t('Answered by {model} in {ms} ms', {model: r.answeredBy ?? '', ms: String(r.latencyMs)})) : r.text);
+    }, e => { setOk(false); setResult(errorText(e)); }).finally(() => setBusy(false));
+  };
+  return <>
+    <button type="button" className="button" disabled={busy} onClick={run}>{busy ? t('Testing…') : t('Test')}</button>
+    {result && <small className={ok ? 'source combo-test' : 'warn-text combo-test'} role="status">{result}</small>}
+  </>;
+}
+
 /** Connections in a combo that share a quota group (review GW-1), one list of labels per group. */
 function sharedGroups(members: Target[], connections: Connection[]): string[][] {
   const groups = new Map<string, Set<string>>();
@@ -115,6 +141,7 @@ function ComboSheet({combo, connections, models, existing, onClose}: {
 }) {
   const [name, setName] = useState(combo?.name ?? (existing.length ? '' : 'coding'));
   const [members, setMembers] = useState<Target[]>(combo?.members ?? []);
+  const [strategy, setStrategy] = useState<'order' | 'cheapest'>(combo?.strategy ?? 'order');
   const [adding, setAdding] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -129,6 +156,20 @@ function ComboSheet({combo, connections, models, existing, onClose}: {
     [next[i], next[i + by]] = [next[i + by], next[i]];
     return next;
   });
+  // Drag a member to a new place; Move up and Move down do the same from the keyboard.
+  const [dragged, setDragged] = useState<number | null>(null);
+  const [over, setOver] = useState<number | null>(null);
+  const drop = (to: number) => {
+    if (dragged === null || dragged === to) { setDragged(null); setOver(null); return; }
+    setMembers(list => {
+      const next = [...list];
+      const [item] = next.splice(dragged, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+    setDragged(null);
+    setOver(null);
+  };
   const add = (value: string) => {
     const [providerId, ...rest] = value.split('/');
     if (providerId && rest.length) setMembers(list => [...list, {providerId, modelId: rest.join('/')}]);
@@ -136,7 +177,10 @@ function ComboSheet({combo, connections, models, existing, onClose}: {
   };
   const save = () => {
     setBusy(true);
-    call(api => api.saveCombo(combo?.id ?? null, name.trim(), members)).then(() => { gatewayChanged(); onClose(); },
+    call(async api => {
+      const saved = await api.saveCombo(combo?.id ?? null, name.trim(), members);
+      if ((saved.strategy ?? 'order') !== strategy) await api.setComboStrategy(saved.id, strategy);
+    }).then(() => { gatewayChanged(); onClose(); },
       e => { setError(errorText(e)); setBusy(false); });
   };
   const describe = (m: Target) => {
@@ -165,9 +209,19 @@ function ComboSheet({combo, connections, models, existing, onClose}: {
         <input id="combo-name" className="text-input mono" value={name} onChange={e => setName(e.target.value)} spellCheck={false}
           autoFocus aria-invalid={!!nameError}/>
       </FormRow>
+      <FormRow label={t('Order')} hint={strategy === 'cheapest'
+        ? t('For each request, the members by its estimated cost: free, local and plan members first, unknown prices last. The next is tried on the same errors as always.')
+        : t('The members in the order below.')}>
+        <Segmented<'order' | 'cheapest'> label={t('Order')} value={strategy} onChange={setStrategy}
+          options={[{value: 'order', label: t('As listed')}, {value: 'cheapest', label: t('Cheapest first')}]}/>
+      </FormRow>
     </div>
     <ol className="member-list" aria-label={t('Models in order')}>
-      {members.map((m, i) => <li key={`${key(m)}-${i}`} className="member">
+      {members.map((m, i) => <li key={`${key(m)}-${i}`} className={`member${dragged === i ? ' dragging' : ''}${over === i && dragged !== i ? ' drop-target' : ''}`}
+        draggable onDragStart={e => { setDragged(i); e.dataTransfer.effectAllowed = 'move'; }}
+        onDragOver={e => { e.preventDefault(); setOver(i); }} onDragLeave={() => setOver(o => o === i ? null : o)}
+        onDrop={e => { e.preventDefault(); drop(i); }} onDragEnd={() => { setDragged(null); setOver(null); }}>
+        <span className="drag-handle" aria-hidden title={t('Drag to reorder')}><GripVertical size={14}/></span>
         <span className="chain-index">{i + 1}</span>
         <span className="member-text"><span className="mono">{key(m)}</span><small>{describe(m)}</small></span>
         <button type="button" className="button small icon-only" onClick={() => move(i, -1)} disabled={i === 0}

@@ -30,6 +30,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0022_connection_pools.sql"),
     include_str!("../migrations/0023_client_token_copies.sql"),
     include_str!("../migrations/0024_web_sessions.sql"),
+    include_str!("../migrations/0025_combo_strategy.sql"),
 ];
 
 pub const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;

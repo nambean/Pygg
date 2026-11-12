@@ -22,6 +22,10 @@ pub struct TestResult {
     pub output_tokens: Option<u64>,
     /// `native` or `translated:…`.
     pub route: String,
+    /// The model that answered, as `connection/model`: for a combo, the member that took it.
+    pub answered_by: String,
+    /// Upstream calls the request made, the answering one included: more than one means members before it failed.
+    pub attempts: usize,
 }
 
 fn test_client(shared: &Shared) -> Result<store::Client, String> {
@@ -43,8 +47,14 @@ fn text_of(body: &Value) -> String {
 
 /// Sends "Reply with exactly: ok" to `<provider>/<model>` and reports what came back.
 pub async fn run(shared: &Shared, provider_id: &str, model_id: &str) -> Result<TestResult, String> {
+    run_requested(shared, &format!("{provider_id}/{model_id}")).await
+}
+
+/// The same short request for any model name a client may send: a combo's name, `auto`, or `connection/model`. A combo
+/// goes through its real route, so the answer says which member took it and how many calls it needed.
+pub async fn run_requested(shared: &Shared, requested: &str) -> Result<TestResult, String> {
     let client = test_client(shared)?;
-    let requested = format!("{provider_id}/{model_id}");
+    let requested = requested.to_string();
     let body = json!({ "model": requested, "max_tokens": 16,
         "messages": [{ "role": "user", "content": "Reply with exactly: ok" }] });
     let headers = HeaderMap::new();
@@ -53,9 +63,11 @@ pub async fn run(shared: &Shared, provider_id: &str, model_id: &str) -> Result<T
     let forwarded = match forward(shared, &client, &incoming).await {
         Ok(forwarded) => forwarded,
         Err(refusal) => return Ok(TestResult { ok: false, text: refusal.message, latency_ms: started.elapsed().as_millis() as u64,
-            input_tokens: None, output_tokens: None, route: String::new() }),
+            input_tokens: None, output_tokens: None, route: String::new(), answered_by: String::new(), attempts: 0 }),
     };
     let route = forwarded.mode.label().to_string();
+    let answered_by = format!("{}/{}", forwarded.provider.id, forwarded.model_id);
+    let attempts = forwarded.attempt;
     let anthropic_answer = forwarded.mode == Mode::OpenAiToAnthropic;
     let status = forwarded.response.status();
     let mut forwarded = forwarded;
@@ -68,7 +80,7 @@ pub async fn run(shared: &Shared, provider_id: &str, model_id: &str) -> Result<T
     let (input_tokens, output_tokens) = (usage.as_ref().map(|u| u.prompt), usage.as_ref().map(|u| u.completion));
     record_success(shared, forwarded, usage.as_ref(), "ok", None);
     Ok(TestResult { ok: !text.trim().is_empty(), text: if text.trim().is_empty() { "The model answered with no text".into() } else { text },
-        latency_ms, input_tokens, output_tokens, route })
+        latency_ms, input_tokens, output_tokens, route, answered_by, attempts })
 }
 
 #[cfg(test)]

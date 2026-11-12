@@ -280,6 +280,8 @@ pub fn run() {
             commands::connection_check_account,
             commands::connection_set_pool,
             commands::model_test,
+            commands::combo_test,
+            commands::combo_set_strategy,
             commands::connection_reliability,
             commands::client_latest_requests,
             commands::client_defaults,

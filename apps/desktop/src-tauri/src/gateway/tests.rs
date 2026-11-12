@@ -1955,3 +1955,33 @@ fn responses_errors_are_in_the_openai_format() {
         assert_eq!(anonymous.status(), 401);
     });
 }
+
+#[test]
+fn a_cheapest_combo_orders_its_members_by_this_requests_cost() {
+    let conn = crate::db::open_in_memory().unwrap();
+    let paid = store::add_provider(&conn, &store::NewProvider { kind: "openai", label: "Paid", endpoint: "https://example.test/v1/",
+        credential_ref: Some("provider-x"), default_billing: "paid", wire: "openai" }).unwrap();
+    let local = store::add_provider(&conn, &store::NewProvider { kind: "ollama", label: "Local", endpoint: "http://127.0.0.1:11434/v1/",
+        credential_ref: None, default_billing: "local", wire: "openai" }).unwrap();
+    for (p, m) in [(&paid.id, "dear"), (&paid.id, "cheap"), (&paid.id, "unpriced"), (&local.id, "qwen")] {
+        store::add_model(&conn, p, m).unwrap();
+    }
+    let price = |input: u64, output: u64| Some(Some(crate::gateway::pricing::Price { input_micro_per_mtok: input,
+        output_micro_per_mtok: output, cached_input_micro_per_mtok: None, cache_write_micro_per_mtok: None, source: "user".into(), observed_at: 0 }));
+    store::update_model(&conn, &paid.id, "dear", None, None, price(15_000_000, 75_000_000)).unwrap();
+    store::update_model(&conn, &paid.id, "cheap", None, None, price(100_000, 500_000)).unwrap();
+    let members = [("dear", &paid.id), ("unpriced", &paid.id), ("cheap", &paid.id), ("qwen", &local.id)]
+        .map(|(m, p)| store::Target { provider_id: p.clone(), model_id: m.into() });
+    let combo = store::save_combo(&conn, None, "thrifty", &members).unwrap();
+    store::set_combo_strategy(&conn, &combo.id, "cheapest").unwrap();
+    assert!(store::set_combo_strategy(&conn, &combo.id, "random").is_err());
+
+    let shared = Shared::new(Arc::new(Mutex::new(conn)), Arc::new(crate::gateway::OsSecrets));
+    let mut targets = shared.with_db(|db| store::resolve(db, "thrifty")).unwrap();
+    let mut reasons = HashMap::new();
+    super::cheapest_first(&shared, &mut targets, &json!({"messages": [{"role": "user", "content": "hi"}], "max_tokens": 100}),
+        "thrifty", &mut reasons);
+    let order: Vec<&str> = targets.iter().map(|(_, m)| m.as_str()).collect();
+    assert_eq!(order, ["qwen", "cheap", "dear", "unpriced"], "local at $0, then by cost, unknown price last");
+    assert!(reasons[&(paid.id.clone(), "unpriced".to_string())].contains("price unknown"));
+}
