@@ -432,6 +432,28 @@ mod tests {
     }
 
     #[test]
+    fn a_free_connection_does_not_make_a_priced_model_free() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let p = store::add_provider(&conn, &NewProvider { kind: "openrouter", label: "OpenRouter", endpoint: "http://o.test",
+            credential_ref: None, default_billing: "free", wire: "openai" }).unwrap();
+        let price = |input: u64, output: u64| Price { input_micro_per_mtok: input, output_micro_per_mtok: output,
+            cached_input_micro_per_mtok: None, cache_write_micro_per_mtok: None, source: "provider: openrouter /models".into(), observed_at: 1 };
+        let listed = |id: &str, p: Option<Price>| store::Listed { id: id.into(), price: p, ..store::Listed::default() };
+        store::import_listed(&conn, &p.id, &[listed("deepseek/deepseek-chat", Some(price(270_000, 1_100_000))),
+            listed("x/model:free", Some(price(0, 0))), listed("y/unpriced", None)], Some("provider: openrouter /models")).unwrap();
+        let billing = |m: &str| store::list_models(&conn, None).unwrap().into_iter().find(|x| x.model_id == m).unwrap().billing;
+        assert_eq!(billing("deepseek/deepseek-chat"), "paid", "listed at a price, so charged");
+        assert_eq!(billing("x/model:free"), "free");
+        assert_eq!(billing("y/unpriced"), "free", "nothing says otherwise");
+        // The user's own word on a model stands.
+        store::update_model(&conn, &p.id, "deepseek/deepseek-chat", None, Some("free"), None).unwrap();
+        assert_eq!(billing("deepseek/deepseek-chat"), "free");
+        // And the ledger follows: a paid model's success is priced, not "connection marked free".
+        let model = store::list_models(&conn, None).unwrap().into_iter().find(|x| x.model_id == "x/model:free").unwrap();
+        assert_eq!(model.billing, "free");
+    }
+
+    #[test]
     fn the_tier_table_fills_only_what_nobody_set_and_auto_says_so() {
         let conn = crate::db::open_in_memory().unwrap();
         let p = store::add_provider(&conn, &NewProvider { kind: "gemini", label: "Gemini", endpoint: "http://g.test",

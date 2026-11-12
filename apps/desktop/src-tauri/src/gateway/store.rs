@@ -238,7 +238,13 @@ impl Listed {
     }
 }
 
-const MODEL_COLUMNS: &str = "m.provider_id, m.model_id, CASE WHEN m.billing = 'unknown' THEN p.default_billing ELSE m.billing END, \
+/// A model's billing is its own, or its connection's when it has none; but a connection set as free that lists a
+/// model at a price above zero is charged for it (OpenRouter lists its paid models next to its `:free` ones), so
+/// such a model is paid, for ranking, holds and the ledger. Found on 2026-11-12: `auto` sent an owner's request to a
+/// paid OpenRouter model as free, and only the account's empty balance (HTTP 402) stopped it being billed as $0.
+const MODEL_COLUMNS: &str = "m.provider_id, m.model_id, CASE WHEN m.billing <> 'unknown' THEN m.billing \
+     WHEN p.default_billing = 'free' AND (COALESCE(json_extract(m.price_json, '$.inputMicroPerMtok'), 0) > 0 \
+       OR COALESCE(json_extract(m.price_json, '$.outputMicroPerMtok'), 0) > 0) THEN 'paid' ELSE p.default_billing END, \
      m.enabled, m.price_json, m.observed_at, CASE WHEN m.tier IS NULL THEN NULL ELSE 'T' || m.tier END, m.context_tokens, m.max_output_tokens, m.supports_tools, \
      m.supports_vision, m.caps_source, m.caps_observed_at, m.thinking_types, m.effort_levels, m.tier_source, p.kind";
 
