@@ -44,6 +44,11 @@ pub struct Preset {
     /// document the field, so it is not sent to them.
     #[serde(skip)]
     pub takes_reasoning: bool,
+    /// Serves OpenAI's Responses API (`/responses`) itself, so a Responses request passes through unchanged instead
+    /// of being translated to Chat Completions (ADR-033). Only OpenAI documents it as its own API; a provider
+    /// with a partial or beta version is translated.
+    #[serde(skip)]
+    pub serves_responses: bool,
 }
 
 const fn preset(id: &'static str, name: &'static str, endpoint: Option<&'static str>, needs_key: bool,
@@ -54,7 +59,7 @@ const fn preset(id: &'static str, name: &'static str, endpoint: Option<&'static 
         _ => "paid",
     };
     Preset { id, name, endpoint, needs_key, default_billing, wire, strip_model_prefix: None, accepts_cache_control: false,
-        family: None, offer, offer_note: None, free_models: false, takes_reasoning: false }
+        family: None, offer, offer_note: None, free_models: false, takes_reasoning: false, serves_responses: false }
 }
 
 /// A free tier made of $0 models next to paid ones: the connection starts as free, and only those models are on.
@@ -84,7 +89,7 @@ pub const PRESETS: &[Preset] = &[
     preset("anthropic", "Anthropic", Some("https://api.anthropic.com/v1"), true, "paid", "anthropic"),
     free_models(Preset { accepts_cache_control: true,
         ..preset("openrouter", "OpenRouter", Some("https://openrouter.ai/api/v1"), true, "paid", "openai") }, "Free models (:free)"),
-    preset("openai", "OpenAI", Some("https://api.openai.com/v1"), true, "paid", "openai"),
+    Preset { serves_responses: true, ..preset("openai", "OpenAI", Some("https://api.openai.com/v1"), true, "paid", "openai") },
     free(preset("groq", "Groq", Some("https://api.groq.com/openai/v1"), true, "unknown", "openai"), "Free plan"),
     credits(Preset { family: Some("deepseek"), takes_reasoning: true, ..preset("deepseek", "DeepSeek", Some("https://api.deepseek.com"), true, "paid", "openai") }, "Granted balance"),
     credits(Preset { family: Some("deepseek"),

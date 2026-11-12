@@ -31,6 +31,7 @@ pub mod probe;
 pub mod quota;
 pub mod pricing;
 pub mod reference;
+pub mod responses;
 pub mod signatures;
 pub mod sse;
 pub mod store;
@@ -412,6 +413,7 @@ pub fn router(shared: Shared, port: u16) -> Router {
         .route("/v1/chat/completions", post(|s: State<Shared>, h: HeaderMap, b: Bytes| detached(chat_completions(s, h, b))))
         .route("/v1/messages", post(|s: State<Shared>, h: HeaderMap, b: Bytes| detached(anthropic::messages(s, h, b))))
         .route("/v1/messages/count_tokens", post(anthropic::count_tokens))
+        .route("/v1/responses", post(|s: State<Shared>, h: HeaderMap, b: Bytes| detached(responses::responses(s, h, b))))
         .merge(task_api::routes())
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .layer(middleware::from_fn(move |request: Request, next: Middleware| loopback_host_only(request, next, port)))
@@ -561,6 +563,8 @@ async fn list_models(State(shared): State<Shared>, headers: HeaderMap) -> Respon
 pub enum Surface {
     OpenAi,
     Anthropic,
+    /// OpenAI's Responses API (`/v1/responses`, ADR-033), which Codex CLI speaks.
+    Responses,
 }
 
 /// How a request reached its target.
@@ -572,6 +576,10 @@ pub enum Mode {
     AnthropicToOpenAi,
     /// A Chat Completions request translated to Anthropic Messages (ROADMAP B5).
     OpenAiToAnthropic,
+    /// A Responses request translated to Chat Completions (ADR-033).
+    ResponsesToOpenAi,
+    /// A Responses request translated to Chat Completions, then to Anthropic Messages (ADR-033).
+    ResponsesToAnthropic,
 }
 
 impl Mode {
@@ -580,6 +588,8 @@ impl Mode {
             Mode::Native => "native",
             Mode::AnthropicToOpenAi => "translated:anthropic->openai",
             Mode::OpenAiToAnthropic => "translated:openai->anthropic",
+            Mode::ResponsesToOpenAi => "translated:responses->openai",
+            Mode::ResponsesToAnthropic => "translated:responses->anthropic",
         }
     }
 }
@@ -751,6 +761,9 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             (Surface::OpenAi, "openai") | (Surface::Anthropic, "anthropic") => Mode::Native,
             (Surface::Anthropic, "openai") => Mode::AnthropicToOpenAi,
             (Surface::OpenAi, "anthropic") => Mode::OpenAiToAnthropic,
+            (Surface::Responses, "openai") if presets::find(&provider.kind).is_some_and(|p| p.serves_responses) => Mode::Native,
+            (Surface::Responses, "openai") => Mode::ResponsesToOpenAi,
+            (Surface::Responses, "anthropic") => Mode::ResponsesToAnthropic,
             _ => {
                 skipped.push(format!("{name}: speaks the {} API, which this request's format cannot reach yet", provider.wire));
                 continue;
@@ -1045,9 +1058,20 @@ fn upstream_request(incoming: &Incoming, provider: &Provider, model_id: &str, mo
             (anthropic::to_openai(incoming.body, accepts_cache, takes_reasoning), dropped)
         }
         Mode::OpenAiToAnthropic => openai_to_anthropic::to_anthropic(incoming.body),
+        Mode::ResponsesToOpenAi => responses::to_chat(incoming.body, takes_reasoning),
+        // Through the tested Chat Completions → Messages translator; what either step drops is named.
+        Mode::ResponsesToAnthropic => {
+            let (chat, mut dropped) = responses::to_chat(incoming.body, false);
+            let (body, more) = openai_to_anthropic::to_anthropic(&chat);
+            dropped.extend(more.into_iter().filter(|m| !dropped.contains(m)).collect::<Vec<_>>());
+            (body, dropped)
+        }
     };
     body["model"] = json!(model_id);
-    if provider.wire == "openai" {
+    if incoming.surface == Surface::Responses && mode == Mode::Native {
+        // The provider serves the Responses API itself: the body goes as it came.
+        (format!("{}/responses", provider.endpoint), body, dropped)
+    } else if provider.wire == "openai" {
         if incoming.stream {
             // Ask for the usage chunk at the end of the stream, keeping any options the client set.
             if !body["stream_options"].is_object() {

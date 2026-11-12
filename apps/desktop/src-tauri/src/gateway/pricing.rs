@@ -63,6 +63,16 @@ impl Usage {
         }
     }
 
+    /// A Responses API `usage` object: `input_tokens` is the whole prompt, with the cached part in its details.
+    pub fn from_responses(usage: &serde_json::Value) -> Option<Usage> {
+        if !usage.is_object() {
+            return None;
+        }
+        let n = |v: &serde_json::Value| v.as_u64().unwrap_or(0);
+        Some(Usage { prompt: n(&usage["input_tokens"]), completion: n(&usage["output_tokens"]),
+            cached: n(&usage["input_tokens_details"]["cached_tokens"]), cache_write: 0, provider_cost_usd: None })
+    }
+
     pub fn from_json(usage: &serde_json::Value) -> Option<Usage> {
         if !usage.is_object() {
             return None;
