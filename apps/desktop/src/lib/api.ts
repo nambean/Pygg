@@ -62,6 +62,9 @@ export type Connection = {
 export type QuotaWindow = {kind: string; limit: number | null; remaining: number | null; resetsAt: number | null};
 export type RateLimits = {modelId: string; headers: Record<string, string>; httpStatus: number | null; observedAt: number;
   windows?: QuotaWindow[]};
+/** What one short test request to a model came back with. */
+export type ModelTest = {ok: boolean; text: string; latencyMs: number; inputTokens: number | null; outputTokens: number | null; route: string};
+
 /** An account's balance or free allowance, as its provider's account endpoint said. */
 export type Account = {source: string; observedAt: number; balance: number | null; currency: string | null;
   available: boolean | null; usedToday: number | null; freeRequests: QuotaWindow | null};
@@ -245,6 +248,8 @@ export interface GatewayApi {
   clearConnectionHealth(id: string): Promise<Connection>;
   /** Reads the account's balance or free allowance from the provider now. */
   checkAccount(id: string): Promise<Connection>;
+  /** Sends one short request to a model and reports what came back (Test Model). */
+  testModel(providerId: string, modelId: string): Promise<ModelTest>;
   /** Puts a connection in a pool, or takes it out with null (ADR-034). */
   setConnectionPool(id: string, pool: string | null): Promise<Connection>;
   moveInPool(id: string, up: boolean): Promise<void>;
@@ -357,6 +362,7 @@ const native: GatewayApi = {
   clearConnectionHealth: id => invoke('connection_clear_health', {id}),
   checkAccount: id => invoke('connection_check_account', {id}),
   setConnectionPool: (id, pool) => invoke('connection_set_pool', {id, pool}),
+  testModel: (providerId, modelId) => invoke('model_test', {providerId, modelId}),
   moveInPool: (id, up) => invoke('connection_move_in_pool', {id, up}),
   setConnectionTerms: (id, terms, source) => invoke('connection_set_terms', {id, terms, source}),
   removeConnection: id => invoke('connection_remove', {id}),

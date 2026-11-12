@@ -340,6 +340,12 @@ pub async fn connection_refresh_models(state: State<'_, AppState>, id: String) -
     Ok(ImportResult { listed: ids.len(), added })
 }
 
+/// Sends one short request to a model through the gateway's own routing and ledger (Test Model, SCREENS §6.2).
+#[tauri::command]
+pub async fn model_test(state: State<'_, AppState>, provider_id: String, model_id: String) -> Res<gateway::model_test::TestResult> {
+    gateway::model_test::run(&state.shared, &provider_id, &model_id).await
+}
+
 /// Puts a connection in a pool, or takes it out with `None` (ADR-034).
 #[tauri::command]
 pub fn connection_set_pool(state: State<'_, AppState>, id: String, pool: Option<String>) -> Res<ConnectionView> {

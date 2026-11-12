@@ -16,6 +16,7 @@
 //!   gateway [--db PATH] terms --id CONNECTION --terms no_training|may_train|unknown [--source WHERE]
 //!   gateway [--db PATH] auto --alias auto|auto/cheap [--client NAME] [--anthropic yes] [--tools yes] [--prompt N] [--max-tokens N]
 //!                             [--thinking adaptive|enabled] [--effort low|medium|high|xhigh|max]
+//!   gateway [--db PATH] test-model --model CONNECTION/MODEL
 //!   gateway [--db PATH] list
 //!   gateway [--db PATH] usage
 //!
@@ -147,6 +148,17 @@ pub async fn run(mut args: Vec<String>) {
             let applied = shared.with_db(|db| gateway::reference::apply(db, &catalog)).unwrap_or_else(|e| fail(e));
             shared.with_db(gateway::reference::mark_applied);
             println!("models.dev described {} models; filled {}; tiered by price {}; added {} free; {} media models off", applied.matched, applied.filled, applied.tiered, applied.added, applied.media_off);
+        }
+        "test-model" => {
+            // One short request through the gateway's routing and ledger (Test Model); a paid model costs a little.
+            let model = one("model").unwrap_or_else(|| fail("--model CONNECTION/MODEL is required"));
+            let (provider, model_id) = model.split_once('/').unwrap_or_else(|| fail("--model is CONNECTION/MODEL"));
+            // The gateway sends only while it holds the store: a short-lived server on a free port takes it.
+            let server = gateway::start(shared.clone(), 0).await.unwrap_or_else(|e| fail(e.to_string()));
+            let result = gateway::model_test::run(&shared, provider, model_id).await.unwrap_or_else(|e| fail(e));
+            server.stop().await;
+            println!("{} in {} ms via {}: {} ({} in, {} out)", if result.ok { "answered" } else { "failed" }, result.latency_ms,
+                result.route, result.text.trim(), result.input_tokens.unwrap_or(0), result.output_tokens.unwrap_or(0));
         }
         "create-client" => {
             let name = one("name").unwrap_or_else(|| fail("--name is required"));

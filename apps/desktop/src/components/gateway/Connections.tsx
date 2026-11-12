@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { KeyRound, Plug, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { BILLINGS, TIERS, call, errorText, gatewayChanged, type Billing, type Connection, type Health, type Model, type Preset,
-  type Tier } from '../../lib/api';
+  type ModelTest, type Tier } from '../../lib/api';
 import { ago, windowText } from '../../lib/format';
 import { plural, t } from '../../lib/i18n';
 import { billingLabel, parseUsd, priceText } from '../../lib/money';
@@ -389,6 +389,29 @@ function AccountRow({connection: c}: {connection: Connection}) {
   </div>;
 }
 
+/** Test Model (SCREENS §6.2): one short request through the gateway; a paid model asks first, as it costs a little. */
+function ModelTestButton({model: m}: {model: Model}) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<ModelTest | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const paid = m.billing === 'paid' || m.billing === 'unknown';
+  const run = () => {
+    if (paid && !window.confirm(t('Send one short request to {model}? It asks for one word, so it costs a fraction of a cent at its price, recorded in Usage.', {model: m.modelId}))) return;
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    call(api => api.testModel(m.providerId, m.modelId)).then(setResult, e => setError(errorText(e))).finally(() => setBusy(false));
+  };
+  const summary = result && (result.ok
+    ? t('Answered “{text}” in {ms} ms', {text: result.text.trim().slice(0, 40), ms: result.latencyMs})
+    : result.text);
+  return <>
+    <button type="button" className="button small" disabled={busy} onClick={run}
+      title={summary ?? error ?? t('Send one short request to this model')}>{busy ? t('Testing…') : t('Test')}</button>
+    {(summary || error) && <small className={result?.ok ? 'source' : 'warn-text'} role="status">{summary ?? error}</small>}
+  </>;
+}
+
 function ModelRow({model: m, health, onPrice, onCaps, onChange}: {model: Model; health?: Health; onPrice: () => void; onCaps: () => void;
   onChange: () => void}) {
   const needsPrice = m.billing === 'paid' || m.billing === 'unknown';
@@ -409,6 +432,7 @@ function ModelRow({model: m, health, onPrice, onCaps, onChange}: {model: Model; 
     <td className="narrow row-buttons">
       <button type="button" className="button small" onClick={onPrice}>{m.price ? t('Edit Price…') : t('Set Price…')}</button>
       <button type="button" className="button small" onClick={onCaps}>{t('Auto…')}</button>
+      <ModelTestButton model={m}/>
       <button type="button" className="button small icon-only" aria-label={t('Remove {model}', {model: m.modelId})} title={t('Remove')}
         onClick={() => call(api => api.removeModel(m.providerId, m.modelId)).then(onChange)}><Trash2 size={13} aria-hidden/></button>
     </td>

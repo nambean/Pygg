@@ -27,6 +27,7 @@ pub mod catalog;
 pub mod openai_to_anthropic;
 pub mod policy;
 pub mod presets;
+pub mod model_test;
 pub mod oauth;
 pub mod probe;
 pub mod quota;

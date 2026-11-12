@@ -438,6 +438,8 @@ export function demoApi(): GatewayApi {
       connections.push(stored);
       return view(stored);
     },
+    // The preview sends nothing: a sample answer.
+    testModel: async () => { await sleep(600); return {ok: true, text: 'ok', latencyMs: 640, inputTokens: 14, outputTokens: 2, route: 'native'}; },
     setConnectionPool: async (id, pool) => {
       const c = find(id);
       if (pool && !c.separateQuota) throw 'Confirm first that this connection has its own provider quota (Independent quota confirmed): a pool is for separate accounts, not several keys of one account';
