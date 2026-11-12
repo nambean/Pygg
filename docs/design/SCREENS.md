@@ -87,10 +87,16 @@ Codex recommended native Windows controls instead. The team chose traffic lights
 | **Providers** | The connections (code: `Connections.tsx`). The detail shows authentication, health, account and billing; endpoint, API format, rate limits, quota, pool, data use and model names sit under **Advanced** |
 | **Endpoint** | Gateway card (start/stop, port), the base URLs to copy (OpenAI-compatible `/v1`, Anthropic root, model `auto`), and **API Keys**: Pygg's own client tokens with their limits (code: `Clients.tsx`) |
 | **CLI Tools** | One-click setup (Codex, OpenCode: backup, own key, write, check, undo) and *Set Up by Hand* (Claude Code, OpenCode, editors such as Cline and Continue, OpenAI SDK, curl), then whether the newest request worked |
-| **Combos** | Ordered fallback lists, and how `auto` chooses (the simulator) |
-| **Usage** | Spending first, then routing, requests and task results |
-| **Smart Tasks · Experimental** | Tasks, Workspaces, Policies, Agents (agent CLIs, MCP delegation, Run a Task). On hold; the app no longer opens on a waiting task, the count still shows it |
+| **Combos** | Tabs **Combos** (cards: ordered fallback, members with billing, tier and tools, how many are off or missing) and **How auto chooses** (explainer and simulator). **From Template…**: Free first, Use my plans first, Subscription only, Strong coding with cheap backup, No metered spend, Local only, Long-context coding, as rules over the user's models (`lib/comboTemplates.ts`) resolved into a saved list, with a preview of members, reasons, exclusions and missing stages |
+| **Usage** | The Estimated Savings hero, then spending, routing, requests and task results |
+| **Policies** | Defaults for new API keys (applied in `store::create_client`, whoever creates the key), each key's policy (the Limits sheet), each connection's terms, quota and pool, the guarantees that are not settings, and the on-hold task rules |
+| **Smart Tasks · Experimental** | Tasks, Workspaces, Agents (agent CLIs, MCP delegation, Run a Task). On hold; the app no longer opens on a waiting task, the count still shows it |
+| **Guide** (App) | Quick start, Claude Code, Codex, OpenCode, editors and SDKs, the command line and npm, auto and combos, costs, troubleshooting, FAQ; every command with Copy (`Ctrl+/`) |
 | **Settings** | App preferences, background, diagnostics, task budgets |
+
+Home leads with the **Estimated Savings** hero after the gateway card and alerts: the amount, the percentage, the comparison model, how many answered requests were compared and what was left out. With no comparison model chosen, it proposes the paid, priced model clients asked for by name most often, never the most expensive one, and the user accepts it.
+
+Not built yet from the Combos review: a combo route preview and a live combo test, drag to reorder, and the strategies worth adding next (cost order within a combo, round robin across independent quota groups, lowest measured latency).
 
 Shortcuts: `Ctrl+1`…`Ctrl+6` the gateway screens in that order, `Ctrl+7` Tasks, `Ctrl+8` Agents, `Ctrl+,` Settings.
 
