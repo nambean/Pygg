@@ -22,7 +22,7 @@ pub struct AppState {
 
 type Res<T> = Result<T, String>;
 
-const PORT_KEY: &str = "gateway.port";
+pub(crate) const PORT_KEY: &str = "gateway.port";
 const AUTOSTART_KEY: &str = "gateway.autostart";
 
 impl AppState {

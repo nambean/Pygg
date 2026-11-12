@@ -7,6 +7,7 @@
 //!   pygg-cli mcp                     the MCP server for IDE agents (as `Pygg.exe mcp`)
 //!   pygg-cli gateway [--db P] …      the headless gateway: serve, connections, clients, combos, usage
 //!   pygg-cli agent [--db P] …        agent detection, one-off runs, smart tasks, quality
+//!   pygg-cli setup [<tool>]          set Pygg up in an agent, as the Agents screen does (setup.rs)
 //!   pygg-cli diagnostics --out PATH  the redacted diagnostics bundle (diagnostics.rs), as Settings → Diagnostics saves
 //!
 //! `status`, `doctor` and `diagnostics` only read: they open the store read-only, never migrate it, and never start a second
@@ -14,11 +15,12 @@
 
 pub mod agent;
 pub mod gateway;
+pub mod setup;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-const USAGE: &str = "usage: pygg-cli status|doctor|mcp|gateway …|agent …|diagnostics --out PATH [--db PATH] [--port N]";
+const USAGE: &str = "usage: pygg-cli status|doctor|mcp|gateway …|agent …|setup …|diagnostics --out PATH [--db PATH] [--port N]";
 
 /// `pygg --help`: every command in a line, and where to read more.
 const HELP: &str = "Pygg: one local gateway for your AI coding tools, and the agents behind them.
@@ -30,6 +32,7 @@ usage: pygg <command> [options]
   mcp                       the MCP server for IDE agents (what Claude Code, Codex and OpenCode start)
   gateway <command> …       the gateway without the window: serve, connections, models, clients, combos, usage
   agent <command> …         agent CLIs: detect, run, task, quality
+  setup [<tool>]            set Pygg up in Codex, OpenCode or Claude Code, as the Agents screen does (--dry-run, --remove)
   diagnostics --out PATH    save the redacted diagnostics bundle (no keys, tokens or prompts)
   --version                 the version of this program
 
@@ -48,7 +51,7 @@ pub fn default_store() -> Option<PathBuf> {
     Some(base.join("app.smarttaskrouter.desktop").join("store.sqlite3"))
 }
 
-fn flag(args: &[String], name: &str) -> Option<String> {
+pub(crate) fn flag(args: &[String], name: &str) -> Option<String> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
 }
 
@@ -120,7 +123,7 @@ async fn doctor(args: &[String]) -> bool {
         .and_then(|p| rusqlite::Connection::open_with_flags(&p, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok())
         .map(|c| crate::integrations::records(&c))
         .unwrap_or_else(|| crate::integrations::TARGETS.iter().map(|t| (t.0.to_string(), None)).collect());
-    println!("Set up in your agents (Agents → From Your IDE)");
+    println!("Set up in your agents (Agents screen, or `pygg setup`)");
     for i in crate::integrations::list_with(records, &crate::integrations::Homes::from_env()).await {
         println!("  {:<12} {:<18} {}", i.id, i.state, i.config_path);
     }
@@ -203,6 +206,7 @@ pub async fn run(mut args: Vec<String>) -> i32 {
         "mcp" => { eprintln!("start the MCP server as `pygg-cli mcp`"); 2 }
         "gateway" => { gateway::run(args).await; 0 }
         "agent" => { agent::run(args).await; 0 }
+        "setup" => setup::run(args).await,
         "diagnostics" => match diagnostics(&args).await {
             Ok(path) => { println!("Saved {} (no keys, tokens, prompts or agent output; see README.txt inside)", path.display()); 0 }
             Err(e) => { eprintln!("{e}"); 1 }
