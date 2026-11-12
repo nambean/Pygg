@@ -492,7 +492,7 @@ fn attempts_of(conn: &Connection, task_id: &str) -> Result<Vec<AttemptView>> {
                 (SELECT SUM(input_tokens) FROM usage_events u WHERE u.attempt_id = a.id), \
                 (SELECT SUM(output_tokens) FROM usage_events u WHERE u.attempt_id = a.id), \
                 a.started_at, a.finished_at, a.worktree_path, a.base_revision, a.agent_estimate_micro_usd, \
-                (SELECT cap_micro_usd FROM approvals p WHERE p.attempt_id = a.id AND p.state = 'approved' ORDER BY p.created_at DESC LIMIT 1), \
+                (SELECT cap_micro_usd FROM approvals p WHERE p.attempt_id = a.id AND p.state = 'approved' ORDER BY p.rowid DESC LIMIT 1), \
                 a.handoff_sent, a.changed_paths_json, a.cost_source, \
                 (SELECT COUNT(*) FROM usage_events u WHERE u.attempt_id = a.id AND u.cost_status = 'unknown' \
                  AND COALESCE(u.route_mode, '') <> 'agent') \
@@ -590,7 +590,7 @@ fn approval_of(conn: &Connection, row: &TaskRow, attempts: &[AttemptView]) -> Re
     let Some(step) = row.policy.steps.get(waiting.step) else { return Ok(None) };
     let estimate: Option<(Option<i64>, Option<i64>, String)> = conn.query_row(
         "SELECT estimate_low_micro, estimate_high_micro, policy_version FROM approvals WHERE attempt_id = ?1 AND state = 'pending' \
-         ORDER BY created_at DESC LIMIT 1", [&waiting.id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional().map_err(err)?;
+         ORDER BY rowid DESC LIMIT 1", [&waiting.id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional().map_err(err)?;
     let Some((low, high, asked_on)) = estimate else { return Ok(None) };
     // The number of runs the estimate was made from, as recorded in its basis.
     let runs = asked_on.split('|').nth(5).and_then(|n| n.parse().ok()).unwrap_or(0);
@@ -640,8 +640,11 @@ fn open_attempt(conn: &Connection, task_id: &str, stage_id: &str, index: usize, 
             "SELECT id FROM attempts WHERE stage_id = ?1 AND rung = ?2 AND state = 'waiting' ORDER BY number DESC LIMIT 1",
             params![stage_id, index as i64], |r| r.get(0)).optional()?;
         if let Some(attempt) = waiting {
+            // The latest approval by insertion order (rowid), not by `created_at`: an approval asked again after an
+            // invalidation can share the millisecond of the one it replaced, and the older, invalidated one would
+            // then read as this attempt's decision.
             let decision: Option<String> = conn.query_row(
-                "SELECT state FROM approvals WHERE attempt_id = ?1 ORDER BY created_at DESC LIMIT 1", [&attempt], |r| r.get(0)).optional()?;
+                "SELECT state FROM approvals WHERE attempt_id = ?1 ORDER BY rowid DESC LIMIT 1", [&attempt], |r| r.get(0)).optional()?;
             return match decision.as_deref() {
                 Some("approved") => {
                     conn.execute("UPDATE attempts SET state = 'running', started_at = ?2 WHERE id = ?1", params![attempt, now])?;
@@ -728,7 +731,7 @@ fn ask_approval(conn: &Connection, attempt: &str, step: &Step, workspace_id: &st
 
 /// The cap the user approved for an attempt.
 fn approved_cap(conn: &Connection, attempt: &str) -> rusqlite::Result<Option<u64>> {
-    conn.query_row("SELECT cap_micro_usd FROM approvals WHERE attempt_id = ?1 AND state = 'approved' ORDER BY created_at DESC LIMIT 1",
+    conn.query_row("SELECT cap_micro_usd FROM approvals WHERE attempt_id = ?1 AND state = 'approved' ORDER BY rowid DESC LIMIT 1",
         [attempt], |r| r.get::<_, i64>(0)).optional().map(|v| v.filter(|c| *c > 0).map(|c| c as u64))
 }
 
@@ -1193,7 +1196,7 @@ impl Runner {
                 return Err("Set a spending cap for this paid step".into());
             }
             let asked_on: Option<String> = c.query_row(
-                "SELECT policy_version FROM approvals WHERE attempt_id = ?1 AND state = 'pending' ORDER BY created_at DESC LIMIT 1",
+                "SELECT policy_version FROM approvals WHERE attempt_id = ?1 AND state = 'pending' ORDER BY rowid DESC LIMIT 1",
                 [&attempt], |r| r.get(0)).optional().map_err(err)?;
             let tx = c.unchecked_transaction().map_err(err)?;
             if approve {
