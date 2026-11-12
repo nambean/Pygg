@@ -98,7 +98,9 @@ pub const RECIPES: &[Recipe] = &[Recipe {
     preset: "muse-web",
     site: "https://muse.ai",
     new_chat_url: "https://muse.ai/thread/new",
-    hosts: &["muse.ai", "meta.com", "meta.ai", "facebook.com"],
+    // Meta's sign-in checks for an existing account by passing through each of its sites in turn ("aymh" redirect
+    // cycle: facebook.com, then instagram.com); blocking one of them aborts the sign-in and leaves the window blank.
+    hosts: &["muse.ai", "meta.com", "meta.ai", "facebook.com", "instagram.com", "threads.com", "threads.net", "messenger.com"],
     models: &["muse"],
     input: "textarea",
     send_pattern: "send",

@@ -194,6 +194,7 @@ fn the_window_goes_only_to_the_sites_hosts() {
     assert!(host_allowed(r, "https://muse.ai/thread/new"));
     assert!(host_allowed(r, "https://www.facebook.com/login"));
     assert!(host_allowed(r, "https://auth.meta.com/x?y=1"));
+    assert!(host_allowed(r, "https://www.instagram.com/aymh/redirect-cycle/?t=6"), "Meta's sign-in passes through Instagram");
     assert!(!host_allowed(r, "http://muse.ai/"), "HTTPS only");
     assert!(!host_allowed(r, "https://muse.ai.evil.com/"));
     assert!(!host_allowed(r, "https://evilmuse.ai/"));

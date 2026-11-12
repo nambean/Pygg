@@ -77,14 +77,27 @@ impl<R: Runtime> AppWindows<R> {
             .ok_or("This connection has no profile folder")?;
         std::fs::create_dir_all(&profile).map_err(|e| format!("Could not create the profile folder: {e}"))?;
         let url = recipe.site.parse().map_err(|_| "The site's address is not valid")?;
+        // Debug builds only, and only when asked: DevTools for the web window, to see why a page does not load.
+        let args = if cfg!(debug_assertions) && std::env::var_os("PYGG_WEB_DEVTOOLS").is_some() {
+            format!("{BROWSER_ARGS} --remote-debugging-port=9462")
+        } else {
+            BROWSER_ARGS.to_string()
+        };
         WebviewWindowBuilder::new(&self.app, label(&provider.id), WebviewUrl::External(url))
             .title(format!("{} — web session (unofficial), Pygg", provider.label))
             .inner_size(1100.0, 820.0)
             .visible(false)
             .data_directory(profile)
-            .additional_browser_args(BROWSER_ARGS)
+            .additional_browser_args(&args)
             // Only the site and its sign-in hosts; a blocked address is not loaded, and nothing is logged about it.
-            .on_navigation(move |url| host_allowed(recipe, url.as_str()))
+            .on_navigation(move |url| {
+                let allowed = host_allowed(recipe, url.as_str());
+                // Debug builds, when asked: which addresses the window was refused (the address only, nothing from the page).
+                if cfg!(debug_assertions) && std::env::var_os("PYGG_WEB_DEVTOOLS").is_some() {
+                    eprintln!("web-session navigation {} -> {}", url.as_str(), if allowed { "allowed" } else { "blocked" });
+                }
+                allowed
+            })
             .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
             .build()
             .map_err(|e| format!("Could not open the window: {e}"))
