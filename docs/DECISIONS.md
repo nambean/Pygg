@@ -254,6 +254,7 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
   4. The integrations hub (PV-05) for Claude Code, Codex CLI and OpenCode.
   5. One native `pygg` binary.
   6. npm, after the name is registered and binaries are signed (owner decisions).
+- **H1's A/B (2026-11-12, [report](../benchmark/reports/2026-11-12-h1-handoff-ab.md)):** no case for `evidence` as the default, so **`tail` stays the default**. An exploratory run (3 arms × 36) found one nominal saving, about 12% fewer step-2 input tokens. The pre-registered confirmatory run was cut off at 25 pairs (inconclusive by its rule) and did not repeat that saving. `evidence` stays available per task. Its open question is whether it helps when the first step reaches its checks and fails; that needs a different first step. PV-02 therefore stays deferred: H1 has not yet been shown to help.
 - **Deferred, unchanged:** PV-03, PV-07, PV-08 (the adaptive part, which is evaluated only on benchmark replays, never as a live shadow), PV-09 (as a feature; its deterministic rules go into the H1 builder) and PV-10.
 
 ## Open decisions (not yet finalized)

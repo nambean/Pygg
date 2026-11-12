@@ -1,6 +1,6 @@
 # H1 handoff A/B: what the next step is told after a failed one (2026-11-12)
 
-> **Status:** The exploratory run is complete. The confirmatory run is **pre-registered here, before it starts**, and its result will be added below. ADR-030 says the task engine's `evidence` handoff (H1) becomes the default only if an A/B says so. Until then the default stays `tail`.
+> **Status:** Complete. No evidence for `evidence` as a default, so **`tail` stays the default.** The exploratory run showed one nominal saving. The confirmatory run was pre-registered in commit `2da7619` before it started. It was cut off at 25 of 36 pairs, which is inconclusive by its own rule, and it did not repeat the saving.
 
 ## Question
 
@@ -72,11 +72,35 @@ Written and committed before the run starts.
 
 ## Confirmatory run: result
 
-*Pending; started 2026-11-12 after this file was committed.*
+**Inconclusive by the pre-registered rule. `tail` stays the default.**
+
+The run started at 04:34, after commit `2da7619`. It was cut off when the session driving it ended, which stopped both `bench` processes and the scratch gateway. At that point `tail` had 25 runs and `evidence` had 26, giving 25 complete pairs. That is fewer than the 30 the registration requires. Results: [`benchmark/results/2026-11-12-h1-confirmatory/`](../results/2026-11-12-h1-confirmatory/), with `SHA256SUMS`.
+
+| Arm | Passed | Step 1 reached the checks | Mean step-2 time | Mean step-2 input tokens | Mean step-2 output tokens | Money |
+| --- | --- | --- | --- | --- | --- | --- |
+| tail | 25/25 | 4 | 38.5 s | 102,731 | 5,568 | $0.343 |
+| evidence | 26/26 | 7 | 37.2 s | 99,875 | 5,309 | $0.346 |
+
+Paired over the 25 pairs, tail minus evidence:
+
+| Measure | Mean | 95% |
+| --- | --- | --- |
+| Step-2 input tokens (primary) | +1,472 | [−15,706, +15,247] |
+| Step-2 output tokens | +172 | [−547, +955] |
+| Step-2 time | +0.8 s | [−2.9, +4.4] s |
+| Money per run | +$0.0002 | [−$0.0017, +$0.0017] |
+
+The cut-off alone makes the run inconclusive. The data point the same way: the 12% input-token saving seen in the exploratory run did not repeat. The estimate is about 1%, with an interval centred near zero. Taken together, the two runs give no evidence that `evidence` saves tokens, time or money, or changes the pass rate, in a cascade whose first step mostly times out or changes nothing.
+
+**What follows:**
+- `tail` stays the default.
+- `evidence` stays available per task.
+- The open H1 question is still the one registered as "not claimed": whether `evidence` helps when step 1 reaches its checks and fails. Testing it needs a first step that gets that far. This set-up does not produce one, because the local `qwen3:8b` step mostly timed out.
 
 ## Spend
 
 | Run | Money at list price |
 | --- | --- |
-| Exploratory (3 arms) | $1.503 |
-| Confirmatory (2 arms) | pending, capped at $2 |
+| Exploratory (3 arms, 108 runs) | $1.503 |
+| Confirmatory (2 arms, 51 runs, cut off) | $0.689 |
+| **H1 total** | **$2.192** |
