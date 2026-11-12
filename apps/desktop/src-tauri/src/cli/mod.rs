@@ -7,8 +7,9 @@
 //!   pygg-cli mcp                     the MCP server for IDE agents (as `Pygg.exe mcp`)
 //!   pygg-cli gateway [--db P] …      the headless gateway: serve, connections, clients, combos, usage
 //!   pygg-cli agent [--db P] …        agent detection, one-off runs, smart tasks, quality
+//!   pygg-cli diagnostics --out PATH  the redacted diagnostics bundle (diagnostics.rs), as Settings → Diagnostics saves
 //!
-//! `status` and `doctor` only read: they open the store read-only, never migrate it, and never start a second
+//! `status`, `doctor` and `diagnostics` only read: they open the store read-only, never migrate it, and never start a second
 //! gateway on a store the app holds (gateway/mod.rs, one store per gateway).
 
 pub mod agent;
@@ -17,7 +18,7 @@ pub mod gateway;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-const USAGE: &str = "usage: pygg-cli status|doctor|mcp|gateway …|agent … [--db PATH] [--port N]";
+const USAGE: &str = "usage: pygg-cli status|doctor|mcp|gateway …|agent …|diagnostics --out PATH [--db PATH] [--port N]";
 
 /// The app's own store, as the app and `gateway` find it.
 pub fn default_store() -> Option<PathBuf> {
@@ -105,6 +106,27 @@ async fn doctor(args: &[String]) -> bool {
     ok
 }
 
+/// Writes the diagnostics bundle of the store to `--out`, reading the store without migrating it.
+async fn diagnostics(args: &[String]) -> Result<PathBuf, String> {
+    let out = flag(args, "--out").map(PathBuf::from).ok_or("pass --out PATH, the zip to write")?;
+    let store = flag(args, "--db").map(PathBuf::from).or_else(default_store).filter(|p| p.is_file())
+        .ok_or("no store found: pass --db")?;
+    let port: u16 = flag(args, "--port").and_then(|p| p.parse().ok()).unwrap_or(crate::gateway::DEFAULT_PORT);
+    let (gateway_state, gateway_error) = match health(port).await {
+        Ok(h) => (format!("answers: {}, accounting {}", h["app"].as_str().unwrap_or("unknown"),
+            h["accounting"].as_str().unwrap_or("unknown")), h["accountingError"].as_str().map(String::from)),
+        Err(e) => ("not answering".to_string(), Some(e)),
+    };
+    let context = crate::diagnostics::Context { made_by: "cli", gateway_state, gateway_port: port, gateway_error,
+        log_lines: Vec::new() };
+    let conn = rusqlite::Connection::open_with_flags(&store, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX)
+        .map_err(|e| format!("could not open {}: {e}", store.display()))?;
+    conn.busy_timeout(Duration::from_secs(5)).map_err(|e| e.to_string())?;
+    let zip = crate::diagnostics::bundle(&conn, &context, crate::db::now_ms())?;
+    std::fs::write(&out, zip).map_err(|e| format!("could not write {}: {e}", out.display()))?;
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,6 +148,23 @@ mod tests {
         let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
         assert_eq!(rt.block_on(health(port)).unwrap_err(), "nothing is listening");
     }
+
+    #[test]
+    fn diagnostics_writes_a_zip_without_migrating_the_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = dir.path().join("store.sqlite3");
+        drop(crate::db::open(&store).unwrap());
+        let out = dir.path().join("bundle.zip");
+        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port().to_string();
+        let args: Vec<String> = ["--db", store.to_str().unwrap(), "--out", out.to_str().unwrap(), "--port", &port]
+            .iter().map(|s| s.to_string()).collect();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        assert_eq!(rt.block_on(diagnostics(&args)).unwrap(), out);
+        let bytes = std::fs::read(&out).unwrap();
+        assert_eq!(&bytes[..4], b"PK");
+        assert!(String::from_utf8_lossy(&bytes).contains("not answering"));
+        assert!(rt.block_on(diagnostics(&args[..2])).unwrap_err().contains("--out"));
+    }
 }
 
 /// Runs `pygg-cli` with its arguments (without the program's name); the exit code says whether all was well.
@@ -142,6 +181,10 @@ pub async fn run(mut args: Vec<String>) -> i32 {
         "mcp" => { eprintln!("start the MCP server as `pygg-cli mcp`"); 2 }
         "gateway" => { gateway::run(args).await; 0 }
         "agent" => { agent::run(args).await; 0 }
+        "diagnostics" => match diagnostics(&args).await {
+            Ok(path) => { println!("Saved {} (no keys, tokens, prompts or agent output; see README.txt inside)", path.display()); 0 }
+            Err(e) => { eprintln!("{e}"); 1 }
+        },
         "-h" | "--help" | "help" => { println!("{USAGE}"); 0 }
         other => { eprintln!("unknown command {other}\n{USAGE}"); 2 }
     }

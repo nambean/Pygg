@@ -7,6 +7,7 @@ pub mod checks;
 pub mod cli;
 pub mod commands;
 pub mod db;
+pub mod diagnostics;
 pub mod gateway;
 pub mod handoff;
 pub mod integrations;
@@ -192,6 +193,7 @@ pub fn run() {
             commands::usage_summary,
             commands::usage_over_time,
             commands::usage_export,
+            commands::diagnostics_export,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Pygg");

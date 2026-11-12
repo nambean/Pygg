@@ -234,6 +234,8 @@ export interface GatewayApi {
   usageOverTime(days: number): Promise<UsageBucket[]>;
   /** Every request of the period as a CSV file the user saves; the path, or null when they cancel. */
   exportUsage(days: number): Promise<string | null>;
+  /** The redacted diagnostics bundle as a zip the user saves; the path, or null when they cancel. */
+  exportDiagnostics(): Promise<string | null>;
   /** How tasks turned out over the last `days`. */
   taskQuality(days: number): Promise<TaskQuality>;
   agents(): Promise<AgentInfo[]>;
@@ -311,6 +313,7 @@ const native: GatewayApi = {
   usage: days => invoke('usage_summary', {days}),
   usageOverTime: days => invoke('usage_over_time', {days, offsetMinutes: -new Date().getTimezoneOffset()}),
   exportUsage: days => invoke('usage_export', {days}),
+  exportDiagnostics: () => invoke('diagnostics_export'),
   taskQuality: days => invoke('tasks_quality', {days}),
   agents: () => invoke('agents_detect'),
   runAgent: task => invoke('agent_run', {request: task}),

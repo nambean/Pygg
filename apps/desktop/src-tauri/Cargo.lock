@@ -3730,6 +3730,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "uuid",
+ "windows-version",
 ]
 
 [[package]]
