@@ -106,14 +106,16 @@ pub struct GatewayModel {
     pub supports_tools: Option<bool>,
 }
 
-/// `auto`, `auto/cheap`, then the enabled models of enabled connections.
+/// `auto`, `auto/cheap`, then the enabled models of enabled connections, leaving out those known not to take tools:
+/// a coding agent cannot work with them (the owner's OpenRouter connection listed 66 of 431). A model whose tool
+/// support is unknown stays: Pygg does not guess.
 pub fn gateway_models(conn: &Connection) -> Vec<GatewayModel> {
     let enabled: std::collections::HashSet<String> = store::list_providers(conn).unwrap_or_default().into_iter()
         .filter(|p| p.enabled).map(|p| p.id).collect();
     let aliases = crate::gateway::auto::ALIASES.iter().map(|a| GatewayModel { id: a.to_string(), context_tokens: None,
         max_output_tokens: None, supports_tools: Some(true) });
     let models = store::list_models(conn, None).unwrap_or_default().into_iter()
-        .filter(|m| m.enabled && enabled.contains(&m.provider_id))
+        .filter(|m| m.enabled && enabled.contains(&m.provider_id) && m.capabilities.supports_tools != Some(false))
         .map(|m| GatewayModel { id: format!("{}/{}", m.provider_id, m.model_id), context_tokens: m.capabilities.context_tokens,
             max_output_tokens: m.capabilities.max_output_tokens, supports_tools: m.capabilities.supports_tools });
     aliases.chain(models).collect()
@@ -714,6 +716,21 @@ mod tests {
         let p = plan(OPENCODE_GATEWAY, &server(None), &homes, Path::new("b")).unwrap();
         assert_eq!((p.kind.as_str(), p.method.as_str(), p.client_name.as_str()), ("gateway", "file", "OpenCode (models)"));
         assert!(p.change.contains("<new-token>") && p.change.contains("\"pygg\""), "{}", p.change);
+    }
+
+    #[test]
+    fn opencode_is_told_about_enabled_models_except_those_known_not_to_take_tools() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let p = store::add_provider(&conn, &store::NewProvider { kind: "openrouter", label: "OpenRouter",
+            endpoint: "https://openrouter.ai/api/v1", credential_ref: None, default_billing: "paid", wire: "openai" }).unwrap();
+        for (model, tools) in [("a", Some(true)), ("b", Some(false)), ("c", None), ("d", Some(true))] {
+            store::add_model(&conn, &p.id, model).unwrap();
+            store::set_capabilities(&conn, &p.id, model, &store::Capabilities { supports_tools: tools,
+                context_tokens: Some(1000), ..store::Capabilities::default() }).unwrap();
+        }
+        store::update_model(&conn, &p.id, "d", Some(false), None, None).unwrap();
+        let ids: Vec<String> = gateway_models(&conn).into_iter().map(|m| m.id).collect();
+        assert_eq!(ids, ["auto".to_string(), "auto/cheap".into(), format!("{}/a", p.id), format!("{}/c", p.id)]);
     }
 
     #[tokio::test]

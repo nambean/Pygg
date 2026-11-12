@@ -298,11 +298,54 @@ fn judge(conn: &Connection, client: &Client, provider: &Provider, model: &Model,
     }
 }
 
+/// Why nothing was eligible, grouped so that a store with hundreds of models still says what to fix: one group per
+/// connection and reason (numbers aside), the largest first, each with an example model and how many more share it.
+/// Found when an owner's 584 models were refused with the first 12 reasons, all from one connection.
+pub fn summarize(excluded: &[Excluded], groups: usize) -> String {
+    // (connection, reason with digits masked, example, count), in first-seen order.
+    let mut found: Vec<(String, String, String, usize)> = Vec::new();
+    for e in excluded {
+        let key: String = e.reason.chars().map(|c| if c.is_ascii_digit() { '#' } else { c }).collect();
+        match found.iter_mut().find(|g| g.0 == e.provider_id && g.1 == key) {
+            Some(g) => g.3 += 1,
+            None => {
+                let reason: String = e.reason.chars().take(200).collect();
+                found.push((e.provider_id.clone(), key, format!("{}/{}: {reason}", e.provider_id, e.model_id), 1));
+            }
+        }
+    }
+    found.sort_by(|a, b| b.3.cmp(&a.3));
+    let mut parts: Vec<String> = found.iter().take(groups).map(|(connection, _, example, count)| match count {
+        1 => example.clone(),
+        n => format!("{example} (and {} more on {connection} for the same reason)", n - 1),
+    }).collect();
+    let rest: usize = found.iter().skip(groups).map(|g| g.3).sum();
+    if rest > 0 {
+        parts.push(format!("{rest} more for other reasons"));
+    }
+    parts.join("; ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::gateway::pricing::Price;
     use crate::gateway::store::{Capabilities, NewProvider};
+
+    #[test]
+    fn a_refusal_groups_its_reasons_by_connection_largest_first() {
+        let ex = |p: &str, m: &str, r: &str| Excluded { provider_id: p.into(), model_id: m.into(), reason: r.into() };
+        let mut excluded = vec![ex("claude", "opus", "tool support unknown"), ex("claude", "haiku", "tier T1 is below this client's minimum T2")];
+        for i in 0..5 {
+            excluded.push(ex("openrouter", &format!("m{i}"), &format!("payment required (you can only afford {} tokens)", 100 + i)));
+        }
+        excluded.push(ex("cohere", "embed", "no tier set"));
+        let text = summarize(&excluded, 3);
+        assert!(text.starts_with("openrouter/m0: payment required (you can only afford 100 tokens) (and 4 more on openrouter for the same reason)"), "{text}");
+        assert!(text.contains("; claude/opus: tool support unknown; claude/haiku: tier T1"), "{text}");
+        assert!(text.ends_with("; 1 more for other reasons"), "{text}");
+        assert_eq!(summarize(&excluded[..1], 3), "claude/opus: tool support unknown");
+    }
 
     fn price(input: u64, output: u64) -> Price {
         Price { input_micro_per_mtok: input, output_micro_per_mtok: output, cached_input_micro_per_mtok: None,
@@ -420,6 +463,28 @@ mod tests {
         let plan = plan(&conn, &client, "auto", Strategy::Tier, &Needs { input_tokens: 100, ..Needs::default() }).unwrap();
         let ranked = plan.ranked.iter().find(|r| r.model_id == "gemini-3.5-flash").unwrap();
         assert!(ranked.reason.starts_with("tier T2 from Pygg's table (minimum T2)"), "{}", ranked.reason);
+    }
+
+    #[test]
+    fn claude_models_take_tools_from_pyggs_table_unless_the_user_said_otherwise() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let p = store::add_provider(&conn, &NewProvider { kind: "anthropic", label: "Claude", endpoint: "https://api.anthropic.com/v1",
+            credential_ref: None, default_billing: "paid", wire: "anthropic" }).unwrap();
+        let other = store::add_provider(&conn, &NewProvider { kind: "gemini", label: "Gemini", endpoint: "https://g",
+            credential_ref: None, default_billing: "paid", wire: "openai" }).unwrap();
+        let listed = |id: &str| store::Listed { id: id.into(), context_tokens: Some(200_000), max_output_tokens: Some(64_000),
+            ..store::Listed::default() };
+        store::import_listed(&conn, &p.id, &[listed("claude-sonnet-5-5"), listed("claude-haiku-5-5")], Some("provider: anthropic /models")).unwrap();
+        store::import_listed(&conn, &other.id, &[listed("gemini-x")], Some("provider: gemini /models")).unwrap();
+        // The user says one does not take tools; that stays.
+        let caps = |pid: &str, m: &str| store::list_models(&conn, Some(pid)).unwrap().into_iter().find(|x| x.model_id == m).unwrap().capabilities;
+        store::set_capabilities(&conn, &p.id, "claude-haiku-5-5", &Capabilities { supports_tools: Some(false), ..caps(&p.id, "claude-haiku-5-5") }).unwrap();
+        store::import_listed(&conn, &p.id, &[listed("claude-sonnet-5-5"), listed("claude-haiku-5-5")], Some("provider: anthropic /models")).unwrap();
+        let sonnet = caps(&p.id, "claude-sonnet-5-5");
+        assert_eq!((sonnet.supports_tools, sonnet.context_tokens), (Some(true), Some(200_000)));
+        assert_eq!(sonnet.source.as_deref(), Some(format!("provider: anthropic /models; tools: {}", store::CURATED_TOOLS).as_str()));
+        assert_eq!(caps(&p.id, "claude-haiku-5-5").supports_tools, Some(false), "the user's word stands");
+        assert_eq!(caps(&other.id, "gemini-x").supports_tools, None, "only Anthropic's are filled");
     }
 
     #[test]

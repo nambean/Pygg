@@ -300,7 +300,22 @@ pub fn fill_curated_tiers(conn: &Connection) -> Result<usize> {
         filled += conn.execute("UPDATE models SET tier = ?3, tier_source = ?4 WHERE provider_id = ?1 AND model_id = ?2 AND tier IS NULL AND tier_source IS NULL",
             params![provider, model, n as i64, super::tiers::SOURCE]).map_err(err)?;
     }
+    fill_curated_tools(conn)?;
     Ok(filled)
+}
+
+/// Where Pygg's table says a model takes tools, with why (`caps_source`).
+pub const CURATED_TOOLS: &str = "curated:v1 (Anthropic documents tool use for every Claude model on its API)";
+
+/// Fills tool support that a provider's own model list does not state but its documentation does: every Claude model
+/// on Anthropic's API takes tools, and Anthropic's `/v1/models` does not say so. Only an unknown is filled, and never
+/// where the user set the model's facts; the other facts keep their values, and the source names both.
+pub fn fill_curated_tools(conn: &Connection) -> Result<usize> {
+    conn.execute(
+        "UPDATE models SET supports_tools = 1, caps_source = CASE WHEN caps_source IS NULL THEN ?1 ELSE caps_source || '; tools: ' || ?1 END \
+         WHERE supports_tools IS NULL AND (caps_source IS NULL OR caps_source <> 'user') \
+         AND provider_id IN (SELECT id FROM providers WHERE kind = 'anthropic')",
+        [CURATED_TOOLS]).map_err(err)
 }
 
 /// Adds models the provider listed; existing rows keep their settings. Returns how many were new.
