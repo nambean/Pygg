@@ -56,7 +56,7 @@ Percent ranges are 95% confidence intervals from a bootstrap over the tasks, pai
   - `auto` ranks by tier first, from Pygg's naming table, where Gemini 2.5 Flash is T2 and Haiku 5.5 is T1. It chose Gemini 2.5 Flash, which solved 5 of 12 with OpenCode.
   - Ten of its streams ended without any content (HTTP 200 with nothing but `[DONE]`). In the first attempt the agent read such a stream as a finished answer. After the fix below, made before the rerun, each reached the agent as an error.
   - **The naming table's tiers are not a measure of agentic coding ability.** This run is evidence for the roadmap's rule that `auto` makes no savings claim of its own until measured.
-  - Not changed in this run: Pygg's tier table (`curated:v1`) stays a starting point. What it should become is an owner's decision: measured tiers, or Haiku raised to T2.
+  - **Changed after this run, by the owner's decision:** Pygg's tier table is now `curated:v2`, with Claude Haiku 5 at T2 on this evidence, so `auto` can choose it. Stores whose tiers came from v1 are brought up to date at start-up; tiers the user set stay. Older Haiku models stay T1 (not measured).
 
 ## Product changes this run caused
 

@@ -204,7 +204,7 @@ pub const AUTO: &str = "auto";
 pub struct Capabilities {
     /// T0 (local) to T4 (frontier): the user's, or a starting tier from Pygg's table (`tier_source`).
     pub tier: Option<String>,
-    /// `user`, or `curated:v1` for Pygg's tier table (gateway/tiers.rs).
+    /// `user`, or `curated:v2` for Pygg's tier table (gateway/tiers.rs).
     #[serde(default)]
     pub tier_source: Option<String>,
     /// Why the table gave this tier, when it did.
@@ -346,9 +346,20 @@ pub fn list_models(conn: &Connection, provider_id: Option<&str>) -> Result<Vec<M
     rows.collect::<rusqlite::Result<_>>().map_err(err)
 }
 
-/// Gives models whose tier nobody set a starting tier from Pygg's table (gateway/tiers.rs), source `curated:v1`. A
+/// Gives models whose tier nobody set a starting tier from Pygg's table (gateway/tiers.rs), source `curated:v2`. A
 /// tier the user set or cleared is never touched. Returns how many were filled.
 pub fn fill_curated_tiers(conn: &Connection) -> Result<usize> {
+    // Tiers an earlier version of the table filled follow the current one; a tier the user set or cleared is theirs.
+    let mut older = conn.prepare(
+        "SELECT m.provider_id, m.model_id, p.kind, m.tier FROM models m JOIN providers p ON p.id = m.provider_id \
+         WHERE m.tier_source LIKE 'curated:v%' AND m.tier_source <> ?1").map_err(err)?;
+    let stale: Vec<(String, String, String, Option<i64>)> = older.query_map([super::tiers::SOURCE], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
+    for (provider, model, kind, _) in stale {
+        let tier = super::tiers::suggest(&kind, &model).and_then(|(t, _)| TIERS.iter().position(|x| *x == t)).map(|n| n as i64);
+        conn.execute("UPDATE models SET tier = ?3, tier_source = CASE WHEN ?3 IS NULL THEN NULL ELSE ?4 END \
+                      WHERE provider_id = ?1 AND model_id = ?2", params![provider, model, tier, super::tiers::SOURCE]).map_err(err)?;
+    }
     let mut statement = conn.prepare(
         "SELECT m.provider_id, m.model_id, p.kind FROM models m JOIN providers p ON p.id = m.provider_id \
          WHERE m.tier IS NULL AND m.tier_source IS NULL").map_err(err)?;
@@ -1973,6 +1984,26 @@ mod tests {
         assert_eq!(ids("router/m"), [format!("{}:m", a.id)], "a disabled member is skipped");
         set_pool(&conn, &a.id, None).unwrap();
         assert_eq!(pool_names(&conn).unwrap(), ["router".to_string()]);
+    }
+
+    #[test]
+    fn tiers_from_an_older_table_follow_the_current_one_and_the_users_stay() {
+        let conn = db::open_in_memory().unwrap();
+        let p = add_provider(&conn, &NewProvider { kind: "anthropic", label: "Claude", endpoint: "http://a.test",
+            credential_ref: None, default_billing: "paid", wire: "anthropic" }).unwrap();
+        for m in ["claude-haiku-5-5", "claude-haiku-4-5"] {
+            add_model(&conn, &p.id, m).unwrap();
+        }
+        // As the first table left them: both Haiku at T1 (index 1).
+        conn.execute("UPDATE models SET tier = 1, tier_source = 'curated:v1'", []).unwrap();
+        fill_curated_tiers(&conn).unwrap();
+        let tier = |m: &str| list_models(&conn, None).unwrap().into_iter().find(|x| x.model_id == m).unwrap().capabilities;
+        assert_eq!((tier("claude-haiku-5-5").tier.as_deref(), tier("claude-haiku-5-5").tier_source.as_deref()), (Some("T2"), Some(CURATED)));
+        assert_eq!(tier("claude-haiku-4-5").tier.as_deref(), Some("T1"));
+        // A tier the user set stays theirs.
+        set_capabilities(&conn, &p.id, "claude-haiku-5-5", &Capabilities { tier: Some("T1".into()), ..Capabilities::default() }).unwrap();
+        fill_curated_tiers(&conn).unwrap();
+        assert_eq!(tier("claude-haiku-5-5").tier.as_deref(), Some("T1"));
     }
 
     #[test]

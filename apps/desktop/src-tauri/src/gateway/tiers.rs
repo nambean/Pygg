@@ -1,4 +1,4 @@
-//! Pygg's tier table (ROADMAP B3, `curated:v1`): a starting tier for models the user has not classed, from the
+//! Pygg's tier table (ROADMAP B3, `curated:v2`): a starting tier for models the user has not classed, from the
 //! vendor's own naming of its model line. A tier is a judgement, not a measurement: the table says which part of a
 //! vendor's line a model belongs to (the smallest, the middle, the top), and nothing more. Models it does not know
 //! keep no tier, and auto skips them. A tier the user sets or clears is theirs; the table never changes it.
@@ -6,8 +6,9 @@
 //! T0 runs on this computer, T1 is a vendor's small and fast line, T2 its capable low-cost line, T3 its strong
 //! coding and reasoning line, T4 its frontier line.
 
-/// The table's version, written as the tier's source.
-pub const SOURCE: &str = "curated:v1";
+/// The table's version, written as the tier's source. v2 (2026-11-12): Claude Haiku 5 moved from T1 to T2 on the P0
+/// benchmark's evidence. Tiers an earlier version filled are brought up to date; the user's are never touched.
+pub const SOURCE: &str = "curated:v2";
 
 /// Connection kinds that run models on this computer.
 const LOCAL: &[&str] = &["ollama", "lmstudio", "llamacpp", "vllm", "docker-model-runner", "jan"];
@@ -20,6 +21,9 @@ const LINES: &[(&[&str], &str, &str)] = &[
     (&["claude", "mythos"], "T4", "Anthropic's top line (Mythos)"),
     (&["claude", "opus"], "T4", "Anthropic's Opus line"),
     (&["claude", "sonnet"], "T3", "Anthropic's Sonnet line, the middle of Haiku, Sonnet and Opus"),
+    // Measured, not only named: with OpenCode and with Claude Code, Haiku 5.5 solved as many of the P0 benchmark's
+    // 12 harder coding tasks as Sonnet 5.5 (benchmark/reports/2026-11-12-p0-optimization.md).
+    (&["claude", "haiku-5"], "T2", "Anthropic's Haiku 5 line; on Pygg's P0 coding benchmark it solved as many tasks as Sonnet 5.5"),
     (&["claude", "haiku"], "T1", "Anthropic's Haiku line, the smallest of its three"),
     // Google Gemini: Flash-Lite, Flash, Pro.
     (&["gemini", "flash-lite"], "T1", "Google's Flash-Lite line, the smallest Gemini"),
@@ -68,6 +72,8 @@ mod tests {
     fn classes_models_by_the_vendors_own_line() {
         let tier = |kind: &str, id: &str| suggest(kind, id).map(|(t, _)| t);
         assert_eq!(tier("anthropic", "claude-haiku-4-5"), Some("T1"));
+        assert_eq!(tier("anthropic", "claude-haiku-5-5"), Some("T2"), "measured on the P0 benchmark");
+        assert_eq!(tier("openrouter", "anthropic/claude-haiku-5.5"), Some("T2"));
         assert_eq!(tier("anthropic", "claude-sonnet-5-5"), Some("T3"));
         assert_eq!(tier("anthropic", "claude-opus-5-5"), Some("T4"));
         assert_eq!(tier("openrouter", "anthropic/claude-sonnet-4.5"), Some("T3"), "a router's vendor prefix is fine");

@@ -651,7 +651,7 @@ function PriceSheet({model: m, onClose, onSaved}: {model: Model; onClose: () => 
 function capsText(m: Model): string {
   const c = m.capabilities;
   if (!c.tier && !c.contextTokens) return t('Not set');
-  const parts = [c.tier ? (c.tierSource === 'curated:v1' ? t('{tier} (Pygg' + String.fromCharCode(0x2019) + 's table)', {tier: c.tier}) : c.tier) : t('no tier')];
+  const parts = [c.tier ? (c.tierSource?.startsWith('curated:') ? t('{tier} (Pygg' + String.fromCharCode(0x2019) + 's table)', {tier: c.tier}) : c.tier) : t('no tier')];
   if (c.contextTokens) parts.push(t('{n}k context', {n: Math.round(c.contextTokens / 1000)}));
   if (c.supportsTools) parts.push(t('tools'));
   if (c.supportsVision) parts.push(t('images'));
@@ -700,7 +700,7 @@ function CapsSheet({model: m, onClose, onSaved}: {model: Model; onClose: () => v
     </>}>
     <div className="form">
       <FormRow label={t('Tier')} htmlFor="caps-tier"
-        hint={c.tierSource === 'curated:v1' && c.tierNote
+        hint={c.tierSource?.startsWith('curated:') && c.tierNote
           ? t('From Pygg' + String.fromCharCode(0x2019) + 's table: {why}. Saving here makes the tier yours, and the table no longer changes it.', {why: c.tierNote})
           : t('T0 local, T1 small and fast, T2 capable at low cost, T3 strong coding and reasoning, T4 frontier. Your judgment; Pygg' + String.fromCharCode(0x2019) + 's table only fills tiers nobody set.')}>
         <select id="caps-tier" className="popup-button" value={tier} onChange={e => setTier(e.target.value as Tier | '')}>
