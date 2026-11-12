@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Bot, ChartColumn, FolderGit2, House, Link2, ListOrdered, ListTodo, PanelLeft, Plug, Plus, Search, Settings as SettingsIcon,
+import { BookOpen, Bot, ChartColumn, FolderGit2, House, Link2, ListOrdered, ListTodo, PanelLeft, Plug, Plus, Search, Settings as SettingsIcon,
   SlidersHorizontal, TerminalSquare } from 'lucide-react';
 import './styles.css';
 import brandMark from './assets/brand-mark.svg';
@@ -15,6 +15,7 @@ import { onTasksChanged, sendShellStrings } from './lib/shell';
 import { BudgetSubtitle } from './components/BudgetSubtitle';
 import { CommandPalette, type Command } from './components/CommandPalette';
 import { GatewayStatus } from './components/GatewayStatus';
+import { Guide } from './components/Guide';
 import { NewTaskView } from './components/NewTaskView';
 import { PendingView } from './components/PendingView';
 import { SettingsView } from './components/SettingsView';
@@ -39,6 +40,7 @@ type View =
   | {kind: 'policies'}
   | {kind: 'workspaces'}
   | {kind: 'agents'}
+  | {kind: 'guide'}
   | {kind: 'settings'};
 type Intent = 'connect' | 'create';
 
@@ -110,6 +112,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
       else if (key === '8') { event.preventDefault(); setView({kind: 'agents'}); }
       else if (key === 'n' && (view.kind === 'tasks' || view.kind === 'task')) { event.preventDefault(); newTask(); }
       else if (key === ',') { event.preventDefault(); setView({kind: 'settings'}); }
+      else if (key === '/') { event.preventDefault(); setView({kind: 'guide'}); }
       else if (key === 'f' && view.kind === 'tasks') { event.preventDefault(); searchRef.current?.focus(); }
     }
     window.addEventListener('keydown', onKey);
@@ -126,6 +129,8 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
       {id: 'go-workspaces', group: nav, label: t('Workspaces'), run: () => setView({kind: 'workspaces'})},
       {id: 'go-policies', group: nav, label: t('Policies'), run: () => setView({kind: 'policies'})},
       {id: 'go-settings', group: nav, label: t('Settings'), hint: `${MOD},`, run: () => setView({kind: 'settings'})},
+      {id: 'go-guide', group: nav, label: t('Guide'), hint: `${MOD}/`, keywords: 'help how to commands cli npm docs',
+        run: () => setView({kind: 'guide'})},
     ];
     const gateway = t('Gateway');
     list.push(
@@ -163,6 +168,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
     : view.kind === 'policies' ? t('Policies')
     : view.kind === 'workspaces' ? t('Workspaces')
     : view.kind === 'agents' ? t('Agents')
+    : view.kind === 'guide' ? t('Guide')
     : t('Settings');
   const isTaskScreen = view.kind === 'tasks' || view.kind === 'task' || view.kind === 'new' || view.kind === 'policies' || view.kind === 'workspaces';
   const primary = isGateway(view.kind) ? PRIMARY[view.kind] : undefined;
@@ -190,6 +196,8 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
             selected={view.kind === 'agents'} onSelect={() => setView({kind: 'agents'})}/>
         </SidebarGroup>
         <SidebarGroup title={t('App')}>
+          <SidebarItem icon={<BookOpen/>} label={t('Guide')} shortcut={`${MOD}/`}
+            selected={view.kind === 'guide'} onSelect={() => setView({kind: 'guide'})}/>
           <SidebarItem icon={<SettingsIcon/>} label={t('Settings')} shortcut={`${MOD},`}
             selected={view.kind === 'settings'} onSelect={() => setView({kind: 'settings'})}/>
         </SidebarGroup>
@@ -237,6 +245,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         {view.kind === 'tools' && <CliTools status={status} navigate={go}/>}
         {view.kind === 'usage' && <Usage/>}
         {view.kind === 'agents' && <Agents/>}
+        {view.kind === 'guide' && <Guide go={go}/>}
         {view.kind === 'tasks' && <>
           <div className="page-bar task-filters">
             <Segmented label={t('Show')} value={view.filter} onChange={filter => setView({kind: 'tasks', filter})}
