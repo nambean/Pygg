@@ -137,8 +137,11 @@ async fn main() {
                 Some(agent) => bench::run_case_engine(case, run_rungs, *cascade, agent, &config, &mut ledger).await,
                 None => bench::run_case(case, run_rungs, *cascade, &config, &mut ledger).await,
             };
-            // Each round gets fresh folders: the engine's store and worktrees are per case and label.
-            let _ = std::fs::remove_dir_all(&scratch);
+            // Each round gets fresh folders: the engine's store and worktrees are per case and label. BENCH_KEEP_SCRATCH
+            // keeps them, to read an attempt's log when a run goes wrong.
+            if std::env::var_os("BENCH_KEEP_SCRATCH").is_none() {
+                let _ = std::fs::remove_dir_all(&scratch);
+            }
             match result {
                 Ok(mut record) => {
                     // The record carries the arm's whole label, the handoff mode included, so arms stay apart.
@@ -158,7 +161,11 @@ async fn main() {
           }
         }
     }
-    let _ = std::fs::remove_dir_all(&scratch);
+    if std::env::var_os("BENCH_KEEP_SCRATCH").is_none() {
+        let _ = std::fs::remove_dir_all(&scratch);
+    } else {
+        eprintln!("Kept {}", scratch.display());
+    }
 
     println!("\n{:<52} Passed   Attempts   Time      Est. cost   Per success   Agent errors", "Run");
     for (run_rungs, cascade) in &runs {

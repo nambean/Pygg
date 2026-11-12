@@ -69,6 +69,11 @@ pub async fn run(spec: &Spec, cancel: impl std::future::Future<Output = ()>) -> 
     command
         .args(&spec.args)
         .current_dir(&spec.cwd)
+        // A shell's PWD names the folder Pygg was started from, not this one; some programs (OpenCode on Bun) take
+        // their working folder from it, and an agent then edits files outside its worktree. Found by the benchmark
+        // when Pygg ran from Git Bash.
+        .env("PWD", &spec.cwd)
+        .env_remove("OLDPWD")
         .envs(spec.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
