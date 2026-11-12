@@ -324,6 +324,20 @@ pub async fn connection_refresh_models(state: State<'_, AppState>, id: String) -
     Ok(ImportResult { listed: ids.len(), added })
 }
 
+/// Puts a connection in a pool, or takes it out with `None` (ADR-034).
+#[tauri::command]
+pub fn connection_set_pool(state: State<'_, AppState>, id: String, pool: Option<String>) -> Res<ConnectionView> {
+    state.shared.with_db(|db| store::set_pool(db, &id, pool.as_deref()))?;
+    let provider = state.shared.with_db(|db| store::get_provider(db, &id))?.ok_or("Connection not found")?;
+    Ok(view(&state, provider))
+}
+
+/// Moves a connection earlier or later in its pool's order.
+#[tauri::command]
+pub fn connection_move_in_pool(state: State<'_, AppState>, id: String, up: bool) -> Res<()> {
+    state.shared.with_db(|db| store::move_in_pool(db, &id, up))
+}
+
 /// Reads the connection's account endpoint now (balance, free allowance) and keeps what it says.
 #[tauri::command]
 pub async fn connection_check_account(state: State<'_, AppState>, id: String) -> Res<ConnectionView> {

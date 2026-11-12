@@ -44,11 +44,14 @@ pub struct Provider {
     pub separate_quota: bool,
     /// When the user confirmed it.
     pub quota_confirmed_at: Option<i64>,
+    /// The pool it belongs to (ADR-034): requests for `<pool>/<model>` try the pool's connections in order.
+    pub pool: Option<String>,
+    pub pool_rank: Option<i64>,
 }
 
 const PROVIDER_COLUMNS: &str =
     "id, kind, account_label, COALESCE(endpoint, ''), enabled, credential_ref, default_billing, data_use_terms, created_at, \
-     wire, COALESCE(quota_group, kind), quota_group IS NOT NULL, quota_confirmed_at, terms_source, terms_checked_at";
+     wire, COALESCE(quota_group, kind), quota_group IS NOT NULL, quota_confirmed_at, terms_source, terms_checked_at, pool, pool_rank";
 
 fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
     let kind: String = row.get(1)?;
@@ -72,6 +75,8 @@ fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
         quota_group,
         separate_quota: separate,
         quota_confirmed_at: row.get(12)?,
+        pool: row.get(15)?,
+        pool_rank: row.get(16)?,
     })
 }
 
@@ -1212,13 +1217,80 @@ pub fn delete_combo(conn: &Connection, id: &str) -> Result<()> {
     conn.execute("DELETE FROM combos WHERE id = ?1", [id]).map(|_| ()).map_err(err)
 }
 
-/// What a requested model name routes to: a combo's members in order, or one `<connection>/<model>`.
-/// Disabled connections are skipped.
+/// The connections of a pool, in the order they are tried.
+pub fn pool_members(conn: &Connection, pool: &str) -> Result<Vec<Provider>> {
+    let mut members: Vec<Provider> = list_providers(conn)?.into_iter().filter(|p| p.pool.as_deref() == Some(pool)).collect();
+    members.sort_by_key(|p| (p.pool_rank.unwrap_or(i64::MAX), p.created_at));
+    Ok(members)
+}
+
+/// The pools there are, by name.
+pub fn pool_names(conn: &Connection) -> Result<Vec<String>> {
+    let mut names: Vec<String> = list_providers(conn)?.into_iter().filter_map(|p| p.pool).collect();
+    names.sort();
+    names.dedup();
+    Ok(names)
+}
+
+/// Puts a connection in a pool (ADR-034), at its end, or takes it out (`None`). A pool holds connections of one
+/// provider kind, each with a quota the user confirmed as its own (Connections → Independent quota confirmed): a pool
+/// is for separate accounts the user holds, never several keys of one account to get around its limits. Its name is
+/// a routing prefix, so it may not be a connection's id, a combo's name or `auto`.
+pub fn set_pool(conn: &Connection, provider_id: &str, pool: Option<&str>) -> Result<()> {
+    let provider = get_provider(conn, provider_id)?.ok_or("Connection not found")?;
+    let Some(name) = pool.map(str::trim).filter(|n| !n.is_empty()) else {
+        conn.execute("UPDATE providers SET pool = NULL, pool_rank = NULL WHERE id = ?1", [provider_id]).map_err(err)?;
+        return Ok(());
+    };
+    if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') || name.len() > 40 {
+        return Err("A pool's name is lowercase letters, digits and hyphens, at most 40 characters".into());
+    }
+    if name == AUTO || get_provider(conn, name)?.is_some() || list_combos(conn)?.iter().any(|c| c.name == name) {
+        return Err(format!("{name} is already a connection, a combo or auto; pick another name for the pool"));
+    }
+    if !provider.separate_quota {
+        return Err("Confirm first that this connection has its own provider quota (Independent quota confirmed): a pool is \
+            for separate accounts, not several keys of one account".into());
+    }
+    let members = pool_members(conn, name)?;
+    if let Some(other) = members.iter().find(|m| m.kind != provider.kind && m.id != provider.id) {
+        return Err(format!("The pool {name} holds {} connections; this one is {}", other.kind, provider.kind));
+    }
+    if provider.pool.as_deref() == Some(name) {
+        return Ok(());
+    }
+    let rank = members.iter().filter_map(|m| m.pool_rank).max().unwrap_or(0) + 1;
+    conn.execute("UPDATE providers SET pool = ?2, pool_rank = ?3 WHERE id = ?1", params![provider_id, name, rank]).map_err(err)?;
+    Ok(())
+}
+
+/// Moves a connection one place earlier (`up`) or later in its pool's order.
+pub fn move_in_pool(conn: &Connection, provider_id: &str, up: bool) -> Result<()> {
+    let provider = get_provider(conn, provider_id)?.ok_or("Connection not found")?;
+    let Some(pool) = provider.pool.clone() else { return Err("This connection is in no pool".into()) };
+    let mut members = pool_members(conn, &pool)?;
+    let Some(at) = members.iter().position(|m| m.id == provider_id) else { return Ok(()) };
+    let to = if up { at.checked_sub(1) } else { (at + 1 < members.len()).then_some(at + 1) };
+    if let Some(to) = to {
+        members.swap(at, to);
+    }
+    for (rank, member) in members.iter().enumerate() {
+        conn.execute("UPDATE providers SET pool_rank = ?2 WHERE id = ?1", params![member.id, rank as i64 + 1]).map_err(err)?;
+    }
+    Ok(())
+}
+
+/// What a requested model name routes to: a combo's members in order, a pool's connections in order for
+/// `<pool>/<model>` (ADR-034), or one `<connection>/<model>`. Disabled connections are skipped.
 pub fn resolve(conn: &Connection, requested: &str) -> Result<Vec<(Provider, String)>> {
     let combo = list_combos(conn)?.into_iter().find(|c| c.name == requested);
     let targets = match combo {
         Some(combo) => combo.members,
         None => match requested.split_once('/') {
+            Some((prefix, model_id)) if !model_id.is_empty() && get_provider(conn, prefix)?.is_none() => {
+                pool_members(conn, prefix)?.into_iter()
+                    .map(|p| Target { provider_id: p.id, model_id: model_id.into() }).collect()
+            }
             Some((provider_id, model_id)) if !model_id.is_empty() => {
                 vec![Target { provider_id: provider_id.into(), model_id: model_id.into() }]
             }
@@ -1870,6 +1942,37 @@ mod tests {
         assert_eq!(resolve(&conn, "coding").unwrap().len(), 1);
         assert_eq!(resolve(&conn, "openrouter/vendor/big").unwrap()[0].1, "vendor/big");
         assert!(resolve(&conn, "nothing").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_pool_tries_separate_accounts_in_order_and_holds_only_those() {
+        let conn = db::open_in_memory().unwrap();
+        let add = |label: &str| add_provider(&conn, &NewProvider { kind: "openrouter", label, endpoint: "http://o.test",
+            credential_ref: None, default_billing: "paid", wire: "openai" }).unwrap();
+        let (a, b) = (add("Work"), add("Personal"));
+        let gem = add_provider(&conn, &NewProvider { kind: "gemini", label: "G", endpoint: "http://g.test",
+            credential_ref: None, default_billing: "paid", wire: "openai" }).unwrap();
+        // Two keys of one account (no separate quota confirmed) cannot be pooled.
+        assert!(set_pool(&conn, &a.id, Some("router")).unwrap_err().contains("own provider quota"));
+        for p in [&a, &b, &gem] {
+            update_provider(&conn, &p.id, None, None, Some(true)).unwrap();
+        }
+        set_pool(&conn, &a.id, Some("router")).unwrap();
+        set_pool(&conn, &b.id, Some("router")).unwrap();
+        assert!(set_pool(&conn, &gem.id, Some("router")).unwrap_err().contains("openrouter"), "one provider kind per pool");
+        assert!(set_pool(&conn, &gem.id, Some(&a.id)).unwrap_err().contains("already a connection"));
+        assert!(set_pool(&conn, &gem.id, Some("Bad Name")).is_err());
+
+        let ids = |requested: &str| resolve(&conn, requested).unwrap().into_iter().map(|(p, m)| format!("{}:{m}", p.id)).collect::<Vec<_>>();
+        assert_eq!(ids("router/x/y"), [format!("{}:x/y", a.id), format!("{}:x/y", b.id)]);
+        move_in_pool(&conn, &b.id, true).unwrap();
+        assert_eq!(ids("router/x/y"), [format!("{}:x/y", b.id), format!("{}:x/y", a.id)]);
+        // A connection's own name still means that connection alone.
+        assert_eq!(ids(&format!("{}/m", a.id)), [format!("{}:m", a.id)]);
+        update_provider(&conn, &b.id, Some(false), None, None).unwrap();
+        assert_eq!(ids("router/m"), [format!("{}:m", a.id)], "a disabled member is skipped");
+        set_pool(&conn, &a.id, None).unwrap();
+        assert_eq!(pool_names(&conn).unwrap(), ["router".to_string()]);
     }
 
     #[test]

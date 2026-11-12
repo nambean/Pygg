@@ -46,6 +46,8 @@ export type Connection = {
   /** Where the user read the terms, and when they recorded them. */
   termsSource: string | null; termsCheckedAt: number | null;
   wire: Wire; quotaGroup: string; separateQuota: boolean; quotaConfirmedAt: number | null;
+  /** The pool it belongs to (ADR-034) and its place in the pool's order. */
+  pool?: string | null; poolRank?: number | null;
   presetName: string; hasKey: boolean; needsKey: boolean; models: number; health: Health[]; sharesQuotaWith: string[];
   /** See Preset.freeModels. */
   freeModels: boolean;
@@ -241,6 +243,9 @@ export interface GatewayApi {
   clearConnectionHealth(id: string): Promise<Connection>;
   /** Reads the account's balance or free allowance from the provider now. */
   checkAccount(id: string): Promise<Connection>;
+  /** Puts a connection in a pool, or takes it out with null (ADR-034). */
+  setConnectionPool(id: string, pool: string | null): Promise<Connection>;
+  moveInPool(id: string, up: boolean): Promise<void>;
   /** Records what the provider's terms say about training on requests; no_training needs a source. */
   setConnectionTerms(id: string, terms: 'no_training' | 'may_train' | 'unknown', source: string | null): Promise<Connection>;
   setConnectionKey(id: string, apiKey: string): Promise<Connection>;
@@ -348,6 +353,8 @@ const native: GatewayApi = {
   setConnectionKey: (id, apiKey) => invoke('connection_set_key', {id, apiKey}),
   clearConnectionHealth: id => invoke('connection_clear_health', {id}),
   checkAccount: id => invoke('connection_check_account', {id}),
+  setConnectionPool: (id, pool) => invoke('connection_set_pool', {id, pool}),
+  moveInPool: (id, up) => invoke('connection_move_in_pool', {id, up}),
   setConnectionTerms: (id, terms, source) => invoke('connection_set_terms', {id, terms, source}),
   removeConnection: id => invoke('connection_remove', {id}),
   refreshModels: id => invoke('connection_refresh_models', {id}),

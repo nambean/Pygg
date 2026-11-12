@@ -436,6 +436,21 @@ export function demoApi(): GatewayApi {
       connections.push(stored);
       return view(stored);
     },
+    setConnectionPool: async (id, pool) => {
+      const c = find(id);
+      if (pool && !c.separateQuota) throw 'Confirm first that this connection has its own provider quota (Independent quota confirmed): a pool is for separate accounts, not several keys of one account';
+      c.pool = pool;
+      c.poolRank = pool ? connections.filter(x => x.pool === pool).length : null;
+      return touch(view(c));
+    },
+    moveInPool: async (id, up) => {
+      const c = find(id);
+      const members = connections.filter(x => x.pool && x.pool === c.pool).sort((a, b) => (a.poolRank ?? 0) - (b.poolRank ?? 0));
+      const at = members.indexOf(c), to = up ? at - 1 : at + 1;
+      if (to >= 0 && to < members.length) [members[at], members[to]] = [members[to], members[at]];
+      members.forEach((m, i) => { m.poolRank = i + 1; });
+      await touch(undefined);
+    },
     updateConnection: async (id, change) => {
       const c = find(id);
       if (change.enabled !== undefined) c.enabled = change.enabled;

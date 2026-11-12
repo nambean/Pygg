@@ -244,6 +244,7 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
           onChange={separateQuota => separateQuota ? setSheet('quota')
             : call(api => api.updateConnection(c.id, {separateQuota})).then(gatewayChanged)}/></span>
       </div>
+      <PoolRow connection={c}/>
       <div className="group-row">
         <span className="group-label"><label htmlFor={`billing-${c.id}`}>{t('Billing')}</label><small>{billingHint(c.defaultBilling, c.freeModels)}</small></span>
         <span className="group-control">
@@ -317,6 +318,49 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
     {sheet && typeof sheet === 'object' && 'price' in sheet && <PriceSheet model={sheet.price} onClose={() => setSheet(null)}
       onSaved={() => { models.reload(); gatewayChanged(); }}/>}
   </section>;
+}
+
+/**
+ * The connection's pool (ADR-034): connections of one provider, each a separate account with its own confirmed quota,
+ * reached together as `<pool>/<model>` and tried in order, the next one when one is rate-limited, out of credit or
+ * refuses its key.
+ */
+function PoolRow({connection: c}: {connection: Connection}) {
+  const all = useGateway(api => api.connections());
+  const [name, setName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const members = (all.data ?? []).filter(x => c.pool && x.pool === c.pool).sort((a, b) => (a.poolRank ?? 0) - (b.poolRank ?? 0));
+  const pools = [...new Set((all.data ?? []).filter(x => x.pool && x.kind === c.kind && x.id !== c.id).map(x => x.pool as string))].sort();
+  const act = (f: () => Promise<unknown>) => { setError(null); f().then(() => { all.reload(); gatewayChanged(); }, e => setError(errorText(e))); };
+  const join = (pool: string) => act(() => call(api => api.setConnectionPool(c.id, pool)));
+  return <div className="group-row stacked">
+    <span className="group-label">{t('Pool')}
+      <small>{c.pool
+        ? t('Requests for {pool}/<model> try these connections in this order, and move to the next when one is rate-limited, out of credit or refuses its key. Each is a separate account you confirmed.', {pool: c.pool})
+        : c.separateQuota
+          ? t('Group this connection with other {provider} accounts you hold, to reach them as one name. Only accounts with their own quota can join; several keys of one account cannot.', {provider: c.presetName})
+          : t('To pool this connection with other {provider} accounts, first confirm that it has its own provider quota (below).', {provider: c.presetName})}</small>
+      {error && <small className="warn-text">{error}</small>}</span>
+    {c.pool ? <span className="pool-members">
+      <ol>{members.map((m, i) => <li key={m.id} className={m.id === c.id ? 'current' : ''}>
+        <span>{m.label}</span><small className="secondary mono">{m.id}</small>
+        {m.id === c.id && <>
+          <button type="button" className="button small" disabled={i === 0} aria-label={t('Earlier')}
+            onClick={() => act(() => call(api => api.moveInPool(c.id, true)))}>↑</button>
+          <button type="button" className="button small" disabled={i === members.length - 1} aria-label={t('Later')}
+            onClick={() => act(() => call(api => api.moveInPool(c.id, false)))}>↓</button>
+        </>}
+      </li>)}</ol>
+      <button type="button" className="button small" onClick={() => act(() => call(api => api.setConnectionPool(c.id, null)))}>{t('Leave Pool')}</button>
+    </span> : <span className="group-control pool-join">
+      {pools.map(p => <button key={p} type="button" className="button small" disabled={!c.separateQuota} onClick={() => join(p)}>
+        {t('Join {pool}', {pool: p})}</button>)}
+      <input className="text-input mono" value={name} placeholder={t('new-pool-name')} aria-label={t('New pool name')}
+        disabled={!c.separateQuota} onChange={e => setName(e.target.value.toLowerCase())} spellCheck={false}/>
+      <button type="button" className="button small" disabled={!c.separateQuota || !name.trim()} onClick={() => join(name.trim())}>
+        {t('Create Pool')}</button>
+    </span>}
+  </div>;
 }
 
 /** What the account has left, from the provider's own account endpoint (OpenRouter /key, DeepSeek /user/balance). */

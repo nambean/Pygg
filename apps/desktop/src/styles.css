@@ -784,3 +784,11 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .usage-alerts { padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .usage-alert { display: flex; gap: 8px; align-items: flex-start; margin: 0; }
 .usage-alert svg { flex: none; margin-top: 2px; }
+
+/* Pools (Connections.tsx PoolRow, ADR-034). */
+.pool-members { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.pool-members ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.pool-members li { display: flex; gap: 8px; align-items: center; }
+.pool-members li.current > span:first-child { font-weight: 600; }
+.pool-join { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pool-join .text-input { width: 150px; }

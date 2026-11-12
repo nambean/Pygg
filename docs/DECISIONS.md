@@ -1,6 +1,6 @@
 # Decisions
 
-> **Status:** Current · architecture decision records (ADR-001 to ADR-032) · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+> **Status:** Current · architecture decision records (ADR-001 to ADR-034) · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
 
 Architecture decision records, in the style of DownFetch's `docs/DECISIONS.md`. Each decision says what was chosen, why, and what it costs. The product plan is [SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md); the screen design is [design/SCREENS.md](design/SCREENS.md).
 
@@ -299,6 +299,17 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 - **Pygg stores no responses.** `previous_response_id`, `conversation` and `background` are refused with HTTP 400; the client sends the whole conversation (Codex does with `store = false`).
 
 **Consequences:** Codex can use any connection, metered like any client; the Responses API's own hosted tools (web search, file search, code interpreter) are not available through a translated connection; Anthropic's prompt cache is not used on the translated path (no `cache_control` markers are invented); a Codex model Codex does not know runs with Codex's fallback metadata unless the user gives it a model catalog (AGENTS.md). Follow-up done the same day: "Codex: models through Pygg" in Agents → From Your IDE sets this provider up in one click, with a `pygg` profile file (AGENTS.md).
+
+## ADR-034 — Pools of API-key accounts; never of web sign-ins (2026-11-12)
+
+**Context:** the owner asked for account pools, pointing at providers whose free use comes only through signing in on their website, not through an API key.
+
+**Decision:**
+- **A pool groups connections of one provider kind, each a separate account the user holds.** Each member is its own connection with its own key. A connection joins only after the user confirmed it has its own provider quota (CR-02, "Independent quota confirmed"). Several keys of one account cannot be pooled: that would only get around the account's limits, which ADR-026, OR-16 and the product rules forbid.
+- **A pool's name is a routing prefix.** `<pool>/<model>` tries the members in the user's order, skipping disabled ones. It moves to the next on the errors that already move across quota groups: 401, 402, 403, 429, and Anthropic's out-of-credit 400. A session stays on the member that first answered it. The ledger names the connection that answered. `GET /v1/models` lists `<pool>/<model>` for the models enabled members offer. The name may not be a connection's id, a combo's name or `auto`.
+- **Not pooled:** website sign-ins, cookies and sessions of consumer apps (e.g. a provider whose free tier exists only in its web app). They stay out under ADR-026 and OR-16, as the owner decided before ("no web session, cookie or OAuth bridges"). A provider's own **OAuth flow that issues an API key** is not such a bridge: the user signs in on the provider's page, and what Pygg keeps is an ordinary key for the provider's API. OpenRouter documents one (PKCE), so Connect can offer it.
+
+**Built:** schema v22 (`providers.pool`, `pool_rank`), `store::set_pool` / `move_in_pool` / `pool_members` and `resolve`, the model list, and Connections → Pool (join, create, order, leave), with a test of each rule.
 
 ## Open decisions (not yet finalized)
 

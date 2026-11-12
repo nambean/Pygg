@@ -1,6 +1,6 @@
 # Store schema
 
-> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v21
+> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v22
 
 The local SQLite store (`db.rs`): every table after all migrations, in order. Credentials are never here: a
 connection holds only a reference to its key in the OS credential store (ADR-002). Client tokens are stored as
@@ -226,6 +226,8 @@ References: `provider_id` → `providers.id` (on delete cascade).
 | `wire` | TEXT | no | `'openai'` |  | 0003_cost_safe_gateway |
 | `quota_group` | TEXT | yes |  |  | 0003_cost_safe_gateway |
 | `quota_confirmed_at` | INTEGER | yes |  |  | 0004_counter_review |
+| `pool` | TEXT | yes |  |  | 0022_connection_pools |
+| `pool_rank` | INTEGER | yes |  |  | 0022_connection_pools |
 
 4 CHECK constraints (see the migrations).
 

@@ -544,6 +544,15 @@ async fn list_models(State(shared): State<Shared>, headers: HeaderMap) -> Respon
             .into_iter()
             .map(|c| json!({ "id": c.name, "object": "model", "created": 0, "owned_by": "smarttaskrouter combo" })));
         let providers = store::list_providers(db)?;
+        // A pool's models, as `<pool>/<model>` (ADR-034): those an enabled member the client may use offers.
+        let mut pooled = std::collections::BTreeSet::new();
+        for model in store::list_models(db, None)?.into_iter().filter(|m| m.enabled) {
+            if let Some(pool) = providers.iter().find(|p| p.id == model.provider_id && p.enabled && client.allows(p).is_ok())
+                .and_then(|p| p.pool.clone()) {
+                pooled.insert(format!("{pool}/{}", model.model_id));
+            }
+        }
+        data.extend(pooled.into_iter().map(|id| json!({ "id": id, "object": "model", "created": 0, "owned_by": "smarttaskrouter pool" })));
         for model in store::list_models(db, None)? {
             let allowed = providers.iter().any(|p| p.id == model.provider_id && p.enabled && client.allows(p).is_ok());
             if model.enabled && allowed {

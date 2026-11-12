@@ -238,6 +238,8 @@ pub fn run() {
             commands::retention_set,
             commands::retention_preview,
             commands::connection_check_account,
+            commands::connection_set_pool,
+            commands::connection_move_in_pool,
             commands::diagnostics_export,
             snap::window_snap_area,
         ])
