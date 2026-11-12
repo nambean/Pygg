@@ -353,6 +353,20 @@ fn last_json_document(text: &str) -> Option<Value> {
 /// The environment variable that names the task attempt an agent run belongs to.
 pub const ATTEMPT_ENV: &str = "PYGG_ATTEMPT_ID";
 
+/// `ANTHROPIC_CUSTOM_HEADERS` for a Claude Code run that goes through a gateway (`ANTHROPIC_BASE_URL` set): the
+/// headers already set, then `x-smarttaskrouter-session: <attempt>`. `None` for another agent, or for Claude Code
+/// talking to Anthropic directly, which would not use the header.
+pub fn claude_session_headers(agent: &str, attempt: &str, var: impl Fn(&str) -> Option<String>) -> Option<String> {
+    if agent != "claude-code" || var("ANTHROPIC_BASE_URL").filter(|v| !v.trim().is_empty()).is_none() {
+        return None;
+    }
+    let header = format!("{}: {attempt}", crate::gateway::SESSION_HEADER);
+    let kept: Vec<String> = var("ANTHROPIC_CUSTOM_HEADERS").unwrap_or_default().lines()
+        .filter(|l| !l.trim().is_empty() && !l.to_ascii_lowercase().starts_with(crate::gateway::SESSION_HEADER))
+        .map(String::from).collect();
+    Some(kept.into_iter().chain(std::iter::once(header)).collect::<Vec<_>>().join("\n"))
+}
+
 /// Runs a task: a worktree of the workspace's current commit under `worktrees`, the agent started in it, and
 /// the result measured. The worktree is kept for the user to keep as a branch or discard.
 pub async fn run(request: &TaskRequest, worktrees: &Path, cancel: impl std::future::Future<Output = ()>)
@@ -387,6 +401,11 @@ pub async fn run(request: &TaskRequest, worktrees: &Path, cancel: impl std::futu
     }
     if let Some(attempt) = request.attempt_id.as_deref().filter(|a| !a.is_empty()) {
         command.env.push((ATTEMPT_ENV.into(), attempt.into()));
+        // Claude Code cannot read a variable into a header, so where it was pointed at a gateway it is given the
+        // attempt as its session header directly, after any headers already set for it.
+        if let Some(headers) = claude_session_headers(spec.id, attempt, |name| std::env::var(name).ok()) {
+            command.env.push(("ANTHROPIC_CUSTOM_HEADERS".into(), headers));
+        }
     }
     let outcome = process::run(&command, cancel).await;
 
@@ -481,6 +500,13 @@ mod tests {
         assert_eq!(arguments("opencode", "fix it", Some("p/m"), false).unwrap(), ["run", "--format", "json", "fix it", "--model", "p/m"]);
         assert!(arguments("cursor", "x", None, false).is_err());
         assert_eq!(budget_arguments("claude-code", Some(0.5)), ["--max-budget-usd", "0.50"]);
+        let env = |pairs: &'static [(&'static str, &'static str)]| move |name: &str|
+            pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| v.to_string());
+        assert_eq!(claude_session_headers("claude-code", "a1", env(&[])), None, "straight to Anthropic: no header");
+        assert_eq!(claude_session_headers("codex", "a1", env(&[("ANTHROPIC_BASE_URL", "http://127.0.0.1:8741")])), None);
+        assert_eq!(claude_session_headers("claude-code", "a1", env(&[("ANTHROPIC_BASE_URL", "http://127.0.0.1:8741"),
+            ("ANTHROPIC_CUSTOM_HEADERS", "x-team: blue\nx-smarttaskrouter-session: old")])).as_deref(),
+            Some("x-team: blue\nx-smarttaskrouter-session: a1"));
         assert!(budget_arguments("codex", Some(0.5)).is_empty() && budget_arguments("claude-code", None).is_empty());
     }
 
