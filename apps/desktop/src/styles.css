@@ -706,3 +706,32 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .sheet .setup-steps { grid-template-columns: minmax(0, 1fr); }
 .sheet .setup-steps li { min-width: 0; overflow-wrap: anywhere; }
 .sheet .setup-steps .code-block { margin-top: 6px; max-width: 100%; }
+
+/* Cost over time (CostOverTime.tsx): one series, thin bars with 2px gaps and 4px round tops on the baseline. */
+:root { --chart-bar: #0B7A4B; --chart-unknown: var(--orange); }
+@media (prefers-color-scheme: dark) { :root { --chart-bar: #11975C; } }
+.usage-chart { padding: 14px 16px 10px; }
+.chart-area { display: flex; gap: 8px; height: 160px; }
+.chart-y { display: flex; flex-direction: column; justify-content: space-between; font-size: 11px; color: var(--secondary);
+  font-variant-numeric: tabular-nums; text-align: right; min-width: 44px; transform: translateY(-6px); padding-bottom: 0; }
+.chart-y span:last-child { transform: translateY(12px); }
+.chart-plot { position: relative; flex: 1; min-width: 0; }
+.chart-grid { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none; }
+.chart-grid span { border-top: 1px solid var(--separator); }
+.chart-grid span:last-child { border-top-color: var(--track); }
+.chart-bars { position: absolute; inset: 0; display: flex; align-items: stretch; gap: 2px; }
+.chart-column { position: relative; flex: 1; display: flex; align-items: flex-end; border-radius: 4px; outline: none; cursor: default; }
+.chart-column.active, .chart-column:focus-visible { background: var(--hover); }
+.chart-column:focus-visible { box-shadow: var(--focus); }
+.chart-bar { display: block; width: 100%; max-width: 28px; margin: 0 auto; background: var(--chart-bar); border-radius: 4px 4px 0 0; }
+.chart-unknown { position: absolute; left: 50%; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%;
+  background: var(--chart-unknown); box-shadow: 0 0 0 2px var(--surface); }
+.chart-unknown.legend { position: static; display: inline-block; margin: 0 6px 0 0; vertical-align: -1px; }
+.chart-x { display: flex; gap: 2px; margin: 6px 0 0 52px; font-size: 11px; color: var(--secondary); }
+.chart-x span { flex: 1; min-width: 0; white-space: nowrap; overflow: visible; display: flex; justify-content: center; }
+.chart-legend { margin: 8px 0 0; font-size: 12px; color: var(--secondary); }
+.chart-tooltip { position: absolute; top: 4px; z-index: 2; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px;
+  background: var(--surface); color: var(--label); border-radius: 8px; box-shadow: var(--popover-shadow); font-size: 12px;
+  white-space: nowrap; pointer-events: none; }
+.chart-tooltip[data-side="right"] { transform: translateX(8px); }
+.chart-tooltip[data-side="left"] { transform: translateX(calc(-100% - 8px)); }

@@ -1361,6 +1361,36 @@ pub struct UsageSummary {
     pub recent: Vec<UsageEvent>,
 }
 
+/// Requests and money in one period of a usage chart.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageBucket {
+    /// When the period starts, in milliseconds.
+    pub start: i64,
+    pub requests: u64,
+    pub failed: u64,
+    /// Actual and estimated costs; unknown ones are not in it.
+    pub known_micro_usd: u64,
+    pub actual_micro_usd: u64,
+    pub unknown_requests: u64,
+}
+
+/// Usage since `since` in periods of `bucket_ms`, aligned to the user's clock (`offset_ms` east of UTC), oldest first.
+/// Periods with no request are left out; the chart shows them as empty.
+pub fn usage_over_time(conn: &Connection, since: i64, bucket_ms: i64, offset_ms: i64) -> Result<Vec<UsageBucket>> {
+    let bucket_ms = bucket_ms.max(60_000);
+    let mut stmt = conn.prepare(
+        "SELECT ((created_at + ?3) / ?2) * ?2 - ?3 AS start, COUNT(*), SUM(outcome NOT IN ('ok', 'fallback')), \
+         COALESCE(SUM(cost_micro_usd), 0), COALESCE(SUM(CASE WHEN cost_status = 'actual' THEN cost_micro_usd END), 0), \
+         SUM(cost_status = 'unknown') FROM usage_events WHERE created_at >= ?1 GROUP BY start ORDER BY start").map_err(err)?;
+    let rows = stmt.query_map(params![since, bucket_ms, offset_ms], |r| {
+        let n = |i: usize| r.get::<_, Option<i64>>(i).map(|v| v.unwrap_or(0).max(0) as u64);
+        Ok(UsageBucket { start: r.get(0)?, requests: n(1)?, failed: n(2)?, known_micro_usd: n(3)?, actual_micro_usd: n(4)?,
+            unknown_requests: n(5)? })
+    }).map_err(err)?;
+    rows.collect::<rusqlite::Result<_>>().map_err(err)
+}
+
 pub fn usage_summary(conn: &Connection, since: i64, recent_limit: usize) -> Result<UsageSummary> {
     let group = |key_sql: &str| -> Result<Vec<UsageGroup>> {
         let sql = format!(
@@ -1516,6 +1546,9 @@ mod tests {
                 outcome, http_status: Some(200), latency_ms: 12, error: None, cache_write_tokens: None, session_key: None,
                 route_mode: None, route_reason: None }).unwrap();
         }
+        let buckets = usage_over_time(&conn, 0, 86_400_000, 7 * 3_600_000).unwrap();
+        assert_eq!(buckets.iter().map(|b| b.requests).sum::<u64>(), usage_summary(&conn, 0, 10).unwrap().total.requests);
+        assert!(buckets.iter().all(|b| (b.start + 7 * 3_600_000) % 86_400_000 == 0), "periods start at local midnight");
         let summary = usage_summary(&conn, 0, 10).unwrap();
         assert_eq!((summary.total.requests, summary.total.failed, summary.total.fallbacks), (3, 0, 1));
         assert_eq!((summary.total.known_micro_usd, summary.total.unknown_requests), (3000, 1));

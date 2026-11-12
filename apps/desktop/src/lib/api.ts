@@ -134,6 +134,11 @@ export type UsageEvent = {
   routeReason: string | null;
 };
 
+/** Requests and money in one period of the usage chart (one hour or one day). */
+export type UsageBucket = {
+  start: number; requests: number; failed: number; knownMicroUsd: number; actualMicroUsd: number; unknownRequests: number;
+};
+
 export type UsageSummary = {
   since: number; total: UsageGroup; byModel: UsageGroup[]; byClient: UsageGroup[]; recent: UsageEvent[];
 };
@@ -225,6 +230,8 @@ export interface GatewayApi {
   /** What an auto alias would choose, from a client's point of view (null: a new client's defaults). Sends nothing. */
   autoSimulate(clientId: string | null, alias: AutoAlias, needs: AutoNeeds): Promise<AutoPlan>;
   usage(days: number): Promise<UsageSummary>;
+  /** Usage per hour for one day, per day for longer, on this computer's clock. */
+  usageOverTime(days: number): Promise<UsageBucket[]>;
   /** How tasks turned out over the last `days`. */
   taskQuality(days: number): Promise<TaskQuality>;
   agents(): Promise<AgentInfo[]>;
@@ -300,6 +307,7 @@ const native: GatewayApi = {
   setModelCapabilities: (providerId, modelId, capabilities) => invoke('model_set_capabilities', {providerId, modelId, capabilities}),
   autoSimulate: (clientId, alias, needs) => invoke('auto_simulate', {clientId, alias, needs}),
   usage: days => invoke('usage_summary', {days}),
+  usageOverTime: days => invoke('usage_over_time', {days, offsetMinutes: -new Date().getTimezoneOffset()}),
   taskQuality: days => invoke('tasks_quality', {days}),
   agents: () => invoke('agents_detect'),
   runAgent: task => invoke('agent_run', {request: task}),

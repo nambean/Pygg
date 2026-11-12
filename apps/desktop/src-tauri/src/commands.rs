@@ -500,6 +500,17 @@ pub fn usage_summary(state: State<'_, AppState>, days: u32) -> Res<UsageSummary>
     state.shared.with_db(|db| store::usage_summary(db, since, 200))
 }
 
+/// Usage per hour for one day, per day for longer, on the user's clock (`offset_minutes` east of UTC).
+#[tauri::command]
+pub fn usage_over_time(state: State<'_, AppState>, days: u32, offset_minutes: i32) -> Res<Vec<store::UsageBucket>> {
+    let days = days.clamp(1, 366) as i64;
+    let bucket = if days <= 1 { 3_600_000 } else { 86_400_000 };
+    let offset = offset_minutes.clamp(-14 * 60, 14 * 60) as i64 * 60_000;
+    // Whole periods: the oldest one starts on the boundary at or before the period's start.
+    let since = ((crate::db::now_ms() - days * 86_400_000 + offset) / bucket) * bucket - offset;
+    state.shared.with_db(|db| store::usage_over_time(db, since, bucket, offset))
+}
+
 // ---------- Agents (official agent CLIs with their own sign-in) ----------
 
 #[tauri::command]

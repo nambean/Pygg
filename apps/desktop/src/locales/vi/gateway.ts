@@ -752,4 +752,13 @@ export const gateway: Record<string, string> = {
   'Off: a request without an output limit is estimated at 4,096 output tokens, so a long answer can take the month past the limit.':
     'Tắt: request không đặt giới hạn output được ước tính 4.096 token output, nên một câu trả lời dài có thể làm tháng vượt giới hạn.',
   'Hold the most a request could cost': 'Giữ chỗ bằng mức tối đa request có thể tốn',
+  // Cost over time (CostOverTime.tsx)
+  "Cost per Hour": "Chi phí theo giờ",
+  "Cost per Day": "Chi phí theo ngày",
+  "{amount} known": "{amount} đã biết",
+  "{n} request": "{n} request",
+  "{n} requests": "{n} request",
+  "{n} failed": "{n} lỗi",
+  "{n} with unknown cost": "{n} chưa rõ chi phí",
+  "Has requests with unknown cost, which are not in the bar": "Có request chưa rõ chi phí, không tính trong cột",
 };

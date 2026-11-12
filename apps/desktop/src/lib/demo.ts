@@ -5,7 +5,7 @@
  * costs) closely enough for design review, not as a test of them.
  */
 import type { AgentInfo, Integration, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
-  Health, Model, Preset, Target, Tier, UsageEvent, UsageGroup, UsageSummary, Wire } from './api';
+  Health, Model, Preset, Target, Tier, UsageEvent, UsageBucket, UsageGroup, UsageSummary, Wire } from './api';
 import { TIERS } from './api';
 import { SAMPLE_WORKSPACES, sampleTasks } from './sample';
 import type { AttemptView, NewTask, TaskDetail, TaskSummary, WorkspaceView } from './tasks';
@@ -521,6 +521,23 @@ export function demoApi(): GatewayApi {
         byModel: groups(list, e => `${e.provider}/${e.model}`), byClient: groups(list, e => e.client ?? ''),
         recent: [...list].sort((a, b) => b.createdAt - a.createdAt).slice(0, 200)};
       return touch(summary);
+    },
+    usageOverTime: async days => {
+      const size = days <= 1 ? 3_600_000 : 86_400_000;
+      const offset = -new Date().getTimezoneOffset() * 60_000;
+      const since = Math.floor((Date.now() - days * 86_400_000 + offset) / size) * size - offset;
+      const buckets = new Map<number, UsageBucket>();
+      for (const e of events.filter(e => e.createdAt >= since)) {
+        const start = Math.floor((e.createdAt + offset) / size) * size - offset;
+        const b = buckets.get(start) ?? {start, requests: 0, failed: 0, knownMicroUsd: 0, actualMicroUsd: 0, unknownRequests: 0};
+        b.requests += 1;
+        b.failed += e.outcome === 'ok' || e.outcome === 'fallback' ? 0 : 1;
+        b.knownMicroUsd += e.costMicroUsd ?? 0;
+        b.actualMicroUsd += e.costStatus === 'actual' ? e.costMicroUsd ?? 0 : 0;
+        b.unknownRequests += e.costStatus === 'unknown' ? 1 : 0;
+        buckets.set(start, b);
+      }
+      return touch([...buckets.values()].sort((a, b) => a.start - b.start));
     },
     // Sample figures for the preview, under its demo banner (ADR-014).
     taskQuality: () => touch({tasks: 6, kept: 4, discarded: 1, retried: 1, cancelled: 1, checkedAttempts: 8, passedAttempts: 5,

@@ -5,6 +5,7 @@ import { locale, plural, t } from '../../lib/i18n';
 import { costText, microUsd, sourceText, tokens } from '../../lib/money';
 import { useGateway } from '../../hooks/useGateway';
 import { Badge, Empty, ErrorNote, Segmented, Spinner } from '../ui';
+import { CostOverTime } from './CostOverTime';
 
 type Range = '1' | '7' | '30';
 
@@ -27,6 +28,7 @@ export function Usage() {
   const [range, setRange] = useState<Range>('7');
   const usage = useGateway(api => api.usage(Number(range)), [range], 15_000);
   const quality = useGateway(api => api.taskQuality(Number(range)), [range], 15_000);
+  const overTime = useGateway(api => api.usageOverTime(Number(range)), [range], 15_000);
   const [show, setShow] = useState<'all' | 'problems' | 'unknown'>('all');
   const [client, setClient] = useState('');
   const [model, setModel] = useState('');
@@ -75,6 +77,8 @@ export function Usage() {
           <p className="group-footnote">{t('Unknown costs are not in the total. Give a model a price in Connections to estimate them.')}</p>
         </div>
       </section>
+
+      {overTime.data && <CostOverTime days={Number(range)} buckets={overTime.data}/>}
 
       <div className="two-columns">
         <GroupTable title={t('By Model')} column={t('Model')} groups={data.byModel} mono onPick={key => pick(setModel, key)}/>
