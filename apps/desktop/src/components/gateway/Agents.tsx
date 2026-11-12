@@ -292,7 +292,7 @@ function SetUpSheet({integration: i, onClose}: {integration: Integration; onClos
         : t('Check that {name} lists the pygg server. If anything fails, the file is put back and the token revoked.', {name: p.name})}</li>
     </ol>}
     <p className="secondary small">{i.kind === 'gateway'
-      ? t('OpenCode then lists auto, auto/cheap and the models enabled in Connections under the provider “Pygg”; pick one with /models. The list is the one at setup: after enabling more models, remove this and set it up again. When Pygg runs OpenCode for a task, each request carries the step’s id, so the task shows what Pygg’s ledger recorded for it. OpenCode’s own providers and sign-in are not touched.')
+      ? t('OpenCode then lists auto, auto/cheap and the models enabled in Connections under the provider “Pygg”; pick one with /models. Pygg keeps the list current as models are enabled, disabled or looked up; only the list changes. When Pygg runs OpenCode for a task, each request carries the step’s id, so the task shows what Pygg’s ledger recorded for it. OpenCode’s own providers and sign-in are not touched.')
       : t('The entry serves all your projects: the server takes the project from the folder your agent runs in. The token is written into {name}’s own configuration for your user, never into a project file. {name}’s own sign-in is not touched.', {name: i.name})}</p>
     {error && <ErrorNote>{error}</ErrorNote>}
   </Sheet>;

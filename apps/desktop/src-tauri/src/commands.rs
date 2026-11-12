@@ -235,6 +235,7 @@ pub fn connection_add(state: State<'_, AppState>, connection: NewConnection) -> 
 pub fn connection_update(state: State<'_, AppState>, id: String, enabled: Option<bool>, billing: Option<String>,
     separate_quota: Option<bool>) -> Res<ConnectionView> {
     state.shared.with_db(|db| store::update_provider(db, &id, enabled, billing.as_deref(), separate_quota))?;
+    sync_opencode(&state);
     let provider = state.shared.with_db(|db| store::get_provider(db, &id))?.ok_or("Connection not found")?;
     Ok(view(&state, provider))
 }
@@ -280,6 +281,7 @@ pub fn connection_set_terms(state: State<'_, AppState>, id: String, terms: Strin
 #[tauri::command]
 pub fn connection_remove(state: State<'_, AppState>, id: String) -> Res<()> {
     let reference = state.shared.with_db(|db| store::remove_provider(db, &id))?;
+    sync_opencode(&state);
     if let Some(reference) = reference {
         vault::remove(&reference).map_err(|e| e.to_string())?;
     }
@@ -305,6 +307,7 @@ pub async fn connection_refresh_models(state: State<'_, AppState>, id: String) -
     if let Some(catalog) = gateway::reference::current(&state.shared.http, &cache).await {
         state.shared.with_db(|db| { let _ = gateway::reference::apply(db, &catalog); gateway::reference::mark_applied(db); });
     }
+    sync_opencode(&state);
     Ok(ImportResult { listed: ids.len(), added })
 }
 
@@ -319,7 +322,9 @@ pub fn models_list(state: State<'_, AppState>, provider_id: Option<String>) -> R
 #[tauri::command]
 pub fn model_set_capabilities(state: State<'_, AppState>, provider_id: String, model_id: String,
     capabilities: store::Capabilities) -> Res<()> {
-    state.shared.with_db(|db| store::set_capabilities(db, &provider_id, &model_id, &capabilities))
+    state.shared.with_db(|db| store::set_capabilities(db, &provider_id, &model_id, &capabilities))?;
+    sync_opencode(&state);
+    Ok(())
 }
 
 /// What `auto` or `auto/cheap` would choose for a request with these needs, from a client's point of view,
@@ -344,7 +349,9 @@ pub fn auto_simulate(state: State<'_, AppState>, client_id: Option<String>, alia
 
 #[tauri::command]
 pub fn model_add(state: State<'_, AppState>, provider_id: String, model_id: String) -> Res<()> {
-    state.shared.with_db(|db| store::add_model(db, &provider_id, &model_id))
+    state.shared.with_db(|db| store::add_model(db, &provider_id, &model_id))?;
+    sync_opencode(&state);
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -379,12 +386,16 @@ pub fn model_update(state: State<'_, AppState>, provider_id: String, model_id: S
         })),
         (None, _) => None,
     };
-    state.shared.with_db(|db| store::update_model(db, &provider_id, &model_id, enabled, billing.as_deref(), price))
+    state.shared.with_db(|db| store::update_model(db, &provider_id, &model_id, enabled, billing.as_deref(), price))?;
+    sync_opencode(&state);
+    Ok(())
 }
 
 #[tauri::command]
 pub fn model_remove(state: State<'_, AppState>, provider_id: String, model_id: String) -> Res<()> {
-    state.shared.with_db(|db| store::remove_model(db, &provider_id, &model_id))
+    state.shared.with_db(|db| store::remove_model(db, &provider_id, &model_id))?;
+    sync_opencode(&state);
+    Ok(())
 }
 
 // ---------- Combos ----------
@@ -601,6 +612,13 @@ fn mcp_server(state: &AppState) -> Res<crate::integrations::Server> {
 
 fn integration_backups(state: &AppState) -> std::path::PathBuf {
     state.data_dir.join("integration-backups")
+}
+
+/// After a change to connections or models: OpenCode's list of Pygg's models follows, when Pygg set it up.
+fn sync_opencode(state: &AppState) {
+    if let Err(e) = crate::integrations::sync_opencode_models(&state.shared, &crate::integrations::Homes::from_env()) {
+        eprintln!("OpenCode's model list: {e}");
+    }
 }
 
 /// The agents Pygg can register its MCP server with, and whether it is (integrations.rs, ROADMAP D2).

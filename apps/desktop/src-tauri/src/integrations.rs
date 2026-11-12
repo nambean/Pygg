@@ -300,17 +300,7 @@ fn opencode_has_entry(config: &Option<serde_json::Map<String, Value>>) -> bool {
 /// connection (translating where the connection speaks OpenAI's), and sends the attempt id Pygg gives a task step as
 /// its session header; outside a task the variable is empty and the gateway ignores the header.
 pub fn opencode_provider(server: &Server, token: &str) -> Value {
-    let mut models = serde_json::Map::new();
-    for m in &server.models {
-        let mut entry = serde_json::Map::new();
-        entry.insert("name".into(), json!(m.id));
-        // OpenCode offers no tools to a model marked without them; only a model known not to take them is.
-        entry.insert("tool_call".into(), json!(m.supports_tools != Some(false)));
-        if let (Some(context), Some(output)) = (m.context_tokens, m.max_output_tokens) {
-            entry.insert("limit".into(), json!({"context": context, "output": output}));
-        }
-        models.insert(m.id.clone(), Value::Object(entry));
-    }
+    let models = opencode_models(&server.models);
     json!({
         "npm": "@ai-sdk/anthropic",
         "name": "Pygg",
@@ -321,6 +311,41 @@ pub fn opencode_provider(server: &Server, token: &str) -> Value {
         },
         "models": models,
     })
+}
+
+/// The `models` of Pygg's provider in OpenCode.
+fn opencode_models(list: &[GatewayModel]) -> Value {
+    let mut models = serde_json::Map::new();
+    for m in list {
+        let mut entry = serde_json::Map::new();
+        entry.insert("name".into(), json!(m.id));
+        // OpenCode offers no tools to a model marked without them; only a model known not to take them is.
+        entry.insert("tool_call".into(), json!(m.supports_tools != Some(false)));
+        if let (Some(context), Some(output)) = (m.context_tokens, m.max_output_tokens) {
+            entry.insert("limit".into(), json!({"context": context, "output": output}));
+        }
+        models.insert(m.id.clone(), Value::Object(entry));
+    }
+    Value::Object(models)
+}
+
+/// Keeps the model list of OpenCode's Pygg provider current, so the user never sets it up again after a change in
+/// Connections or after the reference catalog filled what a provider leaves out (ADR-031). Only an entry Pygg set
+/// up is touched, and only its `models`: its address, token and everything else in the file stay as they are. No
+/// write when nothing changed. Returns whether the file was written.
+pub fn sync_opencode_models(db: &impl Store, homes: &Homes) -> Result<bool, String> {
+    if saved(db, OPENCODE_GATEWAY).is_none() {
+        return Ok(false);
+    }
+    let wanted = opencode_models(&db.with(gateway_models));
+    let Some(mut config) = read_opencode(&homes.opencode)? else { return Ok(false) };
+    let Some(Value::Object(entry)) = config.get_mut("provider").and_then(|p| p.get_mut(PROVIDER)) else { return Ok(false) };
+    if entry.get("models") == Some(&wanted) {
+        return Ok(false);
+    }
+    entry.insert("models".into(), wanted);
+    write_opencode(&homes.opencode, &config)?;
+    Ok(true)
 }
 
 /// The configuration with Pygg's provider added; refused when a provider of that name is already there.
@@ -762,6 +787,52 @@ mod tests {
         assert_eq!(read_opencode(&homes.opencode).unwrap().unwrap(), serde_json::from_str::<serde_json::Map<String, Value>>(r#"{"model":"x/y"}"#).unwrap());
         let live: i64 = db.with(|c| c.query_row("SELECT COUNT(*) FROM gateway_clients WHERE revoked_at IS NULL", [], |r| r.get(0))).unwrap();
         assert_eq!(live, 0);
+    }
+
+    #[test]
+    fn opencodes_model_list_follows_connections_without_touching_anything_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let homes = Homes { claude: dir.path().join("c.json"), codex: dir.path().join("x.toml"),
+            opencode: dir.path().join("opencode.json") };
+        let db = Db(std::sync::Mutex::new(crate::db::open_in_memory().unwrap()));
+        let p = db.with(|c| store::add_provider(c, &store::NewProvider { kind: "openrouter", label: "OpenRouter",
+            endpoint: "https://openrouter.ai/api/v1", credential_ref: None, default_billing: "paid", wire: "openai" })).unwrap();
+        for model in ["a", "b"] {
+            db.with(|c| store::add_model(c, &p.id, model)).unwrap();
+        }
+        let old = json!({"$schema": "s", "model": "x/y", "provider": {"pygg": {"npm": "@ai-sdk/anthropic",
+            "options": {"baseURL": "http://127.0.0.1:8741/v1", "apiKey": "str-kept"}, "models": {"auto": {"name": "auto"}}},
+            "other": {"models": {"m": {}}}}});
+        std::fs::write(&homes.opencode, serde_json::to_string_pretty(&old).unwrap()).unwrap();
+
+        // Not set up by Pygg: an entry named pygg made elsewhere is not Pygg's to change.
+        assert_eq!(sync_opencode_models(&db, &homes), Ok(false));
+        save(&db, OPENCODE_GATEWAY, Some(&Record { client_id: "c".into(), client_name: "OpenCode (models)".into(),
+            set_up_at: 1, backup: None })).unwrap();
+
+        assert_eq!(sync_opencode_models(&db, &homes), Ok(true));
+        let config = read_opencode(&homes.opencode).unwrap().unwrap();
+        let ids: Vec<String> = config["provider"]["pygg"]["models"].as_object().unwrap().keys().cloned().collect();
+        assert_eq!(ids, ["auto".to_string(), "auto/cheap".into(), format!("{}/a", p.id), format!("{}/b", p.id)]);
+        assert_eq!(config["provider"]["pygg"]["options"], old["provider"]["pygg"]["options"], "the token and address stay");
+        assert_eq!((&config["model"], &config["provider"]["other"]), (&old["model"], &old["provider"]["other"]));
+
+        // Nothing changed: no write.
+        let written = std::fs::metadata(&homes.opencode).unwrap().modified().unwrap();
+        assert_eq!(sync_opencode_models(&db, &homes), Ok(false));
+        assert_eq!(std::fs::metadata(&homes.opencode).unwrap().modified().unwrap(), written);
+
+        // A model found not to take tools (the reference catalog, or the user) leaves the list.
+        db.with(|c| store::set_capabilities(c, &p.id, "b", &store::Capabilities { supports_tools: Some(false),
+            ..store::Capabilities::default() })).unwrap();
+        assert_eq!(sync_opencode_models(&db, &homes), Ok(true));
+        let config = read_opencode(&homes.opencode).unwrap().unwrap();
+        assert!(config["provider"]["pygg"]["models"].get(format!("{}/b", p.id)).is_none());
+
+        // Removed from the file outside Pygg: nothing is added back.
+        std::fs::write(&homes.opencode, r#"{"model":"x/y"}"#).unwrap();
+        assert_eq!(sync_opencode_models(&db, &homes), Ok(false));
+        assert_eq!(std::fs::read_to_string(&homes.opencode).unwrap(), r#"{"model":"x/y"}"#);
     }
 
     #[test]

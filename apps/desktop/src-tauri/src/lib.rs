@@ -100,6 +100,10 @@ pub fn run() {
                             Err(e) => eprintln!("reference catalog: {e}"),
                         });
                     }
+                    // OpenCode's list of Pygg's models follows what the catalog filled (integrations.rs).
+                    if let Err(e) = integrations::sync_opencode_models(&shared, &integrations::Homes::from_env()) {
+                        eprintln!("OpenCode's model list: {e}");
+                    }
                 });
             }
             if state.autostart() {
