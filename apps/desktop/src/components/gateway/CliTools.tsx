@@ -6,7 +6,7 @@ import { ago } from '../../lib/format';
 import { useGateway } from '../../hooks/useGateway';
 import { Badge, CodeBlock, ConfirmSheet, ErrorNote, Spinner } from '../ui';
 import { Integrations } from './Agents';
-import { ClientCheck, ClientSetup, type Navigate } from './Overview';
+import { ClientSetup, type Navigate } from './Overview';
 
 /**
  * CLI Tools (SCREENS.md §2.2): point a coding tool at Pygg, as 9router's and OmniRoute's CLI Tools pages do. Claude
@@ -20,7 +20,6 @@ export function CliTools({status, navigate}: {status: GatewayStatus | null; navi
   const models = useGateway(api => api.models());
   const clients = useGateway(api => api.clients());
   const latest = useGateway(api => api.latestRequests(), [], 5_000);
-  const usage = useGateway(api => api.usage(1), [], 10_000);
   const routes = useMemo(() => [
     {value: 'auto', label: t('auto (automatic)')}, {value: 'auto/cheap', label: t('auto/cheap (automatic, lowest cost)')},
     ...(combos.data ?? []).map(c => ({value: c.name, label: t('{name} (combo)', {name: c.name})})),
@@ -37,9 +36,11 @@ export function CliTools({status, navigate}: {status: GatewayStatus | null; navi
       <ClaudeLauncher latestFor={latestFor}/>
       <Integrations kind="gateway" status={i => <ToolStatus latest={latestFor(byName(i.clientName)?.id)}/>}/>
     </section>
-    <ClientSetup baseUrl={status?.baseUrl ?? `http://127.0.0.1:${status?.port ?? 8741}`} routes={routes}
-      hasToken={active.length > 0} onCreateToken={() => navigate('endpoint', 'create')}/>
-    {usage.data && <ClientCheck last={usage.data.recent[0]} onOpen={() => navigate('usage')}/>}
+    <details className="manual-setup">
+      <summary>{t('Set up by hand: Claude Code without the launcher, Cline, Continue, SDKs, curl')}</summary>
+      <ClientSetup baseUrl={status?.baseUrl ?? `http://127.0.0.1:${status?.port ?? 8741}`} routes={routes}
+        hasToken={active.length > 0} onCreateToken={() => navigate('endpoint', 'create')}/>
+    </details>
   </div>;
 }
 

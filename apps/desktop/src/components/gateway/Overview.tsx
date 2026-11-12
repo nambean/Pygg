@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowRight, CircleAlert, CircleCheck, Circle, KeyRound, Plug, Power, Settings2, TerminalSquare } from 'lucide-react';
+import { ArrowRight, CircleAlert, CircleCheck, Circle, Power, Settings2, TerminalSquare } from 'lucide-react';
 import { call, errorText, gatewayChanged, type GatewayStatus, type UsageEvent } from '../../lib/api';
 import { t } from '../../lib/i18n';
 import { isMac } from '../../lib/platform';
@@ -13,7 +13,7 @@ import { UsageAlerts } from './UsageAlerts';
 
 /** The gateway's screens, in the sidebar's order: the path a 9router or OmniRoute user knows. */
 export type GatewayDestination = 'overview' | 'connections' | 'endpoint' | 'tools' | 'combos' | 'usage';
-export type Navigate = (to: GatewayDestination, intent?: 'connect' | 'create') => void;
+export type Navigate = (to: GatewayDestination, intent?: 'connect' | 'create' | 'unpriced') => void;
 
 export type ClientKind = 'claude' | 'opencode' | 'editor' | 'sdk' | 'curl';
 type Shell = 'powershell' | 'posix';
@@ -27,26 +27,42 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
   const connections = useGateway(api => api.connections());
   const clients = useGateway(api => api.clients());
   const usage = useGateway(api => api.usage(1), [], 10_000);
+  const launcher = useGateway(api => api.launcher());
+  const integrations = useGateway(api => api.integrations(), [], undefined, 'integrations');
+  // Whether auto has a model for a coding agent's request (tools, a short prompt): the check behind "ready".
+  const codingPlan = useGateway(api => api.autoSimulate(null, 'auto', {surfaceAnthropic: false, tools: true, vision: false,
+    inputTokens: 2000, maxTokens: 1000, thinking: null, effort: null}));
   const [configuring, setConfiguring] = useState(false);
 
   const activeClients = clients.data?.filter(c => !c.revokedAt) ?? [];
   // A connection counts once it can serve: on, with its key, and with models listed.
   const usable = (connections.data ?? []).some(c => c.enabled && !(c.needsKey && !c.hasKey) && c.models > 0);
+  const eligible = codingPlan.data?.ranked.length ?? null;
+  // A tool counts as set up once Pygg set it up, or once a key of the user's own has been used.
+  const toolSetUp = !!launcher.data?.setUp || (integrations.data ?? []).some(i => i.kind === 'gateway' && i.state === 'set_up')
+    || activeClients.some(c => c.lastUsedAt && c.name !== 'Pygg (model tests)' && !c.name.endsWith('(MCP)'));
+  const used = activeClients.some(c => c.lastUsedAt && c.name !== 'Pygg (model tests)' && !c.name.endsWith('(MCP)'));
   const steps = [
-    {done: usable, icon: <Plug/>, title: t('Connect a provider'),
+    {done: usable, title: t('Connect a provider'),
       detail: (connections.data?.length ?? 0) > 0 && !usable
         ? t('A connection exists, but none is on with a key and models listed yet. Open Providers to check it.')
-        : t('An API key or a local runtime such as Ollama. Keys stay in the system’s credential store.'),
-      action: <button type="button" className="button" onClick={() => navigate('connections', 'connect')}>{t('Connect Provider…')}</button>},
-    {done: activeClients.length > 0, icon: <KeyRound/>, title: t('Set up your coding tool'),
-      detail: t('Codex and OpenCode in one click; Claude Code, editors and SDKs with a snippet. Use the model auto.'),
-      action: <button type="button" className="button prominent" onClick={() => navigate('tools')}>{t('Open CLI Tools')}</button>},
+        : usable && eligible === 0
+        ? t('Connected, but auto has no model that qualifies for a coding agent (tools, tier T2 or higher, a price or free billing). See How auto chooses in Combos.')
+        : t('An API key or a local runtime such as Ollama. Keys stay in the Windows Credential Manager.'),
+      action: (primary: boolean) => <button type="button" className={primary ? 'button prominent' : 'button'} onClick={() => navigate('connections', 'connect')}>{t('Connect Provider…')}</button>},
+    {done: toolSetUp, title: t('Set up your coding tool'),
+      detail: t('Claude Code with the launcher, Codex and OpenCode in one click, editors and SDKs by hand. Use the model auto.'),
+      action: (primary: boolean) => <button type="button" className={primary ? 'button prominent' : 'button'} onClick={() => navigate('tools')}>{t('Open CLI Tools')}</button>},
+    {done: used, title: t('Use it as usual'),
+      detail: t('Work in your IDE or terminal. The first request through Pygg shows here, with what it cost.'),
+      action: () => null},
   ];
   const ready = steps.every(s => s.done);
+  const next = steps.findIndex(s => !s.done);
 
   return <div className="page">
     <GatewayCard status={status} onStatus={onStatus} onConfigure={() => setConfiguring(true)}/>
-    <UsageAlerts onOpen={() => navigate('usage')}/>
+    <UsageAlerts onOpen={() => navigate('usage')} onUnpriced={() => navigate('connections', 'unpriced')}/>
     {(usage.data?.total.requests ?? 0) > 0 && <Savings days={1} period={t('last 24 hours')}/>}
     {status?.accountingError && <ErrorNote>
       {t('The last usage entry couldn’t be written: {error}. The request stays in the journal and is recorded with an unknown cost when the gateway next starts. Requests are refused while nothing can be written.', {error: status.accountingError})}
@@ -55,13 +71,13 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
     {!ready && <section className="group">
       <h2>{t('Get Started')}</h2>
       <ol className="group-box steps">
-        {steps.map(step => <li key={step.title} className={step.done ? 'step done' : 'step'}>
+        {steps.map((step, i) => <li key={step.title} className={step.done ? 'step done' : 'step'}>
           <span className="step-check" aria-hidden>{step.done ? <CircleCheck size={18}/> : <Circle size={18}/>}</span>
           <span className="group-label">
             <span>{step.title}</span>
             <small>{step.detail}</small>
           </span>
-          {step.done ? <span className="value">{t('Done')}</span> : step.action}
+          {step.done ? <span className="value">{t('Done')}</span> : step.action(i === next)}
         </li>)}
       </ol>
       <p className="group-footnote">

@@ -66,16 +66,18 @@ export function Combos({intent, onIntentDone, onConnect}: {intent?: 'create'; on
               <button type="button" className="button icon-only" aria-label={t('Delete {name}', {name: combo.name})} title={t('Delete')}
                 onClick={() => setDeleting(combo)}><Trash2 size={14} aria-hidden/></button>
             </div>
+            {combo.strategy === 'cheapest' && <p className="chain-note">{t('Ordered for each request by its estimated cost: free, local and plan members first, unknown prices last.')}</p>}
             <ol className="chain" aria-label={t('Order')}>
               {combo.members.map((m, i) => {
                 const connection = connections.data?.find(c => c.id === m.providerId);
                 const off = !connection?.enabled;
+                const pool = combo.strategy === 'cheapest';
                 return <li key={`${key(m)}-${i}`} className={off ? 'chain-step off' : 'chain-step'}>
-                  {i > 0 && <ArrowRight size={12} className="chain-arrow" aria-hidden/>}
                   <span className="chain-chip mono" title={off ? t('Skipped: its connection is disabled or removed') : undefined}>
-                    <span className="chain-index">{i + 1}</span>{key(m)}
+                    {!pool && <span className="chain-index">{i + 1}</span>}{key(m)}
                     {modelOf(m) && <span className="chain-meta">{[billingLabel(modelOf(m)!.billing), modelOf(m)!.capabilities.tier,
                       modelOf(m)!.capabilities.supportsTools ? t('tools') : null].filter(Boolean).join(' · ')}</span>}</span>
+                  {!pool && i < combo.members.length - 1 && <ArrowRight size={12} className="chain-arrow" aria-hidden/>}
                 </li>;
               })}
               {combo.members.length === 0 && <li className="secondary">{t('Empty: its models’ connections were removed.')}</li>}

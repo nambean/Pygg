@@ -739,8 +739,16 @@ export function demoApi(): GatewayApi {
     // Sample figures (ADR-014): an agent that re-read a few files.
     usageShadow: async () => touch({requests: 48, requestsWithRepeats: 11, repeatedTokens: 38_400, inputTokens: 1_420_000,
       cacheReadTokens: 1_050_000}),
-    usageAlerts: async () => touch([{kind: 'near_limit', client: 'Claude Code', value: 8_400_000, against: 10_000_000},
-      {kind: 'unknown_costs', client: null, value: 6, against: 0}]),
+    usageAlerts: async () => {
+      const day = Date.now() - 86_400_000;
+      const unknown = events.filter(e => e.createdAt >= day && e.costStatus === 'unknown').length;
+      const near = clients.flatMap(c => {
+        const view = clientView(c);
+        return !c.revokedAt && c.monthlyBudgetMicroUsd && view.monthSpendMicroUsd >= 0.8 * c.monthlyBudgetMicroUsd
+          ? [{kind: 'near_limit' as const, client: c.name, value: view.monthSpendMicroUsd, against: c.monthlyBudgetMicroUsd}] : [];
+      });
+      return touch([...near, ...(unknown ? [{kind: 'unknown_costs' as const, client: null, value: unknown, against: 0}] : [])]);
+    },
     exportUsage: async () => { await sleep(200); return 'C:\\Users\\you\\Downloads\\pygg-usage.csv'; },
     retention: () => touch(retention),
     // The preview deletes nothing: it only counts what the setting would remove, as retention.rs decides it.

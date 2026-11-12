@@ -19,7 +19,7 @@ function alertText(a: UsageAlert): string {
 }
 
 /** What in the ledger is worth a look now (store::usage_alerts): read from recorded figures, never a forecast. */
-export function UsageAlerts({onOpen}: {onOpen?: () => void}) {
+export function UsageAlerts({onOpen, onUnpriced}: {onOpen?: () => void; onUnpriced?: () => void}) {
   const alerts = useGateway(api => api.usageAlerts(), [], 30_000);
   const list = alerts.data ?? [];
   if (!list.length) return null;
@@ -29,7 +29,11 @@ export function UsageAlerts({onOpen}: {onOpen?: () => void}) {
         <TriangleAlert size={15} aria-hidden className={a.kind === 'over_limit' || a.kind === 'failures' ? 'error-text' : 'warn-text'}/>
         <span>{alertText(a)}</span>
       </p>)}
-      {onOpen && <button type="button" className="link-button" onClick={onOpen}>{t('Open Usage')}</button>}
+      <span className="row-actions">
+        {onUnpriced && list.some(a => a.kind === 'unknown_costs') &&
+          <button type="button" className="link-button" onClick={onUnpriced}>{t('Review unpriced models')}</button>}
+        {onOpen && <button type="button" className="link-button" onClick={onOpen}>{t('Open Usage')}</button>}
+      </span>
     </div>
   </section>;
 }

@@ -29,11 +29,24 @@ function billingHint(billing: Billing, freeModels = false): string {
 }
 
 /** Connections (SCREENS.md §5.4, gateway first): provider accounts, their models and prices. */
-export function Connections({intent, onIntentDone}: {intent?: 'connect'; onIntentDone: () => void}) {
+export function Connections({intent, onIntentDone, onNext}: {intent?: 'connect' | 'unpriced'; onIntentDone: () => void;
+  onNext?: () => void}) {
   const list = useGateway(api => api.connections());
+  const allModels = useGateway(api => api.models());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(intent === 'connect');
-  useEffect(() => { if (intent === 'connect') { setConnecting(true); onIntentDone(); } }, [intent, onIntentDone]);
+  // Opened from "Review unpriced models": the first connection with an enabled model that has no price, filtered so.
+  const [modelFilter, setModelFilter] = useState<'all' | 'unpriced'>('all');
+  const [justConnected, setJustConnected] = useState(false);
+  useEffect(() => {
+    if (intent === 'connect') { setConnecting(true); onIntentDone(); }
+    if (intent === 'unpriced' && allModels.data) {
+      const first = allModels.data.find(m => m.enabled && m.billing !== 'free' && m.billing !== 'local' && m.billing !== 'subscription' && !m.price);
+      if (first) setSelectedId(first.providerId);
+      setModelFilter('unpriced');
+      onIntentDone();
+    }
+  }, [intent, onIntentDone, allModels.data]);
 
   const [query, setQuery] = useState('');
   const [show, setShow] = useState<'all' | 'attention' | 'local' | 'anthropic'>('all');
@@ -49,6 +62,11 @@ export function Connections({intent, onIntentDone}: {intent?: 'connect'; onInten
   if (list.loading && !list.data) return <div className="page"><Spinner label={t('Loading connections…')}/></div>;
   return <div className="page">
     {list.error && <ErrorNote>{list.error}</ErrorNote>}
+    {justConnected && onNext && <div className="next-step-note" role="status">
+      <span>{t('Connected. Next: set up your coding tool to use it, with the model auto.')}</span>
+      <button type="button" className="button prominent small" onClick={onNext}>{t('Open CLI Tools')}</button>
+      <button type="button" className="link-button" onClick={() => setJustConnected(false)}>{t('Not now')}</button>
+    </div>}
     {connections.length === 0
       ? <Empty icon={<Plug size={40} strokeWidth={1.4}/>} title={t('No Connections Yet')}
           action={<button type="button" className="button prominent" onClick={() => setConnecting(true)}>{t('Connect Provider…')}</button>}>
@@ -78,9 +96,10 @@ export function Connections({intent, onIntentDone}: {intent?: 'connect'; onInten
             {visible.length === 0 && <li className="table-empty">{t('No connection matches.')}</li>}
           </ul>
         </section>
-        {selected && <ConnectionDetail key={selected.id} connection={selected} onRemoved={() => setSelectedId(null)}/>}
+        {selected && <ConnectionDetail key={`${selected.id}-${modelFilter}`} connection={selected} onRemoved={() => setSelectedId(null)}
+          initialShow={modelFilter}/>}
       </>}
-    {connecting && <ConnectSheet onClose={() => setConnecting(false)} onConnected={id => { setSelectedId(id); setConnecting(false); }}/>}
+    {connecting && <ConnectSheet onClose={() => setConnecting(false)} onConnected={id => { setSelectedId(id); setConnecting(false); setJustConnected(true); }}/>}
   </div>;
 }
 
@@ -164,14 +183,15 @@ function ConnectionRow({connection: c, selected, onSelect}: {connection: Connect
   </li>;
 }
 
-function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; onRemoved: () => void}) {
+function ConnectionDetail({connection: c, onRemoved, initialShow = 'all'}: {connection: Connection; onRemoved: () => void;
+  initialShow?: 'all' | 'unpriced'}) {
   const models = useGateway(api => api.models(c.id), [c.id]);
   const reliability = useGateway(api => api.reliability(c.id), [c.id], 30_000);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState<{ok: boolean; text: string} | null>(null);
   const [sheet, setSheet] = useState<'key' | 'remove' | 'add-model' | 'quota' | {price: Model} | {caps: Model} | null>(null);
   const [query, setQuery] = useState('');
-  const [show, setShow] = useState<'all' | 'enabled' | 'free' | 'unpriced'>('all');
+  const [show, setShow] = useState<'all' | 'enabled' | 'free' | 'unpriced'>(initialShow);
   const check = checks.get(c.id);
 
   const refresh = () => {
@@ -222,6 +242,18 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
       </div>
       {c.health.length > 0 && <div className="group-row stacked"><HealthList connection={c}/></div>}
       {c.readsAccount && <AccountRow connection={c}/>}
+      {(c.limits?.length ?? 0) > 0 && <div className="group-row stacked">
+        <span className="group-label">{t('Rate limits, as the provider last said')}
+          <small>{t('Read from the headers of its last answer for each model. While a limit is used up, auto skips that model until it resets; a provider that sends none shows nothing here.')}</small></span>
+        <ul className="limit-list">
+          {c.limits!.map(l => <li key={l.modelId}>
+            <span className="mono">{l.modelId}</span>
+            <small className="secondary">{ago(l.observedAt)}{l.httpStatus && l.httpStatus !== 200 ? ` · HTTP ${l.httpStatus}` : ''}</small>
+            <span className="limit-values" title={Object.entries(l.headers).map(([k, v]) => `${k}: ${v}`).join('\n')}>
+              {(l.windows?.length ? l.windows.map(windowText) : Object.entries(l.headers).map(([k, v]) => `${k}: ${v}`)).join(' · ')}</span>
+          </li>)}
+        </ul>
+      </div>}
       {c.web ? <div className="group-row">
         <span className="group-label">{t('Billing')}<small>{t('Your plan with the site. The site reports no tokens or price, so every request’s cost is Unknown, never $0.')}</small></span>
         <span className="group-control value">{billingLabel('subscription')}</span>
@@ -235,7 +267,7 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
       </div>}
     </div>
     <details className="advanced-box">
-      <summary>{t('Advanced: endpoint, API format, rate limits, quota, pool, data use')}</summary>
+      <summary>{t('Advanced: endpoint, API format, quota, pool, data use')}</summary>
       <div className="group-box">
         <div className="group-row">
           <span className="group-label">{t('Endpoint')}</span>
@@ -246,18 +278,6 @@ function ConnectionDetail({connection: c, onRemoved}: {connection: Connection; o
             ? t('Anthropic requests (Claude Code) pass through unchanged, prompt cache included. OpenAI-format clients can’t use it yet.')
             : t('OpenAI-format requests pass through unchanged. Anthropic requests are translated, and prompt-cache hints survive only where the provider accepts them.')}</small></span>
           <span className="group-control value">{c.wire === 'anthropic' ? t('Anthropic Messages') : t('OpenAI Chat Completions')}</span>
-        </div>}
-        {(c.limits?.length ?? 0) > 0 && <div className="group-row stacked">
-          <span className="group-label">{t('Rate limits, as the provider last said')}
-            <small>{t('Read from the headers of its last answer for each model. While a limit is used up, auto skips that model until it resets; a provider that sends none shows nothing here.')}</small></span>
-          <ul className="limit-list">
-            {c.limits!.map(l => <li key={l.modelId}>
-              <span className="mono">{l.modelId}</span>
-              <small className="secondary">{ago(l.observedAt)}{l.httpStatus && l.httpStatus !== 200 ? ` · HTTP ${l.httpStatus}` : ''}</small>
-              <span className="limit-values" title={Object.entries(l.headers).map(([k, v]) => `${k}: ${v}`).join('\n')}>
-                {(l.windows?.length ? l.windows.map(windowText) : Object.entries(l.headers).map(([k, v]) => `${k}: ${v}`)).join(' · ')}</span>
-            </li>)}
-          </ul>
         </div>}
         {!c.web && <div className="group-row">
           <span className="group-label"><label htmlFor={`quota-${c.id}`}>{t('Independent quota confirmed')}</label>

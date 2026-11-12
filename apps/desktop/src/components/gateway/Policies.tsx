@@ -32,13 +32,13 @@ export function Policies({go, onSettings, onWorkspaces}: {go: Go; onSettings: ()
       {!clients.data ? <Spinner/> : active.length === 0 ? <p className="group-footnote">{t('No API keys yet. Create one in Endpoint or set up a tool in CLI Tools.')}</p>
         : <div className="group-box table-box"><table className="data-table" aria-label={t('API Key Policies')}>
           <thead><tr>
-            <th scope="col">{t('Key')}</th><th scope="col">{t('Monthly limit')}</th><th scope="col">{t('auto from')}</th>
+            <th scope="col">{t('Key')}</th><th scope="col">{t('Monthly limit')}</th><th scope="col">{t('Min. tier')}</th>
             <th scope="col">{t('At once')}</th><th scope="col">{t('Unknown prices')}</th><th scope="col">{t('Paid retries')}</th>
             <th scope="col">{t('Providers')}</th><th scope="col" className="narrow"><span className="sr-only">{t('Actions')}</span></th>
           </tr></thead>
           <tbody>{active.map(c => <tr key={c.id}>
             <td>{c.name}{c.mayRunTasks && <> <Badge tone="info">{t('tasks')}</Badge></>}</td>
-            <td>{c.monthlyBudgetMicroUsd === null ? t('none') : `${microUsd(c.monthlyBudgetMicroUsd)}${c.strictBudget ? ` · ${t('strict')}` : ''}`}</td>
+            <td>{c.monthlyBudgetMicroUsd === null ? t('none') : `${microUsd(c.monthlyBudgetMicroUsd)} · ${c.strictBudget ? t('strict') : t('estimated')}`}</td>
             <td className="mono">{c.autoMinTier}</td>
             <td>{c.maxConcurrency}</td>
             <td>{c.unknownCostPolicy === 'block' ? t('blocked') : t('allowed')}</td>
@@ -49,7 +49,7 @@ export function Policies({go, onSettings, onWorkspaces}: {go: Go; onSettings: ()
               aria-label={t('Limits for {name}', {name: c.name})}>{t('Limits…')}</button></td>
           </tr>)}</tbody>
         </table></div>}
-      <p className="group-footnote">{t('auto from: the lowest tier auto may choose for that key; auto/cheap ignores it. Unknown prices: whether a model without a price may be used while the key has a monthly limit.')}</p>
+      <p className="group-footnote">{t('Min. tier: the lowest tier auto may choose for that key; auto/cheap ignores it. Unknown prices: whether a model without a price may be used while the key has a monthly limit.')}</p>
     </section>
 
     <section className="group">
@@ -127,8 +127,8 @@ function Defaults() {
     <h2>{t('Defaults for New API Keys')}</h2>
     <p className="group-intro">{t('Applied when a key is created: in Endpoint, by pygg gateway create-client, or by a tool’s set-up in CLI Tools. Existing keys keep their saved settings; change them below.')}</p>
     <div className="group-box form defaults-form">
-      <FormRow label={t('auto from tier')} hint={t('The lowest tier auto may choose. T2 suits coding agents; lower lets cheaper, weaker models answer.')}>
-        <select className="popup-button" value={d.autoMinTier ?? 'T2'} onChange={e => set({autoMinTier: e.target.value as Tier})} aria-label={t('auto from tier')}>
+      <FormRow label={t('Minimum model tier')} hint={t('The lowest tier auto may choose. T2 suits coding agents; lower lets cheaper, weaker models answer. auto/cheap and combos ignore it.')}>
+        <select className="popup-button" value={d.autoMinTier ?? 'T2'} onChange={e => set({autoMinTier: e.target.value as Tier})} aria-label={t('Minimum model tier')}>
           {TIERS.map(x => <option key={x} value={x}>{x}</option>)}
         </select>
       </FormRow>
@@ -136,6 +136,21 @@ function Defaults() {
         <span className={limitValid ? 'money-input' : 'money-input invalid'}><span aria-hidden>$</span>
           <input id="default-limit" inputMode="decimal" value={limit} placeholder={t('No limit')} onChange={e => { setLimit(e.target.value); setMessage(null); }}
             aria-invalid={!limitValid}/></span>
+      </FormRow>
+      <FormRow label={t('Strict limit')} hint={t('Strict: each request is held at the most it could cost, so the limit is never passed; a model without a price or maximum output is not used. Estimated: counted as requests finish, so one last request can pass it.')}>
+        <Segmented<'estimated' | 'strict'> label={t('Strict limit')} value={d.strictBudget ? 'strict' : 'estimated'}
+          onChange={v => set({strictBudget: v === 'strict'})}
+          options={[{value: 'estimated', label: t('Estimated')}, {value: 'strict', label: t('Strict')}]}/>
+      </FormRow>
+      <FormRow label={t('Strict limit')} hint={t('Strict: each request is held at the most it could cost, so the limit is never passed; a model without a price or maximum output is not used. Estimated: counted as requests finish, so one last request can pass it.')}>
+        <Segmented<'estimated' | 'strict'> label={t('Strict limit')} value={d.strictBudget ? 'strict' : 'estimated'}
+          onChange={v => set({strictBudget: v === 'strict'})}
+          options={[{value: 'estimated', label: t('Estimated')}, {value: 'strict', label: t('Strict')}]}/>
+      </FormRow>
+      <FormRow label={t('Strict limit')} hint={t('Strict: each request is held at the most it could cost, so the limit is never passed; a model without a price or maximum output is not used. Estimated: counted as requests finish, so one last request can pass it.')}>
+        <Segmented<'estimated' | 'strict'> label={t('Strict limit')} value={d.strictBudget ? 'strict' : 'estimated'}
+          onChange={v => set({strictBudget: v === 'strict'})}
+          options={[{value: 'estimated', label: t('Estimated')}, {value: 'strict', label: t('Strict')}]}/>
       </FormRow>
       <FormRow label={t('Unknown prices')} hint={t('While a key has a limit: block keeps it from models without a price, whose cost could not be counted.')}>
         <Segmented<'block' | 'allow'> label={t('Unknown prices')} value={d.unknownCostPolicy ?? 'block'} onChange={v => set({unknownCostPolicy: v})}

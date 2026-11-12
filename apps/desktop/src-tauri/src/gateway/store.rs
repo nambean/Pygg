@@ -751,6 +751,9 @@ pub struct ClientDefaults {
     pub unknown_cost_policy: Option<String>,
     pub paid_retries: Option<u32>,
     pub require_no_training: Option<bool>,
+    /// Strict monthly limit: each request held at the most it could cost (ROADMAP B4). Only means something with a limit.
+    #[serde(default)]
+    pub strict_budget: Option<bool>,
 }
 
 pub fn client_defaults(conn: &Connection) -> Result<ClientDefaults> {
@@ -791,6 +794,9 @@ pub fn create_client(conn: &Connection, name: &str, monthly_budget_micro_usd: Op
     }
     if let Some(n) = defaults.paid_retries { set_client_paid_retries(conn, &id, n)?; }
     if let Some(required) = defaults.require_no_training { set_client_require_no_training(conn, &id, required)?; }
+    if let Some(strict) = defaults.strict_budget { set_client_strict_budget(conn, &id, strict)?; }
+    if let Some(strict) = defaults.strict_budget { set_client_strict_budget(conn, &id, strict)?; }
+    if let Some(strict) = defaults.strict_budget { set_client_strict_budget(conn, &id, strict)?; }
     let client = conn
         .query_row(&format!("SELECT {CLIENT_COLUMNS} FROM gateway_clients WHERE id = ?1"), [&id], |r| client_row(conn, r))
         .map_err(err)?;
@@ -2282,10 +2288,14 @@ mod tests {
         assert_eq!(old.auto_min_tier, "T2");
         assert!(set_client_defaults(&conn, &ClientDefaults { paid_retries: Some(9), ..Default::default() }).is_err());
         set_client_defaults(&conn, &ClientDefaults { auto_min_tier: Some("T1".into()), monthly_budget_micro_usd: Some(5_000_000),
-            max_concurrency: Some(2), unknown_cost_policy: Some("allow".into()), paid_retries: Some(1), require_no_training: Some(true) }).unwrap();
+            max_concurrency: Some(2), unknown_cost_policy: Some("allow".into()), paid_retries: Some(1), require_no_training: Some(true),
+            strict_budget: Some(true) }).unwrap();
         let (new, _) = create_client(&conn, "New", None).unwrap();
         assert_eq!((new.auto_min_tier.as_str(), new.monthly_budget_micro_usd, new.max_concurrency, new.unknown_cost_policy.as_str(),
             new.paid_retries, new.require_no_training), ("T1", Some(5_000_000), 2, "allow", 1, true));
+        assert!(new.strict_budget);
+        assert!(new.strict_budget);
+        assert!(new.strict_budget);
         let (own, _) = create_client(&conn, "Own limit", Some(1_000_000)).unwrap();
         assert_eq!(own.monthly_budget_micro_usd, Some(1_000_000), "a limit given at creation wins");
         let old = list_clients(&conn).unwrap().into_iter().find(|c| c.id == old.id).unwrap();

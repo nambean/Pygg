@@ -98,7 +98,9 @@ function Spend({client: c}: {client: Client}) {
   const counted = c.monthSpendMicroUsd + c.monthAtRiskMicroUsd;
   const share = limit ? Math.min(1, counted / limit) : 0;
   return <span className="spend">
-    <span className="spend-text">{microUsd(c.monthSpendMicroUsd)}{limit ? <span className="secondary"> / {microUsd(limit)}</span> : <span className="secondary"> · {t('no limit')}</span>}</span>
+    <span className="spend-text">{microUsd(c.monthSpendMicroUsd)}{limit
+      ? <span className="secondary" title={c.strictBudget ? t('Strict: each request is held at the most it could cost.') : t('Estimated: counted as requests finish; one last request can pass it.')}> / {microUsd(limit)} · {c.strictBudget ? t('strict') : t('estimated')}</span>
+      : <span className="secondary"> · {t('no limit')}</span>}</span>
     {limit ? <span className={share >= 1 ? 'meter full' : share >= 0.8 ? 'meter high' : 'meter'} role="meter"
       aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)} aria-label={t('Share of the monthly limit')}>
       <span style={{width: `${share * 100}%`}}/></span> : null}
@@ -146,12 +148,14 @@ function CreateSheet({onClose}: {onClose: () => void}) {
       <span className="spacer"/>
       <button type="button" className="button prominent" onClick={onClose}>{t('Done')}</button>
     </>}>
-      <p className="warning-note"><TriangleAlert size={15} aria-hidden/>{t('Copy it now. It isn’t stored and can’t be shown again.')}</p>
+      {created.client.tokenViewable
+        ? <p className="sheet-text">{t('Saved in the Windows Credential Manager: API Keys → Show copies it again later. The store keeps only its fingerprint.')}</p>
+        : <p className="warning-note"><TriangleAlert size={15} aria-hidden/>{t('Copy it now. The Credential Manager could not keep a copy, so it can’t be shown again.')}</p>}
       <div className="token-box">
         <code className="mono selectable">{created.token}</code>
         <CopyButton text={created.token} label={t('Copy Token')} prominent/>
       </div>
-      <p className="sheet-text">{t('The setup snippets in Overview read it from SMARTTASKROUTER_TOKEN. To set that for your user:')}</p>
+      <p className="sheet-text">{t('The snippets in CLI Tools → Set Up by Hand read it from SMARTTASKROUTER_TOKEN. To set that for your user:')}</p>
       <div className="token-box">
         <code className="mono selectable small-code">{persist}</code>
         <CopyButton text={persist}/>

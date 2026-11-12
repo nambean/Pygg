@@ -106,7 +106,6 @@ export function Usage() {
       </section>
 
       {overTime.data && <CostOverTime days={Number(range)} buckets={overTime.data}/>}
-      {quality.data && quality.data.tasks > 0 && <TaskResults q={quality.data}/>}
       <RepeatedOutput days={Number(range)}/>
 
       <div className="two-columns">
@@ -150,6 +149,7 @@ export function Usage() {
         </div>
         <p className="group-footnote">{t('Shows up to 200 of the most recent requests in this period. Failed attempts before a fallback are listed too. A request the provider refused before answering is usually not billed; one cut off after it started may have been, so its cost shows as unknown or estimated.')}</p>
       </section>
+      {quality.data && quality.data.tasks > 0 && <TaskResults q={quality.data}/>}
     </>}
   </div>;
 }

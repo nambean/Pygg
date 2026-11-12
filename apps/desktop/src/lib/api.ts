@@ -93,6 +93,7 @@ export type Savings = {
 export type ClientDefaults = {
   autoMinTier: Tier | null; monthlyBudgetMicroUsd: number | null; maxConcurrency: number | null;
   unknownCostPolicy: 'block' | 'allow' | null; paidRetries: number | null; requireNoTraining: boolean | null;
+  strictBudget?: boolean | null;
 };
 
 /** The newest request one API key sent: CLI Tools' "Working". */
