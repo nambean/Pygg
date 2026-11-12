@@ -193,6 +193,9 @@ function IdeSetup() {
   </section>;
 }
 
+/** Codex's models through Pygg's gateway: a provider in config.toml and the profile file pygg.config.toml (integrations.rs). */
+const CODEX_GATEWAY = 'codex-gateway';
+
 const INTEGRATION_STATE: Record<Integration['state'], {tone: 'ok' | 'warn' | 'off' | 'info'; label: string}> = {
   set_up: {tone: 'ok', label: 'Set up'},
   not_set_up: {tone: 'off', label: 'Not set up'},
@@ -225,13 +228,17 @@ function Integrations() {
               {i.state === 'set_up' && i.setUpAt
                 ? t('Set up {date} with the token {client}. Backup: {backup}', {date: new Date(i.setUpAt).toLocaleString(),
                     client: i.clientName ?? '', backup: i.backup ?? t('none, the file did not exist')})
-                : i.state === 'set_up_elsewhere' ? (i.kind === 'gateway'
+                : i.state === 'set_up_elsewhere' ? (i.id === CODEX_GATEWAY
+                    ? t('Codex already has a model provider named pygg that Pygg did not make. Pygg leaves it alone.')
+                    : i.kind === 'gateway'
                     ? t('OpenCode already has a provider named pygg that Pygg did not make. Pygg leaves it alone.')
                     : t('{name} already has a server named pygg that Pygg did not make. Pygg leaves it alone.', {name: i.name}))
+                : i.id === CODEX_GATEWAY && i.state === 'not_set_up' ? t('Codex can use your connections through Pygg, with auto routing, limits and Pygg’s own record of what a task step cost. Your default model stays; you choose Pygg per run. {file}', {file: i.configPath})
                 : i.kind === 'gateway' && i.state === 'not_set_up' ? t('OpenCode can use your connections through Pygg, with auto routing, limits and Pygg’s own record of what a task step cost. {file}', {file: i.configPath})
                 : i.state === 'removed_elsewhere' ? t('Pygg set this up, and the entry is gone. Remove revokes its token.')
                 : i.state === 'not_installed' ? t('Not found on this computer.')
                 : i.configPath}
+              {i.id === CODEX_GATEWAY && i.state === 'set_up' && <><br/>{t('Use it with:')} <span className="mono">codex --profile pygg</span></>}
               {i.detail && <><br/><span className="mono">{i.detail}</span></>}
             </small>
           </span>
@@ -244,7 +251,11 @@ function Integrations() {
     </ul>
     {planning && <SetUpSheet integration={planning} onClose={() => setPlanning(null)}/>}
     {removing && <ConfirmSheet title={t('Remove Pygg from {name}?', {name: removing.name})} confirmLabel={t('Remove')}
-      message={removing.kind === 'gateway'
+      message={removing.id === CODEX_GATEWAY
+        ? (removing.state === 'set_up_elsewhere'
+          ? t('This removes the pygg model provider you added to Codex by hand, and pygg.config.toml if it uses it. Its token, if you made one, stays valid until you revoke it in Clients.')
+          : t('This removes the pygg model provider from Codex’s config.toml and the profile file pygg.config.toml, and revokes the token Pygg made for it. Both files are backed up first; everything else in config.toml stays as it is.'))
+        : removing.kind === 'gateway'
         ? (removing.state === 'set_up_elsewhere'
           ? t('This removes the pygg provider you added to OpenCode by hand. Its token, if you made one, stays valid until you revoke it in Clients.')
           : t('This removes the pygg provider from OpenCode and revokes the token Pygg made for it. The configuration file is backed up first. OpenCode then uses only its own providers.'))
@@ -267,7 +278,9 @@ function SetUpSheet({integration: i, onClose}: {integration: Integration; onClos
     catch (e) { setError(errorText(e)); setBusy(false); }
   };
   const p = plan.data;
-  return <Sheet title={i.kind === 'gateway' ? t('Send OpenCode’s Models through Pygg') : t('Set Up Pygg in {name}', {name: i.name})} subtitle={t('Nothing changes until you choose Set Up.')}
+  const codex = i.id === CODEX_GATEWAY;
+  return <Sheet title={codex ? t('Send Codex’s Models through Pygg') : i.kind === 'gateway' ? t('Send OpenCode’s Models through Pygg')
+    : t('Set Up Pygg in {name}', {name: i.name})} subtitle={t('Nothing changes until you choose Set Up.')}
     onClose={onClose} busy={busy} footer={<>
       <span className="spacer"/>
       <button type="button" className="button" onClick={onClose} disabled={busy}>{t('Cancel')}</button>
@@ -285,13 +298,16 @@ function SetUpSheet({integration: i, onClose}: {integration: Integration; onClos
         : t('Create a client token, “{client}”, that may start tasks and cannot use any model connection.', {client: p.clientName})}</li>
       <li>{p.method === 'command'
         ? t('Run {name}’s own command, so {name} edits its configuration itself (the new token in place of <new-token>):', {name: p.name})
+        : codex ? t('Add this provider at the end of {file}, keeping every other setting and comment in it, and create the profile file pygg.config.toml next to it (the new token in place of <new-token>):', {file: p.configPath})
         : t('Add this entry to {file}, keeping everything else in it (the new token in place of <new-token>):', {file: p.configPath})}
         <CodeBlock code={p.change} label={t('Change')}/></li>
       <li>{p.kind === 'gateway'
         ? t('Check that the pygg provider is there. If anything fails, the file is put back and the token revoked.')
         : t('Check that {name} lists the pygg server. If anything fails, the file is put back and the token revoked.', {name: p.name})}</li>
     </ol>}
-    <p className="secondary small">{i.kind === 'gateway'
+    <p className="secondary small">{codex
+      ? t('Your default model and provider are not changed. Run codex --profile pygg to use Pygg with auto, or codex --profile pygg -m <connection>/<model> for a model from Connections. Requests through this provider carry the id of the task step Pygg is running, if any, so a task shows what Pygg’s ledger recorded for it. Codex’s own sign-in is not touched.')
+      : i.kind === 'gateway'
       ? t('OpenCode then lists auto, auto/cheap and the models enabled in Connections under the provider “Pygg”; pick one with /models. Pygg keeps the list current as models are enabled, disabled or looked up; only the list changes. When Pygg runs OpenCode for a task, each request carries the step’s id, so the task shows what Pygg’s ledger recorded for it. OpenCode’s own providers and sign-in are not touched.')
       : t('The entry serves all your projects: the server takes the project from the folder your agent runs in. The token is written into {name}’s own configuration for your user, never into a project file. {name}’s own sign-in is not touched.', {name: i.name})}</p>
     {error && <ErrorNote>{error}</ErrorNote>}

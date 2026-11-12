@@ -15,6 +15,12 @@
 //!   any other, under its limits in Clients) and the attempt's session header, so a task step's requests are costed
 //!   by Pygg's ledger (tasks.rs). It lists `auto`, `auto/cheap` and the enabled models of enabled connections as
 //!   they are when it is set up.
+//! - **Codex's models through Pygg** (`codex-gateway`, ADR-033's follow-up) is its twin for Codex CLI: a `pygg`
+//!   model provider in Codex's `config.toml` speaking the Responses API, with its own client token and the session
+//!   header, plus the profile file `pygg.config.toml` (Codex 0.134+) using it with `auto`. Codex's default `model`
+//!   and `model_provider` are never changed: the user picks Pygg per run (`codex --profile pygg`). Codex has no command for this, so Pygg edits the
+//!   TOML itself with `toml_edit`, which keeps every other key, table and comment where it was, and refuses a file it
+//!   cannot parse or a provider table written inline.
 use crate::agents::{self, Launch};
 use crate::gateway::store;
 use crate::process::{self, Spec};
@@ -40,20 +46,27 @@ const OPENCODE_GATEWAY_TARGET: (&str, &str, &str) = (OPENCODE_GATEWAY, "OpenCode
 /// The provider name in OpenCode's configuration, so its models are `pygg/<connection>/<model>`.
 pub const PROVIDER: &str = "pygg";
 
+/// Codex's models through Pygg's gateway: a model provider and a profile in `config.toml`, not the MCP server.
+pub const CODEX_GATEWAY: &str = "codex-gateway";
+const CODEX_GATEWAY_TARGET: (&str, &str, &str) = (CODEX_GATEWAY, "Codex: models through Pygg", "codex");
+/// The profile Pygg adds next to its provider, so `codex --profile pygg` uses it with `auto`.
+pub const CODEX_PROFILE: &str = "pygg";
+
 fn target(id: &str) -> Result<(&'static str, &'static str, &'static str), String> {
-    if id == OPENCODE_GATEWAY {
-        return Ok(OPENCODE_GATEWAY_TARGET);
+    match id {
+        OPENCODE_GATEWAY => Ok(OPENCODE_GATEWAY_TARGET),
+        CODEX_GATEWAY => Ok(CODEX_GATEWAY_TARGET),
+        _ => TARGETS.iter().copied().find(|t| t.0 == id).ok_or_else(|| format!("Pygg cannot set up {id}")),
     }
-    TARGETS.iter().copied().find(|t| t.0 == id).ok_or_else(|| format!("Pygg cannot set up {id}"))
 }
 
 /// Every integration id, in the order shown.
 pub fn ids() -> Vec<&'static str> {
-    TARGETS.iter().map(|t| t.0).chain(std::iter::once(OPENCODE_GATEWAY)).collect()
+    TARGETS.iter().map(|t| t.0).chain([OPENCODE_GATEWAY, CODEX_GATEWAY]).collect()
 }
 
 fn kind_of(id: &str) -> &'static str {
-    if id == OPENCODE_GATEWAY { "gateway" } else { "mcp" }
+    if id == OPENCODE_GATEWAY || id == CODEX_GATEWAY { "gateway" } else { "mcp" }
 }
 
 /// Where each agent keeps the configuration its command edits, following the agents' own variables.
@@ -78,7 +91,7 @@ impl Homes {
     fn config(&self, id: &str) -> &Path {
         match id {
             "claude-code" => &self.claude,
-            "codex" => &self.codex,
+            "codex" | CODEX_GATEWAY => &self.codex,
             _ => &self.opencode,
         }
     }
@@ -181,7 +194,11 @@ fn client_name(name: &str) -> String {
 }
 
 fn client_name_for(id: &str, name: &str) -> String {
-    if id == OPENCODE_GATEWAY { "OpenCode (models)".into() } else { client_name(name) }
+    match id {
+        OPENCODE_GATEWAY => "OpenCode (models)".into(),
+        CODEX_GATEWAY => "Codex (models)".into(),
+        _ => client_name(name),
+    }
 }
 
 fn launch(program: &str) -> Option<Launch> {
@@ -384,17 +401,161 @@ fn opencode_has_provider(config: &Option<serde_json::Map<String, Value>>) -> boo
     config.as_ref().and_then(|c| c.get("provider")).and_then(|m| m.get(PROVIDER)).is_some()
 }
 
+/// Reads Codex's `config.toml`. A missing file is an empty configuration; a file that is not valid TOML is refused,
+/// naming only the line (the file may hold other secrets, so none of it is quoted).
+pub fn read_codex(path: &Path) -> Result<Option<toml_edit::DocumentMut>, String> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("Could not read {}: {e}", path.display())),
+    };
+    let refused = |why: String| format!("{} {why}, so Pygg will not rewrite it. Add the provider by hand, as shown in \
+        docs/AGENTS.md (Codex through Pygg's gateway).", path.display());
+    let text = String::from_utf8(bytes).map_err(|_| refused("is not UTF-8 text".into()))?;
+    text.parse::<toml_edit::DocumentMut>().map(Some).map_err(|e| {
+        let line = e.span().map(|s| text[..s.start.min(text.len())].matches('\n').count() + 1);
+        refused(match line { Some(l) => format!("is not valid TOML (line {l})"), None => "is not valid TOML".into() })
+    })
+}
+
+/// Codex's `[model_providers.pygg]`: Pygg's gateway over the Responses API (ADR-033), with the client token as the
+/// bearer and the attempt id Pygg gives a task step as its session header. Codex sends no header when the variable
+/// is unset, which is the case outside a task.
+fn codex_provider(server: &Server, token: &str) -> toml_edit::Table {
+    let mut t = toml_edit::Table::new();
+    t["name"] = toml_edit::value("Pygg");
+    t["base_url"] = toml_edit::value(format!("{}/v1", server.gateway_url.trim_end_matches('/')));
+    t["wire_api"] = toml_edit::value("responses");
+    t["experimental_bearer_token"] = toml_edit::value(token);
+    let mut headers = toml_edit::InlineTable::new();
+    headers.insert(crate::gateway::SESSION_HEADER, agents::ATTEMPT_ENV.into());
+    t["env_http_headers"] = toml_edit::value(headers);
+    t
+}
+
+/// Codex's profile file for Pygg, `pygg.config.toml` next to `config.toml`: Codex 0.134 and later read a profile
+/// from `<name>.config.toml` and refuse `--profile <name>` while `config.toml` still has a `[profiles.<name>]` table.
+/// It selects Pygg's provider with `auto`, so the user's own default stays as it is.
+pub fn codex_profile_path(config: &Path) -> PathBuf {
+    config.with_file_name(format!("{CODEX_PROFILE}.config.toml"))
+}
+
+fn codex_profile_text() -> String {
+    format!("# Codex's models through Pygg's gateway, added by Pygg (Agents > From Your IDE): codex --profile \
+        {CODEX_PROFILE}\nmodel_provider = \"{PROVIDER}\"\nmodel = \"auto\"\n")
+}
+
+/// Whether a profile file is still the one Pygg wrote: it selects Pygg's provider. One the user pointed elsewhere
+/// is theirs.
+fn codex_profile_is_ours(path: &Path) -> bool {
+    std::fs::read_to_string(path).ok().and_then(|t| t.parse::<toml_edit::DocumentMut>().ok())
+        .is_some_and(|d| d.get("model_provider").and_then(|v| v.as_str()) == Some(PROVIDER))
+}
+
+/// The table under `key` that Pygg may add to: created (without a header of its own) when missing, refused when it
+/// is written inline or is not a table.
+fn codex_table<'a>(doc: &'a mut toml_edit::DocumentMut, key: &str) -> Result<&'a mut toml_edit::Table, String> {
+    if doc.get(key).is_none() {
+        let mut t = toml_edit::Table::new();
+        t.set_implicit(true);
+        doc.insert(key, toml_edit::Item::Table(t));
+    }
+    doc.get_mut(key).and_then(|i| i.as_table_mut()).ok_or_else(|| format!("Codex's \"{key}\" is written inline or is \
+        not a table, so Pygg will not add to it. Add the provider by hand."))
+}
+
+/// The configuration with Pygg's provider added at its end, everything else left as it was. Refused when Codex
+/// already has a provider of that name, or a legacy `[profiles.pygg]` table (Codex would refuse the profile).
+pub fn with_codex_provider(doc: Option<toml_edit::DocumentMut>, server: &Server, token: &str)
+    -> Result<toml_edit::DocumentMut, String> {
+    let mut doc = doc.unwrap_or_default();
+    if doc.get("profiles").and_then(|p| p.get(CODEX_PROFILE)).is_some() {
+        return Err(format!("Codex's config.toml has a [profiles.{CODEX_PROFILE}] table, which Codex no longer reads and \
+            which stops codex --profile {CODEX_PROFILE} from working. Remove or rename it, then set up again."));
+    }
+    // Nothing but comments (which toml_edit keeps after the last table): no blank line above Pygg's block.
+    let fresh = doc.as_table().is_empty();
+    let last = doc.as_table().iter().filter_map(|(_, i)| i.as_table()).flat_map(table_positions).max().unwrap_or(0);
+    let mut provider = codex_provider(server, token);
+    provider.set_position(Some(last + 1));
+    let gap = if fresh { "" } else { "\n" };
+    provider.decor_mut().set_prefix(format!("{gap}# Pygg's gateway, added by Pygg (Agents > From Your IDE). Use it with: \
+        codex --profile {CODEX_PROFILE}\n"));
+    let providers = codex_table(&mut doc, "model_providers")?;
+    if providers.contains_key(PROVIDER) {
+        return Err(format!("Codex already has a model provider named {PROVIDER}"));
+    }
+    providers.insert(PROVIDER, toml_edit::Item::Table(provider));
+    Ok(doc)
+}
+
+/// The positions of a table and of every table under it, as the parser numbered them.
+fn table_positions(t: &toml_edit::Table) -> Vec<isize> {
+    let mut out: Vec<isize> = t.position().into_iter().collect();
+    for (_, item) in t.iter() {
+        match item {
+            toml_edit::Item::Table(child) => out.extend(table_positions(child)),
+            toml_edit::Item::ArrayOfTables(a) => a.iter().for_each(|child| out.extend(table_positions(child))),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The configuration without Pygg's provider (and without `model_providers` when Pygg's was all it held and it had
+/// no header of its own). Refused while Codex's default provider is Pygg's: Codex would not start without it.
+pub fn without_codex_provider(mut doc: toml_edit::DocumentMut) -> Result<toml_edit::DocumentMut, String> {
+    if doc.get("model_provider").and_then(|v| v.as_str()) == Some(PROVIDER) {
+        return Err(format!("Codex's default model_provider is {PROVIDER}. Set it back to another provider in config.toml \
+            first, or Codex would not start once Pygg's provider is gone."));
+    }
+    let Some(providers) = doc.get_mut("model_providers").and_then(|i| i.as_table_mut()) else { return Ok(doc) };
+    providers.remove(PROVIDER);
+    if providers.is_empty() && (providers.is_implicit() || providers.is_dotted()) {
+        doc.remove("model_providers");
+    }
+    Ok(doc)
+}
+
+fn codex_has_provider(doc: &Option<toml_edit::DocumentMut>) -> bool {
+    doc.as_ref().and_then(|d| d.get("model_providers")).and_then(|p| p.get(PROVIDER)).is_some()
+}
+
+/// What Pygg adds: the provider at the end of `config.toml`, and the profile file next to it.
+fn codex_change(server: &Server, token: &str) -> Result<String, String> {
+    let provider = with_codex_provider(None, server, token)?.to_string();
+    Ok(format!("{provider}\n# A new file next to it: {CODEX_PROFILE}.config.toml\n{}", codex_profile_text()))
+}
+
+/// Writes Codex's profile file, refusing to replace one that is there.
+fn write_codex_profile(path: &Path) -> Result<(), String> {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(path)
+        .map_err(|e| format!("Could not create {}: {e}", path.display()))?;
+    file.write_all(codex_profile_text().as_bytes()).map_err(|e| format!("Could not write {}: {e}", path.display()))
+}
+
 /// Writes a file whole: to a temporary file next to it, then renamed over it.
 fn write_atomically(path: &Path, text: &str) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("Could not create {}: {e}", dir.display()))?;
     }
-    let tmp = path.with_extension("json.pygg-tmp");
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "config".into());
+    let tmp = path.with_file_name(format!("{name}.pygg-tmp"));
     std::fs::write(&tmp, text).map_err(|e| format!("Could not write {}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, path).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         format!("Could not replace {}: {e}", path.display())
     })
+}
+
+/// Writes Codex's configuration as `toml_edit` renders it, which keeps the bytes of what Pygg did not touch except
+/// line endings: it writes LF, so a file that had CRLF (Notepad's) gets CRLF back.
+fn write_codex(path: &Path, doc: &toml_edit::DocumentMut) -> Result<(), String> {
+    let crlf = std::fs::read(path).is_ok_and(|b| b.windows(2).any(|w| w == b"\r\n"));
+    let text = doc.to_string();
+    let text = if crlf { text.replace("\r\n", "\n").replace('\n', "\r\n") } else { text };
+    write_atomically(path, &text)
 }
 
 fn write_opencode(path: &Path, config: &serde_json::Map<String, Value>) -> Result<(), String> {
@@ -438,6 +599,12 @@ async fn registered(id: &str, homes: &Homes) -> (Option<bool>, Option<String>) {
     if id == "opencode" {
         return match read_opencode(&homes.opencode) {
             Ok(config) => (Some(opencode_has_entry(&config)), None),
+            Err(e) => (None, Some(e)),
+        };
+    }
+    if id == CODEX_GATEWAY {
+        return match read_codex(&homes.codex) {
+            Ok(config) => (Some(codex_has_provider(&config)), None),
             Err(e) => (None, Some(e)),
         };
     }
@@ -493,6 +660,8 @@ pub fn plan(id: &str, server: &Server, homes: &Homes, backup_dir: &Path) -> Resu
     } else if id == "opencode" {
         let entry = json!({"mcp": {SERVER: opencode_entry(server, TOKEN_PLACEHOLDER)}});
         (serde_json::to_string_pretty(&entry).unwrap_or_default(), "file")
+    } else if id == CODEX_GATEWAY {
+        (codex_change(server, TOKEN_PLACEHOLDER)?, "file")
     } else {
         (shown(program, &add_args(id, server, TOKEN_PLACEHOLDER)), "command")
     };
@@ -521,13 +690,13 @@ fn save(db: &impl Store, id: &str, rec: Option<&Record>) -> Result<(), String> {
     db.with(|c| store::set_setting(c, &record_key(id), &text))
 }
 
-/// A token that may start tasks and reaches no model connection: the MCP server only uses the task API. For
-/// OpenCode's models through Pygg, a client like any other: it reaches the connections, may not start tasks, and
-/// its limits are set in Clients.
+/// A token that may start tasks and reaches no model connection: the MCP server only uses the task API. For an
+/// agent's models through Pygg (OpenCode's, Codex's), a client like any other: it reaches the connections, may not
+/// start tasks, and its limits are set in Clients.
 fn create_client(db: &impl Store, id: &str, name: &str) -> Result<(String, String), String> {
     db.with(|c| {
         let (client, token) = store::create_client(c, name, None)?;
-        if id != OPENCODE_GATEWAY {
+        if kind_of(id) == "mcp" {
             store::set_client_may_run_tasks(c, &client.id, true)?;
             store::set_client_connections(c, &client.id, Some(&[]))?;
         }
@@ -539,6 +708,26 @@ fn revoke(db: &impl Store, client_id: &str) {
     let _ = db.with(|c| store::revoke_client(c, client_id));
 }
 
+/// Removes Pygg's profile file after backing it up, unless the user pointed it at another provider.
+fn remove_codex_profile(config: &Path, backup_dir: &Path, now_ms: i64) -> Result<(), String> {
+    let profile = codex_profile_path(config);
+    if codex_profile_is_ours(&profile) {
+        back_up(&profile, backup_dir, CODEX_GATEWAY, now_ms)?;
+        std::fs::remove_file(&profile).map_err(|e| format!("Could not remove {}: {e}", profile.display()))?;
+    }
+    Ok(())
+}
+
+/// How an integration changes the agent's configuration.
+enum Edit {
+    /// The agent's own command.
+    Command,
+    /// Pygg edits `opencode.json` (`None`: no file yet).
+    OpenCode(Option<serde_json::Map<String, Value>>),
+    /// Pygg edits Codex's `config.toml` (`None`: no file yet).
+    Codex(Option<toml_edit::DocumentMut>),
+}
+
 /// Sets the integration up: backup, a new token, the agent's own command (or Pygg's edit of OpenCode's file), and
 /// a check that the agent now lists the server. Any failure undoes what was done.
 pub async fn apply(id: &str, server: &Server, homes: &Homes, backup_dir: &Path, db: &impl Store, now_ms: i64)
@@ -546,42 +735,64 @@ pub async fn apply(id: &str, server: &Server, homes: &Homes, backup_dir: &Path, 
     let (id, name, program) = target(id)?;
     let launch = launch(program).ok_or_else(|| format!("{name} is not installed on this computer"))?;
     let existing = saved(db, id);
+    let what = if kind_of(id) == "gateway" { "a provider" } else { "an MCP server" };
     match registered(id, homes).await {
         (Some(true), _) if existing.is_some() => return Err(format!("Pygg is already set up in {name}")),
-        (Some(true), _) => return Err(format!("{name} already has an MCP server named {SERVER}, set up outside \
+        (Some(true), _) => return Err(format!("{name} already has {what} named {SERVER}, set up outside \
             Pygg. Remove it here first, or keep using it.")),
         (None, Some(why)) => return Err(why),
-        (None, None) => return Err(format!("{name} did not say whether it has an MCP server named {SERVER}")),
+        (None, None) => return Err(format!("{name} did not say whether it has {what} named {SERVER}")),
         _ => {}
     }
     if let Some(old) = &existing {
         revoke(db, &old.client_id); // removed outside Pygg: its token is no longer used
     }
     let config = homes.config(id).to_path_buf();
-    // OpenCode's file is checked before anything is created.
-    let opencode = if id == "opencode" || id == OPENCODE_GATEWAY { Some(read_opencode(&config)?) } else { None };
-    if id == OPENCODE_GATEWAY && server.models.len() <= crate::gateway::auto::ALIASES.len() {
-        return Err("No model is enabled in Connections yet, so OpenCode would only get auto. Add a connection first.".into());
+    // A file Pygg edits itself is checked before anything is created.
+    let edit = match id {
+        "opencode" | OPENCODE_GATEWAY => Edit::OpenCode(read_opencode(&config)?),
+        CODEX_GATEWAY => {
+            let profile = codex_profile_path(&config);
+            if profile.exists() {
+                return Err(format!("Codex already has a profile file {}. Rename or remove it, then set up again.",
+                    profile.display()));
+            }
+            Edit::Codex(read_codex(&config)?)
+        }
+        _ => Edit::Command,
+    };
+    if kind_of(id) == "gateway" && server.models.len() <= crate::gateway::auto::ALIASES.len() {
+        return Err("No model is enabled in Connections yet, so auto would have nothing to route to. Add a connection \
+            first.".into());
     }
     let before = std::fs::read(&config).ok();
     let backup = back_up(&config, backup_dir, id, now_ms)?;
     let cname = client_name_for(id, name);
     let (client_id, token) = create_client(db, id, &cname)?;
+    let profile = (id == CODEX_GATEWAY).then(|| codex_profile_path(&config));
     let undo = |why: String| {
         restore_if_changed(&config, backup.as_deref(), &before);
+        if let Some(p) = profile.as_deref().filter(|p| codex_profile_is_ours(p)) {
+            let _ = std::fs::remove_file(p);
+        }
         revoke(db, &client_id);
         why
     };
-    match opencode {
-        Some(current) if id == OPENCODE_GATEWAY => {
+    match edit {
+        Edit::OpenCode(current) if id == OPENCODE_GATEWAY => {
             let updated = with_opencode_provider(current, opencode_provider(server, &token)).map_err(&undo)?;
             write_opencode(&config, &updated).map_err(&undo)?;
         }
-        Some(current) => {
+        Edit::OpenCode(current) => {
             let updated = with_opencode_entry(current, opencode_entry(server, &token)).map_err(&undo)?;
             write_opencode(&config, &updated).map_err(&undo)?;
         }
-        None => {
+        Edit::Codex(current) => {
+            let updated = with_codex_provider(current, server, &token).map_err(&undo)?;
+            write_codex(&config, &updated).map_err(&undo)?;
+            write_codex_profile(&codex_profile_path(&config)).map_err(&undo)?;
+        }
+        Edit::Command => {
             let out = run(&launch, add_args(id, server, &token)).await;
             if !out.succeeded() {
                 let why = one_line(&out, &[&token]).unwrap_or_else(|| "no output".into());
@@ -590,10 +801,10 @@ pub async fn apply(id: &str, server: &Server, homes: &Homes, backup_dir: &Path, 
         }
     }
     if registered(id, homes).await.0 != Some(true) {
-        if id != "opencode" && id != OPENCODE_GATEWAY {
+        if kind_of(id) == "mcp" && id != "opencode" {
             let _ = run(&launch, remove_args(id)).await;
         }
-        return Err(undo(format!("{name} does not list the {SERVER} server after the setup, so it was undone")));
+        return Err(undo(format!("{name} does not list the {SERVER} entry after the setup, so it was undone")));
     }
     let rec = Record { client_id, client_name: cname, set_up_at: now_ms,
         backup: backup.map(|b| b.to_string_lossy().into_owned()) };
@@ -616,6 +827,10 @@ pub async fn remove(id: &str, homes: &Homes, backup_dir: &Path, db: &impl Store,
         } else if id == "opencode" {
             let current = read_opencode(&config)?.unwrap_or_default();
             write_opencode(&config, &without_opencode_entry(current))?;
+        } else if id == CODEX_GATEWAY {
+            let current = read_codex(&config)?.unwrap_or_default();
+            write_codex(&config, &without_codex_provider(current)?)?;
+            remove_codex_profile(&config, backup_dir, now_ms)?;
         } else {
             let launch = launch(program).ok_or_else(|| format!("{name} is not installed on this computer"))?;
             let out = run(&launch, remove_args(id)).await;
@@ -623,6 +838,10 @@ pub async fn remove(id: &str, homes: &Homes, backup_dir: &Path, db: &impl Store,
                 return Err(format!("{name} refused to remove it: {}", one_line(&out, &[]).unwrap_or_default()));
             }
         }
+    }
+    if id == CODEX_GATEWAY && present == Some(false) {
+        // The provider was taken out by hand: Pygg's profile file, if still there, would only fail.
+        remove_codex_profile(homes.config(id), backup_dir, now_ms)?;
     }
     if let Some(rec) = &existing {
         revoke(db, &rec.client_id);
@@ -843,6 +1062,209 @@ mod tests {
         std::fs::write(&path, text).unwrap();
         assert!(read_opencode(&path).unwrap_err().contains("not plain JSON"));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+    }
+
+    /// Codex configurations as users write them: comments everywhere, other providers and profiles, MCP servers,
+    /// Windows paths in both string kinds, dotted keys, CRLF, no final newline.
+    const CODEX_FIXTURES: [&str; 7] = [
+        "# my Codex\nmodel = \"gpt-5.5\" # the default\nmodel_provider = \"openai\"\napproval_policy = \"on-request\"\n\n\
+         [model_providers.ollama]\n# local\nname = \"Ollama\"\nbase_url = \"http://localhost:11434/v1\"\n\n\
+         [profiles.fast]\nmodel = \"gpt-5.5-mini\"\nmodel_reasoning_effort = \"low\"\n\n\
+         [mcp_servers.docs]\ncommand = 'C:\\Program Files\\Docs\\docs.exe'\nargs = [\"--root\", \"C:\\\\Users\\\\me\\\\docs\"]\n\
+         env = { DOCS_KEY = \"k\" }\n\n[windows]\nsandbox = \"unelevated\"\n\n# the end\n",
+        "model = \"o4\"\r\n\r\n# providers\r\n[model_providers.azure]\r\nname = \"Azure\"\r\nbase_url = \"https://x.openai.azure.com/openai\"\r\n\
+         env_key = \"AZURE_KEY\"\r\n\r\n[projects.'C:\\Users\\me\\repo']\r\ntrust_level = \"trusted\"\r\n",
+        "model = \"gpt-5.5\"\n[profiles.deep]\nmodel_reasoning_effort = \"high\"",
+        "",
+        "# only a comment\n",
+        "model = \"gpt-5.5\"\nmodel_providers.lm.name = \"LM Studio\"\nmodel_providers.lm.base_url = \"http://localhost:1234/v1\"\n\
+         profiles.x.model = \"y\"\n",
+        "[model_providers]\n\n[profiles]\n\n[tui]\nnotifications = true\n",
+    ];
+
+    #[test]
+    fn codex_gets_pyggs_provider_and_profile_and_loses_them_leaving_its_file_byte_identical() {
+        for (n, before) in CODEX_FIXTURES.iter().enumerate() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("config.toml");
+            std::fs::write(&path, before).unwrap();
+            let doc = read_codex(&path).unwrap();
+            assert!(!codex_has_provider(&doc), "fixture {n}");
+            write_codex(&path, &with_codex_provider(doc, &server(None), "str-c").unwrap()).unwrap();
+            let after = std::fs::read_to_string(&path).unwrap();
+            // The user's part comes first, unchanged; a comment that ended the file still ends it.
+            let trailing = ["# the end\n", "# only a comment\n"].into_iter().find(|t| before.ends_with(t)).unwrap_or("");
+            assert!(after.starts_with(before[..before.len() - trailing.len()].trim_end()), "fixture {n}:\n{after}");
+            assert!(after.ends_with(trailing), "fixture {n}:\n{after}");
+            let doc = read_codex(&path).unwrap();
+            assert!(codex_has_provider(&doc), "fixture {n}");
+            let d = doc.clone().unwrap();
+            let p = &d["model_providers"]["pygg"];
+            assert_eq!(p["base_url"].as_str(), Some("http://127.0.0.1:8741/v1"));
+            assert_eq!(p["wire_api"].as_str(), Some("responses"));
+            assert_eq!(p["experimental_bearer_token"].as_str(), Some("str-c"));
+            assert_eq!(p["env_http_headers"]["x-smarttaskrouter-session"].as_str(), Some("PYGG_ATTEMPT_ID"));
+            // The user's own default stays theirs.
+            assert_eq!(d.get("model_provider").and_then(|v| v.as_str()), if n == 0 { Some("openai") } else { None });
+            assert!(with_codex_provider(doc.clone(), &server(None), "t").unwrap_err().contains("already has a model provider"));
+            write_codex(&path, &without_codex_provider(doc.unwrap()).unwrap()).unwrap();
+            let back = std::fs::read_to_string(&path).unwrap();
+            if n == 2 {
+                // No final newline: toml_edit ends the last line, the only byte that changes.
+                assert_eq!(back, format!("{before}\n"), "fixture {n}");
+            } else {
+                assert_eq!(back, *before, "fixture {n}");
+            }
+        }
+    }
+
+    #[test]
+    fn codex_files_pygg_cannot_edit_safely_are_refused_and_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let broken = "model = \"gpt-5.5\"\n[model_providers.x]\nexperimental_bearer_token = \"secret-1\nname = \"x\"\n";
+        std::fs::write(&path, broken).unwrap();
+        let why = read_codex(&path).unwrap_err();
+        assert!(why.contains("not valid TOML (line 3)") && !why.contains("secret-1"), "{why}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), broken);
+
+        let inline: toml_edit::DocumentMut = "model_providers = { other = { name = \"o\" } }\n".parse().unwrap();
+        assert!(with_codex_provider(Some(inline), &server(None), "t").unwrap_err().contains("inline"));
+        // A legacy [profiles.pygg] would make Codex refuse --profile pygg.
+        let legacy: toml_edit::DocumentMut = "[profiles.pygg]\nmodel = \"gpt-5.5\"\n".parse().unwrap();
+        assert!(with_codex_provider(Some(legacy), &server(None), "t").unwrap_err().contains("[profiles.pygg]"));
+
+        // Removing Pygg's provider while it is Codex's default would leave Codex unable to start.
+        let default = with_codex_provider(Some("model_provider = \"pygg\"\n".parse().unwrap()), &server(None), "t").unwrap();
+        assert!(without_codex_provider(default).unwrap_err().contains("default model_provider"));
+        let alone = without_codex_provider(with_codex_provider(None, &server(None), "t").unwrap()).unwrap();
+        assert!(alone.get("model_providers").is_none() && alone.to_string().is_empty());
+    }
+
+    #[test]
+    fn codexs_plan_is_the_toml_block_with_a_placeholder() {
+        let homes = Homes { claude: "a".into(), codex: "b".into(), opencode: "c".into() };
+        let p = plan(CODEX_GATEWAY, &server(Some("http://127.0.0.1:8800")), &homes, Path::new("b")).unwrap();
+        assert_eq!((p.kind.as_str(), p.method.as_str(), p.client_name.as_str()), ("gateway", "file", "Codex (models)"));
+        assert!(p.change.starts_with("# Pygg's gateway"), "{}", p.change);
+        assert!(p.change.contains("[model_providers.pygg]") && !p.change.contains("[profiles"), "{}", p.change);
+        assert!(p.change.contains("pygg.config.toml\n") && p.change.ends_with("model_provider = \"pygg\"\nmodel = \"auto\"\n"),
+            "{}", p.change);
+        assert!(p.change.contains("experimental_bearer_token = \"<new-token>\""), "{}", p.change);
+        assert_eq!(homes.config(CODEX_GATEWAY), Path::new("b"));
+    }
+
+    #[tokio::test]
+    async fn codexs_models_through_pygg_set_up_and_removed_in_a_scratch_codex_home() {
+        let dir = tempfile::tempdir().unwrap();
+        let homes = Homes { claude: dir.path().join("c.json"), codex: dir.path().join("codex").join("config.toml"),
+            opencode: dir.path().join("o.json") };
+        std::fs::create_dir_all(dir.path().join("codex")).unwrap();
+        std::fs::write(&homes.codex, CODEX_FIXTURES[0]).unwrap();
+        let db = Db(std::sync::Mutex::new(crate::db::open_in_memory().unwrap()));
+        let backups = dir.path().join("backups");
+        if launch("codex").is_none() {
+            return; // apply needs Codex installed, as a user's would be
+        }
+        let only_auto = Server { models: server(None).models[..1].to_vec(), ..server(None) };
+        assert!(apply(CODEX_GATEWAY, &only_auto, &homes, &backups, &db, 1).await.unwrap_err().contains("No model"));
+        let set = apply(CODEX_GATEWAY, &server(None), &homes, &backups, &db, 2).await.unwrap();
+        assert_eq!((set.state.as_str(), set.kind.as_str(), set.client_name.as_deref()), ("set_up", "gateway", Some("Codex (models)")));
+        let backup = set.backup.clone().unwrap();
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), CODEX_FIXTURES[0]);
+        let doc = read_codex(&homes.codex).unwrap().unwrap();
+        let token = doc["model_providers"]["pygg"]["experimental_bearer_token"].as_str().unwrap().to_string();
+        assert!(token.starts_with("str-"));
+        let profile = dir.path().join("codex").join("pygg.config.toml");
+        assert_eq!(std::fs::read_to_string(&profile).unwrap(), codex_profile_text());
+        let (tasks, limited): (bool, Option<String>) = db.with(|c| c.query_row(
+            "SELECT may_run_tasks, allowed_connections FROM gateway_clients WHERE name = 'Codex (models)' AND revoked_at IS NULL",
+            [], |r| Ok((r.get(0)?, r.get(1)?)))).unwrap();
+        assert!(!tasks && limited.is_none(), "a client like any other: no tasks, every connection");
+        assert!(apply(CODEX_GATEWAY, &server(None), &homes, &backups, &db, 3).await.unwrap_err().contains("already set up"));
+
+        // Taken out by hand: Pygg says so.
+        std::fs::write(&homes.codex, CODEX_FIXTURES[0]).unwrap();
+        let listed = list_with(db.with(records), &homes).await;
+        assert_eq!(listed.iter().find(|i| i.id == CODEX_GATEWAY).unwrap().state, "removed_elsewhere");
+        write_codex(&homes.codex, &with_codex_provider(read_codex(&homes.codex).unwrap(), &server(None), &token).unwrap()).unwrap();
+
+        // Remove: the provider and Pygg's profile file go, the token is revoked, the file is as it was.
+        let gone = remove(CODEX_GATEWAY, &homes, &backups, &db, 4).await.unwrap();
+        assert_eq!(gone.state, "not_set_up");
+        assert_eq!(std::fs::read_to_string(&homes.codex).unwrap(), CODEX_FIXTURES[0]);
+        assert!(!profile.exists());
+        let live: i64 = db.with(|c| c.query_row("SELECT COUNT(*) FROM gateway_clients WHERE revoked_at IS NULL", [], |r| r.get(0))).unwrap();
+        assert_eq!(live, 0);
+
+        // A profile file of the user's own is never replaced; one the user pointed elsewhere is not removed.
+        std::fs::write(&profile, "model = \"gpt-5.5\"\n").unwrap();
+        assert!(apply(CODEX_GATEWAY, &server(None), &homes, &backups, &db, 5).await.unwrap_err().contains("profile file"));
+        assert_eq!(std::fs::read_to_string(&homes.codex).unwrap(), CODEX_FIXTURES[0], "nothing changed");
+        std::fs::remove_file(&profile).unwrap();
+        apply(CODEX_GATEWAY, &server(None), &homes, &backups, &db, 6).await.unwrap();
+        std::fs::write(&profile, "model_provider = \"openai\"\n").unwrap();
+        remove(CODEX_GATEWAY, &homes, &backups, &db, 7).await.unwrap();
+        assert_eq!(std::fs::read_to_string(&profile).unwrap(), "model_provider = \"openai\"\n");
+        std::fs::remove_file(&profile).unwrap();
+
+        // A provider named pygg that Pygg did not make is shown as such and not set up over.
+        std::fs::write(&homes.codex, "[model_providers.pygg]\nname = \"mine\"\n").unwrap();
+        let listed = list_with(db.with(records), &homes).await;
+        assert_eq!(listed.iter().find(|i| i.id == CODEX_GATEWAY).unwrap().state, "set_up_elsewhere");
+        assert!(apply(CODEX_GATEWAY, &server(None), &homes, &backups, &db, 8).await.unwrap_err().contains("a provider named pygg"));
+    }
+
+    /// Sets up Codex's models through Pygg for real, against a scratch store served by a scratch gateway and a
+    /// scratch `CODEX_HOME`, runs `codex exec --profile pygg` once, then removes it. The caller starts the gateway
+    /// (`pygg-cli gateway --db STORE serve --port PORT`) and sets `PYGG_LIVE_DB`, `PYGG_LIVE_PORT` and `CODEX_HOME`
+    /// (and `PYGG_LIVE_MODEL` to name a model instead of the profile's `auto`).
+    /// `cargo test --lib integrations::tests::live_codex -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn live_codex_models_through_a_scratch_gateway() {
+        let store = PathBuf::from(std::env::var("PYGG_LIVE_DB").expect("PYGG_LIVE_DB: a scratch store"));
+        let port = std::env::var("PYGG_LIVE_PORT").expect("PYGG_LIVE_PORT");
+        let home = PathBuf::from(std::env::var("CODEX_HOME").expect("CODEX_HOME: a scratch folder"));
+        let user = PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default());
+        assert!(!home.starts_with(user.join(".codex")) && store.file_name().is_some(), "scratch folders only");
+        let homes = Homes::from_env();
+        assert!(homes.codex.starts_with(&home));
+        let before = std::fs::read_to_string(&homes.codex).unwrap();
+        let db = Db(std::sync::Mutex::new(crate::db::open(&store).unwrap()));
+        let server = Server { gateway_url: format!("http://127.0.0.1:{port}"), models: db.with(gateway_models), ..Server::default() };
+        println!("models: {:?}", server.models.iter().map(|m| &m.id).collect::<Vec<_>>());
+        let backups = home.join("backups");
+        let set = apply(CODEX_GATEWAY, &server, &homes, &backups, &db, crate::db::now_ms()).await.unwrap();
+        println!("apply -> {} ({:?}), backup {:?}", set.state, set.client_name, set.backup);
+        assert_eq!(set.state, "set_up");
+
+        let codex = launch("codex").expect("Codex installed");
+        let mut cmd = std::process::Command::new(&codex.program);
+        cmd.args(&codex.prefix).args(["exec", "--profile", "pygg", "--skip-git-repo-check", "--json"]);
+        // `auto` refuses a model below the new client's minimum tier (T2); PYGG_LIVE_MODEL names one instead.
+        if let Ok(model) = std::env::var("PYGG_LIVE_MODEL") {
+            cmd.args(["-m", &model]);
+        }
+        cmd.arg("Reply with exactly: ok")
+            .current_dir(&home).env("CODEX_HOME", &home).env(agents::ATTEMPT_ENV, "live-codex-gateway");
+        for (name, _) in std::env::vars() {
+            if name.starts_with("CLAUDE") || name.starts_with("ANTHROPIC_") || process::HOST_SESSION_VARS.contains(&name.as_str()) {
+                cmd.env_remove(name);
+            }
+        }
+        let out = cmd.output().unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        println!("codex exit {:?}\n{stdout}\n{}", out.status.code(), String::from_utf8_lossy(&out.stderr).lines()
+            .filter(|l| !l.trim().is_empty()).take(20).collect::<Vec<_>>().join("\n"));
+
+        let gone = remove(CODEX_GATEWAY, &homes, &backups, &db, crate::db::now_ms()).await.unwrap();
+        println!("remove -> {}", gone.state);
+        assert_eq!(std::fs::read_to_string(&homes.codex).unwrap(), before, "byte-identical after removal");
+        let live: i64 = db.with(|c| c.query_row("SELECT COUNT(*) FROM gateway_clients WHERE name = 'Codex (models)' AND \
+            revoked_at IS NULL", [], |r| r.get(0))).unwrap();
+        assert_eq!(live, 0, "the token is revoked");
+        assert!(out.status.success() && stdout.contains("\"text\":\"ok\""), "Codex answered through Pygg");
     }
 
     struct Db(std::sync::Mutex<Connection>);

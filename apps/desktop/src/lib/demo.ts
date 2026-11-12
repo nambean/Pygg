@@ -781,7 +781,8 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'worksp
       return branch; },
   };
 }
-/** The integrations hub on demo data: Claude Code set up, Codex not yet, OpenCode with an entry made by hand. */
+/** The integrations hub on demo data: Claude Code set up, Codex not yet, OpenCode with an entry made by hand, and the
+ * two "models through Pygg" rows not set up. */
 function demoIntegrations(touch: <T>(value: T) => Promise<T>) {
   const exe = 'C:\\Users\\you\\AppData\\Local\\Pygg\\Pygg.exe';
   const home = 'C:\\Users\\you';
@@ -795,7 +796,11 @@ function demoIntegrations(touch: <T>(value: T) => Promise<T>) {
       detail: null, clientName: null, setUpAt: null, backup: null},
     {id: 'opencode-gateway', name: 'OpenCode: models through Pygg', kind: 'gateway', installed: true, state: 'not_set_up',
       configPath: `${home}\\.config\\opencode\\opencode.json`, detail: null, clientName: null, setUpAt: null, backup: null},
+    {id: 'codex-gateway', name: 'Codex: models through Pygg', kind: 'gateway', installed: true, state: 'not_set_up',
+      configPath: `${home}\\.codex\\config.toml`, detail: null, clientName: null, setUpAt: null, backup: null},
   ];
+  const modelsClient = (id: string, name: string) =>
+    id === 'opencode-gateway' ? 'OpenCode (models)' : id === 'codex-gateway' ? 'Codex (models)' : `${name} (MCP)`;
   const find = (id: string) => { const i = list.find(x => x.id === id); if (!i) throw `Pygg cannot set up ${id}`; return i; };
   return {
     integrations: () => touch(list),
@@ -806,19 +811,33 @@ function demoIntegrations(touch: <T>(value: T) => Promise<T>) {
             apiKey: '<new-token>', headers: {'x-smarttaskrouter-session': '{env:PYGG_ATTEMPT_ID}'}},
             models: {auto: {name: 'auto', tool_call: true}, 'auto/cheap': {name: 'auto/cheap', tool_call: true},
               'anthropic/claude-haiku-5-5': {name: 'anthropic/claude-haiku-5-5', tool_call: true, limit: {context: 200000, output: 64000}}}}}}, null, 2)
+        : id === 'codex-gateway'
+        ? `# Pygg's gateway, added by Pygg (Agents > From Your IDE). Use it with: codex --profile pygg
+[model_providers.pygg]
+name = "Pygg"
+base_url = "http://127.0.0.1:8741/v1"
+wire_api = "responses"
+experimental_bearer_token = "<new-token>"
+env_http_headers = { x-smarttaskrouter-session = "PYGG_ATTEMPT_ID" }
+
+# A new file next to it: pygg.config.toml
+# Codex's models through Pygg's gateway, added by Pygg (Agents > From Your IDE): codex --profile pygg
+model_provider = "pygg"
+model = "auto"
+`
         : id === 'opencode'
         ? JSON.stringify({mcp: {pygg: {type: 'local', command: [exe, 'mcp'], environment: {PYGG_TOKEN: '<new-token>'}, enabled: true}}}, null, 2)
         : id === 'codex' ? `codex mcp add pygg --env PYGG_TOKEN=<new-token> -- ${exe} mcp`
         : `claude mcp add --scope user pygg -e PYGG_TOKEN=<new-token> -- ${exe} mcp`;
       return touch<IntegrationPlan>({id, name: i.name, kind: i.kind ?? 'mcp', configPath: i.configPath, configExists: true, change,
-        method: id.startsWith('opencode') ? 'file' : 'command', clientName: id === 'opencode-gateway' ? 'OpenCode (models)' : `${i.name} (MCP)`,
+        method: id.startsWith('opencode') || id === 'codex-gateway' ? 'file' : 'command', clientName: modelsClient(id, i.name),
         backupDir: `${home}\\AppData\\Roaming\\SmartTaskRouter\\integration-backups`});
     },
     applyIntegration: async (id: string) => {
       const i = find(id);
       if (i.state === 'set_up') throw `Pygg is already set up in ${i.name}`;
       if (i.state === 'set_up_elsewhere') throw `${i.name} already has an MCP server named pygg, set up outside Pygg. Remove it here first, or keep using it.`;
-      Object.assign(i, {state: 'set_up', clientName: id === 'opencode-gateway' ? 'OpenCode (models)' : `${i.name} (MCP)`, setUpAt: Date.now(),
+      Object.assign(i, {state: 'set_up', clientName: modelsClient(id, i.name), setUpAt: Date.now(),
         backup: `${home}\\AppData\\Roaming\\SmartTaskRouter\\integration-backups\\${id}-${Date.now()}`});
       await sleep(600);
       return clone(i);
