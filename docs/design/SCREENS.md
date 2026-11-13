@@ -7,7 +7,7 @@
 
 > Version: 0.1 | Date: 2026-11-10 | Status: historical task-first design; gateway-first screens now implemented (see Implementation Status)
 >
-> Inputs: [plan v1.1](../SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md), the DownFetch desktop UI (`F:\2026\DownFetch\apps\desktop\src`), and the `apple-design` skill (Apple HIG). Claude and Codex each designed the screens independently, then settled their differences in a second round. All model names, prices, quotas and results below are illustrative.
+> Inputs: [plan v1.1](../SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md), the DownFetch desktop UI (a sibling desktop app), and the `apple-design` skill (Apple HIG). Claude and Codex each designed the screens independently, then settled their differences in a second round. All model names, prices, quotas and results below are illustrative.
 
 The app should feel like a task runner with an auditable route, not a provider dashboard. Its signature element is the **attempt sequence**: chosen model → check → outcome → next decision.
 
@@ -312,7 +312,7 @@ One screen with four phases. The toolbar title becomes the task title and the su
 |                                                                              |
 | From Workspace                                    [Workspace Settings…]     |
 | ┌──────────────────────────────────────────────────────────────────────────┐ |
-| │ Path        F:\2026\smarttaskrouter · Git · worktree isolation ready     │ |
+| │ Path        C:\code\my-project     · Git · worktree isolation ready     │ |
 | │ Privacy     Sensitive · providers with unknown data terms excluded       │ |
 | │ Checks      npm run typecheck · npm test                    [Choose…]    │ |
 | │ Permissions Files: workspace · Shell: checks + agent tools · Network:    │ |
@@ -436,7 +436,7 @@ One screen with four phases. The toolbar title becomes the task title and the su
 +------------------------------------------------------------------------------+
 | Location                                                                     |
 | ┌──────────────────────────────────────────────────────────────────────────┐ |
-| │ Folder        F:\2026\smarttaskrouter                      [Show]        │ |
+| │ Folder        C:\code\my-project                          [Show]        │ |
 | │ Repository    Git · main · clean                                         │ |
 | │ Isolation     Git worktree per attempt · ready                           │ |
 | └──────────────────────────────────────────────────────────────────────────┘ |

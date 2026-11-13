@@ -88,7 +88,7 @@ Agents run with their own sign-in, outside the gateway (ADR-026): Pygg records t
 
 ## 1. UI design system
 
-The interface follows the same approach as DownFetch (`F:\2026\DownFetch\apps\desktop\src\styles.css`): a native-looking desktop app styled after Apple's Human Interface Guidelines, rather than a web-dashboard template.
+The interface follows the same approach as DownFetch (its desktop app's stylesheet): a native-looking desktop app styled after Apple's Human Interface Guidelines, rather than a web-dashboard template.
 
 - **Platform:** Tauri 2 window with DownFetch's traffic-light window controls on every platform (a deliberate departure on Windows; see SCREENS.md D12); Windows first, macOS next. Desktop-first at 1440×900, usable down to 1024px.
 - **Styling:** plain CSS with semantic tokens on `:root` (`--window`, `--sidebar`, `--surface`, `--control`, `--field`, `--label`, `--secondary`, `--separator`, `--hover`, `--selection`, `--accent`, `--accent-text`, `--green`, `--orange`, `--red`, `--focus`…). No Tailwind or shadcn.
@@ -373,7 +373,7 @@ flowchart TD
 
 ### Stack (decided: same as DownFetch)
 
-The stack reuses what DownFetch (`F:\2026\DownFetch`) already ships, so its tooling, patterns and lessons carry over.
+The stack reuses what DownFetch (a sibling desktop app) already ships, so its tooling, patterns and lessons carry over.
 
 | Layer | Choice | DownFetch precedent |
 | --- | --- | --- |

@@ -83,7 +83,7 @@ Codex's own sandbox could not run `python`, so it could not test its change; the
 **Decision (owner, 2026-11-11):** most people will not treat the router app as an IDE. Tasks are started where people already work, by their coding agent; the app runs them and is where they are watched, paid steps are approved, and history is kept. New Task in the app stays as a simple way to start one by hand.
 
 **Where each part lives** (navigation of 2026-11-12, commit e0b236f; the screen formerly called "Agents → From Your IDE" was split):
-- **Agents → Let Your Agent Delegate Tasks**: the MCP server, set up in one click for Claude Code, Codex CLI and OpenCode, with **Set It Up by Hand** for Cursor and other JSON-configured clients. From a terminal: `pygg mcp setup claude-code`, `pygg setup codex`, `pygg setup opencode` (`cli/setup.rs`).
+- **Agents → Let Your Agent Delegate Tasks**: the MCP server, set up in one click for Claude Code, Codex CLI and OpenCode, with **Set It Up by Hand** for Cursor and other JSON-configured clients. From a terminal: `pygg mcp setup claude-code`, `pygg mcp setup codex`, `pygg mcp setup opencode` (`cli/setup.rs`).
 - **CLI Tools → One-Click Setup**: a tool's own model requests through the gateway. "Codex: models through Pygg" and "OpenCode: models through Pygg" (`pygg setup codex`, `pygg setup opencode`), and the Claude Code launcher (`pygg setup claude`, then `pygg run claude`). Below it, set-up by hand for Claude Code without the launcher, Cline, Continue, SDKs and curl.
 - **Endpoint → API Keys**: Pygg's API keys (client tokens) and their **Limits…**, the screen formerly called Clients.
 
@@ -143,7 +143,7 @@ Codex CLI 0.163.0 (`codex exec --json -s workspace-write`) through a scratch gat
 | Tool round trip | `anthropic/claude-haiku-5-5` | Read `calc.py` with `exec_command`, fixed it with `apply_patch` (custom tool), reported. Diff +1 −1 | 3 | 50,141 / 205 | $0.0051, estimated |
 | Tool round trip | `qwen/qwen3.7-plus` on Qwen's token plan (`translated:responses->openai`) | Read the file, fixed `add()` and added `mul()` with `apply_patch`; Qwen's reasoning showed in Codex as reasoning items and went back as `reasoning_content`. Diff +5 −1 | 3 | 34,207 (21,760 cached) / 177 | quota, not money |
 
-Every request carried the session header; every ledger entry has usage and its session. A captured Codex request sent to Qwen answered with `x-smarttaskrouter-dropped: web_search tool,prompt_cache_key,client_metadata`, and the same request as `auto/cheap` was routed to `qwen/qwen3.7-max` with its reason. Anthropic's prompt cache was not used on this path (0 cached tokens): the translation adds no cache markers. Total spent: $0.0068 at list price.
+Every request carried the session header; every ledger entry has usage and its session. A captured Codex request sent to Qwen answered with `x-smarttaskrouter-dropped: web_search tool,prompt_cache_key,client_metadata`, and the same request as `auto/cheap` was routed to `qwen/qwen3.7-max` with its reason. Anthropic's prompt cache was not used on this path (0 cached tokens): the translation added no cache markers. Since ADR-036 (2026-11-14) Pygg turns on Anthropic's automatic caching for such a turn when it carries tools; not yet measured live. Total spent: $0.0068 at list price.
 
 ### Live verification of the one-click row, 2026-11-12
 

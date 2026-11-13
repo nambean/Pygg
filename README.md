@@ -4,16 +4,33 @@
 
 **One Flow. Many Agents.** A local AI gateway that cuts what your coding tools cost.
 
+[![CI](https://github.com/nambean/smarttaskrouter/actions/workflows/ci.yml/badge.svg)](https://github.com/nambean/smarttaskrouter/actions/workflows/ci.yml) ![Licence: MIT](https://img.shields.io/badge/licence-MIT-green) ![Windows x64](https://img.shields.io/badge/platform-Windows%20x64-blue) ![Status: developer preview](https://img.shields.io/badge/status-developer%20preview-orange)
+
+<p><img src="docs/images/home.png" alt="Pygg's Home screen: the gateway running, estimated savings against a chosen model, where the answers came from, and the last 24 hours of requests" width="720"></p>
+
 The repository and its technical identifiers keep the engineering name SmartTaskRouter. New here? Read [Getting started](docs/GETTING-STARTED.md). Every document is listed in [docs/README.md](docs/README.md); brand assets are in [branding](branding/README.md).
 
 Pygg runs on your computer. You connect your providers once, point Claude Code, Codex, OpenCode, an editor or an SDK at it, and choose the model `auto`. Each request then goes to an eligible model you connected, free and cheap ones first where they qualify, within the limits you set. Every request is recorded with what it cost and where that figure came from. The app hosts no chat of its own (ADR-028).
 
-> **Status (2026-11-13):**
+> **Status (2026-11-14), developer preview for Windows x64:**
 > - **Built and live-verified:** the gateway and the desktop app that runs it, from first launch to "my coding tool uses `auto`".
-> - **Built and fake-tested:** account pools, web-session connections for AI sites without an API, a CLI with an npm developer preview, and estimated savings.
+> - **Built and fake-tested:** account pools, web-session connections for AI sites without an API, the `pygg` command line (npm developer preview), estimated savings, the token mix and routing diagnostics, and automatic prompt caching for translated agent turns.
 > - **On hold:** smart tasks, run by agent CLIs and started from an IDE, work but are paused until the owner re-evaluates them.
 >
-> See [implementation status](docs/IMPLEMENTATION-STATUS.md) and the [roadmap](docs/ROADMAP.md).
+> See [implementation status](docs/IMPLEMENTATION-STATUS.md) and the [roadmap](docs/ROADMAP.md). Installers are not code-signed yet, so Windows SmartScreen warns about them.
+
+## What makes Pygg different
+
+- **Cost you can trace.** Every request is recorded with its cost and where that figure came from: actual (the provider said), estimated (a price you or a catalog set) or **unknown**, never shown as $0. Savings are an estimate against a model you choose, with what was left out said beside it.
+- **It keeps the provider's cache working.** A coding agent re-sends its whole conversation every turn; the provider's prompt cache bills that at a tenth or less. Pygg keeps a launch on one model, passes cache hints through unchanged, turns on Anthropic's caching for clients that cannot ask for it, and shows the token mix so you can see it working ([ADR-036](docs/DECISIONS.md)).
+- **Setup you can undo.** Each tool gets its own key; its configuration is backed up first and Remove puts it back. Claude Code keeps your Claude sign-in: `pygg run claude` routes one launch at a time.
+- **Local, with your own accounts.** Keys stay in the Windows Credential Manager, the gateway listens on 127.0.0.1 only, and Pygg contacts nothing but the providers you connected and a public model catalog.
+
+| Providers | Usage | CLI Tools |
+| --- | --- | --- |
+| <img src="docs/images/providers.png" alt="Providers: each connection with its health over 24 hours, last check and models" width="300"> | <img src="docs/images/usage.png" alt="Usage: estimated savings, known cost, cost per day and the token mix" width="300"> | <img src="docs/images/cli-tools.png" alt="CLI Tools: one-click set-up for Claude Code, Codex and OpenCode" width="300"> |
+
+Screenshots are the browser preview with demo data.
 
 ## How it works for a user
 
@@ -79,8 +96,9 @@ Step by step, with each tool's commands and a troubleshooting table: [Getting st
   - Every attempt is recorded with its cost and that cost's source: **actual**, **estimated** or **unknown**, never shown as $0.
   - Estimated savings compare the same tokens at a model you choose, and say what was left out.
   - Charts, alerts, CSV export and retention.
+  - **Token mix** (new input, cache reads, cache writes, output) and **Routing** (fallbacks, routing sessions, changes of model with the cache writes that followed); each request records its attempt chain, the billing it was sent under and what happened to its cache hints.
 - **CLI (`pygg`, or `pygg-cli.exe` next to the app):**
-  - `status`, `doctor`, `setup <tool>`, `run claude`, `gateway …`, `agent …`, `diagnostics` and `mcp`.
+  - `pygg` alone shows where you are; `setup claude|codex|opencode`, `run claude|codex|opencode` (a routing session per launch), `status`, `doctor`, `providers`, `models`, `logs`, `usage` (each with `--json`), `gateway …`, `diagnostics` and `mcp` ([design](docs/design/CLI.md)).
   - npm developer preview: `npm install -g @pygg/cli@dev`.
 - **Guide:** in the app, with every command ready to copy.
 - **Smart tasks (experimental, on hold):**

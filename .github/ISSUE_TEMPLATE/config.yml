@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Getting started
+    url: https://github.com/nambean/smarttaskrouter/blob/main/docs/GETTING-STARTED.md
+    about: Install, connect a provider, set up a coding tool, and a troubleshooting table.
+  - name: Security report
+    url: https://github.com/nambean/smarttaskrouter/security
+    about: Report a vulnerability privately, not in an issue.

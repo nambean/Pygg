@@ -73,7 +73,7 @@ function startView(): View {
   if (runningInDesktop) return {kind: 'overview'};
   const screen = new URLSearchParams(location.search).get('screen') ?? '';
   if (isGateway(screen as View['kind'])) return {kind: screen as GatewayDestination};
-  if (screen === 'guide' || screen === 'settings' || screen === 'agents') return {kind: screen};
+  if (screen === 'guide' || screen === 'settings' || screen === 'agents' || screen === 'policies') return {kind: screen};
   return {kind: 'overview'};
 }
 

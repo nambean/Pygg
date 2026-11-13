@@ -1,0 +1,21 @@
+name: Feature request
+description: Something Pygg should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do, and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How you would like it to work. Other tools that do it well are welcome references.
+  - type: textarea
+    id: cost
+    attributes:
+      label: Cost and accounts
+      description: Does it spend money, send data to a provider, or touch a signed-in account? Pygg keeps those visible and in the user's hands (docs/DECISIONS.md).
