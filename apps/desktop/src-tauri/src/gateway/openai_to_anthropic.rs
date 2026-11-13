@@ -27,8 +27,18 @@
 use super::pricing::Usage;
 use serde_json::{json, Value};
 
-/// Output limit sent when the client set none: Anthropic requires `max_tokens`.
-pub const DEFAULT_MAX_TOKENS: u64 = 4096;
+/// Output limit sent when the client set none and the model's own is unknown: Anthropic requires `max_tokens`, while an
+/// OpenAI-format client (Codex) that sets none expects the model's own room. 4096 cut agents off mid-file (the cache
+/// benchmark of 2026-11-14: "Incomplete response returned, reason: max_output_tokens"), so a streamed request gets
+/// `DEFAULT_STREAMED_MAX_TOKENS` and an unstreamed one this, either capped at the model's maximum output where known.
+pub const DEFAULT_MAX_TOKENS: u64 = 16_000;
+pub const DEFAULT_STREAMED_MAX_TOKENS: u64 = 64_000;
+
+/// The output limit for a request whose client set none.
+fn default_max_tokens(request: &Value, model_max: Option<u64>) -> u64 {
+    let room = if request["stream"] == true { DEFAULT_STREAMED_MAX_TOKENS } else { DEFAULT_MAX_TOKENS };
+    model_max.filter(|m| *m > 0).map_or(room, |m| m.min(room))
+}
 
 /// What a Claude model takes for thinking, from Pygg's model facts (`store::Capabilities`); `None` is unknown.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -37,6 +47,8 @@ pub struct ThinkingSupport {
     pub types: Option<Vec<String>>,
     /// `low` to `max`.
     pub efforts: Option<Vec<String>>,
+    /// The model's maximum output, where known: the room a request without a limit of its own gets, at most.
+    pub max_output: Option<u64>,
 }
 
 /// Effort levels from least to most.
@@ -133,7 +145,7 @@ fn apply_thinking(request: &Value, out: &mut Value, support: &ThinkingSupport, c
         let wanted = budget_for(level);
         let (budget, max_tokens) = match client_max {
             Some(max) => (wanted.min(max.saturating_sub(MIN_BUDGET)), max),
-            None => (wanted, DEFAULT_MAX_TOKENS + wanted),
+            None => (wanted, default_max_tokens(request, support.max_output) + wanted),
         };
         if budget < MIN_BUDGET {
             dropped.extend(name("max_tokens too small for thinking"));
@@ -254,7 +266,7 @@ pub fn to_anthropic(request: &Value, thinking: &ThinkingSupport) -> (Value, Vec<
     }
     let messages: Vec<Value> = turns.into_iter().map(|(role, content)| json!({ "role": role, "content": content })).collect();
     let client_max = request["max_completion_tokens"].as_u64().or_else(|| request["max_tokens"].as_u64());
-    let max_tokens = client_max.unwrap_or(DEFAULT_MAX_TOKENS);
+    let max_tokens = client_max.unwrap_or_else(|| default_max_tokens(request, thinking.max_output));
     let mut out = json!({ "model": request["model"], "max_tokens": max_tokens, "messages": messages });
     if !system.is_empty() {
         out["system"] = json!(system.join("\n\n"));
@@ -488,9 +500,22 @@ mod tests {
         assert_eq!(out["tool_choice"], json!({ "type": "any" }));
     }
 
+    /// An agent that sets no output limit gets room to write a whole file (the cache benchmark, 2026-11-14), never more
+    /// than the model takes; a limit the client set is kept.
+    #[test]
+    fn a_request_without_an_output_limit_gets_the_models_room() {
+        let streamed = json!({ "model": "m", "stream": true, "messages": [{ "role": "user", "content": "hi" }] });
+        assert_eq!(to_anthropic(&streamed, &ThinkingSupport::default()).0["max_tokens"], DEFAULT_STREAMED_MAX_TOKENS);
+        let small = ThinkingSupport { max_output: Some(8_192), ..ThinkingSupport::default() };
+        assert_eq!(to_anthropic(&streamed, &small).0["max_tokens"], 8_192);
+        let mut limited = streamed.clone();
+        limited["max_tokens"] = json!(500);
+        assert_eq!(to_anthropic(&limited, &small).0["max_tokens"], 500);
+    }
+
     fn support(types: &[&str], efforts: Option<&[&str]>) -> ThinkingSupport {
         ThinkingSupport { types: Some(types.iter().map(|t| t.to_string()).collect()),
-            efforts: efforts.map(|e| e.iter().map(|l| l.to_string()).collect()) }
+            efforts: efforts.map(|e| e.iter().map(|l| l.to_string()).collect()), max_output: None }
     }
 
     /// ROADMAP B5: a model that takes only `budget_tokens` (Haiku 4.5) gets a budget for the level, inside

@@ -1001,7 +1001,8 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         // What the model takes for thinking, for an OpenAI client's `reasoning_effort` (ROADMAP B5).
         let thinking = if matches!(mode, Mode::OpenAiToAnthropic | Mode::ResponsesToAnthropic) {
             let (types, efforts) = shared.with_db(|db| store::thinking_support(db, &provider.id, &model_id)).unwrap_or_default();
-            openai_to_anthropic::ThinkingSupport { types, efforts }
+            let max_output = shared.with_db(|db| store::max_output_tokens(db, &provider.id, &model_id)).ok().flatten();
+            openai_to_anthropic::ThinkingSupport { types, efforts, max_output }
         } else {
             openai_to_anthropic::ThinkingSupport::default()
         };
