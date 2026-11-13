@@ -56,3 +56,14 @@ The aggregate counters do not say which model the OpenCode run's uncached input 
 | T6 | **Concise-output opt-in** (Caveman's idea) as a per-client instruction appended where it keeps the prefix, with a holdout to measure | Output is about a third of the bill | Quality, and it changes what the user asked the agent |
 | T7 | Semantic response cache | Common in gateways | Rejected for coding agents: a near match is a wrong answer |
 | T8 | History dedup (OmniRoute's `session-dedup`), CCR retrieval markers, context as images | Upstream defaults | Rejected as defaults: rewrite history, break the prefix, inject protocol text the agent did not ask for |
+
+## 5. Second pass: routing and caching projects (2026-11-14)
+
+| Project | What it does | What Pygg takes |
+| --- | --- | --- |
+| **RouteLLM** ([repo](https://github.com/lm-sys/RouteLLM), Apache-2.0) | A learned router (matrix factorisation, BERT, a causal LLM) estimates whether the strong model would win on a prompt and sends it there only above a threshold; up to 85% cheaper at 95% of GPT-4's quality on MT-Bench, trained on Arena preferences for one model pair | Not built: it decides per prompt, and in an agent loop each switch forfeits the cache (caches are per model). Pygg chooses per session |
+| **claude-code-router** ([repo](https://github.com/musistudio/claude-code-router), MIT) | A local gateway for Claude Code with routing conditions on headers and bodies, ordered fallbacks and cost estimates in its logs | The same place in the stack as Pygg; nothing new to borrow beyond what Pygg has |
+| **LiteLLM prompt caching** ([docs](https://docs.litellm.ai/docs/tutorials/prompt_caching)) | `cache_control_injection_points`, and a flag that adds Anthropic cache checkpoints for clients that never set them; never double-injects; warns that injecting on Gemini switches it to paid explicit caching | **Built (ADR-036)**: Pygg turns on Anthropic's automatic caching for translated agent turns to Anthropic's own API, never on Gemini or other providers |
+| **Anthropic's caching guidance** | A top-level `cache_control` caches up to the last block and moves with the conversation (one of four breakpoints, 1.25x write, read at 0.05-0.1x); try the stronger model at lower effort before a cascade, because a cascade forfeits cache reuse | The basis of ADR-036 |
+
+The settled approach is [ADR-036](../DECISIONS.md): keep the cache, route per session, measure before compressing.

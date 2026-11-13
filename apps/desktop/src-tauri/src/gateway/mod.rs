@@ -1168,9 +1168,25 @@ fn route_kind(shared: &Shared, requested: &str) -> String {
     if shared.with_db(|db| store::get_provider(db, connection)).ok().flatten().is_some() { "named".into() } else { "pool".into() }
 }
 
-/// What happened to the client's prompt-cache hints on this target: kept as sent, carried into the OpenAI format where
+/// Whether Pygg turns on Anthropic's automatic prompt caching (ADR-036): for an agent's turn (the request carries tools)
+/// that an OpenAI-format client sent and Pygg translated for Anthropic's own API. Such a client cannot say where to cache,
+/// and Anthropic caches only what is marked, so every turn of a Codex session on Claude was billed as new input: the
+/// conversation, re-sent each turn, at full price instead of a tenth. One top-level `cache_control` caches the prompt up
+/// to its last block and moves forward with the conversation; it uses one of Anthropic's four breakpoints and costs
+/// 1.25x on what it writes, repaid by the next turn's read. A request the client marked itself, a native Anthropic
+/// request, a one-off question without tools, and Anthropic-format endpoints of other providers are left as they are.
+fn adds_cache(incoming: &Incoming, provider: &Provider, mode: Mode) -> bool {
+    provider.kind == "anthropic"
+        && matches!(mode, Mode::OpenAiToAnthropic | Mode::ResponsesToAnthropic)
+        && incoming.body["tools"].as_array().is_some_and(|t| !t.is_empty())
+}
+
+/// What happened to the client's prompt-cache hints on this target (`added` when Pygg turned on automatic caching): kept as sent, carried into the OpenAI format where
 /// the provider takes them, or dropped; `none` when the request had none (an OpenAI-format client caches without them).
 fn cache_hint(incoming: &Incoming, provider: &Provider, mode: Mode) -> &'static str {
+    if adds_cache(incoming, provider, mode) && !anthropic::has_cache_control(incoming.body) {
+        return "added";
+    }
     if incoming.surface != Surface::Anthropic || !anthropic::has_cache_control(incoming.body) {
         return "none";
     }
@@ -1227,6 +1243,9 @@ fn upstream_request(incoming: &Incoming, provider: &Provider, model_id: &str, mo
         }
     };
     body["model"] = json!(model_id);
+    if adds_cache(incoming, provider, mode) && !anthropic::has_cache_control(&body) {
+        body["cache_control"] = json!({ "type": "ephemeral" });
+    }
     if incoming.surface == Surface::Responses && mode == Mode::Native {
         // The provider serves the Responses API itself: the body goes as it came.
         (format!("{}/responses", provider.endpoint), body, dropped)

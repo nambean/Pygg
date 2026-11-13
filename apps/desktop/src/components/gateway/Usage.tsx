@@ -349,7 +349,7 @@ function routeKindText(kind: string): string {
   return pinned ? t('{route}; the routing session’s model, kept', {route: text}) : text;
 }
 
-const cacheHintText = (hint: string) => ({preserved: t('Kept as the client sent them'), translated: t('Carried into the OpenAI format'),
+const cacheHintText = (hint: string) => ({added: t('Turned on by Pygg: Anthropic’s automatic caching, which this client cannot ask for'), preserved: t('Kept as the client sent them'), translated: t('Carried into the OpenAI format'),
   dropped: t('Dropped: this provider takes none in this format'), none: t('None sent')} as Record<string, string>)[hint] ?? hint;
 
 function LedgerRow({event: e, open, onToggle, chain}: {event: UsageEvent; open: boolean; onToggle: () => void; chain: UsageEvent[]}) {

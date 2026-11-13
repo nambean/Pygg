@@ -361,6 +361,22 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Consequences:** the user carries the account risk, knowingly, per connection; Pygg's own risk is a recipe that breaks when the site changes (it fails closed, as "the page has changed", and never falls back to guessing). A web-session request is slow (seconds to minutes) and uncounted in tokens, so it suits a user who names the model for chat-like work, not coding agents. The first recipe (Muse) is written without a signed-in session to look at; it is confirmed or corrected when the owner signs in in the dev build.
 
+## ADR-036 — How Pygg saves tokens: keep the cache, route per session, measure before compressing (2026-11-14)
+
+**Context.** The owner asked for the best token and cost optimisation after studying the well-known open-source tools ([study](research/2026-11-14-token-optimization-study.md), [Codex discussion](reviews/2026-11-14-codex-token-optimization-discussion.md)). Compression tools (RTK, Headroom, Caveman, OmniRoute's engines) advertise 60-95%, but an independent replay of 500 Claude Code sessions found 3.7% of spend, because once prompt caching works the bill is mostly cache writes and output. Per-request routers (RouteLLM: up to 85% cheaper at 95% of GPT-4's quality on MT-Bench) pick a model per prompt, but caches are scoped to a model: in an agent loop, every switch re-sends the whole conversation uncached. Anthropic's own guidance is to try the stronger model at a lower effort before a cascade, for that reason. LiteLLM turns Anthropic's caching on for clients that never mark it.
+
+**Decision.** In this order:
+
+1. **Keep the provider's cache working; it is the largest saving and costs nothing in quality.** Routing sessions keep a launch on one model (`pygg run`, `x-smarttaskrouter-session`); fallbacks happen only on failure. When Pygg translates an agent's OpenAI-format turn (it carries tools) for Anthropic's own API, it turns on Anthropic's automatic caching with one top-level `cache_control`, since the client cannot (`gateway::adds_cache`; the ledger says `added`). A request the client marked, a native Anthropic request, a question without tools and other providers' Anthropic-format endpoints are not changed.
+2. **Route per session or task, not per request.** `auto` chooses when a session starts and stays; cheaper models are chosen by policy (tier, billing), never by switching mid-conversation. A per-prompt learned router is not built.
+3. **Show where the tokens go before changing anything** (Usage → Token Mix and Routing, schema v30): cache share, cache writes after a change of model, attempts and fallbacks.
+4. **Compression only in shadow** until the measurements show it pays: never rewrite an agent's history (it breaks the cache and the agent's own view); a filter on new tool output only as an opt-in experiment.
+5. **Output and effort stay the client's**: Pygg passes `effort` and thinking settings through and does not inject instructions to write shorter.
+
+**Not done.** Semantic response caching (a similar coding prompt can mean a different repository), history dedup and retrieval markers (rewrite history), context as images, copying RTK's BUSL engine.
+
+**Consequences.** A Codex or OpenCode session on Claude through Pygg is billed mostly at the cache-read rate after its first turn instead of full input price; the benchmark ([plan](../benchmark/README.md)) measures it. Every saving Pygg shows is one it can trace in the ledger.
+
 ## Open decisions (not yet finalized)
 
 - ~~First agent benchmark client and model matrix~~: settled by the C3 first pass (OpenCode 1.18.4 through the gateway; see the [report](../benchmark/reports/2026-11-11-c3-first-pass.md)).

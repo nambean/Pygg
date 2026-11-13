@@ -690,6 +690,34 @@ fn an_openai_request_reaches_an_anthropic_connection_through_translation() {
     });
 }
 
+/// ADR-036: an agent's OpenAI-format turn, translated for Anthropic's own API, gets Anthropic's automatic prompt caching;
+/// a question without tools, and another provider's Anthropic-format endpoint, are left as the client sent them.
+#[test]
+fn an_agents_openai_turn_to_anthropics_own_api_turns_on_prompt_caching() {
+    rt().block_on(async {
+        let rig = rig().await;
+        let with_tools = || {
+            let mut request = chat("claude/sonnet");
+            request["tools"] = json!([{ "type": "function", "function": { "name": "read", "parameters": { "type": "object", "properties": {} } } }]);
+            request
+        };
+        let sent = || rig.fake.last_body.lock().unwrap().clone().unwrap();
+        // A custom Anthropic-format endpoint: not Anthropic's own API, so nothing is added.
+        assert_eq!(rig.post("/v1/chat/completions", with_tools()).await.status(), 200);
+        assert!(sent()["cache_control"].is_null());
+        assert_eq!(rig.ledger().pop().unwrap().cache_hint.as_deref(), Some("none"));
+
+        rig.shared.with_db(|db| db.execute("UPDATE providers SET kind = 'anthropic' WHERE id = 'claude'", [])).unwrap();
+        assert_eq!(rig.post("/v1/chat/completions", with_tools()).await.status(), 200);
+        assert_eq!(sent()["cache_control"], json!({ "type": "ephemeral" }));
+        assert_eq!(rig.ledger().pop().unwrap().cache_hint.as_deref(), Some("added"));
+
+        // A one-off question without tools pays no cache write.
+        assert_eq!(rig.post("/v1/chat/completions", chat("claude/sonnet")).await.status(), 200);
+        assert!(sent()["cache_control"].is_null());
+    });
+}
+
 /// A Claude model that takes adaptive thinking and three effort levels, as Anthropic's model list reports one.
 fn add_thinker(rig: &Rig, efforts: &[&str]) {
     rig.priced("claude", "thinker");
