@@ -252,7 +252,7 @@ fn every_new_web_preset_starts_off_with_its_one_model_and_no_tools() {
     for (preset, id, model) in [("chatgpt-web", "chatgpt", "chatgpt"), ("perplexity-web", "perplexity", "perplexity"),
         ("deepseek-web", "deepseek", "deepseek"), ("grok-web", "grok", "grok")] {
         let p = store::add_web_provider(&conn, preset, "", WARNING_VERSION).unwrap();
-        assert_eq!((p.id.as_str(), p.enabled, p.default_billing.as_str()), (id, false, "subscription"));
+        assert_eq!((p.id.as_str(), p.enabled, p.default_billing.as_str()), (id, false, "free"));
         let models = store::list_models(&conn, Some(&p.id)).unwrap();
         assert_eq!(models.iter().map(|m| m.model_id.as_str()).collect::<Vec<_>>(), [model]);
         assert_eq!(models[0].capabilities.supports_tools, Some(false));
@@ -366,7 +366,7 @@ fn web_store() -> (Connection, Provider) {
 }
 
 #[test]
-fn a_web_session_needs_the_warning_and_starts_off_with_unknown_cost_and_no_tools() {
+fn a_web_session_needs_the_warning_and_starts_off_free_and_without_tools() {
     let conn = crate::db::open_in_memory().unwrap();
     assert!(store::add_web_provider(&conn, "muse-web", "Muse", WARNING_VERSION - 1).is_err());
     assert!(store::add_web_provider(&conn, "openai", "x", WARNING_VERSION).is_err());
@@ -375,7 +375,7 @@ fn a_web_session_needs_the_warning_and_starts_off_with_unknown_cost_and_no_tools
 
     let (conn, muse) = web_store();
     assert!(!muse.enabled, "off until the user signs in and turns it on");
-    assert_eq!(muse.default_billing, "subscription");
+    assert_eq!(muse.default_billing, "free", "$0 a request by default (2026-11-13)");
     assert_eq!((muse.web_ack_version, muse.web_state.as_deref()), (Some(WARNING_VERSION), Some("signed_out")));
     assert!(muse.credential_ref.is_none(), "no key, no password");
     let profile = muse.web_profile.clone().unwrap();
@@ -390,8 +390,8 @@ fn a_web_session_needs_the_warning_and_starts_off_with_unknown_cost_and_no_tools
     assert_ne!(other.web_profile, muse.web_profile);
     assert_eq!(store::web_profiles(&conn).unwrap().len(), 2);
 
-    assert!(store::update_provider(&conn, &muse.id, None, Some("free"), None).is_err(), "never $0");
-    assert!(store::update_provider(&conn, &muse.id, None, Some("paid"), None).is_err());
+    assert!(store::update_provider(&conn, &muse.id, None, Some("paid"), None).is_err(), "never paid per token");
+    assert!(store::update_provider(&conn, &muse.id, None, Some("local"), None).is_err());
     store::update_provider(&conn, &muse.id, Some(true), Some("subscription"), Some(true)).unwrap();
     // Accounts of one site pool together (owner, 2026-11-13), each confirmed as its own account.
     store::set_pool(&conn, &muse.id, Some("muses")).unwrap();
@@ -594,7 +594,7 @@ async fn gateway_post(target: &str, body: Value) -> reqwest::Response {
 }
 
 #[test]
-fn the_gateway_reaches_a_named_web_model_and_records_an_unknown_cost() {
+fn the_gateway_reaches_a_named_web_model_and_records_it_at_no_cost() {
     rt().block_on(async {
         let (web, gateway, shared) = gateway_rig(hello_page(), true).await;
         let response = gateway_post(&gateway, json!({ "model": "muse/muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
@@ -603,8 +603,8 @@ fn the_gateway_reaches_a_named_web_model_and_records_an_unknown_cost() {
         assert_eq!(body["choices"][0]["message"]["content"], "Hi there");
         let event = shared.with_db(|db| store::usage_summary(db, 0, 10)).unwrap().recent.remove(0);
         assert_eq!((event.provider.as_str(), event.model.as_str()), ("muse", "muse"));
-        assert_eq!((event.cost_status.as_str(), event.cost_micro_usd), ("unknown", None), "never $0");
-        assert!(event.cost_source.contains("subscription"), "{}", event.cost_source);
+        assert_eq!((event.cost_status.as_str(), event.cost_micro_usd), ("estimated", Some(0)), "$0 a request on the user's plan");
+        assert!(event.cost_source.starts_with("web session"), "{}", event.cost_source);
         // The token that reaches the endpoint is never written anywhere.
         let ledger = serde_json::to_string(&shared.with_db(|db| store::usage_summary(db, 0, 10)).unwrap().recent).unwrap();
         assert!(!ledger.contains(&web.link.token));

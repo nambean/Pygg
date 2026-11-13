@@ -282,8 +282,15 @@ function ConnectionDetail({connection: c, onRemoved, initialShow = 'all'}: {conn
         </ul>
       </div>}
       {c.web ? <div className="group-row">
-        <span className="group-label">{t('Billing')}<small>{t('Your plan with the site. The site reports no tokens or price, so every request’s cost is Unknown, never $0.')}</small></span>
-        <span className="group-control value">{billingLabel('subscription')}</span>
+        <span className="group-label"><label htmlFor={`billing-${c.id}`}>{t('Billing')}</label><small>{c.defaultBilling === 'subscription'
+          ? t('Counted against your plan’s quota: each request’s cost is Unknown, never money.')
+          : t('Your plan with the site, paid by the month or free, never per request: each request is recorded at $0.')}</small></span>
+        <span className="group-control">
+          <select id={`billing-${c.id}`} className="popup-button" value={c.defaultBilling === 'subscription' ? 'subscription' : 'free'}
+            onChange={e => setBilling(e.target.value as Billing)}>
+            <option value="free">{billingLabel('free')}</option><option value="subscription">{billingLabel('subscription')}</option>
+          </select>
+        </span>
       </div> : <div className="group-row">
         <span className="group-label"><label htmlFor={`billing-${c.id}`}>{t('Billing')}</label><small>{billingHint(c.defaultBilling, c.freeModels)}</small></span>
         <span className="group-control">

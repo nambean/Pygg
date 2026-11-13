@@ -852,8 +852,9 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         }
 
         let (billing, price) = shared.with_db(|db| store::pricing_for(db, &provider, &model_id)).unwrap_or_default();
-        // The user's plan with the site: the cost is unknown, never $0, whatever a model's own settings say.
-        let billing = if web { "subscription".to_string() } else { billing };
+        // The user's plan with the site: free ($0 a request, the default) or a subscription (quota, cost unknown),
+        // whatever a model's own settings say; never paid per token.
+        let billing = if web && billing != "free" { "subscription".to_string() } else { billing };
         // A subscription (a token plan) uses a quota, not money per request: it holds nothing against a money
         // limit, as auto ranks it and as its ledger entry says. Its price, if one was entered, is not what it costs.
         let hold = if is_free(&billing) || billing == "subscription" || !has_limit {
@@ -1202,7 +1203,12 @@ pub(crate) fn upstream_message(body: &[u8]) -> String {
 /// one transaction. Also pins an explicit session to this target.
 pub fn record_success(shared: &Shared, mut forwarded: Forwarded, usage: Option<&Usage>, outcome: &str, error: Option<&str>) {
     let cost = if outcome == "ok" {
-        pricing::resolve(&forwarded.billing, forwarded.price.as_ref(), usage)
+        match pricing::resolve(&forwarded.billing, forwarded.price.as_ref(), usage) {
+            // A web session on the user's plan with the site (ADR-035, 2026-11-13): $0 a request, and the ledger says so.
+            Cost::Estimated { micro_usd: 0, .. } if presets::is_web(&forwarded.provider.kind) =>
+                Cost::Estimated { micro_usd: 0, source: "web session: your plan with the site, no price per request".into() },
+            cost => cost,
+        }
     } else {
         // Cut short: whatever usage arrived is partial, so the amount cannot be stated. Free, local and
         // subscription billing cost no money either way, so they keep what they say (a subscription's entry

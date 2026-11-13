@@ -56,7 +56,7 @@ These are not raw model latencies. They are the end-to-end time a coding tool wo
   - eight requests per account, against Pygg's default daily limit of 50.
 - **Where:** one Windows 11 PC in Viet Nam, on its usual network, on 2026-11-13 around 14:05 local time (07:05 UTC).
 - **Build:** Pygg main at 9165aba (schema v26).
-- **Cost:** no money. Web sessions are plans with the site, so Pygg records their cost as unknown, never $0.
+- **Cost:** no money. Web sessions are plans with the site; at the time Pygg recorded their cost as unknown. Since the evening of 2026-11-13 (schema v27, the owner's decision) a web session is free by default and each request is recorded at $0.
 
 ## What it shows, and what it does not
 

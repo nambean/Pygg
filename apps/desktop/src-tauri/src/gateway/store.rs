@@ -192,7 +192,7 @@ pub fn add_web_provider(conn: &Connection, kind: &str, label: &str, ack_version:
     conn.execute(
         "INSERT INTO providers (id, kind, account_label, endpoint, credential_ref, default_billing, wire, created_at, enabled, \
          web_profile, web_ack_version, web_ack_at, web_state, web_state_reason, web_state_at) \
-         VALUES (?1, ?2, ?3, ?4, NULL, 'subscription', ?5, ?6, 0, ?7, ?8, ?6, 'signed_out', ?9, ?6)",
+         VALUES (?1, ?2, ?3, ?4, NULL, 'free', ?5, ?6, 0, ?7, ?8, ?6, 'signed_out', ?9, ?6)",
         params![id, kind, label, preset.endpoint.unwrap_or_default(), preset.wire, now, profile, ack_version,
             crate::websession::NOT_SIGNED_IN],
     ).map_err(err)?;
@@ -274,8 +274,10 @@ pub fn update_provider(conn: &Connection, id: &str, enabled: Option<bool>, billi
             return Err(format!("unknown billing type {billing}"));
         }
         let kind: Option<String> = conn.query_row("SELECT kind FROM providers WHERE id = ?1", [id], |r| r.get(0)).optional().map_err(err)?;
-        if kind.as_deref().is_some_and(super::presets::is_web) && billing != "subscription" {
-            return Err("A web session is billed as your plan with the site: its cost is unknown, so it cannot be set as free or paid".into());
+        // A web session is the user's plan with the site: free ($0 a request, the default since migration 0027) or a
+        // subscription (quota, cost unknown); never paid per token, and not a local model.
+        if kind.as_deref().is_some_and(super::presets::is_web) && !matches!(billing, "free" | "subscription") {
+            return Err("A web session is your plan with the site: billed as free ($0 a request) or as a subscription (quota, cost unknown), never as paid or local".into());
         }
         conn.execute("UPDATE providers SET default_billing = ?2 WHERE id = ?1", params![id, billing]).map_err(err)?;
         apply_free_connection_rule(conn)?;

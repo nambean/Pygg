@@ -60,7 +60,7 @@ const BASE_PRESETS: BasePreset[] = [
     ['perplexity-web', 'Perplexity (perplexity.ai)', 'https://www.perplexity.ai'],
     ['deepseek-web', 'DeepSeek (chat.deepseek.com)', 'https://chat.deepseek.com'],
     ['grok-web', 'Grok (grok.com)', 'https://grok.com'],
-  ] as const).map(([id, name, endpoint]): BasePreset => ({id, name, endpoint, needsKey: false, defaultBilling: 'subscription', wire: 'openai'})),
+  ] as const).map(([id, name, endpoint]): BasePreset => ({id, name, endpoint, needsKey: false, defaultBilling: 'free', wire: 'openai'})),
 ];
 /** What gateway/presets.rs says about starting with each provider. */
 const OFFERS: Record<string, [Preset['offer'], string]> = {

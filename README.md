@@ -62,6 +62,7 @@ The setup follows 9router and OmniRoute, so it feels familiar:
     - a 10 s rest between requests;
     - a daily limit (50 by default).
   - **What it never does:** it never changes the browser's fingerprint and never answers a CAPTCHA.
+  - **Cost:** $0 a request by default, since the site is used on your own plan; set it to Subscription to count requests as quota instead.
   - **Benchmark:** 47 of 48 short tasks answered correctly, at about 18 s each ([report](benchmark/reports/2026-11-13-web-sessions.md)).
 - **API keys:**
   - One per app, each with:

@@ -61,7 +61,7 @@ gateway add-connection --preset custom --label "My provider" --endpoint https://
 
 ## Web session (unofficial)
 
-A site with no API, used through a Pygg window the user signs in to (ADR-035). Off until the user acknowledges the account-risk warning for that connection and signs in; billed as the user's plan with the site, so every cost is unknown; never chosen by `auto`; no tools or images.
+A site with no API, used through a Pygg window the user signs in to (ADR-035). Off until the user acknowledges the account-risk warning for that connection and signs in; billed as free by default ($0 a request: the user's plan with the site, paid by the month or free, never per request; schema v27, 2026-11-13) or as a subscription (quota, cost unknown) at the user's choice; never chosen by `auto`; no tools or images.
 
 Each connection has its own WebView2 profile: its own cookies, storage and sign-in. Pygg never changes a window's browser fingerprint. Each connection sends one request at a time, rests 10 s after each reply and stops at its daily limit (50 requests by default, 1 to 1,000, counted since 00:00 UTC; schema v26). Connections of one site, each signed in to a different account ("Another account on the site"), can form a pool; see [ACCOUNT_API_ROTATION.md](ACCOUNT_API_ROTATION.md). Recipes, hosts and selectors are in `apps/desktop/src-tauri/src/websession/mod.rs` (`RECIPES`); the presets are in `gateway/presets.rs`.
 
