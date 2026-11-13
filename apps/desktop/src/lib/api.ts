@@ -70,6 +70,8 @@ export type Connection = {
   webAckCurrent?: boolean;
   /** A web session's daily request limit and the requests sent today (UTC). */
   webDailyLimit?: number | null; webRequestsToday?: number | null;
+  /** The web guard (ADR-035, migration 0028): the hour's and day's shares by weight, the rest and any back-off. */
+  webGuard?: WebGuard | null;
   webActs?: boolean;
   webAckAt?: number | null;
   webState?: WebState | null;
@@ -208,6 +210,12 @@ export type UsageAlert = {kind: 'near_limit' | 'over_limit' | 'spend_spike' | 'u
   value: number; against: number};
 
 /** Requests and money in one period of the usage chart (one hour or one day). */
+/** What the web guard allows a web session now (ADR-035): a unit is a request, and one more per 2,000 characters. */
+export type WebGuard = {
+  hourUnits: number; hourRequests: number; hourUnitsCap: number; hourRequestsCap: number; todayUnits: number; todayUnitsCap: number;
+  maxPromptChars: number; restingUntil: number | null; backoffUntil: number | null; backoffReason: string | null;
+};
+
 export type UsageBucket = {
   start: number; requests: number; failed: number; knownMicroUsd: number; actualMicroUsd: number; unknownRequests: number;
   inputTokens: number; outputTokens: number;
@@ -329,6 +337,8 @@ export interface GatewayApi {
   /** Shows a web session's window, where the user signs in on the site's own page (ADR-035). */
   openWebSession(id: string): Promise<void>;
   setWebDailyLimit(id: string, limit: number | null): Promise<void>;
+  /** Lifts a web session's rest and back-off now; the hour's and day's shares stay. */
+  resumeWebSession(id: string): Promise<void>;
   /** Opens a new chat in a web session's window to see whether it is signed in. */
   checkWebSession(id: string): Promise<Connection>;
   models(providerId?: string): Promise<Model[]>;
@@ -460,6 +470,7 @@ const native: GatewayApi = {
   refreshModels: id => invoke('connection_refresh_models', {id}),
   openWebSession: id => invoke('web_session_open', {id}),
   setWebDailyLimit: (id, limit) => invoke('web_session_set_daily_limit', {id, limit}),
+  resumeWebSession: id => invoke('web_session_resume', {id}),
   checkWebSession: id => invoke('web_session_check', {id}),
   models: providerId => invoke('models_list', {providerId: providerId ?? null}),
   addModel: (providerId, modelId) => invoke('model_add', {providerId, modelId}),

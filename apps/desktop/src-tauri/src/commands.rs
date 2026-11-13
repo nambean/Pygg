@@ -174,8 +174,41 @@ pub struct ConnectionView {
     /// A web session's daily limit (its own, or Pygg's default) and the requests sent today (migration 0026).
     pub web_daily_limit: Option<u32>,
     pub web_requests_today: Option<u64>,
+    /// The web guard's view of a web session (ADR-035, migration 0028).
+    pub web_guard: Option<WebGuardView>,
     /// The site's assistant can act for the user (Muse).
     pub web_acts: bool,
+}
+
+/// What the web guard allows a web session now: its hour's and day's shares by weight, its rest and its back-off.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebGuardView {
+    pub hour_units: u32,
+    pub hour_requests: u32,
+    pub hour_units_cap: u32,
+    pub hour_requests_cap: u32,
+    pub today_units: u32,
+    pub today_units_cap: u32,
+    pub max_prompt_chars: usize,
+    /// When the rest after the last reply ends, if it has not.
+    pub resting_until: Option<i64>,
+    /// Backed off after a sign of trouble: until when, and Pygg's reason.
+    pub backoff_until: Option<i64>,
+    pub backoff_reason: Option<String>,
+}
+
+fn web_guard_view(state: &AppState, provider: &Provider) -> Option<WebGuardView> {
+    use crate::websession::guard;
+    let now = crate::db::now_ms();
+    let account = state.shared.with_db(|db| store::web_guard(db, &provider.id, now)).ok()?;
+    let (hour_units, hour_requests) = account.hour(now);
+    let limit = provider.web_daily_limit.unwrap_or(crate::websession::DEFAULT_DAILY_LIMIT);
+    Some(WebGuardView { hour_units, hour_requests, hour_units_cap: guard::HOUR_UNITS, hour_requests_cap: guard::HOUR_REQUESTS,
+        today_units: account.today(now), today_units_cap: limit * guard::DAY_UNITS_PER_REQUEST, max_prompt_chars: guard::MAX_PROMPT_CHARS,
+        resting_until: account.next_at.filter(|at| *at > now),
+        backoff_until: account.backoff_until.filter(|at| *at > now),
+        backoff_reason: account.backoff_until.filter(|at| *at > now).and(account.backoff_reason) })
 }
 
 fn view(state: &AppState, provider: Provider) -> ConnectionView {
@@ -193,6 +226,7 @@ fn view(state: &AppState, provider: Provider) -> ConnectionView {
         web_ack_current: web && provider.web_ack_version == Some(crate::websession::WARNING_VERSION),
         web_daily_limit: web.then(|| provider.web_daily_limit.unwrap_or(crate::websession::DEFAULT_DAILY_LIMIT)),
         web_requests_today: if web { state.shared.with_db(|db| store::web_requests_today(db, &provider.id, crate::db::now_ms())).ok() } else { None },
+        web_guard: if web { web_guard_view(state, &provider) } else { None },
         web_acts: preset.is_some_and(|p| p.web_acts),
         limits,
         account,
@@ -455,6 +489,12 @@ pub async fn web_session_check(state: State<'_, AppState>, id: String) -> Res<Co
     state.web.as_ref().ok_or(crate::websession::APP_ONLY)?.check(&id).await?;
     let provider = state.shared.with_db(|db| store::get_provider(db, &id))?.ok_or("Connection not found")?;
     Ok(view(&state, provider))
+}
+
+/// Lifts a web session's rest and back-off now (Providers → Resume Now); the hour's and the day's shares stay.
+#[tauri::command]
+pub fn web_session_resume(state: State<'_, AppState>, id: String) -> Res<()> {
+    state.shared.with_db(|db| store::web_guard_resume(db, &id))
 }
 
 /// A web session's daily request limit; `None` returns it to Pygg's default.

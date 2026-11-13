@@ -1,6 +1,6 @@
 # Web sessions on coding tasks: twelve modules in one reply each, 2026-11-13
 
-> **Status:** Record · **approved for publication by the owner on 2026-11-13** · design: [ADR-035](../../docs/DECISIONS.md) · earlier run on short tasks: [web sessions](2026-11-13-web-sessions.md) · raw results: [`results/2026-11-13-web-coding`](../results/2026-11-13-web-coding/) · agent: [`scripts/bench-web-agent.py`](../../scripts/bench-web-agent.py)
+> **Status:** Record · **approved for publication by the owner on 2026-11-13** · **this run got the owner's DeepSeek account suspended for three days (below)** · design: [ADR-035](../../docs/DECISIONS.md) · earlier run on short tasks: [web sessions](2026-11-13-web-sessions.md) · raw results: [`results/2026-11-13-web-coding`](../results/2026-11-13-web-coding/) · agent: [`scripts/bench-web-agent.py`](../../scripts/bench-web-agent.py)
 
 **In one line:** asked to write a whole module from a specification in one reply, with no tools and no second try, the owner's **ChatGPT accounts solved 17 and 21 of 24** runs and **DeepSeek 17 of 24**, which is as many as Claude Haiku 5.5 through its API solved the same way (16 of 24), at no money; **Muse, Grok and Perplexity solved 3 to 4 of 24**, almost always because Pygg's web session gave up before the site started writing its long answer.
 
@@ -60,7 +60,7 @@ Per case, solved out of two runs:
 - **The sites' models.** A site's plan, model and routing are its own and may differ between accounts and days; the two ChatGPT accounts differ by 4 of 24 on the same prompts.
 - **Agent work.** One reply with no tools, no test run and no second try is a different task from what Claude Code or OpenCode do. The API arms are here only to calibrate the harness.
 - **More than one day, one machine, one network.** Same as the earlier web-session run. Twelve cases run twice give wide intervals.
-- **Whether a site restricts accounts for this use.** None did during the run; the sites' terms still apply.
+- ~~**Whether a site restricts accounts for this use.** None did during the run; the sites' terms still apply.~~ **One did.** About half an hour after the run, DeepSeek's page showed, on the owner's account: "Due to violation of user policies, your account has been suspended until November 16, 2026 19:29." The run had sent that account 24 requests of 2,000 to 6,000 tokens each in 15 minutes, at Pygg's pace of one at a time with a 10 s rest: 24 is under the daily limit of 50, and the rest is the one the earlier short-task run used without trouble. So the pace that is safe for short questions is not safe for a stream of long pasted prompts; and the earlier run's "none did" was wrong by only a few hours. Pygg read the suspension page as "signed out" (its chat box is gone); it now reads the notice and turns the connection off (2026-11-13, evening). The other five accounts showed no notice by 19:30. **Do not repeat this run on an account you need.** Since the same evening the web guard (ADR-035) refuses it: a prompt over 12,000 characters is not sent, and an account gets at most 20 units of weight an hour.
 
 ## How to repeat it
 

@@ -1,6 +1,6 @@
 # Store schema
 
-> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v27
+> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v28
 
 The local SQLite store (`db.rs`): every table after all migrations, in order. Credentials are never here: a
 connection holds only a reference to its key in the OS credential store (ADR-002). Client tokens are stored as
@@ -240,6 +240,10 @@ References: `provider_id` → `providers.id` (on delete cascade).
 | `web_state_reason` | TEXT | yes |  |  | 0024_web_sessions |
 | `web_state_at` | INTEGER | yes |  |  | 0024_web_sessions |
 | `web_daily_limit` | INTEGER | yes |  |  | 0026_web_daily_limit |
+| `web_next_at` | INTEGER | yes |  |  | 0028_web_guard |
+| `web_backoff_until` | INTEGER | yes |  |  | 0028_web_guard |
+| `web_backoff_reason` | TEXT | yes |  |  | 0028_web_guard |
+| `web_strikes` | INTEGER | no | `0` |  | 0028_web_guard |
 
 5 CHECK constraints (see the migrations).
 
@@ -372,6 +376,21 @@ References: `attempt_id` → `attempts.id`.
 Indexes: `usage_by_attempt`, `usage_by_client`, `usage_by_time`.
 
 3 CHECK constraints (see the migrations).
+
+## `web_pace`
+
+| Column | Type | Null | Default | Key | Added in |
+| --- | --- | --- | --- | --- | --- |
+| `provider_id` | TEXT | no |  |  | 0028_web_guard |
+| `at` | INTEGER | no |  |  | 0028_web_guard |
+| `weight` | INTEGER | no |  |  | 0028_web_guard |
+| `outcome` | TEXT | no |  |  | 0028_web_guard |
+
+References: `provider_id` → `providers.id` (on delete cascade).
+
+Indexes: `web_pace_by_provider`.
+
+1 CHECK constraint (see the migrations).
 
 ## `workspace_checks`
 

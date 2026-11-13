@@ -328,6 +328,10 @@ export function demoApi(): GatewayApi {
       health: health.filter(h => h.providerId === c.id && (h.untilMs === null || h.untilMs > Date.now())),
       sharesQuotaWith: connections.filter(o => o.id !== c.id && quotaGroup(o) === quotaGroup(c)).map(o => o.label),
       // Illustrative: what Anthropic's API sends with an answer.
+      // Illustrative: the web guard after a long prompt and a timeout (ADR-035, migration 0028).
+      ...(c.web ? {webGuard: {hourUnits: 7, hourRequests: 3, hourUnitsCap: 20, hourRequestsCap: 15, todayUnits: 12, todayUnitsCap: 100,
+        maxPromptChars: 12_000, restingUntil: Date.now() + 70_000, backoffUntil: c.kind === 'grok-web' ? Date.now() + 5 * 60_000 : null,
+        backoffReason: c.kind === 'grok-web' ? 'No reply appeared in time.' : null}} : {}),
       limits: c.kind === 'qwen' ? planLimits() : c.kind === 'anthropic' ? [{modelId: 'claude-sonnet-4-5', httpStatus: 200, observedAt: Date.now() - 6 * 60_000, headers: {
         'anthropic-ratelimit-requests-limit': '50', 'anthropic-ratelimit-requests-remaining': '49',
         'anthropic-ratelimit-tokens-remaining': '39000', 'anthropic-ratelimit-tokens-reset': '2026-11-12T02:31:00Z'}}] : []};
@@ -458,7 +462,7 @@ export function demoApi(): GatewayApi {
         let id = slug(label), n = 2;
         while (connections.some(c => c.id === id)) id = `${slug(label)}-${n++}`;
         connections.push({id, kind: preset.id, label, endpoint: preset.endpoint!, enabled: false, credentialRef: null,
-          defaultBilling: 'subscription', dataUseTerms: 'unknown', termsSource: null, termsCheckedAt: null, createdAt: Date.now(),
+          defaultBilling: 'free', dataUseTerms: 'unknown', termsSource: null, termsCheckedAt: null, createdAt: Date.now(),
           key: false, wire: 'openai', separateQuota: false, quotaConfirmedAt: null, web: true, webAckCurrent: true, webActs: preset.webActs,
           webAckAt: Date.now(), webState: 'signed_out', webStateAt: Date.now(),
           webStateReason: 'Not signed in yet. Open the sign-in window and sign in on the site.'});
@@ -601,6 +605,7 @@ export function demoApi(): GatewayApi {
     // The preview has no window to open or drive.
     openWebSession: async () => { await sleep(150); throw 'The browser preview cannot open a sign-in window; run the desktop app.'; },
     setWebDailyLimit: async () => { await sleep(100); },
+    resumeWebSession: async () => { await sleep(100); },
     checkWebSession: async id => { await sleep(400); return touch(view(find(id))); },
     refreshModels: async id => {
       await sleep(700);

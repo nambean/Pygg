@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AppWindow, KeyRound, Plug, Plus, RefreshCw, Search, ShieldAlert, Trash2 } from 'lucide-react';
-import { BILLINGS, TIERS, WEB_WARNING_VERSION, call, errorText, gatewayChanged, type Billing, type Connection, type Health, type Model,
+import { BILLINGS, TIERS, WEB_WARNING_VERSION, call, errorText, gatewayChanged, type Billing, type Connection, type WebGuard, type Health, type Model,
   type Preset, type ModelTest, type Reliability, type Tier, type WebState } from '../../lib/api';
 import { ago, windowText } from '../../lib/format';
-import { plural, t } from '../../lib/i18n';
+import { locale, plural, t } from '../../lib/i18n';
 import { billingLabel, parseUsd, priceText } from '../../lib/money';
 import { isMac } from '../../lib/platform';
 import { useGateway } from '../../hooks/useGateway';
@@ -125,8 +125,9 @@ export function connectionState(c: Connection): {tone: 'ok' | 'warn' | 'off' | '
 }
 
 /**
- * A web session's pace (migration 0026): requests per UTC day, and a rest between two requests. What the site sees is
- * a person's pace, never a burst; in a pool, the account used least today goes first.
+ * A web session's pace (migrations 0026 and 0028): requests per UTC day, and the web guard, which weighs each request by
+ * its size, rests after a reply as long as a person would read it, caps the hour and the day by weight, refuses a pasted
+ * file and backs off after trouble. In a pool, an account the guard is resting goes last.
  */
 function WebPaceRow({connection: c}: {connection: Connection}) {
   const [value, setValue] = useState(String(c.webDailyLimit ?? 50));
@@ -141,14 +142,31 @@ function WebPaceRow({connection: c}: {connection: Connection}) {
   };
   return <div className="group-row">
     <span className="group-label"><label htmlFor={`web-limit-${c.id}`}>{t('Daily limit')}</label>
-      <small>{t('{used} of {limit} requests sent today (UTC). Pygg rests 10 s between two requests and sends one at a time, so the site sees a person’s pace; at the limit it sends nothing until 00:00 UTC. In a pool, the account used least today answers first.',
+      <small>{t('{used} of {limit} requests sent today (UTC). At the limit Pygg sends nothing until 00:00 UTC.',
         {used: String(c.webRequestsToday ?? 0), limit: String(c.webDailyLimit ?? 50)})}</small>
+      {c.webGuard && <WebGuardNote connection={c} guard={c.webGuard}/>}
       {error && <small className="warn-text">{error}</small>}</span>
     <span className="group-control">
       <input id={`web-limit-${c.id}`} className="text-input narrow-input" inputMode="numeric" value={value} aria-invalid={!valid}
         onChange={e => setValue(e.target.value)} onBlur={save} onKeyDown={e => { if (e.key === 'Enter') save(); }}/>
     </span>
   </div>;
+}
+
+/** The web guard's shares, rest and back-off for one web session, with Resume Now while it is backed off. */
+function WebGuardNote({connection: c, guard: g}: {connection: Connection; guard: WebGuard}) {
+  const [error, setError] = useState<string | null>(null);
+  const time = (at: number) => new Date(at).toLocaleTimeString(locale(), {hour: '2-digit', minute: '2-digit'});
+  const resume = () => { setError(null); call(api => api.resumeWebSession(c.id)).then(gatewayChanged, e => setError(errorText(e))); };
+  return <>
+    <small>{t('This hour: {units} of {unitsCap} units, {requests} of {requestsCap} requests. Today: {today} of {todayCap} units. A unit is a request, and one more for each 2,000 characters of prompt; a prompt over {max} characters is not sent. After each reply Pygg rests as long as a person would take to read it.',
+      {units: String(g.hourUnits), unitsCap: String(g.hourUnitsCap), requests: String(g.hourRequests), requestsCap: String(g.hourRequestsCap),
+        today: String(g.todayUnits), todayCap: String(g.todayUnitsCap), max: g.maxPromptChars.toLocaleString(locale())})}</small>
+    {g.restingUntil && !g.backoffUntil && <small className="secondary">{t('Resting until {time}.', {time: time(g.restingUntil)})}</small>}
+    {g.backoffUntil && <small className="warn-text">{t('Backed off until {time}: {reason}', {time: time(g.backoffUntil), reason: g.backoffReason ?? ''})}{' '}
+      <button type="button" className="link-button" onClick={resume}>{t('Resume Now')}</button></small>}
+    {error && <small className="warn-text">{error}</small>}
+  </>;
 }
 
 export function webStateLabel(state: WebState): string {

@@ -10,7 +10,7 @@ fn fast() -> Timing {
     Timing { poll: Duration::from_millis(1), ready: Duration::from_millis(150), send: Duration::from_millis(30),
         first_word: Duration::from_millis(200), first_word_per_100_tokens: Duration::from_millis(30),
         first_word_cap: Duration::from_secs(1), reply: Duration::from_secs(2), stable: 2, stable_busy: 6,
-        queue: Duration::from_millis(100), gap: Duration::ZERO }
+        queue: Duration::from_millis(100), gap: Duration::ZERO, backoff: Duration::ZERO }
 }
 
 fn muse() -> &'static Recipe {
@@ -131,6 +131,24 @@ fn a_check_on_the_page_stops_and_asks_for_the_user() {
         assert_eq!(error.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(error.state(), Some(("needs_you", CHALLENGE)));
     });
+}
+
+#[test]
+fn a_suspended_account_is_not_taken_for_signed_out_and_its_connection_goes_off() {
+    rt().block_on(async {
+        // DeepSeek's notice of 2026-11-13: the prompt box is gone, so before this it read as "signed out".
+        let page = FakePage::new(vec![json!({ "fresh": true, "signIn": true, "restricted": true })], vec![]);
+        let error = converse(page.as_ref(), muse(), "hi", &fast(), &mut |_: &str| {}).await.unwrap_err();
+        assert_eq!(error, WebError::NeedsYou { state: "needs_you", reason: RESTRICTED });
+        assert!(page.filled.lock().unwrap().is_none(), "nothing typed into a suspended account");
+    });
+    assert!(state_script(muse()).contains("violation of user policies"));
+    let (conn, muse_conn) = web_store();
+    store::update_provider(&conn, &muse_conn.id, Some(true), None, None).unwrap();
+    store::set_web_state(&conn, &muse_conn.id, "needs_you", RESTRICTED).unwrap();
+    let after = store::get_provider(&conn, &muse_conn.id).unwrap().unwrap();
+    assert!(!after.enabled, "turned off until the user turns it back on");
+    assert_eq!(after.web_state.as_deref(), Some("needs_you"));
 }
 
 #[test]
@@ -567,6 +585,47 @@ fn the_endpoint_needs_its_token_and_refuses_tools_before_touching_the_page() {
         // A connection whose warning is not acknowledged in its current text is not driven.
         rig.db.lock().unwrap().execute("UPDATE providers SET web_ack_version = 0", []).unwrap();
         assert_eq!(rig.post("web-token", body).await.status(), 400);
+    });
+}
+
+#[test]
+fn the_web_guard_refuses_a_pasted_file_and_rests_after_trouble() {
+    rt().block_on(async {
+        let rig = rig(hello_page()).await;
+        // A prompt no person would type into a chat box never reaches the site.
+        let long = "x".repeat(guard::MAX_PROMPT_CHARS + 1);
+        let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": long }] })).await;
+        assert_eq!(response.status(), 413);
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["error"]["code"], "prompt_too_long");
+        assert_eq!(rig.page.navigations.load(Ordering::SeqCst), 0, "nothing reached the site");
+
+        // A clean reply is kept with its weight; the account then rests.
+        let ok = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        assert_eq!(ok.status(), 200);
+        let now = crate::db::now_ms();
+        let account = store::web_guard(&rig.db.lock().unwrap(), &rig.muse.id, now).unwrap();
+        assert_eq!(account.sent.len(), 1);
+        assert_eq!(account.sent[0].1, 1);
+
+        // A back-off from earlier trouble refuses the next request with a Retry-After, before the page is touched.
+        {
+            let db = rig.db.lock().unwrap();
+            store::web_guard_after(&db, &rig.muse.id, now, 1, "error", now, Some(NO_REPLY), 60_000, now).unwrap();
+        }
+        let before = rig.page.navigations.load(Ordering::SeqCst);
+        let refused = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        assert_eq!(refused.status(), 429);
+        assert!(refused.headers().get("retry-after").is_some());
+        let body: Value = refused.json().await.unwrap();
+        assert_eq!(body["error"]["code"], "web_pace");
+        assert_eq!(rig.page.navigations.load(Ordering::SeqCst), before);
+
+        // The user lifts it; the next question goes to the page (this fake page has no second reply scripted).
+        store::web_guard_resume(&rig.db.lock().unwrap(), &rig.muse.id).unwrap();
+        let after = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        assert_ne!(after.status(), 429);
+        assert!(rig.page.navigations.load(Ordering::SeqCst) > before, "the page was driven again");
     });
 }
 

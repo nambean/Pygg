@@ -1,6 +1,10 @@
 """A one-shot coding agent for `bench --agent`, for providers that take no tools: web-session connections (ADR-035)
 and, for comparison, any API model through the same gateway.
 
+WARNING: its run of 2026-11-13 got the owner's DeepSeek account suspended for three days (24 long prompts in 15
+minutes). Pygg's web guard now refuses prompts over 12,000 characters and caps an account's hour by weight, so most
+cases are refused on a web session; never point this at an account you need.
+
     bench --agent "python -I scripts/bench-web-agent.py {prompt_file} {model} {workdir}" ...
 
 It sends one request through the running Pygg gateway: the task, the rules, and every file of the fixture, and asks

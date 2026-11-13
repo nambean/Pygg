@@ -14,6 +14,7 @@
 //!   requests for approval are denied, so the agent never acts for the user through Pygg; nothing from the page but
 //!   the reply leaves the window, and errors carry Pygg's own wording only.
 
+pub mod guard;
 pub mod window;
 
 use crate::gateway::store::{self, Provider};
@@ -59,6 +60,13 @@ pub const DEFAULT_DAILY_LIMIT: u32 = 50;
 /// The rest between two requests on one account, after the reply ends: a person's pace (owner, 2026-11-13: rotation
 /// "must avoid sending requests continuously"). Fixed, not randomised: Pygg slows down, it does not disguise itself.
 pub const PACE_SECS: u64 = 10;
+/// The site says the account is suspended, banned or restricted (DeepSeek suspended the owner's account on 2026-11-13
+/// after a stream of long prompts). Pygg turns the connection off when it records this (`store::set_web_state`).
+pub const RESTRICTED: &str = "The site says this account is suspended or restricted. Pygg turned this connection off and sends it nothing. Open the window to read the site's notice; turn the connection back on only after the site lifts it.";
+/// Words of such a notice, in lower case. Several sites' wording; a page that shows none of them is not taken for one.
+const RESTRICTION_HINTS: &[&str] = &["account has been suspended", "account is suspended", "account has been banned",
+    "account is banned", "account has been restricted", "account is restricted", "account has been disabled",
+    "account is disabled", "violation of user policies", "violated our usage policies", "account has been deactivated"];
 pub const CHALLENGE: &str = "The site is showing a check (a CAPTCHA, a bot check or a sign-in challenge). Open the window and deal with it yourself; Pygg does not answer such checks.";
 pub const SIGNED_IN: &str = "Signed in.";
 pub const NO_PROMPT_BOX: &str = "The page has changed: Pygg could not find its prompt box.";
@@ -392,11 +400,12 @@ pub fn state_script(r: &Recipe) -> String {
   const signedOut = [...document.querySelectorAll('button,a')].some(b => b.offsetParent !== null
     && {signed_out}.includes((b.innerText || '').trim().toLowerCase()));
   const challenge = !!document.querySelector({challenge}) || {challenge_hints}.some(h => body.includes(h));
+  const restricted = {restricted}.some(h => body.includes(h));
   return {{ fresh: !window.__pyggOld, ready: document.readyState === 'complete' && !!input && {ready_attr},
-           hasInput: !!input, signIn, signedOut, challenge }};
+           hasInput: !!input, signIn, signedOut, challenge, restricted }};
 }})()"#,
         input = q(r.input), sign_in = json!(r.sign_in_hints), signed_out = json!(r.signed_out_buttons), challenge = q(r.challenge_selectors),
-        challenge_hints = json!(r.challenge_hints), ready_attr = ready_attr)
+        challenge_hints = json!(r.challenge_hints), ready_attr = ready_attr, restricted = json!(RESTRICTION_HINTS))
 }
 
 /// The host of the site's own page (`chatgpt.com`, `perplexity.ai`), without `www.`: where Pygg may type.
@@ -492,6 +501,8 @@ pub struct PageState {
     /// Buttons only a visitor sees are on the page: the site may chat, but not as the user.
     pub signed_out: bool,
     pub challenge: bool,
+    /// The site's notice that the account is suspended or restricted.
+    pub restricted: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -525,13 +536,19 @@ pub enum WebError {
     BadRequest(String),
     /// Pygg's own daily limit for this web session is used: 429 until 00:00 UTC; nothing reached the site.
     DailyLimit { limit: u32, retry_after: u64 },
+    /// The prompt is longer than a person would type into the site's chat box: 413; nothing reached the site.
+    TooLong { chars: usize },
+    /// The web guard says not now (a rest, the hour's or the day's share, a back-off): 429 with a wait; nothing reached
+    /// the site.
+    Pace { retry_after: u64, why: &'static str },
 }
 
 impl WebError {
     pub fn status(&self) -> StatusCode {
         match self {
             WebError::NeedsYou { .. } => StatusCode::UNAUTHORIZED,
-            WebError::Busy { .. } | WebError::Quota | WebError::DailyLimit { .. } => StatusCode::TOO_MANY_REQUESTS,
+            WebError::Busy { .. } | WebError::Quota | WebError::DailyLimit { .. } | WebError::Pace { .. } => StatusCode::TOO_MANY_REQUESTS,
+            WebError::TooLong { .. } => StatusCode::PAYLOAD_TOO_LARGE,
             WebError::PageChanged(_) | WebError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             WebError::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
             WebError::BadRequest(_) => StatusCode::BAD_REQUEST,
@@ -547,6 +564,20 @@ impl WebError {
             WebError::BadRequest(why) => why.clone(),
             WebError::DailyLimit { limit, .. } => format!("Not sent: this web session reached its daily limit of {limit} \
                 requests, which keeps its use at a person's pace. It resets at 00:00 UTC; change it in Pygg → Providers."),
+            WebError::TooLong { chars } => format!("Not sent: the prompt is {chars} characters, and a web session takes at most \
+                {} (about 3,000 tokens), what a person would type into a chat box. Long work, such as whole files, belongs on an \
+                API connection.", guard::MAX_PROMPT_CHARS),
+            WebError::Pace { why, .. } => why.to_string(),
+        }
+    }
+
+    /// A sign of trouble on the page, after which the web guard rests the account (a back-off that doubles).
+    pub fn trouble(&self) -> Option<&'static str> {
+        match self {
+            WebError::Timeout(why) | WebError::PageChanged(why) => Some(why),
+            WebError::Quota => Some(QUOTA),
+            WebError::NeedsYou { reason, .. } if *reason == CHALLENGE || *reason == RESTRICTED => Some(reason),
+            _ => None,
         }
     }
 
@@ -563,13 +594,19 @@ impl WebError {
         let kind = match self.status() {
             StatusCode::UNAUTHORIZED => "authentication_error",
             StatusCode::TOO_MANY_REQUESTS => "rate_limit_error",
-            StatusCode::BAD_REQUEST => "invalid_request_error",
+            StatusCode::BAD_REQUEST | StatusCode::PAYLOAD_TOO_LARGE => "invalid_request_error",
             _ => "api_error",
         };
-        let code = match self { WebError::Quota => Some("insufficient_quota"), WebError::DailyLimit { .. } => Some("daily_limit"), _ => None };
+        let code = match self {
+            WebError::Quota => Some("insufficient_quota"),
+            WebError::DailyLimit { .. } => Some("daily_limit"),
+            WebError::Pace { .. } => Some("web_pace"),
+            WebError::TooLong { .. } => Some("prompt_too_long"),
+            _ => None,
+        };
         let mut response = (self.status(), axum::Json(json!({ "error": {
             "message": self.message(), "type": kind, "code": code } }))).into_response();
-        if let WebError::Busy { retry_after } | WebError::DailyLimit { retry_after, .. } = self {
+        if let WebError::Busy { retry_after } | WebError::DailyLimit { retry_after, .. } | WebError::Pace { retry_after, .. } = self {
             response.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(*retry_after));
         }
         response
@@ -614,9 +651,12 @@ pub struct Timing {
     /// Unchanged reads before a reply counts as finished, and the same while the site still shows it is answering.
     pub stable: u32,
     pub stable_busy: u32,
-    /// How long a second request waits for the connection, and the pause after each request.
+    /// How long a second request waits for the connection, and the pause after each request (the web guard's base
+    /// rest, which grows with the request and its reply).
     pub queue: Duration,
     pub gap: Duration,
+    /// The web guard's first back-off after a sign of trouble (`guard::BACKOFF_BASE_MS`).
+    pub backoff: Duration,
 }
 
 impl Default for Timing {
@@ -624,7 +664,8 @@ impl Default for Timing {
         Timing { poll: Duration::from_millis(300), ready: Duration::from_secs(45), send: Duration::from_secs(5),
             first_word: Duration::from_secs(60), first_word_per_100_tokens: Duration::from_secs(1),
             first_word_cap: Duration::from_secs(240), reply: Duration::from_secs(300), stable: 4, stable_busy: 12,
-            queue: Duration::from_secs(60), gap: Duration::from_secs(PACE_SECS) }
+            queue: Duration::from_secs(60), gap: Duration::from_secs(PACE_SECS),
+            backoff: Duration::from_millis(guard::BACKOFF_BASE_MS as u64) }
     }
 }
 
@@ -658,6 +699,9 @@ pub async fn open_chat(page: &dyn Page, recipe: &Recipe, timing: &Timing) -> Res
         tokio::time::sleep(timing.poll).await;
         // A page that is still loading may not answer; that is not an error yet.
         let Ok(state) = eval_as::<PageState>(page, state_script(recipe)).await else { continue };
+        if state.fresh && state.restricted {
+            return Err(WebError::NeedsYou { state: "needs_you", reason: RESTRICTED });
+        }
         if state.fresh && state.challenge {
             return Err(WebError::NeedsYou { state: "needs_you", reason: CHALLENGE });
         }
@@ -960,6 +1004,11 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
     let prompt = flatten(&body).map_err(WebError::BadRequest)?;
     let model = body["model"].as_str().unwrap_or(recipe.models[0]).to_string();
     let stream = body["stream"] == true;
+    // The web guard: a prompt no person would type into a chat box never reaches the site.
+    let chars = prompt.chars().count();
+    if chars > guard::MAX_PROMPT_CHARS {
+        return Err(WebError::TooLong { chars });
+    }
 
     // Pygg's own pace limit, before anything reaches the site.
     let now = crate::db::now_ms();
@@ -970,6 +1019,18 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
         return Err(WebError::DailyLimit { limit, retry_after });
     }
     let mut turn = service.take_turn(provider_id).await?;
+    // The web guard, while this request holds the connection: its rest, the hour's and the day's share by weight, and a
+    // back-off after trouble. Refused here, nothing reaches the site and the caller gets a Retry-After.
+    let weight = guard::weight(chars);
+    let now = crate::db::now_ms();
+    let account = service.with_db(|db| store::web_guard(db, provider_id, now)).unwrap_or_default();
+    match guard::decide(&account, weight, now, limit) {
+        guard::Verdict::Refuse { retry_after_ms, why } =>
+            return Err(WebError::Pace { retry_after: ((retry_after_ms + 999) / 1000).max(1) as u64, why }),
+        guard::Verdict::Go { wait_ms } if wait_ms > 0 => tokio::time::sleep(Duration::from_millis(wait_ms as u64)).await,
+        guard::Verdict::Go { .. } => {}
+    }
+    let sent_at = crate::db::now_ms();
     let page = service.windows.page(&provider, recipe)?;
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
     let task_service = service.clone();
@@ -982,6 +1043,15 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
             Ok(_) => task_service.record(&id, "signed_in", SIGNED_IN),
             Err(e) => if let Some((state, reason)) = e.state() { task_service.record(&id, state, reason) },
         }
+        // The web guard keeps the request's weight, rests the account as long as a person would read the reply, and
+        // backs off after a sign of trouble (or clears the back-off after a clean reply).
+        let reply_chars = result.as_ref().map(|r| r.text.chars().count()).unwrap_or(0);
+        let ended = crate::db::now_ms();
+        let rest = guard::rest_ms(task_service.timing.gap.as_millis() as i64, weight, reply_chars);
+        let trouble = result.as_ref().err().and_then(WebError::trouble);
+        let backoff = task_service.timing.backoff.as_millis() as i64;
+        let _ = task_service.with_db(|db| store::web_guard_after(db, &id, sent_at, weight,
+            if result.is_ok() { "ok" } else { "error" }, ended + rest, trouble, backoff, ended));
         turn.finished = Some(Instant::now());
         drop(turn);
         let _ = tx.send(Event::Done(result));

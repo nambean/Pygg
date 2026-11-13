@@ -215,6 +215,10 @@ pub fn set_web_state(conn: &Connection, provider_id: &str, state: &str, reason: 
     if state == "signed_in" && before.as_deref() != Some("signed_in") {
         clear_health(conn, provider_id)?;
     }
+    // A site that suspended or restricted the account gets nothing more from Pygg until the user turns it back on.
+    if reason == crate::websession::RESTRICTED {
+        conn.execute("UPDATE providers SET enabled = 0 WHERE id = ?1", [provider_id]).map_err(err)?;
+    }
     Ok(())
 }
 
@@ -233,6 +237,57 @@ pub fn web_requests_today(conn: &Connection, provider_id: &str, now: i64) -> Res
     conn.query_row("SELECT COUNT(*) FROM usage_events WHERE provider = ?1 AND created_at >= ?2 \
         AND COALESCE(http_status, 0) <> 429", params![provider_id, day_start], |r| r.get::<_, i64>(0))
         .map(|n| n.max(0) as u64).map_err(err)
+}
+
+/// The web guard's record of an account (ADR-035, migration 0028): the requests of the last day with their weight, and
+/// its rest and back-off.
+pub fn web_guard(conn: &Connection, provider_id: &str, now: i64) -> Result<crate::websession::guard::Account> {
+    let mut stmt = conn.prepare("SELECT at, weight FROM web_pace WHERE provider_id = ?1 AND at > ?2 ORDER BY at").map_err(err)?;
+    let sent = stmt.query_map(params![provider_id, now - crate::websession::guard::DAY_MS],
+        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?.clamp(1, 1_000) as u32))).map_err(err)?
+        .collect::<rusqlite::Result<Vec<_>>>().map_err(err)?;
+    let (next_at, backoff_until, backoff_reason) = conn.query_row(
+        "SELECT web_next_at, web_backoff_until, web_backoff_reason FROM providers WHERE id = ?1", [provider_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional().map_err(err)?.unwrap_or((None, None, None));
+    Ok(crate::websession::guard::Account { sent, next_at, backoff_until, backoff_reason })
+}
+
+/// After a request to a web session: keeps its weight, sets the rest until `next_at`, and backs the account off after a
+/// sign of trouble (doubling with each one in a row, from `backoff_base_ms`) or clears the back-off after a clean reply.
+#[allow(clippy::too_many_arguments)]
+pub fn web_guard_after(conn: &Connection, provider_id: &str, sent_at: i64, weight: u32, outcome: &str, next_at: i64,
+    trouble: Option<&str>, backoff_base_ms: i64, now: i64) -> Result<()> {
+    conn.execute("INSERT INTO web_pace (provider_id, at, weight, outcome) VALUES (?1, ?2, ?3, ?4)",
+        params![provider_id, sent_at, weight.max(1), outcome]).map_err(err)?;
+    conn.execute("DELETE FROM web_pace WHERE at < ?1", [now - 2 * crate::websession::guard::DAY_MS]).map_err(err)?;
+    match trouble {
+        Some(reason) => {
+            let strikes: i64 = conn.query_row("SELECT web_strikes FROM providers WHERE id = ?1", [provider_id], |r| r.get(0))
+                .optional().map_err(err)?.unwrap_or(0) + 1;
+            let until = now + crate::websession::guard::backoff_ms(backoff_base_ms, strikes as u32);
+            conn.execute("UPDATE providers SET web_next_at = ?2, web_strikes = ?3, web_backoff_until = ?4, web_backoff_reason = ?5 \
+                WHERE id = ?1", params![provider_id, next_at.max(until), strikes, until, reason]).map_err(err)?;
+        }
+        None => {
+            conn.execute("UPDATE providers SET web_next_at = ?2, web_strikes = 0, web_backoff_until = NULL, \
+                web_backoff_reason = NULL WHERE id = ?1", params![provider_id, next_at]).map_err(err)?;
+        }
+    }
+    Ok(())
+}
+
+/// The user lifts a web session's rest and back-off (Providers → Resume Now). The hour's and the day's shares stay.
+pub fn web_guard_resume(conn: &Connection, provider_id: &str) -> Result<()> {
+    conn.execute("UPDATE providers SET web_next_at = NULL, web_strikes = 0, web_backoff_until = NULL, web_backoff_reason = NULL \
+        WHERE id = ?1", [provider_id]).map(|_| ()).map_err(err)
+}
+
+/// Whether the web guard would refuse even a short question to this account now: resting, backed off, or out of its
+/// hour's or day's share. A web pool sends to such an account last.
+pub fn web_resting(conn: &Connection, provider: &Provider, now: i64) -> bool {
+    let limit = provider.web_daily_limit.unwrap_or(crate::websession::DEFAULT_DAILY_LIMIT);
+    web_guard(conn, &provider.id, now).is_ok_and(|account|
+        matches!(crate::websession::guard::decide(&account, 1, now, limit), crate::websession::guard::Verdict::Refuse { .. }))
 }
 
 /// Says what the window last refused to open, keeping the session's state: a sign-in that stalls on an address
@@ -1525,14 +1580,15 @@ pub fn resolve(conn: &Connection, requested: &str) -> Result<Vec<(Provider, Stri
         None => match requested.split_once('/') {
             Some((prefix, model_id)) if !model_id.is_empty() && get_provider(conn, prefix)?.is_none() => {
                 let mut members = pool_members(conn, prefix)?;
-                // A pool of web sessions spreads its requests: the account that sent fewest today first, then the pool's
-                // order. Each still stops at its own daily limit, and the next one answers.
+                // A pool of web sessions spreads its requests: an account the web guard is resting goes last, then the
+                // account that sent fewest today, then the pool's order. Each still stops at its own limits, and the
+                // next one answers.
                 if members.iter().all(|p| super::presets::is_web(&p.kind)) {
                     let now = now_ms();
-                    let mut used: Vec<(u64, Provider)> = members.into_iter()
-                        .map(|p| (web_requests_today(conn, &p.id, now).unwrap_or(0), p)).collect();
-                    used.sort_by_key(|(n, p)| (*n, p.pool_rank.unwrap_or(i64::MAX)));
-                    members = used.into_iter().map(|(_, p)| p).collect();
+                    let mut used: Vec<(bool, u64, Provider)> = members.into_iter()
+                        .map(|p| (web_resting(conn, &p, now), web_requests_today(conn, &p.id, now).unwrap_or(0), p)).collect();
+                    used.sort_by_key(|(resting, n, p)| (*resting, *n, p.pool_rank.unwrap_or(i64::MAX)));
+                    members = used.into_iter().map(|(_, _, p)| p).collect();
                 }
                 members.into_iter().map(|p| Target { provider_id: p.id, model_id: model_id.into() }).collect()
             }
