@@ -31,6 +31,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -69,6 +70,18 @@ const RESTRICTION_HINTS: &[&str] = &["account has been suspended", "account is s
     "account is disabled", "violation of user policies", "violated our usage policies", "account has been deactivated"];
 pub const CHALLENGE: &str = "The site is showing a check (a CAPTCHA, a bot check or a sign-in challenge). Open the window and deal with it yourself; Pygg does not answer such checks.";
 pub const SIGNED_IN: &str = "Signed in.";
+pub const CHECK_BUSY: &str = "Not checked: a request is using this session now.";
+pub const CHECK_RESTING: &str = "Not checked: this account is resting after its last request or check, and a check loads the site's page as a request does.";
+pub const CHECK_BACKED_OFF: &str = "Not checked: the site showed a sign of trouble on this account, so Pygg leaves it alone for a while.";
+pub const CONNECTION_OFF: &str = "this connection is turned off.";
+pub const GUARD_UNREADABLE: &str = "Not sent: Pygg could not read or keep its record of this account's pace, so it sends nothing to the site until it can.";
+
+/// What a sign-in check did: looked at the page, or left it alone and why.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Checked {
+    Seen,
+    Skipped(String),
+}
 pub const NO_PROMPT_BOX: &str = "The page has changed: Pygg could not find its prompt box.";
 pub const NO_SEND_BUTTON: &str = "The page has changed: Pygg could not find its Send button.";
 pub const NO_REPLY: &str = "No reply appeared in time.";
@@ -470,9 +483,12 @@ pub fn read_script(r: &Recipe) -> String {
   const replies = [...document.querySelectorAll({reply})];
   const last = replies.length ? (replies[replies.length - 1].innerText || '').trim() : '';
   const body = document.body ? document.body.innerText.slice(0, 4000).toLowerCase() : '';
+  const said = replies.map(e => (e.innerText || '').toLowerCase()).join('
+');
   return {{ count: replies.length, text: last, busy: {busy},
-           approval: {approval}, challenge: !!document.querySelector({challenge}) || {challenge_hints}.some(h => body.includes(h)) }};
-}})()"#, reply = q(r.reply), busy = r.busy.map(|b| format!("!!document.querySelector({})", q(b))).unwrap_or_else(|| "false".into()),
+           approval: {approval}, challenge: !!document.querySelector({challenge}) || {challenge_hints}.some(h => body.includes(h)),
+           restricted: {restricted}.some(h => body.includes(h) && !said.includes(h)) }};
+}})()"#, reply = q(r.reply), restricted = json!(RESTRICTION_HINTS), busy = r.busy.map(|b| format!("!!document.querySelector({})", q(b))).unwrap_or_else(|| "false".into()),
         approval = r.approval.map(|a| format!("!!document.querySelector({})", q(a))).unwrap_or_else(|| "false".into()),
         challenge = q(r.challenge_selectors), challenge_hints = json!(r.challenge_hints))
 }
@@ -513,6 +529,8 @@ pub struct ChatState {
     pub busy: bool,
     pub approval: bool,
     pub challenge: bool,
+    /// A suspension or restriction notice outside the replies (`RESTRICTION_HINTS`).
+    pub restricted: bool,
 }
 
 // ---------- Driving a page ----------
@@ -558,7 +576,7 @@ impl WebError {
     pub fn message(&self) -> String {
         match self {
             WebError::NeedsYou { reason, .. } => reason.to_string(),
-            WebError::Busy { .. } => "The site is answering another request; a web session takes one at a time.".into(),
+            WebError::Busy { .. } => "Not sent: the site is answering another request; a web session takes one at a time.".into(),
             WebError::Quota => QUOTA.into(),
             WebError::PageChanged(why) | WebError::Timeout(why) | WebError::Unavailable(why) => why.to_string(),
             WebError::BadRequest(why) => why.clone(),
@@ -736,6 +754,13 @@ pub struct Reply {
 /// that thinks visibly before it writes has given its first word.
 pub async fn converse(page: &dyn Page, recipe: &Recipe, prompt: &str, timing: &Timing,
     on_text: &mut (dyn FnMut(&str) + Send)) -> Result<Reply, WebError> {
+    converse_marked(page, recipe, prompt, timing, on_text, &AtomicBool::new(false)).await
+}
+
+/// `converse`, setting `submitted` once the site's Send was pressed: from then on the site may have the prompt, and the
+/// gateway sends it to no other web session (Codex's fourth review, A8).
+pub async fn converse_marked(page: &dyn Page, recipe: &Recipe, prompt: &str, timing: &Timing,
+    on_text: &mut (dyn FnMut(&str) + Send), submitted: &AtomicBool) -> Result<Reply, WebError> {
     open_chat(page, recipe, timing).await?;
     let base: ChatState = eval_as(page, read_script(recipe)).await?;
     let filled: Value = page.eval(fill_script(recipe, prompt)).await?;
@@ -748,7 +773,7 @@ pub async fn converse(page: &dyn Page, recipe: &Recipe, prompt: &str, timing: &T
     let started = Instant::now();
     loop {
         match page.eval(send_script(recipe)).await?.as_str() {
-            Some("clicked" | "entered") => break,
+            Some("clicked" | "entered") => { submitted.store(true, Ordering::SeqCst); break }
             Some("offsite") => return Err(WebError::NeedsYou { state: "needs_you", reason: OFF_SITE }),
             _ if started.elapsed() >= timing.send => return Err(WebError::PageChanged(NO_SEND_BUTTON)),
             _ => tokio::time::sleep(timing.poll).await,
@@ -760,6 +785,9 @@ pub async fn converse(page: &dyn Page, recipe: &Recipe, prompt: &str, timing: &T
     let (mut sent, mut last, mut stable, mut denied) = (String::new(), None::<String>, 0, 0u64);
     // The page has shown it is answering: its thinking is the first word.
     let mut answering = false;
+    // A notice in the prompt itself is the user's text, not the site's.
+    let prompt_lower = prompt.to_lowercase();
+    let quoted = RESTRICTION_HINTS.iter().any(|h| prompt_lower.contains(h));
     loop {
         let elapsed = started.elapsed();
         if elapsed > reply_wait {
@@ -770,6 +798,9 @@ pub async fn converse(page: &dyn Page, recipe: &Recipe, prompt: &str, timing: &T
         }
         tokio::time::sleep(timing.poll).await;
         let Ok(state) = eval_as::<ChatState>(page, read_script(recipe)).await else { continue };
+        if state.restricted && !quoted {
+            return Err(WebError::NeedsYou { state: "needs_you", reason: RESTRICTED });
+        }
         if state.challenge {
             return Err(WebError::NeedsYou { state: "needs_you", reason: CHALLENGE });
         }
@@ -925,18 +956,35 @@ impl Service {
         Ok(guard)
     }
 
-    /// Checks whether the session is signed in, unless a request is using it; records and returns its state.
-    pub async fn check(&self, provider_id: &str) -> Result<(), String> {
+    /// Checks whether the session is signed in and records its state, unless a request is using it or the web guard has
+    /// the account resting or backed off: a check loads the site's page, so it keeps the same pace as a request (Codex's
+    /// fourth review, A6 and A7). A check that sees trouble backs the account off as a request would.
+    pub async fn check(&self, provider_id: &str) -> Result<Checked, String> {
         let (provider, recipe) = self.web_provider(provider_id).map_err(|e| e.message())?;
-        let Ok(mut turn) = self.slot(provider_id).try_lock_owned() else { return Ok(()) };
+        let Ok(mut turn) = self.slot(provider_id).try_lock_owned() else { return Ok(Checked::Skipped(CHECK_BUSY.into())) };
+        let now = crate::db::now_ms();
+        let account = self.with_db(|db| store::web_guard(db, provider_id, now)).map_err(|_| GUARD_UNREADABLE.to_string())?;
+        if let Some(until) = account.backoff_until.filter(|u| *u > now) {
+            return Ok(Checked::Skipped(format!("{CHECK_BACKED_OFF} ({} min. left; Resume Now lifts it.)", (until - now + 59_999) / 60_000)));
+        }
+        if let Some(next) = account.next_at.filter(|n| *n > now) {
+            return Ok(Checked::Skipped(format!("{CHECK_RESTING} ({} s left.)", (next - now + 999) / 1000)));
+        }
         let page = self.windows.page(&provider, recipe).map_err(|e| e.message())?;
         let (state, reason) = check(page.as_ref(), recipe, &self.timing).await;
         turn.finished = Some(Instant::now());
         self.record(provider_id, state, reason);
+        let ended = crate::db::now_ms();
+        let rest = ended + guard::rest_ms(self.timing.gap.as_millis() as i64, 1, 0);
+        let trouble = [CHALLENGE, RESTRICTED, NO_PROMPT_BOX].into_iter().find(|t| *t == reason);
+        let _ = self.with_db(|db| match trouble {
+            Some(t) => store::web_guard_trouble(db, provider_id, t, rest, self.timing.backoff.as_millis() as i64, ended),
+            None => store::web_guard_checked(db, provider_id, rest),
+        });
         if state == "signed_in" {
             self.windows.signed_in(provider_id);
         }
-        Ok(())
+        Ok(Checked::Seen)
     }
 
     pub fn show(&self, provider_id: &str) -> Result<(), String> {
@@ -991,15 +1039,65 @@ async fn chat(State(service): State<Arc<Service>>, UrlPath(provider_id): UrlPath
     }
     match start(&service, &provider_id, &body).await {
         Ok(response) => response,
-        Err(e) => e.response(),
+        Err(failed) => {
+            let mut response = failed.error.response();
+            if failed.sent {
+                response.headers_mut().insert(SENT_HEADER, HeaderValue::from_static("1"));
+            }
+            response
+        }
     }
 }
 
-async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result<Response, WebError> {
+/// On a failed answer: the site's Send was pressed, so the site may have the prompt. The gateway then tries no other web
+/// session with it (Codex's fourth review, A8).
+pub const SENT_HEADER: &str = "x-pygg-web-sent";
+
+/// A request that failed, and whether its prompt had reached the site.
+struct Failed {
+    error: WebError,
+    sent: bool,
+}
+
+impl From<WebError> for Failed {
+    fn from(error: WebError) -> Failed {
+        Failed { error, sent: false }
+    }
+}
+
+/// The web guard's verdict for one request, read under the connection's lock and read again after any wait, so a call
+/// that waited in line sees what happened meanwhile: the connection turned off, a suspension, a back-off, the day's
+/// requests used (Codex's fourth review, A3 and A4). A record Pygg cannot read refuses: no pace known, nothing sent.
+async fn admit(service: &Service, provider_id: &str, weight: u32) -> Result<(Provider, &'static Recipe), WebError> {
+    let unreadable = || WebError::Pace { retry_after: 60, why: GUARD_UNREADABLE };
+    for round in 0..3 {
+        let (provider, recipe) = service.web_provider(provider_id)?;
+        if !provider.enabled {
+            return Err(WebError::BadRequest(format!("Not sent: {CONNECTION_OFF}")));
+        }
+        let now = crate::db::now_ms();
+        let limit = provider.web_daily_limit.unwrap_or(DEFAULT_DAILY_LIMIT);
+        let used = service.with_db(|db| store::web_requests_today(db, provider_id, now)).map_err(|_| unreadable())?;
+        if used >= u64::from(limit) {
+            let retry_after = ((86_400_000 - now.rem_euclid(86_400_000)) / 1000).max(1) as u64;
+            return Err(WebError::DailyLimit { limit, retry_after });
+        }
+        let account = service.with_db(|db| store::web_guard(db, provider_id, now)).map_err(|_| unreadable())?;
+        match guard::decide(&account, weight, now, limit) {
+            guard::Verdict::Refuse { retry_after_ms, why } =>
+                return Err(WebError::Pace { retry_after: ((retry_after_ms + 999) / 1000).max(1) as u64, why }),
+            guard::Verdict::Go { wait_ms } if wait_ms > 0 && round < 2 => tokio::time::sleep(Duration::from_millis(wait_ms as u64)).await,
+            guard::Verdict::Go { .. } => return Ok((provider, recipe)),
+        }
+    }
+    Err(WebError::Pace { retry_after: 30, why: guard::WHY_REST })
+}
+
+async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result<Response, Failed> {
     let body: Value = serde_json::from_slice(body).map_err(|_| WebError::BadRequest("The body is not JSON".into()))?;
     let (provider, recipe) = service.web_provider(provider_id)?;
     if uses_tools(&body) {
-        return Err(WebError::BadRequest(format!("Not sent: {NO_TOOLS}")));
+        return Err(WebError::BadRequest(format!("Not sent: {NO_TOOLS}")).into());
     }
     let prompt = flatten(&body).map_err(WebError::BadRequest)?;
     let model = body["model"].as_str().unwrap_or(recipe.models[0]).to_string();
@@ -1007,7 +1105,7 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
     // The web guard: a prompt no person would type into a chat box never reaches the site.
     let chars = prompt.chars().count();
     if chars > guard::MAX_PROMPT_CHARS {
-        return Err(WebError::TooLong { chars });
+        return Err(WebError::TooLong { chars }.into());
     }
 
     // Pygg's own pace limit, before anything reaches the site.
@@ -1016,29 +1114,28 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
     let used = service.with_db(|db| store::web_requests_today(db, provider_id, now)).unwrap_or(0);
     if used >= u64::from(limit) {
         let retry_after = ((86_400_000 - now.rem_euclid(86_400_000)) / 1000).max(1) as u64;
-        return Err(WebError::DailyLimit { limit, retry_after });
+        return Err(WebError::DailyLimit { limit, retry_after }.into());
     }
     let mut turn = service.take_turn(provider_id).await?;
     // The web guard, while this request holds the connection: its rest, the hour's and the day's share by weight, and a
     // back-off after trouble. Refused here, nothing reaches the site and the caller gets a Retry-After.
     let weight = guard::weight(chars);
-    let now = crate::db::now_ms();
-    let account = service.with_db(|db| store::web_guard(db, provider_id, now)).unwrap_or_default();
-    match guard::decide(&account, weight, now, limit) {
-        guard::Verdict::Refuse { retry_after_ms, why } =>
-            return Err(WebError::Pace { retry_after: ((retry_after_ms + 999) / 1000).max(1) as u64, why }),
-        guard::Verdict::Go { wait_ms } if wait_ms > 0 => tokio::time::sleep(Duration::from_millis(wait_ms as u64)).await,
-        guard::Verdict::Go { .. } => {}
-    }
+    let (provider, recipe) = admit(service, provider_id, weight).await?;
+    // The request's weight and a first rest are kept before the site is touched (Codex's fourth review, A1).
     let sent_at = crate::db::now_ms();
+    let gap = service.timing.gap.as_millis() as i64;
+    let row = service.with_db(|db| store::web_guard_reserve(db, provider_id, sent_at, weight, sent_at + guard::rest_ms(gap, weight, 0)))
+        .map_err(|_| WebError::Pace { retry_after: 60, why: GUARD_UNREADABLE })?;
     let page = service.windows.page(&provider, recipe)?;
+    let submitted = Arc::new(AtomicBool::new(false));
+    let task_submitted = submitted.clone();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
     let task_service = service.clone();
     let id = provider_id.to_string();
     tokio::spawn(async move {
         let text_tx = tx.clone();
         let mut on_text = move |piece: &str| { let _ = text_tx.send(Event::Text(piece.to_string())); };
-        let result = converse(page.as_ref(), recipe, &prompt, &task_service.timing, &mut on_text).await;
+        let result = converse_marked(page.as_ref(), recipe, &prompt, &task_service.timing, &mut on_text, &task_submitted).await;
         match &result {
             Ok(_) => task_service.record(&id, "signed_in", SIGNED_IN),
             Err(e) => if let Some((state, reason)) = e.state() { task_service.record(&id, state, reason) },
@@ -1050,7 +1147,7 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
         let rest = guard::rest_ms(task_service.timing.gap.as_millis() as i64, weight, reply_chars);
         let trouble = result.as_ref().err().and_then(WebError::trouble);
         let backoff = task_service.timing.backoff.as_millis() as i64;
-        let _ = task_service.with_db(|db| store::web_guard_after(db, &id, sent_at, weight,
+        let _ = task_service.with_db(|db| store::web_guard_after(db, &id, row,
             if result.is_ok() { "ok" } else { "error" }, ended + rest, trouble, backoff, ended));
         turn.finished = Some(Instant::now());
         drop(turn);
@@ -1064,7 +1161,7 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
             match event {
                 Event::Text(_) => {}
                 Event::Done(Ok(reply)) => { text = reply.text + &denied_note(reply.denied); break; }
-                Event::Done(Err(e)) => return Err(e),
+                Event::Done(Err(e)) => return Err(Failed { error: e, sent: submitted.load(Ordering::SeqCst) }),
             }
         }
         return Ok(axum::Json(json!({ "id": completion_id, "object": "chat.completion", "created": crate::db::now_ms() / 1000,
@@ -1077,7 +1174,7 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
     let mut pending = vec![chunk(&completion_id, &model, json!({ "role": "assistant", "content": "" }), None)];
     let mut finished = false;
     match first {
-        Event::Done(Err(e)) => return Err(e),
+        Event::Done(Err(e)) => return Err(Failed { error: e, sent: submitted.load(Ordering::SeqCst) }),
         Event::Done(Ok(reply)) => {
             let text = reply.text + &denied_note(reply.denied);
             pending.push(chunk(&completion_id, &model, json!({ "content": text }), None));

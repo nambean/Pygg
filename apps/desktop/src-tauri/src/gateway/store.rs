@@ -230,13 +230,13 @@ pub fn set_web_daily_limit(conn: &Connection, provider_id: &str, limit: Option<u
     conn.execute("UPDATE providers SET web_daily_limit = ?2 WHERE id = ?1", params![provider_id, limit]).map(|_| ()).map_err(err)
 }
 
-/// Requests sent to a web session's site since 00:00 UTC: the ledger's entries for it, less those Pygg refused itself
-/// (busy, or this limit), which never reached the site.
+/// Requests sent to a web session's site since 00:00 UTC: the web guard's reservations (`web_guard_reserve`), each
+/// written before the site is touched, so a request still running, or one cut off by a crash, counts too. Whatever Pygg
+/// refused itself never got one (Codex's fourth review, A4).
 pub fn web_requests_today(conn: &Connection, provider_id: &str, now: i64) -> Result<u64> {
     let day_start = now - now.rem_euclid(86_400_000);
-    conn.query_row("SELECT COUNT(*) FROM usage_events WHERE provider = ?1 AND created_at >= ?2 \
-        AND COALESCE(http_status, 0) <> 429", params![provider_id, day_start], |r| r.get::<_, i64>(0))
-        .map(|n| n.max(0) as u64).map_err(err)
+    conn.query_row("SELECT COUNT(*) FROM web_pace WHERE provider_id = ?1 AND at >= ?2", params![provider_id, day_start],
+        |r| r.get::<_, i64>(0)).map(|n| n.max(0) as u64).map_err(err)
 }
 
 /// The web guard's record of an account (ADR-035, migration 0028): the requests of the last day with their weight, and
@@ -252,28 +252,48 @@ pub fn web_guard(conn: &Connection, provider_id: &str, now: i64) -> Result<crate
     Ok(crate::websession::guard::Account { sent, next_at, backoff_until, backoff_reason })
 }
 
-/// After a request to a web session: keeps its weight, sets the rest until `next_at`, and backs the account off after a
-/// sign of trouble (doubling with each one in a row, from `backoff_base_ms`) or clears the back-off after a clean reply.
+/// Before a request touches a web session's site: keeps its weight (outcome `sent` until it ends) and a first rest until
+/// `min_next_at`, so a crash mid-request still leaves the account its weight and a rest (Codex's fourth review, A1).
+/// Returns the reservation's row, which `web_guard_after` finishes.
+pub fn web_guard_reserve(conn: &Connection, provider_id: &str, at: i64, weight: u32, min_next_at: i64) -> Result<i64> {
+    conn.execute("INSERT INTO web_pace (provider_id, at, weight, outcome) VALUES (?1, ?2, ?3, 'sent')",
+        params![provider_id, at, weight.max(1)]).map_err(err)?;
+    let row = conn.last_insert_rowid();
+    conn.execute("UPDATE providers SET web_next_at = MAX(COALESCE(web_next_at, 0), ?2) WHERE id = ?1",
+        params![provider_id, min_next_at]).map_err(err)?;
+    conn.execute("DELETE FROM web_pace WHERE at < ?1", [at - 2 * crate::websession::guard::DAY_MS]).map_err(err)?;
+    Ok(row)
+}
+
+/// After a request to a web session: finishes its reservation, sets the rest until `next_at`, and backs the account off
+/// after a sign of trouble (doubling with each one in a row, from `backoff_base_ms`) or clears the back-off after a
+/// clean reply.
 #[allow(clippy::too_many_arguments)]
-pub fn web_guard_after(conn: &Connection, provider_id: &str, sent_at: i64, weight: u32, outcome: &str, next_at: i64,
+pub fn web_guard_after(conn: &Connection, provider_id: &str, row: i64, outcome: &str, next_at: i64,
     trouble: Option<&str>, backoff_base_ms: i64, now: i64) -> Result<()> {
-    conn.execute("INSERT INTO web_pace (provider_id, at, weight, outcome) VALUES (?1, ?2, ?3, ?4)",
-        params![provider_id, sent_at, weight.max(1), outcome]).map_err(err)?;
-    conn.execute("DELETE FROM web_pace WHERE at < ?1", [now - 2 * crate::websession::guard::DAY_MS]).map_err(err)?;
+    conn.execute("UPDATE web_pace SET outcome = ?2 WHERE rowid = ?1", params![row, outcome]).map_err(err)?;
     match trouble {
-        Some(reason) => {
-            let strikes: i64 = conn.query_row("SELECT web_strikes FROM providers WHERE id = ?1", [provider_id], |r| r.get(0))
-                .optional().map_err(err)?.unwrap_or(0) + 1;
-            let until = now + crate::websession::guard::backoff_ms(backoff_base_ms, strikes as u32);
-            conn.execute("UPDATE providers SET web_next_at = ?2, web_strikes = ?3, web_backoff_until = ?4, web_backoff_reason = ?5 \
-                WHERE id = ?1", params![provider_id, next_at.max(until), strikes, until, reason]).map_err(err)?;
-        }
-        None => {
-            conn.execute("UPDATE providers SET web_next_at = ?2, web_strikes = 0, web_backoff_until = NULL, \
-                web_backoff_reason = NULL WHERE id = ?1", params![provider_id, next_at]).map_err(err)?;
-        }
+        Some(reason) => web_guard_trouble(conn, provider_id, reason, next_at, backoff_base_ms, now),
+        None => conn.execute("UPDATE providers SET web_next_at = ?2, web_strikes = 0, web_backoff_until = NULL, \
+                web_backoff_reason = NULL WHERE id = ?1", params![provider_id, next_at]).map(|_| ()).map_err(err),
     }
-    Ok(())
+}
+
+/// A sign of trouble on a web session's site (after a request, or seen by a sign-in check): the account rests at least
+/// until `next_at`, and backs off for longer with each sign in a row.
+pub fn web_guard_trouble(conn: &Connection, provider_id: &str, reason: &str, next_at: i64, backoff_base_ms: i64, now: i64)
+    -> Result<()> {
+    let strikes: i64 = conn.query_row("SELECT web_strikes FROM providers WHERE id = ?1", [provider_id], |r| r.get(0))
+        .optional().map_err(err)?.unwrap_or(0) + 1;
+    let until = now + crate::websession::guard::backoff_ms(backoff_base_ms, strikes as u32);
+    conn.execute("UPDATE providers SET web_next_at = ?2, web_strikes = ?3, web_backoff_until = ?4, web_backoff_reason = ?5 \
+        WHERE id = ?1", params![provider_id, next_at.max(until), strikes, until, reason]).map(|_| ()).map_err(err)
+}
+
+/// A sign-in check loaded the site's page: the account rests at least until `next_at` before the next request or check.
+pub fn web_guard_checked(conn: &Connection, provider_id: &str, next_at: i64) -> Result<()> {
+    conn.execute("UPDATE providers SET web_next_at = MAX(COALESCE(web_next_at, 0), ?2) WHERE id = ?1",
+        params![provider_id, next_at]).map(|_| ()).map_err(err)
 }
 
 /// The user lifts a web session's rest and back-off (Providers → Resume Now). The hour's and the day's shares stay.
@@ -1240,7 +1260,8 @@ pub struct HealthBucket {
 }
 
 /// A connection's last 24 hours, an hour a bucket, oldest first, and a score from 0 to 100: the share that went well,
-/// recent hours counting more (the last hour four times the oldest). `None` when nothing happened.
+/// recent hours counting more (the last hour four times the oldest). An hour's requests are its evidence; an hour with
+/// none is judged by its checks. `None` when nothing happened.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthStrip {
@@ -1261,7 +1282,8 @@ pub fn health_strip(conn: &Connection, provider_id: &str, now: i64) -> Result<He
     const HOUR: i64 = 3_600_000;
     let since = now - STRIP_HOURS * HOUR;
     let mut counts = vec![(0u32, 0u32); STRIP_HOURS as usize];
-    let mut add = |sql: &str| -> Result<()> {
+    let mut checks = vec![(0u32, 0u32); STRIP_HOURS as usize];
+    let add = |sql: &str, counts: &mut Vec<(u32, u32)>| -> Result<()> {
         let mut stmt = conn.prepare(sql).map_err(err)?;
         let rows = stmt.query_map(params![provider_id, since, now, HOUR], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)))
             .map_err(err)?;
@@ -1275,17 +1297,27 @@ pub fn health_strip(conn: &Connection, provider_id: &str, now: i64) -> Result<He
         }
         Ok(())
     };
+    // Nothing from the future counts (a clock set back), nor older than the strip (Codex's fourth review, A15).
     add(&format!("SELECT (?3 - u.created_at) / ?4 AS ago, SUM(u.outcome = 'ok'), SUM({PROVIDER_FAILED}) FROM usage_events u \
-        WHERE u.provider = ?1 AND u.created_at > ?2 GROUP BY ago"))?;
-    add("SELECT (?3 - at) / ?4 AS ago, SUM(ok = 1), SUM(ok = 0) FROM connection_checks WHERE provider_id = ?1 AND at > ?2 GROUP BY ago")?;
+        WHERE u.provider = ?1 AND u.created_at > ?2 AND u.created_at <= ?3 GROUP BY ago"), &mut counts)?;
+    add("SELECT (?3 - at) / ?4 AS ago, SUM(ok = 1), SUM(ok = 0) FROM connection_checks WHERE provider_id = ?1 AND at > ?2 \
+        AND at <= ?3 GROUP BY ago", &mut checks)?;
+    // A model list read says less than an answer (Codex's fourth review, A10): an hour with requests is judged by them
+    // alone; an hour without is judged by its checks.
+    for (slot, check) in counts.iter_mut().zip(checks) {
+        if slot.0 + slot.1 == 0 {
+            *slot = check;
+        }
+    }
     let buckets: Vec<HealthBucket> = counts.iter().enumerate()
         .map(|(i, (ok, failed))| HealthBucket { start: now - (STRIP_HOURS - i as i64) * HOUR, ok: *ok, failed: *failed }).collect();
-    // The newest hour weighs 1, the oldest 0.25, in a straight line.
+    // Each hour with anything in it gives its own share that went well, so a busy hour cannot outweigh a quiet hour's
+    // outage, and pressing Check Now cannot raise the score. The newest hour weighs 1, the oldest 0.25, in a straight line.
     let (mut good, mut all) = (0.0f64, 0.0f64);
-    for (i, b) in buckets.iter().enumerate() {
+    for (i, b) in buckets.iter().enumerate().filter(|(_, b)| b.ok + b.failed > 0) {
         let weight = 0.25 + 0.75 * i as f64 / (STRIP_HOURS - 1) as f64;
-        good += weight * f64::from(b.ok);
-        all += weight * f64::from(b.ok + b.failed);
+        good += weight * f64::from(b.ok) / f64::from(b.ok + b.failed);
+        all += weight;
     }
     let score = (all > 0.0).then(|| (100.0 * good / all).round().clamp(0.0, 100.0) as u8);
     Ok(HealthStrip { buckets, score })
@@ -2627,8 +2659,8 @@ mod tests {
         assert_eq!([page(0, 2), page(2, 2)].concat(), all);
         assert!(page(3, 2).is_empty());
         let client = list_clients(&conn).unwrap().remove(0);
-        assert_eq!((client.month_spend_micro_usd, client.month_unknown_requests), (3000, 1));        // The health strip: the fallback counts against the connection, the unknown-cost answer is an answer; a check
-        // counts too, and a request Pygg refused itself does not.
+        assert_eq!((client.month_spend_micro_usd, client.month_unknown_requests), (3000, 1));
+        // The health strip: the fallback counts against the connection, the unknown-cost answer is an answer.
         let strip = health_strip(&conn, &p.id, now_ms() + 1).unwrap();
         assert_eq!(strip.buckets.len(), STRIP_HOURS as usize);
         assert_eq!(strip.buckets.last().map(|b| (b.ok, b.failed)), Some((2, 1)));
@@ -2639,10 +2671,22 @@ mod tests {
             cost: &Cost::Estimated { micro_usd: 0, source: "not sent".into() }, outcome: "error", http_status: Some(429), latency_ms: 0,
             error: Some("Not sent: the web guard"), cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None,
             repeated_tokens: None }).unwrap();
-        let strip = health_strip(&conn, &p.id, now_ms() + 1).unwrap();
-        assert_eq!(strip.buckets.last().map(|b| (b.ok, b.failed)), Some((3, 1)));
-        assert_eq!(strip.score, Some(75));
+        // A check in an hour with requests adds nothing to them, and a request Pygg refused itself does not count.
+        let at = now_ms() + 1;
+        let strip = health_strip(&conn, &p.id, at).unwrap();
+        assert_eq!(strip.buckets.last().map(|b| (b.ok, b.failed)), Some((2, 1)));
+        assert_eq!(strip.score, Some(67));
         assert!(last_check(&conn, &p.id).unwrap().is_some_and(|c| c.ok));
+        // An hour without requests is judged by its checks, as one hour however many there were: a failed check two
+        // hours back gives that hour 0, weighed a little under the newest hour. A check from the future does not count.
+        for (offset, ok) in [(-9_000_000i64, 0), (-8_000_000, 0), (1_800_000, 0)] {
+            conn.execute("INSERT INTO connection_checks (provider_id, at, ok, kind, detail) VALUES (?1, ?2, ?3, 'models', 'down')",
+                params![p.id, at + offset, ok]).unwrap();
+        }
+        let strip = health_strip(&conn, &p.id, at).unwrap();
+        assert_eq!(strip.buckets[STRIP_HOURS as usize - 3].failed, 2);
+        assert_eq!(strip.buckets.last().map(|b| (b.ok, b.failed)), Some((2, 1)));
+        assert_eq!(strip.score, Some(34));
         assert!(checks_due(&conn, 60_000, now_ms()).unwrap().iter().all(|id| id != &p.id), "just checked");
         assert!(health_strip(&conn, "nobody", now_ms()).unwrap().score.is_none());
     }

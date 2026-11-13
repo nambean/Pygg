@@ -11,7 +11,8 @@
 /// The longest prompt Pygg sends to a site, in characters (about 3,000 tokens): a long question with some pasted text.
 /// Longer work, such as whole files, belongs on an API connection.
 pub const MAX_PROMPT_CHARS: usize = 12_000;
-/// A request weighs one unit, and one more for each started block of this many characters of prompt.
+/// A request weighs one unit, and one more for each full block of this many characters of prompt (1,999 characters weigh
+/// 1, 2,000 weigh 2).
 pub const CHARS_PER_UNIT: usize = 2_000;
 /// What one account may send in any rolling hour: units, and requests whatever their size.
 pub const HOUR_UNITS: u32 = 20;
@@ -34,7 +35,7 @@ pub const BACKOFF_CAP_MS: i64 = 6 * 3_600_000;
 pub const HOUR_MS: i64 = 3_600_000;
 pub const DAY_MS: i64 = 86_400_000;
 
-/// A request's weight: one unit, and one more per started 2,000 characters of prompt.
+/// A request's weight: one unit, and one more per full 2,000 characters of prompt.
 pub fn weight(prompt_chars: usize) -> u32 {
     1 + (prompt_chars / CHARS_PER_UNIT) as u32
 }

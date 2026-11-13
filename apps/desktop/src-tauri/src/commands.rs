@@ -403,19 +403,8 @@ pub async fn connection_refresh_models(state: State<'_, AppState>, id: String) -
         let listed = crate::websession::recipe(&provider.kind).map(|r| r.models.len()).unwrap_or(0);
         return Ok(ImportResult { listed, added: 0 });
     }
-    // Reading the list is the connection's check too (migration 0029).
-    let ids = match catalog::fetch_models(&state.shared, &provider).await {
-        Ok(ids) => {
-            let _ = state.shared.with_db(|db| store::record_check(db, &id, true, "models",
-                &format!("Reachable · {} models listed", ids.len())));
-            ids
-        }
-        Err(e) => {
-            let detail: String = e.chars().take(300).collect();
-            let _ = state.shared.with_db(|db| store::record_check(db, &id, false, "models", &detail));
-            return Err(e);
-        }
-    };
+    // Reading the list is the connection's check too (migration 0029), in its turn with the other checks.
+    let ids = gateway::checker::list_and_check(&state.shared, &provider).await?;
     let source = catalog::list_source(&provider);
     let added = state.shared.with_db(|db| store::import_listed(db, &id, &ids, Some(&source)))?;
     // What the provider's list left out is looked up (ADR-031): the user only enters a key.
@@ -506,18 +495,24 @@ pub async fn web_session_open(state: State<'_, AppState>, id: String) -> Res<()>
 /// the connection with what was seen (ADR-035).
 #[tauri::command]
 pub async fn web_session_check(state: State<'_, AppState>, id: String) -> Res<ConnectionView> {
-    check_web(&state, &id).await?;
+    if let Some(why) = check_web(&state, &id).await? {
+        return Err(why);
+    }
     let provider = state.shared.with_db(|db| store::get_provider(db, &id))?.ok_or("Connection not found")?;
     Ok(view(&state, provider))
 }
 
-/// A web session's sign-in check, kept as the connection's check: it loads the site's page and sends no prompt.
-async fn check_web(state: &AppState, id: &str) -> Res<()> {
-    state.web.as_ref().ok_or(crate::websession::APP_ONLY)?.check(id).await?;
+/// A web session's sign-in check, kept as the connection's check: it loads the site's page and sends no prompt. A check
+/// the web guard or a running request held back is not one, and returns why (Codex's fourth review, A6).
+async fn check_web(state: &AppState, id: &str) -> Res<Option<String>> {
+    if let crate::websession::Checked::Skipped(why) = state.web.as_ref().ok_or(crate::websession::APP_ONLY)?.check(id).await? {
+        return Ok(Some(why));
+    }
     let provider = state.shared.with_db(|db| store::get_provider(db, id))?.ok_or("Connection not found")?;
     let ok = provider.web_state.as_deref() == Some("signed_in");
     let detail = provider.web_state_reason.unwrap_or_else(|| crate::websession::SIGNED_IN.into());
-    state.shared.with_db(|db| store::record_check(db, id, ok, "sign_in", &detail))
+    state.shared.with_db(|db| store::record_check(db, id, ok, "sign_in", &detail))?;
+    Ok(None)
 }
 
 /// Checks one connection now: an API connection's model list (free, no prompt, nothing imported), or a web session's
@@ -526,7 +521,9 @@ async fn check_web(state: &AppState, id: &str) -> Res<()> {
 pub async fn connection_check(state: State<'_, AppState>, id: String) -> Res<ConnectionView> {
     let provider = state.shared.with_db(|db| store::get_provider(db, &id))?.ok_or("Connection not found")?;
     if presets::is_web(&provider.kind) {
-        check_web(&state, &id).await?;
+        if let Some(why) = check_web(&state, &id).await? {
+            return Err(why);
+        }
     } else {
         gateway::checker::check_api(&state.shared, &provider).await;
     }
@@ -540,35 +537,20 @@ pub async fn connection_check(state: State<'_, AppState>, id: String) -> Res<Con
 pub struct CheckAllResult {
     pub checked: usize,
     pub failed: usize,
-    /// Web sessions checked less than an hour ago, left alone so their sites see no program loading pages.
+    /// Web sessions, left alone: each is checked on its own (Check Sign-In), so no site sees a program loading pages
+    /// (Codex's fourth review, A7).
     pub web_skipped: usize,
 }
 
-/// Checks every enabled connection now, one after another: API connections by their model list, web sessions by their
-/// sign-in unless one was checked less than an hour ago (`checker::WEB_CHECK_GAP_MS`).
+/// Checks every enabled API connection now by its model list, a few at a time (`checker::check_many`). Web sessions are
+/// left out; each has its own Check Sign-In.
 #[tauri::command]
 pub async fn connections_check_all(state: State<'_, AppState>) -> Res<CheckAllResult> {
-    let providers = state.shared.with_db(store::list_providers)?;
-    let now = crate::db::now_ms();
-    let mut result = CheckAllResult { checked: 0, failed: 0, web_skipped: 0 };
-    for provider in providers.into_iter().filter(|p| p.enabled) {
-        let ok = if presets::is_web(&provider.kind) {
-            let last = state.shared.with_db(|db| store::last_check(db, &provider.id)).ok().flatten();
-            if state.web.is_none() || last.is_some_and(|c| now - c.at < gateway::checker::WEB_CHECK_GAP_MS) {
-                result.web_skipped += 1;
-                continue;
-            }
-            check_web(&state, &provider.id).await.is_ok()
-                && state.shared.with_db(|db| store::last_check(db, &provider.id)).ok().flatten().is_some_and(|c| c.ok)
-        } else {
-            gateway::checker::check_api(&state.shared, &provider).await.ok
-        };
-        result.checked += 1;
-        if !ok {
-            result.failed += 1;
-        }
-    }
-    Ok(result)
+    let providers: Vec<store::Provider> = state.shared.with_db(store::list_providers)?.into_iter().filter(|p| p.enabled).collect();
+    let web_skipped = providers.iter().filter(|p| presets::is_web(&p.kind)).count();
+    let api: Vec<store::Provider> = providers.into_iter().filter(|p| !presets::is_web(&p.kind)).collect();
+    let checks = gateway::checker::check_many(&state.shared, api).await;
+    Ok(CheckAllResult { checked: checks.len(), failed: checks.iter().filter(|c| !c.ok).count(), web_skipped })
 }
 
 /// Lifts a web session's rest and back-off now (Providers → Resume Now); the hour's and the day's shares stay.

@@ -452,17 +452,13 @@ fn a_web_session_needs_the_warning_and_starts_off_free_and_without_tools() {
     store::update_provider(&conn, &other.id, Some(true), Some("subscription"), Some(true)).unwrap();
     store::set_pool(&conn, &other.id, Some("muses")).unwrap();
 
-    // The pool sends to the account used least today; a refusal Pygg made itself (429) does not count as use.
-    let used = |p: &str, status: u16| store::record_usage(&conn, &store::UsageRecord { client_id: None, provider_id: p, model_id: "muse",
-        requested_model: "muses/muse", input_tokens: None, output_tokens: None, cache_tokens: None,
-        cost: &crate::gateway::pricing::Cost::Unknown { source: "subscription".into() }, outcome: if status == 200 { "ok" } else { "error" },
-        http_status: Some(status), latency_ms: 1, error: None, cache_write_tokens: None, session_key: None, route_mode: None,
-        route_reason: None, repeated_tokens: None }).unwrap();
+    // The pool sends to the account used least today: what reached the site, the web guard's reservations. A refusal
+    // Pygg made itself never got one.
+    let sent = |p: &str| { store::web_guard_reserve(&conn, p, crate::db::now_ms(), 1, 0).unwrap(); };
     let order = || store::resolve(&conn, "muses/muse").unwrap().into_iter().map(|(p, _)| p.id).collect::<Vec<_>>();
     assert_eq!(order(), vec![muse.id.clone(), other.id.clone()], "a tie keeps the pool's order");
-    used(&muse.id, 200);
-    used(&muse.id, 200);
-    used(&other.id, 429);
+    sent(&muse.id);
+    sent(&muse.id);
     assert_eq!(store::web_requests_today(&conn, &muse.id, crate::db::now_ms()).unwrap(), 2);
     assert_eq!(store::web_requests_today(&conn, &other.id, crate::db::now_ms()).unwrap(), 0);
     assert_eq!(order(), vec![other.id.clone(), muse.id.clone()], "the account used least today goes first");
@@ -611,7 +607,7 @@ fn the_web_guard_refuses_a_pasted_file_and_rests_after_trouble() {
         // A back-off from earlier trouble refuses the next request with a Retry-After, before the page is touched.
         {
             let db = rig.db.lock().unwrap();
-            store::web_guard_after(&db, &rig.muse.id, now, 1, "error", now, Some(NO_REPLY), 60_000, now).unwrap();
+            store::web_guard_trouble(&db, &rig.muse.id, NO_REPLY, now, 60_000, now).unwrap();
         }
         let before = rig.page.navigations.load(Ordering::SeqCst);
         let refused = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
@@ -771,11 +767,7 @@ fn the_daily_limit_refuses_before_the_site_is_touched() {
         {
             let conn = rig.db.lock().unwrap();
             store::set_web_daily_limit(&conn, &rig.muse.id, Some(1)).unwrap();
-            store::record_usage(&conn, &store::UsageRecord { client_id: None, provider_id: &rig.muse.id, model_id: "muse",
-                requested_model: "muse", input_tokens: None, output_tokens: None, cache_tokens: None,
-                cost: &crate::gateway::pricing::Cost::Unknown { source: "subscription".into() }, outcome: "ok", http_status: Some(200),
-                latency_ms: 1, error: None, cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None,
-                repeated_tokens: None }).unwrap();
+            store::web_guard_reserve(&conn, &rig.muse.id, crate::db::now_ms(), 1, 0).unwrap();
         }
         let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
         assert_eq!(response.status(), 429);
@@ -793,5 +785,98 @@ fn a_check_that_finds_the_session_signed_in_hides_the_sign_in_window() {
         rig.service.check(&rig.muse.id).await.unwrap();
         assert_eq!(rig.muse().web_state.as_deref(), Some("signed_in"));
         assert_eq!(*rig.windows.signed_in.lock().unwrap(), vec![rig.muse.id.clone()]);
+    });
+}
+
+// ---------- Codex's fourth review (2026-11-14) ----------
+
+#[test]
+fn a_suspension_notice_during_the_reply_turns_the_connection_off_and_marks_the_prompt_sent() {
+    rt().block_on(async {
+        let restricted = json!({ "count": 0, "text": "", "busy": false, "restricted": true });
+        let rig = rig(FakePage::new(vec![ready()], vec![read(0, "", false), restricted])).await;
+        let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        assert_eq!(response.status(), 401);
+        assert_eq!(response.headers().get(SENT_HEADER).map(|v| v.to_str().unwrap()), Some("1"), "the site had the prompt");
+        let muse = rig.muse();
+        assert!(!muse.enabled, "a suspended account gets nothing more");
+        assert_eq!(muse.web_state_reason.as_deref(), Some(RESTRICTED));
+        // The request was kept before the site was touched, and the account is backed off.
+        let now = crate::db::now_ms();
+        assert_eq!(store::web_requests_today(&rig.db.lock().unwrap(), &rig.muse.id, now).unwrap(), 1);
+        assert!(store::web_guard(&rig.db.lock().unwrap(), &rig.muse.id, now).unwrap().backoff_reason.is_some());
+        // Turned off, it is not driven again, even by a caller that has its token.
+        let before = rig.page.navigations.load(Ordering::SeqCst);
+        let again = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        assert_eq!(again.status(), 400);
+        assert_eq!(rig.page.navigations.load(Ordering::SeqCst), before);
+    });
+}
+
+#[test]
+fn a_notice_the_user_quoted_is_not_taken_for_the_sites() {
+    rt().block_on(async {
+        let quoted = json!({ "count": 1, "text": "It means the account is suspended.", "busy": false, "restricted": true });
+        let rig = rig(FakePage::new(vec![ready()], vec![read(0, "", false), quoted])).await;
+        let prompt = "What does 'account is suspended' mean?";
+        let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": prompt }] })).await;
+        assert_eq!(response.status(), 200);
+        assert!(rig.muse().enabled);
+    });
+}
+
+#[test]
+fn a_failure_before_send_does_not_mark_the_prompt_sent() {
+    rt().block_on(async {
+        let signed_out = json!({ "fresh": true, "ready": false, "hasInput": true, "signedOut": true });
+        let rig = rig(FakePage::new(vec![signed_out], vec![read(0, "", false)])).await;
+        let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        assert_eq!(response.status(), 401);
+        assert!(response.headers().get(SENT_HEADER).is_none(), "another account may still take it");
+    });
+}
+
+#[test]
+fn a_sign_in_check_keeps_the_guards_pace_and_a_skipped_one_is_not_a_check() {
+    rt().block_on(async {
+        let rig = rig(hello_page()).await;
+        let now = crate::db::now_ms();
+        store::web_guard_checked(&rig.db.lock().unwrap(), &rig.muse.id, now + 60_000).unwrap();
+        let skipped = rig.service.check(&rig.muse.id).await.unwrap();
+        assert!(matches!(&skipped, Checked::Skipped(why) if why.starts_with(CHECK_RESTING)), "{skipped:?}");
+        assert_eq!(rig.page.navigations.load(Ordering::SeqCst), 0, "the page was not loaded");
+
+        store::web_guard_resume(&rig.db.lock().unwrap(), &rig.muse.id).unwrap();
+        store::web_guard_trouble(&rig.db.lock().unwrap(), &rig.muse.id, CHALLENGE, now, 60_000, now).unwrap();
+        assert!(matches!(rig.service.check(&rig.muse.id).await.unwrap(), Checked::Skipped(why) if why.starts_with(CHECK_BACKED_OFF)));
+
+        store::web_guard_resume(&rig.db.lock().unwrap(), &rig.muse.id).unwrap();
+        assert_eq!(rig.service.check(&rig.muse.id).await.unwrap(), Checked::Seen);
+        assert_eq!(rig.muse().web_state.as_deref(), Some("signed_in"));
+    });
+}
+
+#[test]
+fn a_prompt_that_reached_one_site_is_not_sent_to_another_web_session() {
+    rt().block_on(async {
+        // The site takes the prompt, then says the account reached its usage limit: an answer the gateway would
+        // otherwise carry to the pool's next account.
+        let limit = "You have reached your limit for today.";
+        let page = FakePage::new(vec![ready()], vec![read(0, "", false), read(1, limit, false), read(1, limit, false)]);
+        let (web, gateway, _shared) = gateway_rig(page, true).await;
+        {
+            let conn = web.db.lock().unwrap();
+            let other = store::add_web_provider(&conn, "muse-web", "Muse", WARNING_VERSION).unwrap();
+            for id in [&web.muse.id, &other.id] {
+                store::update_provider(&conn, id, Some(true), Some("subscription"), Some(true)).unwrap();
+                store::set_pool(&conn, id, Some("muses")).unwrap();
+            }
+        }
+        let response = gateway_post(&gateway, json!({ "model": "muses/muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        assert!(!response.status().is_success());
+        assert_eq!(response.status(), 429);
+        assert_eq!(web.page.navigations.load(Ordering::SeqCst), 1, "one site saw the prompt, the other nothing");
+        // The ledger has one attempt: the second account was passed over before its page was touched.
+        assert_eq!(_shared.with_db(|db| store::usage_summary(db, 0, 10)).unwrap().recent.len(), 1);
     });
 }

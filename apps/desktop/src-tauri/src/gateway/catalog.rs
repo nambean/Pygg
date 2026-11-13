@@ -11,11 +11,28 @@ use super::{presets, Shared};
 use serde_json::Value;
 
 pub async fn fetch_models(shared: &Shared, provider: &Provider) -> Result<Vec<Listed>, String> {
+    fetch_list(shared, provider).await.map_err(|e| e.message)
+}
+
+/// Why a model list could not be read: the provider's HTTP status when it answered, and Pygg's wording.
+#[derive(Debug)]
+pub struct ListError {
+    pub status: Option<u16>,
+    pub message: String,
+}
+
+/// How long reading a model list may take: it is a check, not a generation, and one slow provider must not hold up
+/// the others (Codex's fourth review, A13).
+pub const LIST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// `fetch_models`, keeping the status of a refusal.
+pub async fn fetch_list(shared: &Shared, provider: &Provider) -> Result<Vec<Listed>, ListError> {
+    let fail = |status: Option<u16>, message: String| ListError { status, message };
     let key = match &provider.credential_ref {
-        Some(reference) => shared.secrets.read(reference)?,
+        Some(reference) => shared.secrets.read(reference).map_err(|e| fail(None, e))?,
         None => None,
     };
-    let mut request = shared.http.get(format!("{}/models", provider.endpoint));
+    let mut request = shared.http.get(format!("{}/models", provider.endpoint)).timeout(LIST_TIMEOUT);
     if let Some(key) = &key {
         request = if provider.wire == "anthropic" {
             request.header("x-api-key", key).header("anthropic-version", super::ANTHROPIC_VERSION)
@@ -27,17 +44,21 @@ pub async fn fetch_models(shared: &Shared, provider: &Provider) -> Result<Vec<Li
     let response = request
         .send()
         .await
-        .map_err(|e| crate::redact::redact(&format!("Could not reach {}: {e}", provider.endpoint), &secrets))?;
+        .map_err(|e| fail(None, crate::redact::redact(&format!("Could not reach {}: {e}", provider.endpoint), &secrets)))?;
     let status = response.status();
-    let text = response.text().await.map_err(|e| e.to_string())?;
+    let text = response.text().await.map_err(|e| fail(None, e.to_string()))?;
     if !status.is_success() {
         let detail: String = crate::redact::redact(&super::upstream_message(text.as_bytes()), &secrets);
-        return Err(match status.as_u16() {
+        return Err(fail(Some(status.as_u16()), match status.as_u16() {
             401 | 403 => format!("The provider refused the key (HTTP {}): {detail}", status.as_u16()),
             _ => format!("The provider answered HTTP {}: {detail}", status.as_u16()),
-        });
+        }));
     }
-    let parsed: Value = serde_json::from_str(&text).map_err(|_| "The provider's model list is not JSON".to_string())?;
+    let parsed: Value = serde_json::from_str(&text).map_err(|_| fail(None, "The provider's model list is not JSON".into()))?;
+    // An answer without a list is not one, even an empty JSON object (Codex's fourth review, A11).
+    if parsed["data"].as_array().or_else(|| parsed["models"].as_array()).is_none() {
+        return Err(fail(None, "The provider's answer is not a model list".into()));
+    }
     let prefix = presets::find(&provider.kind).and_then(|p| p.strip_model_prefix);
     Ok(parse_list(&parsed, prefix))
 }

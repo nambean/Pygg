@@ -105,7 +105,7 @@ export function Connections({intent, onIntentDone, onNext}: {intent?: 'connect' 
   </div>;
 }
 
-/** Checks every enabled connection now; web sessions only if checked over an hour ago. */
+/** Checks every enabled API connection now. Web sessions are left out: each has its own Check Sign-In (Codex's fourth review, A7). */
 function CheckAll() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
@@ -114,14 +114,14 @@ function CheckAll() {
     setResult(null);
     call(api => api.checkAllConnections()).then(r => {
       setResult([t('{n} checked', {n: r.checked}), r.failed ? t('{n} failed', {n: r.failed}) : null,
-        r.webSkipped ? t('{n} web sessions checked within the hour, left alone', {n: r.webSkipped}) : null].filter(Boolean).join(' · '));
+        r.webSkipped ? t('{n} web sessions not included: check each with Check Sign-In', {n: r.webSkipped}) : null].filter(Boolean).join(' · '));
       gatewayChanged();
     }, e => setResult(errorText(e))).finally(() => setBusy(false));
   };
   return <>
     {result && <small className="secondary" role="status">{result}</small>}
     <button type="button" className="button small" onClick={run} disabled={busy}
-      title={t('Reads each API connection’s model list (free, no prompt) and checks each web session’s sign-in unless it was checked within the hour.')}>
+      title={t('Reads each API connection’s model list (free, no prompt). Web sessions are not included, so no site sees a program loading its pages.')}>
       {busy ? <Spinner/> : <RefreshCw size={12} aria-hidden/>}{t('Check All')}</button>
   </>;
 }
@@ -133,8 +133,14 @@ function CheckAll() {
 export function HealthDots({strip, compact}: {strip: HealthStrip; compact?: boolean}) {
   const tone = (b: HealthStrip['buckets'][number]) => b.ok + b.failed === 0 ? 'none' : b.failed === 0 ? 'ok' : b.failed * 2 >= b.ok + b.failed ? 'bad' : 'warn';
   const when = (at: number) => new Date(at).toLocaleTimeString(locale(), {hour: '2-digit', minute: '2-digit'});
+  // What the dots show, in words, for a screen reader and a tooltip: the score, the samples behind it, and the hours that
+  // had failures (Codex's fourth review, A16).
+  const ok = strip.buckets.reduce((n, b) => n + b.ok, 0);
+  const failed = strip.buckets.reduce((n, b) => n + b.failed, 0);
+  const badHours = strip.buckets.filter(b => b.failed > 0).length;
   const label = strip.score === null ? t('No requests or checks in the last 24 hours')
-    : t('Health {score} of 100 over the last 24 hours', {score: strip.score});
+    : t('Health {score} of 100 over the last 24 hours: {ok} went well, {failed} failed, failures in {hours} of 24 hours', {
+      score: strip.score, ok, failed, hours: badHours});
   return <span className={compact ? 'health-dots compact' : 'health-dots'} role="img" aria-label={label} title={compact ? label : undefined}>
     <span className="health-dot-row">
       {strip.buckets.map(b => <span key={b.start} className={`health-dot ${tone(b)}`}
@@ -201,7 +207,7 @@ function WebGuardNote({connection: c, guard: g}: {connection: Connection; guard:
   const time = (at: number) => new Date(at).toLocaleTimeString(locale(), {hour: '2-digit', minute: '2-digit'});
   const resume = () => { setError(null); call(api => api.resumeWebSession(c.id)).then(gatewayChanged, e => setError(errorText(e))); };
   return <>
-    <small>{t('This hour: {units} of {unitsCap} units, {requests} of {requestsCap} requests. Today: {today} of {todayCap} units. A unit is a request, and one more for each 2,000 characters of prompt; a prompt over {max} characters is not sent. After each reply Pygg rests as long as a person would take to read it.',
+    <small>{t('This hour: {units} of {unitsCap} units, {requests} of {requestsCap} requests. Today: {today} of {todayCap} units. A unit is a request, and one more for each 2,000 characters of prompt; a prompt over {max} characters is not sent. After each reply Pygg waits a set time that grows with the prompt and the reply (at most 3 minutes); it slows Pygg down, and does not make an account safe.',
       {units: String(g.hourUnits), unitsCap: String(g.hourUnitsCap), requests: String(g.hourRequests), requestsCap: String(g.hourRequestsCap),
         today: String(g.todayUnits), todayCap: String(g.todayUnitsCap), max: g.maxPromptChars.toLocaleString(locale())})}</small>
     {g.restingUntil && !g.backoffUntil && <small className="secondary">{t('Resting until {time}.', {time: time(g.restingUntil)})}</small>}
@@ -328,9 +334,9 @@ function ConnectionDetail({connection: c, onRemoved, initialShow = 'all'}: {conn
       <div className="group-row stacked">
         <span className="group-label">{t('Health')}
           <small>{c.web
-            ? t('The last 24 hours, an hour a dot: its answers and sign-in checks. A web session is checked only when you ask, so its site sees no program loading pages.')
+            ? t('The last 24 hours, an hour a dot: its answers and sign-in checks. A web session is checked only when you ask, and not while the web guard has it resting, so its site sees no program loading pages.')
             : t('The last 24 hours, an hour a dot: its answers and Pygg’s checks. Pygg reads its model list every 30 minutes while the gateway runs, which costs nothing and sends no prompt.')}{' '}
-            {t('Requests Pygg refused itself, and requests the provider refused as malformed, are not counted.')}</small></span>
+            {t('Each hour scores its own share that went well, recent hours counting more; an hour with requests is judged by them alone, an hour without by its checks. Requests Pygg refused itself, and requests the provider refused as malformed, are not counted.')}</small></span>
         {c.healthStrip && <HealthDots strip={c.healthStrip}/>}
         <span className="health-check-line">
           {check ? <span title={check.detail}>{check.ok ? check.detail : <Badge tone="error">{check.detail}</Badge>} · {t('checked {ago}', {ago: ago(check.at)})}</span>

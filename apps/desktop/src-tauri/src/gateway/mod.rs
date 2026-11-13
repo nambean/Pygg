@@ -68,6 +68,8 @@ pub const DEFAULT_PORT: u16 = 8741;
 pub const SESSION_HEADER: &str = "x-smarttaskrouter-session";
 /// Output tokens assumed when a request sets no limit, for the reservation only.
 const DEFAULT_OUTPUT_ESTIMATE: u64 = 4096;
+/// Why a web session was passed over after another web session's site may have taken the prompt.
+pub const WEB_ALREADY_SENT: &str = "not tried: another web session's site may already have this prompt, and Pygg sends a prompt to one site at most";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 /// Where connection keys come from; the OS credential store in the app, a map in tests.
@@ -803,6 +805,9 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
     let mut accounting_held = false;
     // Every target was a web session and the request uses tools: the request is the problem, not the targets.
     let mut tools_refused = false;
+    // A web session's site may have the prompt (its Send was pressed): no other web session gets it (Codex's fourth
+    // review, A8). An API target still may, under the rules below.
+    let mut web_sent = false;
 
     for (index, (provider, model_id)) in targets.into_iter().enumerate() {
         let outcome_if_failed = if index + 1 < count { "fallback" } else { "error" };
@@ -832,6 +837,10 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         // A web session (ADR-035) takes a request only with its warning acknowledged, without tools, and while the app
         // that drives its window runs; it is reached through that app's loopback endpoint.
         let web = presets::is_web(&provider.kind);
+        if web && web_sent {
+            skipped.push(format!("{name}: {WEB_ALREADY_SENT}"));
+            continue;
+        }
         if web {
             if let Err((why, tools)) = crate::websession::routable(&provider, incoming.body, shared.web.is_some()) {
                 tools_refused |= tools;
@@ -1059,6 +1068,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             Ok(response) => {
                 let status = response.status();
                 let headers = response.headers().clone();
+                web_sent |= web && headers.contains_key(crate::websession::SENT_HEADER);
                 note_limits(shared, &provider.id, &model_id, status.as_u16(), &headers);
                 let content_type = headers.get(header::CONTENT_TYPE).cloned();
                 let bytes = read_limited(response, MAX_ERROR_BODY).await;

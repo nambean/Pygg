@@ -337,23 +337,49 @@ export function demoApi(): GatewayApi {
         'anthropic-ratelimit-requests-limit': '50', 'anthropic-ratelimit-requests-remaining': '49',
         'anthropic-ratelimit-tokens-remaining': '39000', 'anthropic-ratelimit-tokens-reset': '2026-11-12T02:31:00Z'}}] : []};
   }
-  /** The health strip from the demo's own requests, as store::health_strip counts them, and a check an hour ago. */
+  /** Each connection's checks, newest last: one 50 minutes ago for every enabled API connection, Ollama's failed (its
+   *  runtime is off), as the 30-minute loop would leave them. Check Now and Check All add to them. */
+  const checks = new Map<string, ConnectionCheck[]>();
+  function demoChecks(c: Stored): ConnectionCheck[] {
+    if (!checks.has(c.id)) {
+      const at = Date.now() - 50 * 60_000;
+      checks.set(c.id, !c.enabled || c.web ? [] : c.kind === 'ollama'
+        ? [{at, ok: false, kind: 'models', detail: 'Could not reach http://localhost:11434/v1: connection refused'}]
+        : [{at, ok: true, kind: 'models', detail: 'Reachable · models listed'}]);
+    }
+    return checks.get(c.id)!;
+  }
+  function demoCheck(c: Stored) {
+    const ok = c.kind !== 'ollama';
+    demoChecks(c).push(c.web ? {at: Date.now(), ok: true, kind: 'sign_in', detail: 'Signed in.'}
+      : {at: Date.now(), ok, kind: 'models', detail: ok ? `Reachable · ${models.filter(m => m.providerId === c.id).length} models listed`
+        : 'Could not reach http://localhost:11434/v1: connection refused'});
+    return ok;
+  }
+  /** The health strip from the demo's own requests and checks, as store::health_strip counts them. */
   function demoHealth(c: Stored): {healthStrip: HealthStrip; lastCheck: ConnectionCheck | null} {
     const hour = 3_600_000;
     const now = Date.now();
+    const slot = (at: number) => at <= now && at > now - 24 * hour ? 23 - Math.floor((now - at) / hour) : -1;
     const buckets = Array.from({length: 24}, (_, i) => ({start: now - (24 - i) * hour, ok: 0, failed: 0}));
-    for (const e of events.filter(e => e.provider === c.id && e.createdAt > now - 24 * hour)) {
-      const b = buckets[23 - Math.floor((now - e.createdAt) / hour)];
+    for (const e of events.filter(e => e.provider === c.id)) {
+      const b = buckets[slot(e.createdAt)];
       if (!b) continue;
+      const notSent = (e.error ?? '').includes('Not sent');
       if (e.outcome === 'ok') b.ok += 1;
-      else if (['error', 'fallback', 'stream_error'].includes(e.outcome) && ![400, 413, 422].includes(e.httpStatus ?? 0)) b.failed += 1;
+      else if (['error', 'fallback', 'stream_error'].includes(e.outcome) && ![400, 413, 422].includes(e.httpStatus ?? 0) && !notSent) b.failed += 1;
     }
-    const checked = c.enabled && !c.web;
-    if (checked) buckets[22].ok += 1;
+    // An hour with requests is judged by them alone; an hour without, by its checks.
+    const fromChecks = Array.from({length: 24}, () => ({ok: 0, failed: 0}));
+    for (const k of demoChecks(c)) {
+      const b = fromChecks[slot(k.at)];
+      if (b) { if (k.ok) b.ok += 1; else b.failed += 1; }
+    }
+    buckets.forEach((b, i) => { if (b.ok + b.failed === 0) Object.assign(b, fromChecks[i]); });
     let good = 0, all = 0;
-    buckets.forEach((b, i) => { const w = 0.25 + 0.75 * i / 23; good += w * b.ok; all += w * (b.ok + b.failed); });
-    return {healthStrip: {buckets, score: all > 0 ? Math.round(100 * good / all) : null},
-      lastCheck: checked ? {at: now - 50 * 60_000, ok: true, kind: 'models', detail: 'Reachable · models listed'} : null};
+    buckets.forEach((b, i) => { if (b.ok + b.failed === 0) return; const w = 0.25 + 0.75 * i / 23; good += w * b.ok / (b.ok + b.failed); all += w; });
+    const list = demoChecks(c);
+    return {healthStrip: {buckets, score: all > 0 ? Math.round(100 * good / all) : null}, lastCheck: list[list.length - 1] ?? null};
   }
   /** Illustrative: the windows a coding plan states with each answer, already read as quota.rs reads them. */
   function planLimits() {
@@ -659,9 +685,11 @@ export function demoApi(): GatewayApi {
     // The preview has no window to open or drive.
     openWebSession: async () => { await sleep(150); throw 'The browser preview cannot open a sign-in window; run the desktop app.'; },
     setWebDailyLimit: async () => { await sleep(100); },
-    checkConnection: async id => { await sleep(400); return view(connections.find(c => c.id === id)!); },
+    checkConnection: async id => { await sleep(400); const c = connections.find(c => c.id === id)!; demoCheck(c); return view(c); },
     checkAllConnections: async () => { await sleep(800);
-      return {checked: connections.filter(c => c.enabled && !c.web).length, failed: 0, webSkipped: connections.filter(c => c.enabled && c.web).length}; },
+      const api = connections.filter(c => c.enabled && !c.web);
+      const failed = api.filter(c => !demoCheck(c)).length;
+      return {checked: api.length, failed, webSkipped: connections.filter(c => c.enabled && c.web).length}; },
     resumeWebSession: async () => { await sleep(100); },
     checkWebSession: async id => { await sleep(400); return touch(view(find(id))); },
     refreshModels: async id => {
