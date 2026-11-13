@@ -1,8 +1,8 @@
 # Pygg documentation
 
-> **Status:** Current · the index of every project document and the rules they follow · reviewed 2026-11-11
+> **Status:** Current · the index of every project document and the rules they follow · reviewed 2026-11-13
 
-**Pygg** — *One Flow. Many Agents.* AI task and agent routing orchestration ([branding](../branding/README.md)). The repository and its technical identifiers keep the engineering name **SmartTaskRouter**.
+**Pygg** — *One Flow. Many Agents.* A local AI gateway that cuts what coding tools cost, with agent task routing on top ([branding](../branding/README.md)). The repository and its technical identifiers keep the engineering name **SmartTaskRouter**.
 
 ## Which document answers what
 
@@ -10,7 +10,7 @@ Read them in this order when they disagree:
 
 1. **What is built, and how was it verified?** [Implementation Status](IMPLEMENTATION-STATUS.md).
 2. **What comes next, and what is the gate?** [ROADMAP](ROADMAP.md). It is the only authority on order.
-3. **Why was it decided?** [DECISIONS](DECISIONS.md) (ADR-001 to ADR-029).
+3. **Why was it decided?** [DECISIONS](DECISIONS.md) (ADR-001 to ADR-035).
 4. **How does one part work?** The current and reference documents below.
 5. **What did reviewers object to, and what was answered?** [reviews](reviews).
 
@@ -26,20 +26,22 @@ Read them in this order when they disagree:
 | [SCHEMA.md](SCHEMA.md) | Current | The store's tables and columns, generated from the migrations (`scripts/schema-reference.py`) |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | Current | How to change Pygg: order, status, tests, schema, money, writing, commits |
 | [AGENTS.md](AGENTS.md) | Current | Agent CLIs with their own sign-in, the task engine, the MCP server and task API |
-| [PROVIDERS.md](PROVIDERS.md) | Current | Connection presets, their endpoints and the documentation each came from |
+| [PROVIDERS.md](PROVIDERS.md) | Current | Connection presets, their endpoints and the documentation each came from; web-session sites and their sign-in hosts |
 | [../benchmark/README.md](../benchmark/README.md) | Current | The benchmark harness, its cases and how to run it through the gateway |
 | [../benchmark/reports/](../benchmark/reports) | Record | Benchmark results as run, one report per pass |
-| [ACCOUNT_API_ROTATION.md](ACCOUNT_API_ROTATION.md) | Reference | Account pool specification; partly built, pools are ROADMAP E |
-| [CLI_IDE_NPM_PROVIDER_TIERS.md](CLI_IDE_NPM_PROVIDER_TIERS.md) | Reference | CLI, IDE integrations, npm launcher and billing tiers; partly built |
+| [ACCOUNT_API_ROTATION.md](ACCOUNT_API_ROTATION.md) | Reference | Account pool specification; pools of API-key accounts are built (ADR-034), and pools of web sessions (ADR-035) |
+| [CLI_IDE_NPM_PROVIDER_TIERS.md](CLI_IDE_NPM_PROVIDER_TIERS.md) | Reference | CLI, IDE integrations, npm launcher and billing tiers; the CLI (`pygg setup`, `pygg run claude`) and the npm developer preview are built |
 | [OMNIROUTE_FEATURE_RESEARCH.md](OMNIROUTE_FEATURE_RESEARCH.md) | Reference | What was taken from OmniRoute, what was rejected, and why |
 | [RFC-2026-11-12-ORIGINAL-VISION-GAPS.md](RFC-2026-11-12-ORIGINAL-VISION-GAPS.md) | Reference | Proposed gaps in shared task context, npm/CLI, integrations, routing and evidence; pending owner/Claude reconciliation |
+| [research/2026-11-12-web-session-routers.md](research/2026-11-12-web-session-routers.md) | Reference | How 9router, OmniRoute and others drive AI websites, which sites Pygg supports and why |
 | [research/2026-11-12-open-source-adoption-study.md](research/2026-11-12-open-source-adoption-study.md) | Reference | Source-linked comparison of Mem0, OpenCode, Letta, LangGraph, Aider, Graphiti, LiteLLM, Semantic Router, OmniRoute and Skills, with Pygg-specific adoption gates |
 | [SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md) | Historical | The v1.2 functional plan; superseded where ROADMAP and ADR-026 to ADR-028 say so |
-| [design/SCREENS.md](design/SCREENS.md) | Historical | The v0.1 screen design; the built screens are listed in Implementation Status |
+| [design/SCREENS.md](design/SCREENS.md) | Current §2.2, Historical elsewhere | The navigation as built since 2026-11-12 (§2.2: Home, Providers, Endpoint, CLI Tools, Combos, Usage, Policies, Guide) and the v0.1 screen design kept for its reasoning |
 | [design/README.md](design/README.md) | Historical | The original SVG sketches |
 | [UNIVERSAL_SHARED_MEMORY.md](UNIVERSAL_SHARED_MEMORY.md) | Withdrawn | App-owned conversation memory; not pursued (ADR-028) |
-| [reviews/](reviews) | Record | Architecture reviews and the answers to them, as written at the time |
-| [reports/](reports) | Record | Progress reports to the owner, in Vietnamese, as written at the time |
+| [reviews/](reviews) | Record | Architecture reviews, the Codex interface reviews (2026-11-12) and the answers to them, as written at the time |
+| [reports/](reports) | Record | Progress reports to the owner, in Vietnamese, and release-check reports, as written at the time |
+| [../THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) | Current | Code and data taken from other projects, with their licences |
 
 ## Status words
 

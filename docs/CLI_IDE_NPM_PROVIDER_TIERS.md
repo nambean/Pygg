@@ -1,17 +1,23 @@
 # CLI, IDE Integrations, npm Distribution & Provider Tiers
 
-> **Status:** Reference · CLI, IDE, npm and billing-tier specification; partly built · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+> **Status:** Reference · CLI, IDE, npm and billing-tier specification; partly built · reviewed 2026-11-13 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
 
 > **Update 2026-11-11 (ADR-026, ADR-027):** no "Supported OAuth" connections or OAuth callbacks into other products; subscriptions are reached through the vendors' agent CLIs. IDE integration for tasks is the MCP server (`<app> mcp`, [AGENTS.md](AGENTS.md#from-the-ide-pygg-mcp-and-the-task-api)). Consumer Auto Chat is dropped (ADR-028).
 
+> **Update 2026-11-13 (what is built since this was written):**
+> - **The console program is `pygg`**, not `str`: `pygg-cli` (`apps/desktop/src-tauri/src/cli/`), run as `pygg` by the npm launcher. `pygg --help` lists every command and `pygg --version` prints the version (commit 98a0afd, 2026-11-12). The command map is in §3.
+> - **`pygg setup [<tool>] [--dry-run | --remove]`** (`cli/setup.rs`, commit 1c491f5, 2026-11-12) does the app's one-click set-up from a terminal: `codex-models`, `opencode-models`, `claude-launcher`, and the MCP server in `claude-code`, `codex` or `opencode`. Backup first, the key never printed. Unit test of the tool names; no live run of the command itself is recorded.
+> - **`pygg run claude`** (`cli/run.rs`, `launcher.rs`, commit d12443f, 2026-11-12) starts Claude Code through the gateway for that launch only, with a key kept in the Windows Credential Manager; Claude Code's own settings are not changed. Checked live on 2026-11-12 up to the gateway's answer (422, no provider connected); see [AGENTS.md](AGENTS.md).
+> - **npm:** `@pygg/cli` (the launcher, command `pygg`) and `@pygg/win32-x64` (the native program), `packages/npm`, ADR-030. Version `0.1.0-dev.0` is published under the tag `dev` (`npm install -g @pygg/cli@dev`; `npm view` on 2026-11-13 also shows it as `latest` for both packages). Developer preview: Windows x64 only, not code-signed. **That published version predates `setup`, `run` and `--version`:** npm's registry records it at 2026-11-12 04:27 UTC (11:27 in Viet Nam), and those commands were committed from 19:42 that day; the packed binary in `packages/npm/win32-x64/bin` answers `unknown command` to `--version` and `setup` (checked 2026-11-13). They reach npm users only with a new published version.
+> - The IDE side is in [AGENTS.md](AGENTS.md): the MCP server in three agents, Codex's and OpenCode's models through the gateway, and the Claude Code launcher, each set up in one click.
 
-> Specification v1.0 — 2026-11-11. **Design only**. Do not advertise integrations or npm publication before contract tests and a released package are available.
+> Specification v1.0 — 2026-11-11. **Partly built** (above). Do not advertise an integration before its contract tests pass, nor the npm package beyond its developer preview.
 >
 > Design inspiration: https://docs.9router.com/ and https://github.com/decolua/9router/tree/master/cli . Their installation and provider tier approaches are references, not code or credentials to replicate blindly.
 
 ## Current gateway versus future CLI package (review reconciliation)
 
-**Implemented (per [Implementation Status](IMPLEMENTATION-STATUS.md)):** Rust headless binary `gateway serve` and local base URL `http://127.0.0.1:8741`, plus gateway-first desktop client/connection/usage views. Also built: rule-based `auto` (P0-5), the `agent` CLI and the MCP server (`<app> mcp`). **Not implemented:** `str start`, verified npm/npx publication, broad IDE compatibility and tier-aware rotation; Universal Memory is withdrawn (ADR-028). The command examples below are **design targets only** and any `4318` value below is historical, not the live default.
+**Implemented (per [Implementation Status](IMPLEMENTATION-STATUS.md)):** Rust headless binary `gateway serve` and local base URL `http://127.0.0.1:8741`, plus gateway-first desktop client/connection/usage views. Also built: rule-based `auto` (P0-5), the `agent` CLI and the MCP server (`<app> mcp`); since 2026-11-12, the `pygg` console program with `setup`, `run claude` and `--version`, and the npm developer preview `@pygg/cli@dev` (Update above). **Not implemented:** a `start` command that runs the gateway in the background (the app or `pygg gateway serve` serves it), npm/npx for platforms other than Windows x64, signed or integrity-checked releases, broad IDE compatibility and tier-aware rotation; Universal Memory is withdrawn (ADR-028). The `str` command examples below are **design targets only**; the built names are in §3, and any `4318` value below is historical, not the live default.
 
 All client integrations need version-specific base URL, tool, streaming, cache and session-ID tests. Transparent same-format passthrough is preferred; a subscription/CLI login must not be treated as fungible API access.
 
@@ -117,6 +123,23 @@ str config set <key> <value>
 
 Avoid implementing invisible data-collection, unattended arbitrary scripts or default system configuration mutations.
 
+**Built, 2026-11-13** (`apps/desktop/src-tauri/src/cli/`; `pygg-cli` in development, `pygg` through npm):
+
+| Proposed | Built as | State |
+| --- | --- | --- |
+| `str --help` | `pygg --help`, `pygg --version` | built (98a0afd); help opens no store |
+| `str start` / `str stop` | the app, or `pygg gateway serve [--port N]` in the foreground (Ctrl+C stops it) | no background service |
+| `str status` | `pygg status` | built |
+| `str doctor` | `pygg doctor` (status, the store's schema, the agents found and their Pygg set-up) | built |
+| `str providers list`, `str models list` | `pygg gateway list` (connections with their number of models, combos, API keys) | connections built; no per-model list, no tier filter |
+| `str integrations list` | `pygg setup` | built (1c491f5) |
+| `str integrations setup <client>` | `pygg setup <tool>`, with `--dry-run` | built for `codex-models`, `opencode-models`, `claude-launcher`, `claude-code`, `codex`, `opencode`; user scope only, never a project file |
+| `str integrations restore <client>` | `pygg setup <tool> --remove` (takes Pygg's entry out and revokes its key; the backup stays in `integration-backups`) | built; no restore of a backup file by command |
+| `str integrations test <client>` | none; `pygg gateway test-model --model C/M` sends one request to a model | not built |
+| (none) | `pygg run claude [args…]`: Claude Code through the gateway for one launch | built (d12443f) |
+| `str combos list`, `str usage show` | `pygg gateway list`, `pygg gateway usage` | built |
+| `str config get/set` | none | not built |
+
 ## 4. npm / npx packaging
 
 **Goal:** global convenience launcher for the *same* Rust gateway as the desktop app, not a separate Node gateway. Do not modify the currently defined Tauri/Rust backend solely to enable npm.
@@ -131,6 +154,8 @@ npx smarttaskrouter start
 ```
 
 **Commands above are proposed; package name `smarttaskrouter` and binary `str` are not confirmed available/published.** Verify npm ownership and naming before implementation. A scoped package `@<verified-publisher>/smarttaskrouter` is a fallback.
+
+**Built (2026-11-12, `packages/npm`, ADR-030):** the scoped fallback, as `@pygg/cli` (npm refused the unscoped name `pygg` as too close to existing ones). It installs with `npm install -g @pygg/cli@dev` and gives the command `pygg`. `pygg/bin/pygg.js` is a Node launcher only: it runs the native `pygg-cli.exe` from the optional dependency `@pygg/win32-x64` with the same arguments and standard streams (so `pygg mcp` works as an MCP server), falling back to an installed app's `%LOCALAPPDATA%\Pygg\pygg-cli.exe` or `PYGG_CLI`. `scripts/npm-pack.mjs` packs both from a release build and refuses differing versions; publishing is the owner's step (`packages/npm/PUBLISHING.md`). Published: `0.1.0-dev.0` of both, 2026-11-12; installed back from the registry into an empty folder that day, `pygg doctor` found the running app and `pygg mcp` answered `initialize` and `tools/list` (PUBLISHING.md). That version predates `pygg setup`, `pygg run` and `--version` (Update at the top). Windows x64 only, unsigned, no checksums or provenance yet.
 
 ### Architecture
 
@@ -220,17 +245,17 @@ GET /api/cli/doctor
 | --- | --- | --- |
 | G1 | Provider account registry + tier/entitlement schema and categorized Providers UI | Later (ROADMAP E) |
 | G2 | Verified OpenAI/Anthropic-compatible gateway, streaming, scoped client keys, quotas and ledger | Built (P0-1 to P0-5) |
-| G3 | Terminal CLI client setup for OpenCode, Aider and verified Claude Code/Codex routes | Partly built: setup snippets for Claude Code and OpenCode, verified live; Aider not |
-| G4 | Rust headless `str` binary, separate npm/npx launcher, release CI and integrity checks | P1 |
-| G5 | IDE integration guides/setup for Cline/Roo, Continue, Cursor where supported | P1 |
-| G6 | Integration diagnostics, config backup/restore and compatibility test matrix | P1 |
+| G3 | Terminal CLI client setup for OpenCode, Aider and verified Claude Code/Codex routes | Partly built (2026-11-13): set-up snippets for Claude Code and OpenCode, verified live by 2026-11-11; one-click set-up of Codex's and OpenCode's models through the gateway, each verified live on 2026-11-12; the Claude Code launcher (`pygg run claude`), checked live only up to the gateway's answer; all of them also as `pygg setup <tool>`. Aider not |
+| G4 | Rust headless `str` binary, separate npm/npx launcher, release CI and integrity checks | Partly built: the binary is `pygg-cli` (`pygg`), and the npm launcher `@pygg/cli@dev` is published for Windows x64, unsigned (its published version predates `setup` and `run`); no release CI, signing or integrity checks |
+| G5 | IDE integration guides/setup for Cline/Roo, Continue, Cursor where supported | Partly built: set-up by hand on CLI Tools (Cline, Continue, SDKs, curl) and MCP snippets for Cursor and other JSON clients; not verified per client |
+| G6 | Integration diagnostics, config backup/restore and compatibility test matrix | Partly built: each one-click set-up backs up the tool's configuration first and Remove puts Pygg's change back; `pygg doctor` lists each agent's Pygg set-up; no compatibility matrix |
 | G7 | More clients, platform coverage and subscription adapters only through supported interfaces | P2 |
 
 Order follows [ROADMAP](ROADMAP.md); Universal Shared Memory and the consumer Auto Chat UI are withdrawn (ADR-028).
 
 ## Account Pool Rotation dependency
 
-Multiple authorized accounts and keys within provider tiers can be selected by Fill First, Round Robin, Sticky Round Robin, Cost Aware or bounded Failover, with client allowlists, cooldown, quota groups and persistent conversation affinity. **See [ACCOUNT_API_ROTATION.md](ACCOUNT_API_ROTATION.md)** for routing, concurrency, UI, schema and safety; do not conflate rotating a client token with switching upstream credentials. Rotation never bypasses limits or suspensions.
+Multiple authorized accounts and keys within provider tiers can be selected by Fill First, Round Robin, Sticky Round Robin, Cost Aware or bounded Failover, with client allowlists, cooldown, quota groups and persistent conversation affinity. **See [ACCOUNT_API_ROTATION.md](ACCOUNT_API_ROTATION.md)** for routing, concurrency, UI, schema and safety; do not conflate rotating a client token with switching upstream credentials. Rotation never bypasses limits or suspensions. Built so far (2026-11-13): pools of separate accounts tried in the user's order (ADR-034), and pools of web sessions that send to the account used least today (ADR-035); the other strategies are not built.
 
 ## 8. Test and acceptance criteria
 

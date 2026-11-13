@@ -1,10 +1,10 @@
 # Connection presets and their sources
 
-> **Status:** Current · connection presets and their sources · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+> **Status:** Current · connection presets and their sources · reviewed 2026-11-13 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
 
 Each preset in `apps/desktop/src-tauri/src/gateway/presets.rs` fills in a provider's endpoint, API format and default billing type. The user can change any of them when connecting, for example a token plan's or a regional endpoint. Every endpoint below comes from the provider's own documentation, checked on 2026-11-11. OmniRoute's provider reference was used only to decide which providers to look at (see [OMNIROUTE_FEATURE_RESEARCH.md](OMNIROUTE_FEATURE_RESEARCH.md#provider-reference-review-2026-11-11)).
 
-"Live" means a real request went through the gateway (see [Implementation Status](IMPLEMENTATION-STATUS.md)). Everything else is configured from the docs and not yet tried; OpenRouter, OpenAI, Groq, DeepSeek and Mistral have only had their answer to an invalid key recorded, as error fixtures.
+"Live" means a real request went through the gateway (see [Implementation Status](IMPLEMENTATION-STATUS.md)). Everything else is configured from the docs and not yet tried; OpenAI, Groq and Mistral have only had their answer to an invalid key recorded, as error fixtures. DeepSeek has also answered a real 402 for an empty balance (2026-11-12), so a successful DeepSeek API request is still unverified.
 
 ## Cloud, API key
 
@@ -12,7 +12,7 @@ Each preset in `apps/desktop/src-tauri/src/gateway/presets.rs` fills in a provid
 | --- | --- | --- | --- | --- | --- | --- |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | OpenAI | ids only | yes (AI Studio) | yes | Google AI docs |
 | Anthropic | `https://api.anthropic.com/v1` | Anthropic | input and output limits, image support | no | yes | Anthropic docs |
-| OpenRouter | `https://openrouter.ai/api/v1` | OpenAI | context, output, tools, images, price | `:free` models | no | OpenRouter docs |
+| OpenRouter | `https://openrouter.ai/api/v1` | OpenAI | context, output, tools, images, price | `:free` models | yes (2026-11-12, a `:free` model in OpenAI and Anthropic format, $0) | OpenRouter docs |
 | OpenAI | `https://api.openai.com/v1` | OpenAI | ids | no | no | OpenAI docs |
 | Groq | `https://api.groq.com/openai/v1` | OpenAI | context window | Free plan | no | https://console.groq.com/docs/openai |
 | DeepSeek | `https://api.deepseek.com` | OpenAI | context, output | granted balance only | no | https://api-docs.deepseek.com/ |
@@ -63,30 +63,45 @@ gateway add-connection --preset custom --label "My provider" --endpoint https://
 
 A site with no API, used through a Pygg window the user signs in to (ADR-035). Off until the user acknowledges the account-risk warning for that connection and signs in; billed as the user's plan with the site, so every cost is unknown; never chosen by `auto`; no tools or images.
 
-Each connection has its own WebView2 profile: its own cookies, storage and sign-in. Pygg never changes a window's browser fingerprint.
+Each connection has its own WebView2 profile: its own cookies, storage and sign-in. Pygg never changes a window's browser fingerprint. Each connection sends one request at a time, rests 10 s after each reply and stops at its daily limit (50 requests by default, 1 to 1,000, counted since 00:00 UTC; schema v26). Connections of one site, each signed in to a different account ("Another account on the site"), can form a pool; see [ACCOUNT_API_ROTATION.md](ACCOUNT_API_ROTATION.md). Recipes, hosts and selectors are in `apps/desktop/src-tauri/src/websession/mod.rs` (`RECIPES`); the presets are in `gateway/presets.rs`.
 
-| Preset | Site and new chat | Sign-in hosts allowed | Model | Selectors from | Live |
-| --- | --- | --- | --- | --- | --- |
-| Muse (muse.ai) | `https://muse.ai/thread/new` | muse.ai, meta.com, meta.ai, facebook.com, instagram.com, threads.com, threads.net, messenger.com (Meta's "aymh" cycle) | `muse` | 9router's `muse-web` executor (MIT), see THIRD_PARTY_NOTICES.md | **yes**: the owner's sign-in and a test message, 2026-11-12 (HTTP 200, 13.9 s, cost unknown) |
-| ChatGPT (chatgpt.com) | `https://chatgpt.com/` | chatgpt.com, openai.com (auth.openai.com), Google, Apple, Microsoft (live.com, microsoftonline.com, microsoft.com) | `chatgpt` | its public page (`textarea[name=prompt]` or `#prompt-textarea`, a "Send message" button); replies `[data-message-author-role=assistant]` | no |
-| Perplexity (perplexity.ai) | `https://www.perplexity.ai/` | perplexity.ai, Google, Apple | `perplexity` | its public page (a Lexical `div[contenteditable][role=textbox]`, a "Submit" button); answers `[id^=markdown-content-]` or `.prose` | no |
-| DeepSeek (chat.deepseek.com) | `https://chat.deepseek.com/` | chat.deepseek.com, deepseek.com, Google, Apple | `deepseek` | DeepSeek's chat page as commonly described (`textarea#chat-input`, Enter sends, answers `.ds-markdown`); the page needs an account, so unchecked | no |
-| Grok (grok.com) | `https://grok.com/` | grok.com, x.ai (accounts.x.ai), x.com, twitter.com, Google, Apple | `grok` | Grok's chat page as commonly described (a `textarea` or ProseMirror box, a "Submit" button, answers `.response-content-markdown`); Cloudflare blocked the public page on 2026-11-12, so unchecked | no |
+| Preset (id) | Site and new chat | Model | Selectors from | Live |
+| --- | --- | --- | --- | --- |
+| Muse (`muse-web`) | `https://muse.ai/thread/new` | `muse` | 9router's `muse-web` executor (MIT), see THIRD_PARTY_NOTICES.md | **yes**: the owner's sign-in and a test message, 2026-11-12 (HTTP 200, 13.9 s, cost unknown); benchmark 2026-11-13, 8 of 8 |
+| ChatGPT (`chatgpt-web`) | `https://chatgpt.com/` | `chatgpt` | its public page on 2026-11-12, corrected live on 2026-11-13: signed in, the prompt box is a ProseMirror `div[contenteditable]` with no id (signed out, `#prompt-textarea`); a reply is the element after `[data-conversation-role=assistant]` (older pages: `[data-message-author-role=assistant]`) | **yes**: signed in with Google, Check Sign-In and Test answered (HTTP 200, 7.9 s), 2026-11-13; benchmark 2026-11-13 with two accounts, 15 of 16 (one 504 on a first request) |
+| Perplexity (`perplexity-web`) | `https://www.perplexity.ai/` | `perplexity` | its public page on 2026-11-12 (a Lexical `div[contenteditable][role=textbox]`, a "Submit" button; answers `[id^=markdown-content-]` or `.prose`) | **yes**: benchmark 2026-11-13, 8 of 8 |
+| DeepSeek (`deepseek-web`) | `https://chat.deepseek.com/` | `deepseek` | DeepSeek's chat page as commonly described (`textarea#chat-input`, Enter sends, answers `.ds-markdown`); first used signed in by the benchmark | **yes**: benchmark 2026-11-13, 8 of 8 |
+| Grok (`grok-web`) | `https://grok.com/` | `grok` | Grok's chat page as commonly described (a `textarea` or ProseMirror box, a "Submit" button, answers `.response-content-markdown`); first used signed in on 2026-11-13 | **yes**: signed in with Google, Check Sign-In and Test answered (HTTP 200, 7.6 s), 2026-11-13; benchmark 2026-11-13, 8 of 8 |
 
-- **Sign-in hosts.** The hosts of the four new sites are their documented sign-in paths. Each is checked against the live redirect chain when the owner signs in with the debug navigation log; Muse's were checked that way.
-- **Google sign-in.** Google may refuse to sign in inside an embedded window ("This browser or app may not be secure"). The site's own email sign-in is then the way, since Pygg does not disguise the window.
+The benchmark is [2026-11-13-web-sessions](../benchmark/reports/2026-11-13-web-sessions.md): eight short checked tasks per account through the running app's gateway, at Pygg's own pace, no money. Each live check above was one run on the owner's accounts; a site can change its page at any time, and the recipe then fails as "the page has changed".
+
+### Sign-in hosts, and why each is there
+
+A window the user has open to sign in may go to any https address, like a browser (ADR-035, 2026-11-13), so these lists no longer limit the user's own sign-in. They limit the window when Pygg drives it (hidden, for a request or a check): there a refused address is blocked and named on the connection by host. A host allows its subdomains too.
+
+| Preset | Hosts in the recipe | Why each is there |
+| --- | --- | --- |
+| `muse-web` | muse.ai, meta.com, meta.ai, facebook.com, instagram.com, threads.com, threads.net, messenger.com | muse.ai is the site. Meta's sign-in checks for an existing account by passing through its sites in turn (the "aymh" redirect cycle: auth.muse.ai, facebook.com, instagram.com, auth.meta.com, back to muse.ai); blocking instagram.com left the window blank (found live, 2026-11-12, commit f8ea72e). meta.ai, threads.com, threads.net and messenger.com are Meta's other sites, allowed with them and not seen in that chain |
+| `chatgpt-web` | chatgpt.com, openai.com, google.com, youtube.com, apple.com, live.com, microsoftonline.com, microsoft.com | chatgpt.com is the site; auth.openai.com is its email and phone sign-in. Google (accounts.google.com, then accounts.youtube.com and the country domain below), Apple and Microsoft (login.live.com, login.microsoftonline.com) are its other sign-in buttons. The Google path was seen live on 2026-11-13; Apple and Microsoft are from the documented sign-in paths and not seen live |
+| `perplexity-web` | perplexity.ai, google.com, youtube.com, apple.com | perplexity.ai is the site and its emailed-code sign-in; Google and Apple are its other sign-in buttons. From the documented sign-in paths; which one the owner used on 2026-11-13 was not recorded |
+| `deepseek-web` | chat.deepseek.com, deepseek.com, google.com, youtube.com, apple.com | chat.deepseek.com is the site and sends a visitor to `/sign_in` (email or phone with a password); Google and Apple are its other sign-in buttons. From the documented sign-in paths; which one the owner used on 2026-11-13 was not recorded |
+| `grok-web` | grok.com, grokusercontent.com, x.ai, x.com, twitter.com, google.com, youtube.com, apple.com | grok.com is the site. After its OAuth callback Grok sets its cookie on auth.grok.com and then auth.grokusercontent.com; that hop was blocked and the window went white (found live, 2026-11-13, commit 5548303). accounts.x.ai is its email sign-in; x.com and twitter.com are "Sign in with X"; Google and Apple its other buttons. The Google path was seen live on 2026-11-13 |
+
+**Google's country sign-in hosts** (`google_country_sign_in`, 2026-11-13). Google's sign-in also sets its cookie on the account's country domain, after accounts.youtube.com: `accounts.google.com.vn` for an account in Viet Nam. Blocking that hop left ChatGPT's Google sign-in spinning (found live, commit c34cf2a). A recipe that lists google.com therefore also allows exactly `accounts.google.` followed by a two-letter country code, `com.` and a code, or `co.` and a code (`accounts.google.de`, `accounts.google.com.vn`, `accounts.google.co.jp`), and nothing else of that shape: `www.google.com.vn`, `accounts.google.com.vn.evil.com` and the like stay blocked (test `the_window_goes_only_to_the_sites_hosts`). Muse has no Google sign-in and does not get them.
+
+- **Google sign-in.** Google may refuse to sign in inside an embedded window ("This browser or app may not be secure"); Pygg does not disguise the window, so the site's own email sign-in is then the way. On 2026-11-13 Google's sign-in worked in the window for ChatGPT and for Grok.
 - **Visitor chats.** ChatGPT, Perplexity and Grok also chat with visitors. Their recipes treat a page that shows "Log in" or "Sign in" buttons as signed out, even when the prompt box is there.
 - **Cloudflare.** Grok's site sits behind Cloudflare. Any check it shows stops the connection until the user clears it in the window.
 - **Official APIs.** Meta's Muse *models* (Meta (Muse API), above), OpenAI's, DeepSeek's and xAI's models all have official APIs, and Pygg has presets for each. Perplexity's Sonar API is paid and not supported by the gateway yet. The muse.ai agent app has no API.
 - **Not added** ([research](research/2026-11-12-web-session-routers.md)):
-  - Gemini web: Google's API has a free tier (the owner's decision, 2026-11-12), and Google refuses sign-in in embedded windows.
+  - Gemini web: Google's API has a free tier (the owner's decision, 2026-11-12), and Google may refuse sign-in in embedded windows.
   - 9router's UC (image and video only, adult content).
   - Veo AI Free (no sign-in; a video scraper).
 
 ## Left out
 
 - **GitHub Models**: fully retired as of July 30, 2026, per GitHub's docs.
-- **Perplexity**: Sonar chat completions support ended on September 27, 2026. The API now uses Responses-style endpoints, which the gateway does not speak.
+- **Perplexity**: Sonar chat completions support ended on September 27, 2026. The API now uses Responses-style endpoints, which the gateway sends to OpenAI only (ADR-033: the gateway serves the Responses API to clients, and translates it to Chat Completions for every other provider).
 - **Novita**: its docs do not make clear which base URL OpenAI clients should use. To be added once checked with a request.
 - **Cookie bridges (pasted or imported cookies), OAuth bridges into other products' subscriptions, and no-auth scrapers**: see [OMNIROUTE_FEATURE_RESEARCH.md](OMNIROUTE_FEATURE_RESEARCH.md#provider-reference-review-2026-11-11). A site with no API can be connected as a web session instead (above, ADR-035), where the user signs in themselves and no cookie leaves its window.
 

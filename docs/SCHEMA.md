@@ -1,6 +1,6 @@
 # Store schema
 
-> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v22
+> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v26
 
 The local SQLite store (`db.rs`): every table after all migrations, in order. Credentials are never here: a
 connection holds only a reference to its key in the OS credential store (ADR-002). Client tokens are stored as
@@ -109,6 +109,9 @@ References: `provider_id` → `providers.id` (on delete cascade); `combo_id` →
 | `id` | TEXT | yes |  | primary | 0002_gateway |
 | `name` | TEXT | no |  |  | 0002_gateway |
 | `created_at` | INTEGER | no |  |  | 0002_gateway |
+| `strategy` | TEXT | no | `'order'` |  | 0025_combo_strategy |
+
+1 CHECK constraint (see the migrations).
 
 ## `connection_health`
 
@@ -165,6 +168,8 @@ Indexes: `feedback_by_metric`, `feedback_by_target`.
 | `may_run_tasks` | INTEGER | no | `0` |  | 0009_tasks_from_clients |
 | `require_no_training` | INTEGER | no | `0` |  | 0013_data_use_terms |
 | `strict_budget` | INTEGER | no | `0` |  | 0014_strict_budget_and_probes |
+| `token_ref` | TEXT | yes |  |  | 0023_client_token_copies |
+| `deleted_at` | INTEGER | yes |  |  | 0023_client_token_copies |
 
 8 CHECK constraints (see the migrations).
 
@@ -228,8 +233,15 @@ References: `provider_id` → `providers.id` (on delete cascade).
 | `quota_confirmed_at` | INTEGER | yes |  |  | 0004_counter_review |
 | `pool` | TEXT | yes |  |  | 0022_connection_pools |
 | `pool_rank` | INTEGER | yes |  |  | 0022_connection_pools |
+| `web_profile` | TEXT | yes |  |  | 0024_web_sessions |
+| `web_ack_at` | INTEGER | yes |  |  | 0024_web_sessions |
+| `web_ack_version` | INTEGER | yes |  |  | 0024_web_sessions |
+| `web_state` | TEXT | yes |  |  | 0024_web_sessions |
+| `web_state_reason` | TEXT | yes |  |  | 0024_web_sessions |
+| `web_state_at` | INTEGER | yes |  |  | 0024_web_sessions |
+| `web_daily_limit` | INTEGER | yes |  |  | 0026_web_daily_limit |
 
-4 CHECK constraints (see the migrations).
+5 CHECK constraints (see the migrations).
 
 ## `rate_limits`
 

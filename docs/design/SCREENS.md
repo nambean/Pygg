@@ -1,6 +1,6 @@
 # Pygg — Screen Design
 
-> **Status:** Historical · the v0.1 screen design; the built screens are in Implementation Status · reviewed 2026-11-11 · order: [ROADMAP](../ROADMAP.md) · built: [Implementation Status](../IMPLEMENTATION-STATUS.md)
+> **Status:** Current in §2.2 (the navigation as built since 2026-11-12), Historical elsewhere (the v0.1 screen design, kept for its reasoning) · reviewed 2026-11-13 · order: [ROADMAP](../ROADMAP.md) · built: [Implementation Status](../IMPLEMENTATION-STATUS.md)
 
 > **Update 2026-11-11 (ADR-027):** tasks are started from the user's IDE agent through MCP; the app monitors, approves and reviews. New Task → Analyze → Plan → Run as the main path, "Needs Revalidation" and the first-run screens that end in analyzing a task are superseded. See [ROADMAP](../ROADMAP.md#revised-plan-after-adr-026-and-adr-027-2026-11-11-docs-review).
 
@@ -11,7 +11,7 @@
 
 The app should feel like a task runner with an auditable route, not a provider dashboard. Its signature element is the **attempt sequence**: chosen model → check → outcome → next decision.
 
-> **Design status note (2026-11-11):** Gateway-first Overview, Connections, Combos, Clients, Usage, Agents, Tasks and Workspaces screens are implemented per [Implementation Status](../IMPLEMENTATION-STATUS.md). The task-first/six-destination design in this file is a historical concept, **not current implementation**. Future priority follows [ROADMAP.md](../ROADMAP.md) and the [review reconciliation](../reviews/2026-11-11-review-response.md). Current local gateway port is **8741**; older `4318` examples below are superseded.
+> **Design status note (2026-11-11, navigation renamed 2026-11-12):** Gateway-first Home (was Overview), Providers (was Connections), Endpoint and API Keys (was Clients), CLI Tools, Combos, Usage, Policies, Guide, Agents, Tasks and Workspaces screens are implemented per [Implementation Status](../IMPLEMENTATION-STATUS.md). The task-first/six-destination design in this file is a historical concept, **not current implementation**. Future priority follows [ROADMAP.md](../ROADMAP.md) and the [review reconciliation](../reviews/2026-11-11-review-response.md). Current local gateway port is **8741**; older `4318` examples below are superseded.
 
 ## 1. Decisions
 

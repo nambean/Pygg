@@ -1,17 +1,21 @@
 # Multi-Account and API Key Rotation — Account Pool Router
 
-> **Status:** Reference · account pool specification; partly built, pools are ROADMAP E · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+> **Status:** Reference · account pool specification; partly built: pools of separate accounts (ADR-034) and of web sessions (ADR-035), the other strategies are ROADMAP E · reviewed 2026-11-13 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
 
 > **Update 2026-11-11 (ADR-026):** account pools apply to API-key and token-plan connections only. Subscriptions are used through the vendors' agent CLIs with their own sign-in, which Pygg never reads, so subscription sessions are not pooled or rotated. References to consumer Auto Chat, and to Universal Shared Memory context packages and handoff (§3, §6), no longer apply (ADR-028); pools would serve gateway clients, under the gateway's explicit session affinity (P0-4).
 
+> **Update 2026-11-13 (ADR-034, ADR-035): pools are built.**
+> - **Pools of separate accounts** (ADR-034, 2026-11-12, schema v22: `providers.pool`, `pool_rank`; `store::set_pool`, `move_in_pool`, `pool_members`, `resolve`). A pool groups connections of one provider kind, each a separate account the user holds: a connection joins only after the user confirmed it has its own provider quota ("Independent quota confirmed"), so several keys of one account cannot be pooled. The pool's name is a routing prefix: `<pool>/<model>` tries the members in the user's order, skipping disabled ones, and moves to the next on 401, 402, 403, 429 and Anthropic's out-of-credit 400. A session stays on the member that first answered it, the ledger names the connection that answered, and `GET /v1/models` lists `<pool>/<model>`. Pools are set in Providers (formerly Connections) → Pool. Verified by unit tests (`a_pool_tries_separate_accounts_in_order_and_holds_only_those`) and the browser preview; no live request through a pool is recorded.
+> - **Pools of web sessions** (ADR-035, since 2026-11-13, commit 6daacce). Web-session connections of one site may pool, each confirmed as a different account on the site ("Another account on the site"). Such a pool sends each request to the account that sent fewest requests today (since 00:00 UTC, from the ledger, Pygg's own 429 refusals excluded), then the pool's order (`store::resolve`, `store::web_requests_today`). Each account keeps its own daily limit (50 by default, 1 to 1,000, schema v26) and its own pace: one request at a time and a 10 s rest after each reply. An account at its limit answers 429 `daily_limit` without touching the site, and the request moves to the next account through the usual fallback. Rotation spreads the load across accounts; it never lets one account send faster or more than its own limit. Verified by a unit test in `websession/tests.rs` (the least-used account first, Pygg's 429s not counted; passed 2026-11-13); no live request through a web pool is recorded (the 2026-11-13 benchmark used two ChatGPT accounts by name, not as a pool).
+> - **Not built:** the strategies of §3 other than these two orders, weights, a sticky turn count, per-pool settings, the simulator and the tables of §9.
 
-> Specification v1.0 · 2026-11-11 · **Partly built:** client allowlists, quota groups, error-scoped fallback, cooldowns, spend reservations and a circuit breaker with a probe; account pools and rotation strategies are not (ROADMAP E).
+> Specification v1.0 · 2026-11-11 · **Partly built:** client allowlists, quota groups, error-scoped fallback, cooldowns, spend reservations and a circuit breaker with a probe; account pools in the user's order and web-session pools by least use today (Update above). The rotation strategies of §3 are not built (ROADMAP E).
 >
 > Product: AI Cost Optimizer. Account rotation is an **availability, entitlement usage and cost-control mechanism** for authorized connections, not a way to evade provider quotas, bans, account restrictions, subscriptions or terms.
 
 ## Architecture review correction — failure scopes and current implementation (2026-11-11)
 
-When this was written the gateway fell back on 401/403/429 and connection errors across any combo member. P0-2 replaced that with error-scoped fallback, quota-group holds and per-client allowlists, and B4 added the circuit breaker and probe; account pools are still not built (ROADMAP E).
+When this was written the gateway fell back on 401/403/429 and connection errors across any combo member. P0-2 replaced that with error-scoped fallback, quota-group holds and per-client allowlists, and B4 added the circuit breaker and probe; account pools followed on 2026-11-12 (ADR-034) and web-session pools on 2026-11-13 (ADR-035), as in the Update above.
 
 - 401: authentication invalid on this credential; do not blindly retry through other identities.
 - 403: classify model permission, organization policy or account suspension by provider response; block at the **correct scope** (not all accounts sharing provider name indiscriminately).
@@ -58,6 +62,8 @@ Account affinity requires a **client-supplied, authenticated session key**. Do n
 | `cost_aware` | Among eligible accounts optimize predicted verified cost, continuity, latency and reliability | Pygg default in Auto mode | Include cache miss and context handoff overhead |
 | `pinned` | Always use designated account for explicit client/model mapping | Stable tools, strict enterprise policy | No silent fallback outside pin |
 | `failover_only` | Use primary until genuine transient failure; fail over only when safe | Simplicity / stable cache | No fallback after stream has started |
+
+**Built (2026-11-13):** a pool of separate accounts tries its members in the user's order and moves on only on the quota-group errors, which is close to `failover_only` over an ordered list; a pool of web sessions is a simple `least_used`, measured in requests sent today, with the pool's order breaking ties. Neither has weights, a turn-count cap or per-pool settings.
 
 **Default recommendation:** `cost_aware + session_affinity` in consumer Auto Chat; `sticky_round_robin` as an option for multiple equivalent accounts; `fill_first` available for predictable quota use. Existing agent session/attempt remains pinned throughout execution. Cross-provider switching only at a safe boundary and through the Universal Shared Memory/Context Handoff contract.
 
@@ -178,6 +184,8 @@ rotation_decisions(id, request_id, session_id?, strategy, selected_account_id,
                    eligible_json, excluded_json, policy_snapshot, reason, created_at)
 ```
 
+**Built instead (2026-11-13):** no new tables. A pool is two columns of a connection, `providers.pool` and `providers.pool_rank` (migration 0022), with the independent-quota confirmation that already existed; a web session's daily limit is `providers.web_daily_limit` (migration 0026), and its use today is counted from `usage_events`. Health, cooldowns and quota-group holds are the gateway's existing ones.
+
 Use SQLite migrations and foreign keys; secret material stays exclusively in OS keychain. Concurrency safe across processes and app restarts. Account labels can be exposed to user; credentials never appear in debug logs.
 
 ### APIs (typed Tauri commands and optional scoped localhost HTTP)
@@ -198,7 +206,7 @@ Client permission boundary applies to every retry/fallback, including direct acc
 
 ## 10. Integration order and QA
 
-**P0 (as proposed; the order now follows ROADMAP, where pools are E)** — account registry, model entitlement and quota groups, health states, `fill_first`, `round_robin`, basic safe pre-stream failover, per-client allowlists, ledger with account ID.
+**P0 (as proposed; the order now follows ROADMAP, where the rest of pools is E; ordered pools and web-session pools are built, Update at the top)** — account registry, model entitlement and quota groups, health states, `fill_first`, `round_robin`, basic safe pre-stream failover, per-client allowlists, ledger with account ID.
 
 **P1** — `sticky_round_robin`, durable affinity, cost-aware candidate scoring, Retry-After/backoff, reservation concurrency, Pools UI, simulation and quota provenance.
 
