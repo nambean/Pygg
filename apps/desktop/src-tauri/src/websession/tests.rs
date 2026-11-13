@@ -164,6 +164,101 @@ fn no_reply_or_a_usage_limit_is_an_error_not_an_answer() {
     });
 }
 
+#[test]
+fn a_visitors_chat_is_not_taken_for_the_users_account() {
+    rt().block_on(async {
+        // ChatGPT, Perplexity and Grok chat with visitors: the prompt box is there, and so are their Log in buttons.
+        let chatgpt = recipe("chatgpt-web").unwrap();
+        let page = FakePage::new(vec![json!({ "fresh": true, "ready": true, "hasInput": true, "signedOut": true })], vec![]);
+        let error = converse(page.as_ref(), chatgpt, "hi", &fast(), &mut |_: &str| {}).await.unwrap_err();
+        assert_eq!(error, WebError::NeedsYou { state: "signed_out", reason: SIGNED_OUT });
+        assert!(page.filled.lock().unwrap().is_none(), "nothing typed into a visitor's chat");
+    });
+}
+
+#[test]
+fn enter_sends_where_the_site_has_no_labelled_send_button() {
+    rt().block_on(async {
+        let deepseek = recipe("deepseek-web").unwrap();
+        assert!(send_script(deepseek).contains("'entered'"));
+        assert!(send_script(muse()).contains("const box = false"), "Muse keeps its Send button");
+        let page = FakePage::new(vec![ready()], vec![read(0, "", false), read(1, "Hello", false)]);
+        *page.send.lock().unwrap() = Some(json!("entered"));
+        let reply = converse(page.as_ref(), deepseek, "hi", &fast(), &mut |_: &str| {}).await.unwrap();
+        assert_eq!(reply.text, "Hello");
+    });
+}
+
+#[test]
+fn without_a_busy_signal_a_reply_must_stay_still_longer() {
+    rt().block_on(async {
+        // A pause in the middle of an answer: with a "stop" button that is gone, two still reads end it (Muse); a site
+        // without one (DeepSeek) waits for `stable_busy` still reads, and gets the rest.
+        let reads = || vec![read(0, "", false), read(1, "Hel", false), read(1, "Hel", false), read(1, "Hel", false),
+            read(1, "Hello", false)];
+        let page = FakePage::new(vec![ready()], reads());
+        assert_eq!(converse(page.as_ref(), muse(), "hi", &fast(), &mut |_: &str| {}).await.unwrap().text, "Hel");
+        let page = FakePage::new(vec![ready()], reads());
+        let deepseek = recipe("deepseek-web").unwrap();
+        assert_eq!(converse(page.as_ref(), deepseek, "hi", &fast(), &mut |_: &str| {}).await.unwrap().text, "Hello");
+    });
+}
+
+#[test]
+fn every_web_preset_has_a_recipe_and_every_recipe_a_preset() {
+    for r in RECIPES {
+        let preset = crate::gateway::presets::find(r.preset).unwrap_or_else(|| panic!("{} has no preset", r.preset));
+        assert!(preset.web && preset.web_acts == r.acts, "{}", r.preset);
+        assert!(!r.models.is_empty() && host_allowed(r, r.new_chat_url) && host_allowed(r, &format!("{}/", r.site)), "{}", r.preset);
+        // Only Muse's agent asks for approvals, and only a site with approvals needs a deny button.
+        assert_eq!(r.approval.is_some(), r.acts, "{}", r.preset);
+    }
+}
+
+#[test]
+fn each_site_reaches_its_own_sign_in_and_nothing_else() {
+    let cases: &[(&str, &[&str], &[&str])] = &[
+        ("chatgpt-web", &["https://chatgpt.com/", "https://auth.openai.com/log-in", "https://accounts.google.com/o/oauth2/auth?x=1",
+            "https://appleid.apple.com/auth/authorize", "https://login.live.com/oauth20_authorize.srf",
+            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"],
+            &["https://chat.openai.com.evil.example/", "https://grok.com/", "https://muse.ai/"]),
+        ("perplexity-web", &["https://www.perplexity.ai/", "https://perplexity.ai/api/auth/signin", "https://accounts.google.com/x",
+            "https://appleid.apple.com/x"], &["https://chatgpt.com/", "https://evilperplexity.ai/"]),
+        ("deepseek-web", &["https://chat.deepseek.com/sign_in", "https://accounts.google.com/x", "https://appleid.apple.com/x"],
+            &["https://chatgpt.com/", "https://deepseek.com.evil.example/"]),
+        ("grok-web", &["https://grok.com/sign-in", "https://accounts.x.ai/sign-in", "https://x.com/i/oauth2/authorize",
+            "https://api.twitter.com/oauth/authorize", "https://accounts.google.com/x"], &["https://chatgpt.com/", "http://grok.com/"]),
+    ];
+    for (preset, allowed, blocked) in cases {
+        let r = recipe(preset).unwrap();
+        for url in *allowed {
+            assert!(host_allowed(r, url), "{preset} must reach {url}");
+        }
+        for url in *blocked {
+            assert!(!host_allowed(r, url), "{preset} must not reach {url}");
+        }
+    }
+    // A site's window never reaches another site, so one profile never signs in to two of them.
+    for a in RECIPES {
+        for b in RECIPES.iter().filter(|b| b.preset != a.preset) {
+            assert!(!host_allowed(a, b.new_chat_url), "{} reaches {}", a.preset, b.preset);
+        }
+    }
+}
+
+#[test]
+fn every_new_web_preset_starts_off_with_its_one_model_and_no_tools() {
+    let conn = crate::db::open_in_memory().unwrap();
+    for (preset, id, model) in [("chatgpt-web", "chatgpt", "chatgpt"), ("perplexity-web", "perplexity", "perplexity"),
+        ("deepseek-web", "deepseek", "deepseek"), ("grok-web", "grok", "grok")] {
+        let p = store::add_web_provider(&conn, preset, "", WARNING_VERSION).unwrap();
+        assert_eq!((p.id.as_str(), p.enabled, p.default_billing.as_str()), (id, false, "subscription"));
+        let models = store::list_models(&conn, Some(&p.id)).unwrap();
+        assert_eq!(models.iter().map(|m| m.model_id.as_str()).collect::<Vec<_>>(), [model]);
+        assert_eq!(models[0].capabilities.supports_tools, Some(false));
+    }
+}
+
 // ---------- Requests ----------
 
 #[test]

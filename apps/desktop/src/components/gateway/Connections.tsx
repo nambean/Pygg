@@ -494,7 +494,7 @@ const OFFER_GROUPS: {offer: Preset['offer']; title: () => string; hint: () => st
   {offer: 'local', title: () => t('On this computer'), hint: () => t('Runs locally: no key, no per-token cost.')},
   {offer: 'custom', title: () => t('Custom'), hint: () => t('Any other OpenAI- or Anthropic-compatible endpoint.')},
   {offer: 'web', title: () => t('Web session (unofficial)'),
-    hint: () => t('A site with no API, used through a window you sign in to. It can put your account at risk.')},
+    hint: () => t('A site you use by signing in, in a Pygg window, instead of with an API key. It can put your account at risk.')},
 ];
 
 function presetName(p: Preset): string {
@@ -663,12 +663,14 @@ function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected:
 }
 
 /** The risks of a web session (ADR-035), as the user acknowledges them before connecting. */
-function WebRisks({siteName}: {siteName: string}) {
+function WebRisks({siteName, acts}: {siteName: string; acts: boolean}) {
   return <ul className="web-risks">
     <li>{t('{site}’s terms may forbid automated use. Pygg is not affiliated with it or approved by it.', {site: siteName})}</li>
     <li>{t('Your account can be limited or banned for it. You carry that risk.')}</li>
     <li>{t('The site can change at any time and break this connection without notice.')}</li>
-    <li>{t('Pygg types into the site as you, while signed in as you. Muse is an agent with access to the apps you connected to it: Pygg denies every action it asks to take, but anything you send through Pygg is sent from your account.')}</li>
+    <li>{acts
+      ? t('Pygg types into the site as you, while signed in as you. {site} is an agent with access to the apps you connected to it: Pygg denies every action it asks to take, but anything you send through Pygg is sent from your account.', {site: siteName})
+      : t('Pygg types into the site as you, while signed in as you: anything you send through Pygg is sent from your account and kept in its history there.')}</li>
     <li>{t('No tools or images, no token counts, and it is never chosen by auto: clients use it by naming it, or in a combo you build.')}</li>
   </ul>;
 }
@@ -713,8 +715,8 @@ function WebConnectSheet({preset, onBack, onClose, onConnected}: {preset: Preset
       <div className="web-warning" role="note">
         <ShieldAlert size={16} aria-hidden/>
         <div>
-          <p><strong>{t('{site} has no API. Pygg would use it the way you do, in a window where you sign in to the site.', {site: preset.name})}</strong></p>
-          <WebRisks siteName={preset.name}/>
+          <p><strong>{t('Pygg would use {site} the way you do, in a window where you sign in to the site, not through an API.', {site: preset.name})}</strong></p>
+          <WebRisks siteName={preset.name} acts={!!preset.webActs}/>
           <p className="secondary small">{t('Pygg never asks for your password and never copies cookies from your browsers. The sign-in stays in this connection’s own folder on this computer, and is deleted when you remove the connection. If the site shows a CAPTCHA or another check, Pygg stops and asks you to deal with it yourself.')}</p>
         </div>
       </div>
@@ -722,8 +724,9 @@ function WebConnectSheet({preset, onBack, onClose, onConnected}: {preset: Preset
         <input type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} disabled={busy}/>
         <span>{t('I understand these risks and accept them for my account on {site}.', {site: preset.name})}</span>
       </label>
-      <FormRow label={t('Name')} htmlFor="web-connection-label" hint={t('Also the first part of model names, e.g. {id}/muse.',
-        {id: (label.trim() || defaultLabel).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'connection'})}>
+      <FormRow label={t('Name')} htmlFor="web-connection-label" hint={t('Also the first part of model names, e.g. {id}/{model}.',
+        {id: (label.trim() || defaultLabel).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'connection',
+          model: preset.id.replace(/-web$/, '')})}>
         <input id="web-connection-label" className="text-input" value={label} placeholder={defaultLabel} onChange={e => setLabel(e.target.value)}/>
       </FormRow>
       <p className="secondary small">{t('The connection starts off. Next, open its sign-in window, sign in on the site, check the sign-in, then turn it on.')}</p>
@@ -764,7 +767,7 @@ function WebSessionRows({connection: c}: {connection: Connection}) {
         <small>{c.webAckCurrent
           ? t('You accepted the risks on {date}. Pygg drives the site in its own window, one request at a time, and stops at any check the site shows.', {date: new Date(c.webAckAt ?? c.createdAt).toLocaleDateString()})
           : t('The warning has changed since you accepted it. Remove this connection and connect it again to read and accept the new one; until then it is not used.')}</small></span>
-      <WebRisks siteName={c.presetName}/>
+      <WebRisks siteName={c.presetName} acts={!!c.webActs}/>
     </div>
     <div className="group-row">
       <span className="group-label">{t('API')}<small>{t('Clients reach it as an OpenAI-format provider; Anthropic and Responses requests are translated. Requests with tools are refused.')}</small></span>

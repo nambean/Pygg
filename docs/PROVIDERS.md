@@ -63,11 +63,25 @@ gateway add-connection --preset custom --label "My provider" --endpoint https://
 
 A site with no API, used through a Pygg window the user signs in to (ADR-035). Off until the user acknowledges the account-risk warning for that connection and signs in; billed as the user's plan with the site, so every cost is unknown; never chosen by `auto`; no tools or images.
 
-| Preset | Site | Models | Recipe from | Live |
-| --- | --- | --- | --- | --- |
-| Muse (muse.ai) | `https://muse.ai`, a new chat at `/thread/new` | `muse` | 9router's `muse-web` executor (MIT), see THIRD_PARTY_NOTICES.md | no: written without a signed-in session; to be confirmed by the owner |
+Each connection has its own WebView2 profile: its own cookies, storage and sign-in. Pygg never changes a window's browser fingerprint.
 
-Meta's Muse *models* also have an API (Meta (Muse API), above); the muse.ai agent app has none.
+| Preset | Site and new chat | Sign-in hosts allowed | Model | Selectors from | Live |
+| --- | --- | --- | --- | --- | --- |
+| Muse (muse.ai) | `https://muse.ai/thread/new` | muse.ai, meta.com, meta.ai, facebook.com, instagram.com, threads.com, threads.net, messenger.com (Meta's "aymh" cycle) | `muse` | 9router's `muse-web` executor (MIT), see THIRD_PARTY_NOTICES.md | **yes**: the owner's sign-in and a test message, 2026-11-12 (HTTP 200, 13.9 s, cost unknown) |
+| ChatGPT (chatgpt.com) | `https://chatgpt.com/` | chatgpt.com, openai.com (auth.openai.com), Google, Apple, Microsoft (live.com, microsoftonline.com, microsoft.com) | `chatgpt` | its public page (`textarea[name=prompt]` or `#prompt-textarea`, a "Send message" button); replies `[data-message-author-role=assistant]` | no |
+| Perplexity (perplexity.ai) | `https://www.perplexity.ai/` | perplexity.ai, Google, Apple | `perplexity` | its public page (a Lexical `div[contenteditable][role=textbox]`, a "Submit" button); answers `[id^=markdown-content-]` or `.prose` | no |
+| DeepSeek (chat.deepseek.com) | `https://chat.deepseek.com/` | chat.deepseek.com, deepseek.com, Google, Apple | `deepseek` | DeepSeek's chat page as commonly described (`textarea#chat-input`, Enter sends, answers `.ds-markdown`); the page needs an account, so unchecked | no |
+| Grok (grok.com) | `https://grok.com/` | grok.com, x.ai (accounts.x.ai), x.com, twitter.com, Google, Apple | `grok` | Grok's chat page as commonly described (a `textarea` or ProseMirror box, a "Submit" button, answers `.response-content-markdown`); Cloudflare blocked the public page on 2026-11-12, so unchecked | no |
+
+- **Sign-in hosts.** The hosts of the four new sites are their documented sign-in paths. Each is checked against the live redirect chain when the owner signs in with the debug navigation log; Muse's were checked that way.
+- **Google sign-in.** Google may refuse to sign in inside an embedded window ("This browser or app may not be secure"). The site's own email sign-in is then the way, since Pygg does not disguise the window.
+- **Visitor chats.** ChatGPT, Perplexity and Grok also chat with visitors. Their recipes treat a page that shows "Log in" or "Sign in" buttons as signed out, even when the prompt box is there.
+- **Cloudflare.** Grok's site sits behind Cloudflare. Any check it shows stops the connection until the user clears it in the window.
+- **Official APIs.** Meta's Muse *models* (Meta (Muse API), above), OpenAI's, DeepSeek's and xAI's models all have official APIs, and Pygg has presets for each. Perplexity's Sonar API is paid and not supported by the gateway yet. The muse.ai agent app has no API.
+- **Not added** ([research](research/2026-11-12-web-session-routers.md)):
+  - Gemini web: Google's API has a free tier (the owner's decision, 2026-11-12), and Google refuses sign-in in embedded windows.
+  - 9router's UC (image and video only, adult content).
+  - Veo AI Free (no sign-in; a video scraper).
 
 ## Left out
 

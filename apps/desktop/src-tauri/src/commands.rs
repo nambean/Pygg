@@ -171,6 +171,8 @@ pub struct ConnectionView {
     /// A web session (ADR-035), and whether its warning was acknowledged in its current text.
     pub web: bool,
     pub web_ack_current: bool,
+    /// The site's assistant can act for the user (Muse).
+    pub web_acts: bool,
 }
 
 fn view(state: &AppState, provider: Provider) -> ConnectionView {
@@ -186,6 +188,7 @@ fn view(state: &AppState, provider: Provider) -> ConnectionView {
     ConnectionView {
         web,
         web_ack_current: web && provider.web_ack_version == Some(crate::websession::WARNING_VERSION),
+        web_acts: preset.is_some_and(|p| p.web_acts),
         limits,
         account,
         reads_account: gateway::quota::account_endpoint(&provider.kind).is_some(),

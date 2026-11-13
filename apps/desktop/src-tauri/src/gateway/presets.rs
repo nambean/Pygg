@@ -53,6 +53,8 @@ pub struct Preset {
     /// A web session (ADR-035): the site is driven in the connection's own Pygg window, which Pygg serves as a Chat
     /// Completions endpoint on loopback (`websession`). `endpoint` is then the site, shown to the user, not called.
     pub web: bool,
+    /// A web session whose site's assistant can act for the user (Muse): the warning says so.
+    pub web_acts: bool,
 }
 
 const fn preset(id: &'static str, name: &'static str, endpoint: Option<&'static str>, needs_key: bool,
@@ -63,7 +65,7 @@ const fn preset(id: &'static str, name: &'static str, endpoint: Option<&'static 
         _ => "paid",
     };
     Preset { id, name, endpoint, needs_key, default_billing, wire, strip_model_prefix: None, accepts_cache_control: false,
-        family: None, offer, offer_note: None, free_models: false, takes_reasoning: false, serves_responses: false, web: false }
+        family: None, offer, offer_note: None, free_models: false, takes_reasoning: false, serves_responses: false, web: false, web_acts: false }
 }
 
 /// A free tier made of $0 models next to paid ones: the connection starts as free, and only those models are on.
@@ -145,7 +147,11 @@ pub const PRESETS: &[Preset] = &[
     preset("custom", "Custom (OpenAI-compatible)", None, false, "unknown", "openai"),
     preset("custom-anthropic", "Custom (Anthropic-compatible)", None, false, "unknown", "anthropic"),
     // Meta's personal agent app; its models also have an API (the `meta` preset above), the agent itself has none.
-    web("muse-web", "Muse (muse.ai)", "https://muse.ai", "The Muse models also have an API: Meta (Muse API)"),
+    Preset { web_acts: true, ..web("muse-web", "Muse (muse.ai)", "https://muse.ai", "The Muse models also have an API: Meta (Muse API)") },
+    web("chatgpt-web", "ChatGPT (chatgpt.com)", "https://chatgpt.com", "OpenAI's models also have an API: OpenAI"),
+    web("perplexity-web", "Perplexity (perplexity.ai)", "https://www.perplexity.ai", "Answers with web search; its Sonar API is paid"),
+    web("deepseek-web", "DeepSeek (chat.deepseek.com)", "https://chat.deepseek.com", "DeepSeek's models also have an API: DeepSeek"),
+    web("grok-web", "Grok (grok.com)", "https://grok.com", "Behind Cloudflare checks; xAI's models also have an API: xAI (Grok)"),
 ];
 
 pub fn find(id: &str) -> Option<&'static Preset> {
@@ -172,7 +178,9 @@ mod tests {
             if p.web {
                 assert_eq!(p.default_billing, "subscription", "{}", p.id);
                 assert!(!p.needs_key && !p.serves_responses && p.wire == "openai", "{}", p.id);
-                assert!(crate::websession::recipe(p.id).is_some(), "{} has a recipe", p.id);
+                let recipe = crate::websession::recipe(p.id);
+                assert!(recipe.is_some(), "{} has a recipe", p.id);
+                assert_eq!(recipe.unwrap().acts, p.web_acts, "{} says whether its assistant acts", p.id);
             }
             assert!(matches!(p.wire, "openai" | "anthropic"));
             if let Some(family) = p.family {

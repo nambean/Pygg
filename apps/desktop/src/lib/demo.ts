@@ -53,7 +53,14 @@ const BASE_PRESETS: BasePreset[] = [
   ] as const).map(([id, name, endpoint]): BasePreset => ({id, name, endpoint, needsKey: false, defaultBilling: 'local', wire: 'openai'})),
   {id: 'custom', name: 'Custom (OpenAI-compatible)', endpoint: null, needsKey: false, defaultBilling: 'unknown', wire: 'openai'},
   {id: 'custom-anthropic', name: 'Custom (Anthropic-compatible)', endpoint: null, needsKey: false, defaultBilling: 'unknown', wire: 'anthropic'},
-  {id: 'muse-web', name: 'Muse (muse.ai)', endpoint: 'https://muse.ai', needsKey: false, defaultBilling: 'subscription', wire: 'openai'},
+  ...([
+    // Same list as gateway/presets.rs `web(…)` and websession.rs `RECIPES`.
+    ['muse-web', 'Muse (muse.ai)', 'https://muse.ai'],
+    ['chatgpt-web', 'ChatGPT (chatgpt.com)', 'https://chatgpt.com'],
+    ['perplexity-web', 'Perplexity (perplexity.ai)', 'https://www.perplexity.ai'],
+    ['deepseek-web', 'DeepSeek (chat.deepseek.com)', 'https://chat.deepseek.com'],
+    ['grok-web', 'Grok (grok.com)', 'https://grok.com'],
+  ] as const).map(([id, name, endpoint]): BasePreset => ({id, name, endpoint, needsKey: false, defaultBilling: 'subscription', wire: 'openai'})),
 ];
 /** What gateway/presets.rs says about starting with each provider. */
 const OFFERS: Record<string, [Preset['offer'], string]> = {
@@ -65,12 +72,17 @@ const OFFERS: Record<string, [Preset['offer'], string]> = {
   cerebras: ['credits', '$5 trial credit, card needed'], fireworks: ['credits', 'Small starting credit'],
   huggingface: ['credits', 'Monthly credit with PRO'],
   'muse-web': ['web', 'The Muse models also have an API: Meta (Muse API)'],
+  'chatgpt-web': ['web', 'OpenAI\'s models also have an API: OpenAI'],
+  'perplexity-web': ['web', 'Answers with web search; its Sonar API is paid'],
+  'deepseek-web': ['web', 'DeepSeek\'s models also have an API: DeepSeek'],
+  'grok-web': ['web', 'Behind Cloudflare checks; xAI\'s models also have an API: xAI (Grok)'],
 };
 const PRESETS: Preset[] = BASE_PRESETS.map(p => {
   const offer = OFFERS[p.id];
   const freeModels = ['openrouter', 'zai', 'zai-anthropic'].includes(p.id);
   return {...p, offer: offer?.[0] ?? (p.endpoint === null ? 'custom' : p.defaultBilling === 'local' ? 'local' : 'paid'),
-    offerNote: offer?.[1] ?? null, freeModels, defaultBilling: freeModels ? 'free' : p.defaultBilling, web: offer?.[0] === 'web'};
+    offerNote: offer?.[1] ?? null, freeModels, defaultBilling: freeModels ? 'free' : p.defaultBilling, web: offer?.[0] === 'web',
+    webActs: p.id === 'muse-web'};
 });
 
 /** As found on a developer machine: three agents installed, Codex signed in with a ChatGPT plan. */
@@ -447,10 +459,10 @@ export function demoApi(): GatewayApi {
         while (connections.some(c => c.id === id)) id = `${slug(label)}-${n++}`;
         connections.push({id, kind: preset.id, label, endpoint: preset.endpoint!, enabled: false, credentialRef: null,
           defaultBilling: 'subscription', dataUseTerms: 'unknown', termsSource: null, termsCheckedAt: null, createdAt: Date.now(),
-          key: false, wire: 'openai', separateQuota: false, quotaConfirmedAt: null, web: true, webAckCurrent: true,
+          key: false, wire: 'openai', separateQuota: false, quotaConfirmedAt: null, web: true, webAckCurrent: true, webActs: preset.webActs,
           webAckAt: Date.now(), webState: 'signed_out', webStateAt: Date.now(),
           webStateReason: 'Not signed in yet. Open the sign-in window and sign in on the site.'});
-        addModels(id, ['muse']);
+        addModels(id, [preset.id.replace(/-web$/, '')]);
         models[models.length - 1].capabilities = {...UNKNOWN, supportsTools: false, supportsVision: false,
           source: 'web session: text only, no tools or images (ADR-035)'};
         return view(connections[connections.length - 1]);
