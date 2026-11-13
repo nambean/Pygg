@@ -60,6 +60,9 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
             "type": "insufficient_quota", "code": "insufficient_quota" } }))).into_response(),
         "daylong" => return ([(header::RETRY_AFTER, "86400")], (StatusCode::TOO_MANY_REQUESTS,
             Json(json!({ "error": { "message": "daily quota" } })))).into_response(),
+        // Gemini's answer for a model the key's tier does not serve: 429 "quota", no reset (CCHT benchmark, 2026-11-13).
+        "quota429" => return (StatusCode::TOO_MANY_REQUESTS, Json(json!([{ "error": { "code": 429, "status": "RESOURCE_EXHAUSTED",
+            "message": "You exceeded your current quota, please check your plan and billing details." } }]))).into_response(),
         "slow" => tokio::time::sleep(Duration::from_millis(1500)).await,
         "slow-ok" => tokio::time::sleep(Duration::from_millis(300)).await,
         _ => {}
@@ -135,6 +138,12 @@ async fn fake_anthropic(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonB
     if model == "limited" {
         return ([(header::RETRY_AFTER, "30")], (StatusCode::TOO_MANY_REQUESTS, Json(json!({ "type": "error",
             "error": { "type": "rate_limit_error", "message": "slow down" } })))).into_response();
+    }
+    // Claude Haiku 5.5 to a conversation that ends with an assistant turn (CCHT benchmark, 2026-11-13).
+    if model == "noprefill" && body["messages"].as_array().and_then(|m| m.last()).is_some_and(|m| m["role"] == "assistant") {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "type": "error", "error": { "type": "invalid_request_error",
+            "message": "This model does not support assistant message prefill. The conversation must end with a user message." } })))
+            .into_response();
     }
     let seen = format!("cache_control={} thinking={} beta={}", body.to_string().contains("cache_control"),
         !body["thinking"].is_null(), headers.get("anthropic-beta").and_then(|v| v.to_str().ok()).unwrap_or("-"));
@@ -274,6 +283,7 @@ async fn rig_on(read_timeout: Duration, store_path: Option<&std::path::Path>) ->
     combo("siblings", &[(&main.id, "limited"), (&sibling.id, "steady")]);
     combo("slowcombo", &[(&main.id, "slow"), (&backup.id, "steady")]);
     combo("pinme", &[(&main.id, "flaky"), (&backup.id, "steady")]);
+    combo("prefill", &[(&claude.id, "noprefill"), (&main.id, "fast")]);
     let _ = router;
     let (client, token) = store::create_client(&conn, "Tests", None).unwrap();
 
@@ -1669,6 +1679,68 @@ fn auto_routes_to_the_lowest_eligible_tier_and_says_why() {
             .json().await.unwrap();
         let ids: Vec<&str> = models["data"].as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).collect();
         assert!(ids.contains(&"auto") && ids.contains(&"auto/cheap"));
+    });
+}
+
+#[test]
+fn a_model_answering_429_without_a_reset_is_held_out_of_auto_but_not_of_a_named_route() {
+    rt().block_on(async {
+        let rig = rig().await;
+        // Backup is free, so its model ranks first; it answers 429 "quota" with no reset, as Gemini's Gemma did.
+        set_caps(&rig, "backup", "quota429", "T2", Some(true));
+        set_caps(&rig, "main", "fast", "T2", Some(true));
+        let first = rig.post("/v1/chat/completions", chat("auto")).await;
+        assert_eq!(first.status(), 200);
+        assert_eq!(first.headers()["x-smarttaskrouter-route"], "main/fast");
+        assert_eq!(rig.fake.count("quota429"), 1);
+        let outcomes: Vec<(String, Option<u16>)> = rig.ledger().into_iter().map(|e| (e.outcome, e.http_status)).collect();
+        assert_eq!(outcomes, [("fallback".into(), Some(429)), ("ok".into(), Some(200))]);
+
+        // Held out of auto from the first strike, and the header says so.
+        let held = rig.shared.with_db(|db| auto::hold(db, "backup", "quota429", crate::db::now_ms())).unwrap();
+        assert_eq!(held.strikes, 1);
+        assert!(held.until_ms.unwrap() - crate::db::now_ms() > 9 * 60_000, "ten minutes, not the 30 s rate-limit cooldown");
+        let again = rig.post("/v1/chat/completions", chat("auto/cheap")).await;
+        assert_eq!(again.headers()["x-smarttaskrouter-route"], "main/fast");
+        let why = again.headers()["x-smarttaskrouter-auto"].to_str().unwrap().to_string();
+        assert!(why.contains("excluded, 1 held after 429: backup/quota429"), "{why}");
+        assert_eq!(rig.fake.count("quota429"), 1, "not sent to");
+
+        // A client naming the model, or a combo, still reaches it once the provider's own cooldown is over; that
+        // second 429 in a row doubles the hold.
+        rig.shared.with_db(|db| store::mark_healthy(db, "backup", "quota429")).unwrap();
+        assert_eq!(rig.post("/v1/chat/completions", chat("backup/quota429")).await.status(), 429);
+        assert_eq!(rig.fake.count("quota429"), 2);
+        let held = rig.shared.with_db(|db| auto::hold(db, "backup", "quota429", crate::db::now_ms())).unwrap();
+        assert_eq!(held.strikes, 2);
+        assert!(held.until_ms.unwrap() - crate::db::now_ms() > 19 * 60_000);
+        rig.shared.with_db(|db| store::mark_healthy(db, "backup", "quota429")).unwrap();
+        assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-smarttaskrouter-route"], "main/fast");
+        assert_eq!(rig.fake.count("quota429"), 2, "auto still leaves it out");
+
+        // Clearing the connection's health in Connections lifts the hold.
+        rig.shared.with_db(|db| store::clear_health(db, "backup")).unwrap();
+        assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-smarttaskrouter-route"], "main/fast");
+        assert_eq!(rig.fake.count("quota429"), 3);
+    });
+}
+
+#[test]
+fn a_prefill_refusal_falls_back_to_the_next_target_before_anything_reaches_the_client() {
+    rt().block_on(async {
+        let rig = rig().await;
+        let assistant_last = json!({ "model": "prefill", "messages": [{ "role": "user", "content": "ping" },
+            { "role": "assistant", "content": "The answer is" }] });
+        let response = rig.post("/v1/chat/completions", assistant_last.clone()).await;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.headers()["x-smarttaskrouter-route"], "main/fast");
+        let outcomes: Vec<(String, Option<u16>)> = rig.ledger().into_iter().map(|e| (e.outcome, e.http_status)).collect();
+        assert_eq!(outcomes, [("fallback".into(), Some(400)), ("ok".into(), Some(200))]);
+        assert!(rig.shared.with_db(|db| store::list_health(db, Some("claude"))).unwrap().is_empty(), "the model is well");
+        // Named alone, the refusal reaches the client as the 400 it is.
+        let alone = rig.post("/v1/chat/completions", json!({ "model": "claude/noprefill", "messages": assistant_last["messages"] })).await;
+        assert_eq!(alone.status(), 400);
+        assert!(alone.text().await.unwrap().contains("assistant message prefill"));
     });
 }
 

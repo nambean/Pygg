@@ -659,7 +659,11 @@ const MAX_ERROR_BODY: usize = 64 * 1024;
 /// covers Vietnamese and CJK text better than counting bytes. Base64 images count as text, far above what
 /// providers charge for them.
 fn estimate_input_tokens(body: &Value) -> u64 {
-    let text = body.to_string();
+    estimate_text_tokens(&body.to_string())
+}
+
+/// The same estimate over a piece of text (a web session's prompt).
+pub(crate) fn estimate_text_tokens(text: &str) -> u64 {
     let ascii = text.bytes().filter(u8::is_ascii).count() as u64;
     let other = text.chars().filter(|c| !c.is_ascii()).count() as u64;
     ascii.div_ceil(3) + other
@@ -933,6 +937,12 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 let model = if model_scope { model_id.as_str() } else { "" };
                 let status = match failure { Failure::Http(e) => Some(e.status), _ => None };
                 let _ = shared.with_db(|db| store::mark_health(db, &provider.id, model, mark.state, message, status, until));
+                // A 429 on one model is a strike against it in `auto`: without a usable reset, or repeated, the model
+                // is held out of the automatic routes for a growing while (`auto::strike`). Named routes still try it.
+                if mark.state == "rate_limited" && model_scope {
+                    let reset = match failure { Failure::Http(e) => e.retry_after, _ => None };
+                    let _ = shared.with_db(|db| auto::strike(db, &provider.id, &model_id, reset, message, db_now()));
+                }
             }
             if decision.next == Next::OtherGroups {
                 blocked_groups.entry(provider.quota_group.clone()).or_insert_with(|| provider.id.clone());
@@ -1023,6 +1033,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             Ok(response) if response.status().is_success() => {
                 note_limits(shared, &provider.id, &model_id, response.status().as_u16(), response.headers());
                 let _ = shared.with_db(|db| store::mark_healthy(db, &provider.id, &model_id));
+                let _ = shared.with_db(|db| auto::clear_hold(db, &provider.id, &model_id));
                 let pinned = pinned_target.as_ref().is_some_and(|p| p.provider_id == provider.id && p.model_id == model_id);
                 let auto_header = auto_plan.as_ref().and_then(|plan| plan.ranked.iter()
                     .find(|r| r.provider_id == provider.id && r.model_id == model_id).map(|r| {

@@ -8,7 +8,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn fast() -> Timing {
     Timing { poll: Duration::from_millis(1), ready: Duration::from_millis(150), send: Duration::from_millis(30),
-        first_word: Duration::from_millis(200), reply: Duration::from_secs(2), stable: 2, stable_busy: 6,
+        first_word: Duration::from_millis(200), first_word_per_100_tokens: Duration::from_millis(30),
+        first_word_cap: Duration::from_secs(1), reply: Duration::from_secs(2), stable: 2, stable_busy: 6,
         queue: Duration::from_millis(100), gap: Duration::ZERO }
 }
 
@@ -161,6 +162,40 @@ fn no_reply_or_a_usage_limit_is_an_error_not_an_answer() {
         let page = FakePage::new(vec![ready()], vec![read(0, "", false), read(1, "You have reached your usage limit.", false)]);
         let error = converse(page.as_ref(), muse(), "hi", &fast(), &mut |_: &str| {}).await.unwrap_err();
         assert_eq!(error, WebError::Quota);
+    });
+}
+
+#[test]
+fn the_first_word_wait_grows_with_the_prompt_and_is_capped() {
+    let t = Timing::default();
+    assert_eq!(t.first_word_wait("hi"), Duration::from_secs(60));
+    // About 6,000 tokens (18,000 ASCII characters at three a token): a minute more.
+    let long = "x".repeat(18_000);
+    assert_eq!(t.first_word_wait(&long), Duration::from_secs(120));
+    assert_eq!(t.reply_wait(&long), Duration::from_secs(360));
+    // Claude Code's 90,000-token context, and more: never past the cap.
+    assert_eq!(t.first_word_wait(&"x".repeat(270_000)), Duration::from_secs(240));
+    assert_eq!(t.first_word_wait(&"x".repeat(2_000_000)), Duration::from_secs(240));
+    assert_eq!(t.reply_wait(&"x".repeat(2_000_000)), Duration::from_secs(480));
+}
+
+#[test]
+fn a_page_that_thinks_past_the_first_word_wait_is_waited_for() {
+    rt().block_on(async {
+        // Each read takes 100 ms, so the third empty read is past the 200 ms first-word wait of a short prompt.
+        let slow = |reads: Vec<Value>| Arc::new(FakePage { states: Mutex::new(vec![ready()].into()), reads: Mutex::new(reads.into()),
+            read_delay: Duration::from_millis(100), ..FakePage::default() });
+        // The page shows it is answering (its "thinking" state): that is its first word, and the reply comes.
+        let page = slow(vec![read(0, "", false), read(0, "", true), read(0, "", true), read(0, "", true), read(1, "Hello", false)]);
+        let reply = converse(page.as_ref(), muse(), "hi", &fast(), &mut |_: &str| {}).await.unwrap();
+        assert_eq!(reply.text, "Hello");
+        // The same page showing nothing: a short prompt gives up, a long one (about 1,000 tokens: 300 ms more) waits.
+        let silent = || vec![read(0, "", false), read(0, "", false), read(0, "", false), read(0, "", false), read(1, "Hello", false)];
+        let error = converse(slow(silent()).as_ref(), muse(), "hi", &fast(), &mut |_: &str| {}).await.unwrap_err();
+        assert_eq!(error, WebError::Timeout(NO_REPLY));
+        let long = "x".repeat(3000);
+        let reply = converse(slow(silent()).as_ref(), muse(), &long, &fast(), &mut |_: &str| {}).await.unwrap();
+        assert_eq!(reply.text, "Hello");
     });
 }
 

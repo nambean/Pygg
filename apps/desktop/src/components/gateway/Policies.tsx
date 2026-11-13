@@ -137,17 +137,17 @@ function Defaults() {
           <input id="default-limit" inputMode="decimal" value={limit} placeholder={t('No limit')} onChange={e => { setLimit(e.target.value); setMessage(null); }}
             aria-invalid={!limitValid}/></span>
       </FormRow>
-      <FormRow label={t('Strict limit')} hint={t('Strict: each request is held at the most it could cost, so the limit is never passed; a model without a price or maximum output is not used. Estimated: counted as requests finish, so one last request can pass it.')}>
+      <FormRow label={t('Strict limit')} hint={t('Strict: each request is held at the most it could cost, so the limit is never passed; a model without a price or maximum output is not used. Estimated: counted as requests finish, so one last request can pass it.') + ' ' + t('A strict limit holds each request at the most it could cost (output limit × price): Claude Code on a large repository is held at over $1 a request, so prefer the estimated limit there.')}>
         <Segmented<'estimated' | 'strict'> label={t('Strict limit')} value={d.strictBudget ? 'strict' : 'estimated'}
           onChange={v => set({strictBudget: v === 'strict'})}
           options={[{value: 'estimated', label: t('Estimated')}, {value: 'strict', label: t('Strict')}]}/>
       </FormRow>
-      <FormRow label={t('Strict limit')} hint={t('Strict: each request is held at the most it could cost, so the limit is never passed; a model without a price or maximum output is not used. Estimated: counted as requests finish, so one last request can pass it.')}>
+      <FormRow label={t('Strict limit')} hint={t('Strict: each request is held at the most it could cost, so the limit is never passed; a model without a price or maximum output is not used. Estimated: counted as requests finish, so one last request can pass it.') + ' ' + t('A strict limit holds each request at the most it could cost (output limit × price): Claude Code on a large repository is held at over $1 a request, so prefer the estimated limit there.')}>
         <Segmented<'estimated' | 'strict'> label={t('Strict limit')} value={d.strictBudget ? 'strict' : 'estimated'}
           onChange={v => set({strictBudget: v === 'strict'})}
           options={[{value: 'estimated', label: t('Estimated')}, {value: 'strict', label: t('Strict')}]}/>
       </FormRow>
-      <FormRow label={t('Strict limit')} hint={t('Strict: each request is held at the most it could cost, so the limit is never passed; a model without a price or maximum output is not used. Estimated: counted as requests finish, so one last request can pass it.')}>
+      <FormRow label={t('Strict limit')} hint={t('Strict: each request is held at the most it could cost, so the limit is never passed; a model without a price or maximum output is not used. Estimated: counted as requests finish, so one last request can pass it.') + ' ' + t('A strict limit holds each request at the most it could cost (output limit × price): Claude Code on a large repository is held at over $1 a request, so prefer the estimated limit there.')}>
         <Segmented<'estimated' | 'strict'> label={t('Strict limit')} value={d.strictBudget ? 'strict' : 'estimated'}
           onChange={v => set({strictBudget: v === 'strict'})}
           options={[{value: 'estimated', label: t('Estimated')}, {value: 'strict', label: t('Strict')}]}/>

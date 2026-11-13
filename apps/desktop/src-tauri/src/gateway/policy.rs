@@ -66,6 +66,14 @@ impl ProviderError {
         self.status == 400 && self.message.as_deref().is_some_and(|m| m.to_ascii_lowercase().contains("credit balance is too low"))
     }
 
+    /// Anthropic answers HTTP 400 "This model does not support assistant message prefill. The conversation must end
+    /// with a user message." when a conversation ends with an assistant turn and the model takes no prefill (Claude
+    /// Haiku 5.5 to OpenCode, CCHT benchmark 2026-11-13, tests/fixtures/provider-errors/anthropic-400-prefill.json).
+    /// That is this model's refusal of the request's shape, not a malformed request: another model may answer it.
+    fn is_prefill_refused(&self) -> bool {
+        self.status == 400 && self.message.as_deref().is_some_and(|m| m.to_ascii_lowercase().contains("assistant message prefill"))
+    }
+
     fn code_is(&self, codes: &[&str]) -> bool {
         self.code.as_deref().is_some_and(|c| codes.contains(&c))
     }
@@ -128,6 +136,9 @@ pub fn decide(failure: &Failure) -> Decision {
                 // session (seen when Claude Code inherited the Claude desktop app's variables).
                 400 if e.is_out_of_credit() => decision(Next::OtherGroups, mark(false, "payment_required", wait(Duration::from_secs(600))), false),
                 402 => decision(Next::OtherGroups, mark(false, "payment_required", wait(Duration::from_secs(600))), false),
+                // A model that takes no assistant-message prefill: the next target may, and nothing was run. No mark:
+                // the model is well; it is this request's last turn it refuses.
+                400 if e.is_prefill_refused() => decision(Next::Any, None, false),
                 // OpenAI says "insufficient_quota" with a 429 when the account is out of credit: that is the
                 // account, not one model, and it does not pass in 30 seconds.
                 429 if e.code_is(&["insufficient_quota", "billing_hard_limit_reached"]) => {
@@ -231,6 +242,17 @@ mod tests {
         // A plain 429 stays on the one model.
         let plain = decide(&http(429)).mark.unwrap();
         assert_eq!((plain.model_scope, plain.cooldown), (true, Some(RATE_LIMIT_DEFAULT)));
+    }
+
+    #[test]
+    fn a_prefill_refusal_moves_to_the_next_target_without_a_mark() {
+        let body = br#"{"type":"error","error":{"type":"invalid_request_error","message":"This model does not support assistant message prefill. The conversation must end with a user message."}}"#;
+        let e = ProviderError::from_response(400, &HeaderMap::new(), body);
+        let d = decide(&Failure::Http(e));
+        assert_eq!((d.next, d.mark, d.maybe_billed), (Next::Any, None, false));
+        // Any other 400 is still the request's own fault.
+        let other = ProviderError::from_response(400, &HeaderMap::new(), br#"{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: Field required"}}"#);
+        assert_eq!(decide(&Failure::Http(other)).next, Next::Stop);
     }
 
     #[test]

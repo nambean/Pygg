@@ -46,3 +46,8 @@ fn an_unknown_model_cools_that_model_and_lets_others_answer() {
 fn a_malformed_request_stops_without_marking_anything() {
     assert_eq!(decision("anthropic-400-request"), (Next::Stop, None, false));
 }
+
+#[test]
+fn a_prefill_refusal_lets_the_next_target_answer_and_marks_nothing() {
+    assert_eq!(decision("anthropic-400-prefill"), (Next::Any, None, false));
+}

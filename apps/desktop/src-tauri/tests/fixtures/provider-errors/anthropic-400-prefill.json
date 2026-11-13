@@ -1,0 +1,18 @@
+{
+    "case":  "anthropic-400-prefill",
+    "captured":  "2026-11-13",
+    "note":  "Claude Haiku 5.5 answering OpenCode's request whose last turn was an assistant message, during the CCHT benchmark (benchmark/results/2026-11-13-ccht/opencode-auto-cheap.jsonl). The message is the one the agent received through the gateway; the envelope is the shape of Anthropic's invalid_request_error answers (anthropic-400-request.json).",
+    "url":  "https://api.anthropic.com/v1/messages",
+    "status":  400,
+    "headers":  {
+                    "content-type":  "application/json",
+                    "x-should-retry":  "false"
+                },
+    "body":  {
+                 "type":  "error",
+                 "error":  {
+                               "type":  "invalid_request_error",
+                               "message":  "This model does not support assistant message prefill. The conversation must end with a user message."
+                           }
+             }
+}

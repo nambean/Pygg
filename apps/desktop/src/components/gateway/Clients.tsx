@@ -230,7 +230,7 @@ export function LimitSheet({client: c, onClose}: {client: Client; onClose: () =>
       </FormRow>
       <FormRow label={t('Strict limit')} htmlFor="strict-budget"
         hint={amount === null ? t('Applies once the client has a limit.')
-          : strict ? t('Each request is held at the most it could cost: its own output limit, or all the model can write. Models whose price or maximum output is unknown are not used. The bill can still differ if a provider changes its price.')
+          : strict ? t('Each request is held at the most it could cost: its own output limit, or all the model can write. Models whose price or maximum output is unknown are not used. The bill can still differ if a provider changes its price.') + ' ' + t('A strict limit holds each request at the most it could cost (output limit × price): Claude Code on a large repository is held at over $1 a request, so prefer the estimated limit there.')
           : t('Off: a request without an output limit is estimated at 4,096 output tokens, so a long answer can take the month past the limit.')}>
         <label className="check-row"><input id="strict-budget" type="checkbox" checked={strict}
           onChange={e => setStrict(e.target.checked)}/>{t('Hold the most a request could cost')}</label>

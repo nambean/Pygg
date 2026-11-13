@@ -5,7 +5,8 @@
 //! 2. **Hard filters**, each with a reason the user can read. The client may use the connection, and its API
 //!    format is reachable from the request's. The model is not cooling down, and its quota group is not held.
 //!    What the request needs (tools, images, its prompt plus output limit) is *known* to fit: unknown counts
-//!    as missing. Its cost can be stated (a price, or free, local or subscription billing; a subscription uses
+//!    as missing. A model that keeps answering 429 is held out of the ranking for a while (`hold`, below), though
+//!    a client naming it or a combo may still try it. Its cost can be stated (a price, or free, local or subscription billing; a subscription uses
 //!    a plan's quota, not money). For `auto`, its tier is set and is at or above the client's minimum.
 //! 3. **Ranking**, with no classifier and no invented quality scores:
 //!    - `auto`: the lowest eligible tier at or above the client's minimum, then Local, Free, Subscription and
@@ -23,6 +24,7 @@ use super::{estimate_input_tokens, Surface, DEFAULT_OUTPUT_ESTIMATE};
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
+use std::time::Duration;
 
 /// The aliases a client may ask for.
 pub const ALIASES: [&str; 2] = ["auto", "auto/cheap"];
@@ -142,9 +144,80 @@ impl Plan {
             Strategy::Tier => "lowest eligible tier first",
             Strategy::Cheap => "lowest estimated cost first",
         };
-        format!("{}; {}/{} ranked {rank} of {} ({order}): {}; {} excluded", self.alias, chosen.provider_id, chosen.model_id,
+        let held: Vec<String> = self.excluded.iter().filter(|e| e.reason.starts_with(HELD))
+            .map(|e| format!("{}/{}", e.provider_id, e.model_id)).collect();
+        let held = match held.len() {
+            0 => String::new(),
+            n => format!(", {n} held after 429: {}", held.join(", ")),
+        };
+        format!("{}; {}/{} ranked {rank} of {} ({order}): {}; {} excluded{held}", self.alias, chosen.provider_id, chosen.model_id,
             self.ranked.len(), chosen.reason, self.excluded.len())
     }
+}
+
+// ---------- Models held out of auto after 429 ----------
+
+/// How an excluded model's reason starts when `auto` holds it after 429 answers.
+pub const HELD: &str = "held out of auto";
+/// The first hold, doubled with each 429 in a row, up to `HOLD_CAP`.
+pub const HOLD_BASE: Duration = Duration::from_secs(10 * 60);
+pub const HOLD_CAP: Duration = Duration::from_secs(24 * 60 * 60);
+/// A reset shorter than this is not one the route can wait for: the model would be back at once.
+const USABLE_RESET: Duration = Duration::from_secs(1);
+
+/// A model that answered 429 and what `auto` makes of it. A provider's 429 cools the model down from its stated reset
+/// (`policy.rs`), which is right for a model that is merely busy; a model the key's tier does not serve answers 429
+/// "quota" to every request, with no reset or one that is over before the next request (the CCHT benchmark,
+/// 2026-11-13: 18 fallbacks on Gemini's Gemma models). So each 429 on a model is a strike, and a strike without a
+/// usable reset, or a second strike in a row, holds the model out of `auto` and `auto/cheap` for `HOLD_BASE`, doubled
+/// each time, up to `HOLD_CAP`. A client naming the model, or a combo, still reaches it. An answer clears the hold.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Hold {
+    /// 429 answers in a row.
+    pub strikes: u32,
+    /// Held out of the ranking until then, if at all.
+    pub until_ms: Option<i64>,
+    /// What the provider said last, in a few words.
+    pub reason: String,
+}
+
+fn hold_key(provider_id: &str, model_id: &str) -> String {
+    format!("auto.hold.{provider_id}.{model_id}")
+}
+
+/// The hold a model is under, if its time has not passed.
+pub fn hold(conn: &Connection, provider_id: &str, model_id: &str, now: i64) -> Option<Hold> {
+    let hold: Hold = store::setting(conn, &hold_key(provider_id, model_id)).ok().flatten()
+        .and_then(|s| serde_json::from_str(&s).ok())?;
+    (hold.until_ms.is_some_and(|until| until > now)).then_some(hold)
+}
+
+/// Records a 429 on the model: a strike, and a hold where the strike is the second in a row or the provider stated
+/// no reset the route could wait for. Returns the hold now in force, if one is.
+pub fn strike(conn: &Connection, provider_id: &str, model_id: &str, reset: Option<Duration>, reason: &str, now: i64)
+    -> store::Result<Option<Hold>> {
+    let key = hold_key(provider_id, model_id);
+    let previous: Option<Hold> = store::setting(conn, &key)?.and_then(|s| serde_json::from_str(&s).ok());
+    let strikes = previous.map_or(0, |h| h.strikes) + 1;
+    let usable = reset.is_some_and(|r| r >= USABLE_RESET);
+    let until_ms = (strikes > 1 || !usable).then(|| {
+        let wait = HOLD_BASE.saturating_mul(1u32 << (strikes - 1).min(16)).min(HOLD_CAP);
+        now + wait.as_millis() as i64
+    });
+    let hold = Hold { strikes, until_ms, reason: reason.chars().take(120).collect() };
+    store::set_setting(conn, &key, &serde_json::to_string(&hold).unwrap_or_default())?;
+    Ok(until_ms.map(|_| hold))
+}
+
+/// The model answered: no strikes, no hold.
+pub fn clear_hold(conn: &Connection, provider_id: &str, model_id: &str) -> store::Result<()> {
+    store::delete_setting(conn, &hold_key(provider_id, model_id))
+}
+
+/// Every hold of a connection is lifted, as its health is cleared.
+pub fn clear_holds(conn: &Connection, provider_id: &str) -> store::Result<()> {
+    store::delete_settings_like(conn, &format!("{}%", hold_key(provider_id, "")))
 }
 
 fn billing_rank(billing: &str) -> u8 {
@@ -228,6 +301,11 @@ fn judge(conn: &Connection, client: &Client, provider: &Provider, model: &Model,
     if let Err(why) = client.allows(provider) {
         return no(why);
     }
+    let now = crate::db::now_ms();
+    if let Some(held) = hold(conn, &provider.id, &model.model_id, now) {
+        let until = store::iso_utc(held.until_ms.unwrap_or(now)).replace('T', " ")[..16].to_string();
+        return no(format!("{HELD} until {until} UTC: it answered 429 {} in a row ({})", held.strikes, held.reason));
+    }
     // Both formats reach both kinds of target since ROADMAP B5: OpenAI → Anthropic is translated too.
     if let Some(health) = store::blocking_health(conn, &provider.id, &model.model_id)? {
         return no(format!("{} ({})", health.state.replace('_', " "), health.reason));
@@ -235,7 +313,7 @@ fn judge(conn: &Connection, client: &Client, provider: &Provider, model: &Model,
     if let Some((holder, hold)) = store::group_hold(conn, provider, &model.model_id)? {
         return no(format!("shares limits with {}, which is {}", holder.label, hold.state.replace('_', " ")));
     }
-    if let Some(why) = super::quota::exhausted(conn, provider, model, crate::db::now_ms())? {
+    if let Some(why) = super::quota::exhausted(conn, provider, model, now)? {
         return no(why);
     }
     if strategy == Strategy::Tier {
@@ -405,6 +483,50 @@ mod tests {
 
     fn reason<'a>(plan: &'a Plan, model: &str) -> &'a str {
         &plan.excluded.iter().find(|e| e.model_id == model).unwrap().reason
+    }
+
+    #[test]
+    fn a_429_without_a_usable_reset_or_repeated_holds_the_model_out_of_auto_for_longer_each_time() {
+        let w = world();
+        // The plan reads the clock, so the strikes are on it too.
+        let now = crate::db::now_ms();
+        let minutes = |ms: i64| (ms - now) / 60_000;
+        // A stated reset the route can wait for: a strike, no hold; the provider's cooldown is enough.
+        assert_eq!(strike(&w.conn, "paid", "mid", Some(Duration::from_secs(120)), "slow down", now).unwrap(), None);
+        assert_eq!(hold(&w.conn, "paid", "mid", now), None);
+        // The second in a row holds it, twice the base; a third, four times.
+        let held = strike(&w.conn, "paid", "mid", Some(Duration::from_secs(120)), "slow down", now).unwrap().unwrap();
+        assert_eq!((held.strikes, minutes(held.until_ms.unwrap())), (2, 20));
+        let held = strike(&w.conn, "paid", "mid", Some(Duration::from_secs(120)), "slow down", now).unwrap().unwrap();
+        assert_eq!((held.strikes, minutes(held.until_ms.unwrap())), (3, 40));
+        // No reset at all (Gemini's quota answer), or one of zero seconds: held from the first strike.
+        let held = strike(&w.conn, "paid", "small", None, "You exceeded your current quota", now).unwrap().unwrap();
+        assert_eq!((held.strikes, minutes(held.until_ms.unwrap())), (1, 10));
+        let held = strike(&w.conn, "paid", "big", Some(Duration::ZERO), "quota", now).unwrap().unwrap();
+        assert_eq!(minutes(held.until_ms.unwrap()), 10);
+        // The hold never passes a day, however many strikes.
+        for _ in 0..12 {
+            strike(&w.conn, "paid", "big", None, "quota", now).unwrap();
+        }
+        assert_eq!(hold(&w.conn, "paid", "big", now).unwrap().until_ms, Some(now + HOLD_CAP.as_millis() as i64));
+
+        // The plan leaves a held model out and says why; after the hold's time it is back, and an answer clears it.
+        let needs = Needs { input_tokens: 1000, ..Needs::default() };
+        let plan = plan(&w.conn, &w.client, "auto", Strategy::Tier, &needs).unwrap();
+        assert!(!names(&plan).contains(&"paid/mid".to_string()));
+        assert!(reason(&plan, "mid").starts_with("held out of auto until "), "{}", reason(&plan, "mid"));
+        assert!(reason(&plan, "mid").contains("answered 429 3 in a row (slow down)"), "{}", reason(&plan, "mid"));
+        let header = plan.header(&plan.ranked[0]);
+        assert!(header.contains("held after 429: paid/big, paid/mid, paid/small"), "{header}");
+        assert_eq!(hold(&w.conn, "paid", "mid", now + 41 * 60_000), None, "over after 40 minutes");
+        clear_hold(&w.conn, "paid", "mid").unwrap();
+        assert_eq!(hold(&w.conn, "paid", "mid", now), None);
+        // Clearing a connection's health lifts every hold on it.
+        store::clear_health(&w.conn, "paid").unwrap();
+        assert_eq!(hold(&w.conn, "paid", "big", now), None);
+        let again = super::plan(&w.conn, &w.client, "auto", Strategy::Tier, &needs).unwrap();
+        assert!(names(&again).contains(&"paid/mid".to_string()));
+        assert!(!again.header(&again.ranked[0]).contains("held"), "{}", again.header(&again.ranked[0]));
     }
 
     #[test]

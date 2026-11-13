@@ -602,7 +602,14 @@ pub struct Timing {
     pub poll: Duration,
     pub ready: Duration,
     pub send: Duration,
+    /// How long the first word of a reply may take on a short prompt. A page thinks longer before a long one, so the
+    /// wait grows by `first_word_per_100_tokens` for every 100 estimated prompt tokens, up to `first_word_cap`
+    /// (`first_word_wait`); and while the page shows it is still answering, the thinking counts as the first word.
+    /// The 2026-11-13 web coding benchmark lost 53 of 72 requests on Muse, Grok and Perplexity to a fixed 60 s.
     pub first_word: Duration,
+    pub first_word_per_100_tokens: Duration,
+    pub first_word_cap: Duration,
+    /// How long the whole reply may take on a short prompt; the first-word wait's extra is added to it.
     pub reply: Duration,
     /// Unchanged reads before a reply counts as finished, and the same while the site still shows it is answering.
     pub stable: u32,
@@ -615,8 +622,24 @@ pub struct Timing {
 impl Default for Timing {
     fn default() -> Timing {
         Timing { poll: Duration::from_millis(300), ready: Duration::from_secs(45), send: Duration::from_secs(5),
-            first_word: Duration::from_secs(60), reply: Duration::from_secs(300), stable: 4, stable_busy: 12,
+            first_word: Duration::from_secs(60), first_word_per_100_tokens: Duration::from_secs(1),
+            first_word_cap: Duration::from_secs(240), reply: Duration::from_secs(300), stable: 4, stable_busy: 12,
             queue: Duration::from_secs(60), gap: Duration::from_secs(PACE_SECS) }
+    }
+}
+
+impl Timing {
+    /// The first-word wait for this prompt: `first_word` plus `first_word_per_100_tokens` for every 100 estimated
+    /// tokens of it (the gateway's estimate, which leans high), never above `first_word_cap`.
+    pub fn first_word_wait(&self, prompt: &str) -> Duration {
+        let hundreds = crate::gateway::estimate_text_tokens(prompt) / 100;
+        let extra = self.first_word_per_100_tokens.saturating_mul(hundreds.min(u32::MAX as u64) as u32);
+        (self.first_word + extra).min(self.first_word_cap.max(self.first_word))
+    }
+
+    /// The whole reply's wait for this prompt: `reply`, extended by what the first-word wait grew.
+    pub fn reply_wait(&self, prompt: &str) -> Duration {
+        self.reply + self.first_word_wait(prompt).saturating_sub(self.first_word)
     }
 }
 
@@ -664,7 +687,9 @@ pub struct Reply {
 
 /// Sends one prompt in a new chat and reads the reply as it appears, giving each new piece to `on_text`. The reply is
 /// finished when its text has not changed for `stable` reads while the site no longer shows it is answering (or for
-/// `stable_busy` reads whatever it shows, since such a signal can stick).
+/// `stable_busy` reads whatever it shows, since such a signal can stick). The first word is waited for as long as the
+/// prompt's size allows (`Timing::first_word_wait`), and not at all once the page has shown it is answering: a site
+/// that thinks visibly before it writes has given its first word.
 pub async fn converse(page: &dyn Page, recipe: &Recipe, prompt: &str, timing: &Timing,
     on_text: &mut (dyn FnMut(&str) + Send)) -> Result<Reply, WebError> {
     open_chat(page, recipe, timing).await?;
@@ -687,13 +712,16 @@ pub async fn converse(page: &dyn Page, recipe: &Recipe, prompt: &str, timing: &T
     }
 
     let started = Instant::now();
+    let (first_word, reply_wait) = (timing.first_word_wait(prompt), timing.reply_wait(prompt));
     let (mut sent, mut last, mut stable, mut denied) = (String::new(), None::<String>, 0, 0u64);
+    // The page has shown it is answering: its thinking is the first word.
+    let mut answering = false;
     loop {
         let elapsed = started.elapsed();
-        if elapsed > timing.reply {
+        if elapsed > reply_wait {
             return Err(WebError::Timeout(REPLY_TIMEOUT));
         }
-        if sent.is_empty() && elapsed > timing.first_word {
+        if sent.is_empty() && !answering && elapsed > first_word {
             return Err(WebError::Timeout(NO_REPLY));
         }
         tokio::time::sleep(timing.poll).await;
@@ -701,6 +729,7 @@ pub async fn converse(page: &dyn Page, recipe: &Recipe, prompt: &str, timing: &T
         if state.challenge {
             return Err(WebError::NeedsYou { state: "needs_you", reason: CHALLENGE });
         }
+        answering |= state.busy;
         if state.approval {
             // The site's agent wants to act for the user (send mail, buy, publish). Through Pygg it never may.
             denied += page.eval(deny_script(recipe)).await.ok().and_then(|v| v.as_u64()).unwrap_or(0);

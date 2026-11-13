@@ -1214,8 +1214,10 @@ pub fn list_limits(conn: &Connection, provider_id: &str) -> Result<Vec<RateLimit
     Ok(out)
 }
 
+/// Clears the connection's health entries, and the holds `auto` put on its models after 429 answers.
 pub fn clear_health(conn: &Connection, provider_id: &str) -> Result<()> {
-    conn.execute("DELETE FROM connection_health WHERE provider_id = ?1", [provider_id]).map(|_| ()).map_err(err)
+    conn.execute("DELETE FROM connection_health WHERE provider_id = ?1", [provider_id]).map(|_| ()).map_err(err)?;
+    super::auto::clear_holds(conn, provider_id)
 }
 
 pub fn list_health(conn: &Connection, provider_id: Option<&str>) -> Result<Vec<Health>> {
@@ -2201,6 +2203,15 @@ pub fn setting(conn: &Connection, key: &str) -> Result<Option<String>> {
 pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
     conn.execute("INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2",
         params![key, value]).map(|_| ()).map_err(err)
+}
+
+pub fn delete_setting(conn: &Connection, key: &str) -> Result<()> {
+    conn.execute("DELETE FROM settings WHERE key = ?1", [key]).map(|_| ()).map_err(err)
+}
+
+/// Deletes every setting whose key matches an SQL `LIKE` pattern.
+pub fn delete_settings_like(conn: &Connection, pattern: &str) -> Result<()> {
+    conn.execute("DELETE FROM settings WHERE key LIKE ?1", [pattern]).map(|_| ()).map_err(err)
 }
 
 #[cfg(test)]
