@@ -852,6 +852,14 @@ pub fn usage_requests(state: State<'_, AppState>, days: u32, offset: u32, limit:
     state.shared.with_db(|db| store::usage_requests(db, since, offset as usize, limit.clamp(1, 500) as usize))
 }
 
+/// Usage → Routing: requests answered after a fallback, routing sessions, and changes of model inside a session.
+#[tauri::command]
+pub fn usage_routing(state: State<'_, AppState>, days: u32) -> Res<store::RoutingSummary> {
+    let days = days.clamp(1, 366) as i64;
+    let since = crate::db::now_ms() - days * 86_400_000;
+    state.shared.with_db(|db| store::routing_summary(db, since))
+}
+
 /// Usage → Token Mix: where the period's tokens went, and the known cost split among them (Codex's fifth discussion, T1).
 #[tauri::command]
 pub fn usage_token_mix(state: State<'_, AppState>, days: u32) -> Res<store::TokenMix> {

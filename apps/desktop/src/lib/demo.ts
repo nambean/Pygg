@@ -4,7 +4,7 @@
  * data" banner whenever this is in use (ADR-014). It follows the core's rules (slugs, validation, honest
  * costs) closely enough for design review, not as a test of them.
  */
-import type { AgentInfo, Integration, Launcher, ClientDefaults, ConnectionCheck, HealthStrip, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, TokenMix, TokenMixGroup, TokenParts, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus, SavingsPart, SavingsPeriod,
+import type { AgentInfo, Integration, Launcher, ClientDefaults, ConnectionCheck, HealthStrip, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, RoutingSummary, TokenMix, TokenMixGroup, TokenParts, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus, SavingsPart, SavingsPeriod,
   Health, Model, Preset, Target, Tier, UsageEvent, UsageBucket, UsageGroup, UsageSummary, Account, Wire,
   LocalUsage, SubscriptionUsage, Retention } from './api';
 import { TIERS, WEB_WARNING_VERSION } from './api';
@@ -302,6 +302,19 @@ export function demoApi(): GatewayApi {
       model: 'gemini-3.1-flash-lite', inputTokens: 4_000, outputTokens: 300, costMicroUsd: 520, costStatus: 'estimated',
       costSource: 'price: user', outcome: 'ok', httpStatus: 200, latencyMs: 900, error: null, cacheTokens: null, cacheWriteTokens: null,
       sessionKey: null, routeMode: 'native', atRiskMicroUsd: null, routeReason: null});
+  }
+
+  // What schema v30 records with each attempt: the request (a fallback's two attempts share one), the billing it was sent
+  // under, how its route was chosen and the cache hints. Claude Code's launches are routing sessions of about eight
+  // requests, so Usage → Routing has changes of model to show.
+  for (const e of events) {
+    const pair = /^e(\d+)([ab])$/.exec(e.id);
+    e.requestId = pair ? `r${pair[1]}` : `r-${e.id}`;
+    e.attempt = pair?.[2] === 'b' ? 2 : 1;
+    e.billing = e.provider === 'ollama' ? 'local' : e.provider === 'qwen-plan' ? 'subscription' : e.costStatus === 'unknown' ? 'unknown' : 'paid';
+    e.routeKind = e.requestedModel === 'coding' || e.requestedModel === 'local-first' ? 'combo' : 'named';
+    e.cacheHint = e.provider === 'anthropic' ? 'preserved' : 'none';
+    if (e.client === 'Claude Code' && /^e\d+/.test(e.id)) e.sessionKey = `launch-${Math.floor(Number(/^e(\d+)/.exec(e.id)![1]) / 8)}`;
   }
 
   // `?empty` starts from nothing, to review first-run states.
@@ -826,6 +839,32 @@ export function demoApi(): GatewayApi {
     usageRequests: async (days, offset, limit) => {
       const since = Date.now() - days * 86_400_000;
       return touch(events.filter(e => e.createdAt >= since).sort((a, b) => b.createdAt - a.createdAt).slice(offset, offset + limit));
+    },
+    usageRouting: async days => {
+      // As store::routing_summary.
+      const list = events.filter(e => e.createdAt >= Date.now() - days * 86_400_000 && e.requestId)
+        .sort((a, b) => a.createdAt - b.createdAt || (a.attempt ?? 1) - (b.attempt ?? 1));
+      const out: RoutingSummary = {requests: new Set(list.map(e => e.requestId)).size, attempts: list.length, answered: 0,
+        answeredAfterFallback: 0, withSession: list.filter(e => e.sessionKey).length, sessions: 0, changes: []};
+      const failures = new Map<string, string[]>(), last = new Map<string, string>();
+      for (const e of list) {
+        if (e.outcome !== 'ok') {
+          failures.set(e.requestId!, [...failures.get(e.requestId!) ?? [], e.httpStatus && e.httpStatus !== 200 ? `HTTP ${e.httpStatus}` : e.outcome]);
+          continue;
+        }
+        out.answered += 1;
+        const failed = failures.get(e.requestId!) ?? [];
+        failures.delete(e.requestId!);
+        if (failed.length) out.answeredAfterFallback += 1;
+        if (!e.sessionKey) continue;
+        const target = `${e.provider}/${e.model}`, before = last.get(e.sessionKey);
+        last.set(e.sessionKey, target);
+        if (before && before !== target) out.changes.push({at: e.createdAt, client: e.client, from: before, to: target, reason: failed.join(', '),
+          cacheWritesAfter: e.cacheWriteTokens ?? 0, knownMicroUsd: e.costStatus === 'unknown' ? null : e.costMicroUsd ?? 0});
+      }
+      out.sessions = last.size;
+      out.changes.reverse();
+      return touch(out);
     },
     usageTokenMix: async days => {
       // As store::token_mix: each answer's tokens by kind, and its known cost split by its model's current prices.

@@ -71,8 +71,8 @@ export function TokenMix({days}: {days: number}) {
       </p>
       {m.withTokens > 0 && <details className="token-mix-details">
         <summary>{t('By client and model')}</summary>
-        <MixTable title={t('Client')} groups={m.byClient}/>
-        <MixTable title={t('Model')} groups={m.byModel} mono/>
+        <div className="table-scroll"><MixTable title={t('Client')} groups={m.byClient}/></div>
+        <div className="table-scroll"><MixTable title={t('Model')} groups={m.byModel} mono/></div>
       </details>}
     </div>
   </section>;

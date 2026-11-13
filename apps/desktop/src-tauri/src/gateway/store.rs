@@ -1762,6 +1762,25 @@ pub struct UsageRecord<'a> {
     pub route_reason: Option<&'a str>,
     /// Tool output this request repeated from earlier in itself, in about-tokens (P1-4, shadow: measured, never removed).
     pub repeated_tokens: Option<u64>,
+    /// What the attempt was when it was sent (migration 0030); `None` where nothing sent it (a recovered journal entry,
+    /// a task's own record).
+    pub facts: Option<&'a AttemptFacts>,
+}
+
+/// An attempt's facts as they were when it was sent (migration 0030): history does not follow later settings.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AttemptFacts {
+    /// The client's request, shared by all its attempts.
+    pub request_id: String,
+    /// This attempt's place among the request's attempts that reached the journal, from 1.
+    pub attempt: u32,
+    /// The billing type it was sent under: free, local, subscription, paid or unknown.
+    pub billing: String,
+    /// How the route was chosen: `auto`, `auto/cheap`, `combo`, `combo:cheapest`, `pool` or `named`, with `+pinned` when
+    /// a session pin put this target first.
+    pub route_kind: String,
+    /// The client's prompt-cache hints: `preserved`, `translated`, `dropped`, or `none` when it sent none.
+    pub cache_hint: String,
 }
 
 impl<'a> UsageRecord<'a> {
@@ -1770,7 +1789,7 @@ impl<'a> UsageRecord<'a> {
         outcome: &'a str, http_status: Option<u16>, latency_ms: u64, error: &'a str) -> UsageRecord<'a> {
         UsageRecord { client_id: Some(client_id), provider_id, model_id, requested_model, input_tokens: None,
             output_tokens: None, cache_tokens: None, cost, outcome, http_status, latency_ms, error: Some(error),
-            cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None , repeated_tokens: None}
+            cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None , facts: None, repeated_tokens: None}
     }
 }
 
@@ -1814,7 +1833,7 @@ impl PendingUsage {
             cache_tokens: self.cache_tokens, cost: &self.cost, outcome: &self.outcome, http_status: self.http_status,
             latency_ms: self.latency_ms, error: self.error.as_deref(), cache_write_tokens: self.cache_write_tokens,
             session_key: self.session_key.as_deref(), route_mode: self.route_mode.as_deref(),
-            route_reason: self.route_reason.as_deref(), repeated_tokens: None,
+            route_reason: self.route_reason.as_deref(), facts: None, repeated_tokens: None,
         }
     }
 }
@@ -1829,15 +1848,18 @@ fn insert_usage(conn: &Connection, r: &UsageRecord, at_risk_micro: Option<u64>) 
     conn.execute(
         "INSERT INTO usage_events (id, client_id, provider, model, input_tokens, output_tokens, cache_tokens, \
          cost_micro_usd, cost_status, source, created_at, outcome, http_status, latency_ms, requested_model, error, \
-         cache_write_tokens, session_key, route_mode, at_risk_micro_usd, route_reason, repeated_tokens) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+         cache_write_tokens, session_key, route_mode, at_risk_micro_usd, route_reason, repeated_tokens, request_id, attempt, \
+         billing, route_kind, cache_hint) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, \
+         ?25, ?26, ?27)",
         params![
             uuid::Uuid::new_v4().to_string(), r.client_id, r.provider_id, r.model_id,
             r.input_tokens.map(|v| v as i64), r.output_tokens.map(|v| v as i64), r.cache_tokens.map(|v| v as i64),
             r.cost.micro_usd().map(|v| v as i64), r.cost.status(), r.cost.source(), now, r.outcome,
             r.http_status, r.latency_ms as i64, r.requested_model, r.error,
             r.cache_write_tokens.map(|v| v as i64), r.session_key, r.route_mode, at_risk_micro.map(|v| v as i64), r.route_reason,
-            r.repeated_tokens.map(|v| v as i64),
+            r.repeated_tokens.map(|v| v as i64), r.facts.map(|f| f.request_id.as_str()), r.facts.map(|f| f.attempt as i64),
+            r.facts.map(|f| f.billing.as_str()), r.facts.map(|f| f.route_kind.as_str()), r.facts.map(|f| f.cache_hint.as_str()),
         ],
     )?;
     if let Some(client) = r.client_id {
@@ -1873,6 +1895,13 @@ pub struct UsageEvent {
     pub at_risk_micro_usd: Option<u64>,
     /// Why auto routing chose this target.
     pub route_reason: Option<String>,
+    /// The request this attempt belongs to, and its place among its attempts (migration 0030; null before).
+    pub request_id: Option<String>,
+    pub attempt: Option<u32>,
+    /// The billing type it was sent under, the route's kind and what happened to cache hints (migration 0030).
+    pub billing: Option<String>,
+    pub route_kind: Option<String>,
+    pub cache_hint: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -2126,6 +2155,90 @@ pub fn usage_alerts(conn: &Connection, now: i64) -> Result<Vec<UsageAlert>> {
     Ok(out)
 }
 
+/// One change of model inside a routing session: the answered attempt before it and the one after.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RouteChange {
+    pub at: i64,
+    pub client: Option<String>,
+    /// `connection/model` that answered before, and the one that answered now.
+    pub from: String,
+    pub to: String,
+    /// Why: the failed attempts of this request before the answer, as `HTTP 429` or the outcome; empty when the request
+    /// went to the new model first (a pin that expired, the route changed).
+    pub reason: String,
+    /// Prompt tokens the new model wrote to its cache on that answer, as its provider reported them.
+    pub cache_writes_after: u64,
+    pub known_micro_usd: Option<u64>,
+}
+
+/// How routing held together in a period (Codex's fifth discussion, T2), from attempts recorded with their request
+/// (migration 0030): requests, those answered only after a fallback, the attempts that carried a routing session, and
+/// each change of answering model inside a session, with the cache writes that followed. What a change cost extra is
+/// not known (it would need what staying would have cost), so it is never called a cost.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutingSummary {
+    /// Client requests recorded with an id, and attempts among them.
+    pub requests: u64,
+    pub attempts: u64,
+    /// Requests answered, and those answered after one or more fallback attempts.
+    pub answered: u64,
+    pub answered_after_fallback: u64,
+    /// Attempts that carried a routing session.
+    pub with_session: u64,
+    pub sessions: u64,
+    pub changes: Vec<RouteChange>,
+}
+
+pub fn routing_summary(conn: &Connection, since: i64) -> Result<RoutingSummary> {
+    let mut out = RoutingSummary::default();
+    let mut stmt = conn.prepare("SELECT u.request_id, u.attempt, u.outcome, u.http_status, u.provider, u.model, u.session_key, \
+        u.created_at, c.name, u.cache_write_tokens, u.cost_status, u.cost_micro_usd \
+        FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id \
+        WHERE u.created_at >= ?1 AND u.request_id IS NOT NULL ORDER BY u.created_at, u.attempt").map_err(err)?;
+    type Row = (String, Option<i64>, String, Option<i64>, String, String, Option<String>, i64, Option<String>, Option<i64>, String, Option<i64>);
+    let rows: Vec<Row> = stmt.query_map([since], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?,
+        r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?))).map_err(err)?
+        .collect::<rusqlite::Result<_>>().map_err(err)?;
+    // The failed attempts of each request so far, for the reason of a change.
+    let mut failures: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut requests = std::collections::HashSet::new();
+    let mut sessions: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for (request, _attempt, outcome, status, provider, model, session, at, client, written, cost_status, cost) in rows {
+        out.attempts += 1;
+        requests.insert(request.clone());
+        if session.is_some() {
+            out.with_session += 1;
+        }
+        if outcome != "ok" {
+            failures.entry(request).or_default().push(match status {
+                Some(s) if s != 200 => format!("HTTP {s}"),
+                _ => outcome.replace('_', " "),
+            });
+            continue;
+        }
+        out.answered += 1;
+        let failed = failures.remove(&request).unwrap_or_default();
+        if !failed.is_empty() {
+            out.answered_after_fallback += 1;
+        }
+        let Some(session) = session else { continue };
+        let target = format!("{provider}/{model}");
+        if let Some(before) = sessions.insert(session, target.clone()) {
+            if before != target {
+                out.changes.push(RouteChange { at, client, from: before, to: target, reason: failed.join(", "),
+                    cache_writes_after: written.unwrap_or(0).max(0) as u64,
+                    known_micro_usd: (cost_status != "unknown").then(|| cost.unwrap_or(0).max(0) as u64) });
+            }
+        }
+    }
+    out.requests = requests.len() as u64;
+    out.sessions = sessions.len() as u64;
+    out.changes.reverse();
+    Ok(out)
+}
+
 /// Tokens of one kind, and the part of the recorded cost that went to them.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -2293,7 +2406,8 @@ pub fn usage_requests(conn: &Connection, since: i64, offset: usize, limit: usize
         .prepare(
             "SELECT u.id, u.created_at, c.name, u.provider, u.model, u.requested_model, u.input_tokens, u.output_tokens, \
              u.cost_micro_usd, u.cost_status, u.source, u.outcome, u.http_status, u.latency_ms, u.error, \
-             u.cache_tokens, u.cache_write_tokens, u.session_key, u.route_mode, u.at_risk_micro_usd, u.route_reason \
+             u.cache_tokens, u.cache_write_tokens, u.session_key, u.route_mode, u.at_risk_micro_usd, u.route_reason, \
+             u.request_id, u.attempt, u.billing, u.route_kind, u.cache_hint \
              FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id \
              WHERE u.created_at >= ?1 ORDER BY u.created_at DESC, u.id DESC LIMIT ?2 OFFSET ?3",
         )
@@ -2323,6 +2437,11 @@ pub fn usage_requests(conn: &Connection, since: i64, offset: usize, limit: usize
                 route_mode: r.get(18)?,
                 at_risk_micro_usd: u(19)?,
                 route_reason: r.get(20)?,
+                request_id: r.get(21)?,
+                attempt: r.get::<_, Option<i64>>(22)?.map(|v| v.max(0) as u32),
+                billing: r.get(23)?,
+                route_kind: r.get(24)?,
+                cache_hint: r.get(25)?,
             })
         })
         .map_err(err)?
@@ -2681,7 +2800,7 @@ mod tests {
             record_usage(&conn, &UsageRecord { client_id: Some(&client.id), provider_id: &p.id, model_id: model, requested_model: "auto",
                 input_tokens: None, output_tokens: None, cache_tokens: None, cost: &cost, outcome, http_status: Some(200),
                 latency_ms: 1, error: None, cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None,
-                repeated_tokens: None }).unwrap();
+                facts: None, repeated_tokens: None }).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(3));
         }
         let latest = latest_requests(&conn).unwrap();
@@ -2700,7 +2819,7 @@ mod tests {
             record_usage(&conn, &UsageRecord { client_id: None, provider_id: &p.id, model_id: model, requested_model: model,
                 input_tokens: None, output_tokens: None, cache_tokens: None, cost: &cost, outcome, http_status: Some(200),
                 latency_ms: ms, error: None, cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None,
-                repeated_tokens: None }).unwrap();
+                facts: None, repeated_tokens: None }).unwrap();
         }
         let r = reliability(&conn, &p.id, 0).unwrap();
         assert_eq!((r[0].model_id.as_str(), r[0].requests, r[0].ok, r[0].median_latency_ms), ("a", 3, 2, Some(300)));
@@ -2719,7 +2838,7 @@ mod tests {
             record_usage(&conn, &UsageRecord { client_id: Some(&client.id), provider_id: &p.id, model_id: "flash",
                 requested_model: "auto", input_tokens: Some(10), output_tokens: Some(5), cache_tokens: None, cost: &cost,
                 outcome, http_status: Some(200), latency_ms: 12, error: None, cache_write_tokens: None, session_key: None,
-                route_mode: None, route_reason: None , repeated_tokens: None}).unwrap();
+                route_mode: None, route_reason: None , facts: None, repeated_tokens: None}).unwrap();
             conn.execute("UPDATE usage_events SET created_at = ?1 WHERE id = (SELECT id FROM usage_events ORDER BY rowid DESC LIMIT 1)",
                 [now - ago_ms]).unwrap();
         };
@@ -2749,6 +2868,31 @@ mod tests {
     }
 
     #[test]
+    fn routing_shows_fallbacks_sessions_and_changes_of_model() {
+        let conn = db::open_in_memory().unwrap();
+        let p = gemini(&conn);
+        let record = |request: &str, attempt: u32, model: &str, outcome: &str, status: u16, session: Option<&str>, written: u64| {
+            let facts = AttemptFacts { request_id: request.into(), attempt, billing: "paid".into(), route_kind: "auto".into(),
+                cache_hint: "none".into() };
+            record_usage(&conn, &UsageRecord { client_id: None, provider_id: &p.id, model_id: model, requested_model: "auto",
+                input_tokens: Some(100), output_tokens: Some(10), cache_tokens: Some(0), cost: &Cost::Estimated { micro_usd: 7, source: "x".into() },
+                outcome, http_status: Some(status), latency_ms: 1, error: None, cache_write_tokens: Some(written), session_key: session,
+                route_mode: None, route_reason: None, repeated_tokens: None, facts: Some(&facts) }).unwrap();
+        };
+        record("a", 1, "flash", "ok", 200, Some("launch-1"), 0);
+        record("b", 1, "flash", "fallback", 429, Some("launch-1"), 0);
+        record("b", 2, "pro", "ok", 200, Some("launch-1"), 500);
+        record("c", 1, "flash", "ok", 200, None, 0);
+        let r = routing_summary(&conn, 0).unwrap();
+        assert_eq!((r.requests, r.attempts, r.answered, r.answered_after_fallback), (3, 4, 3, 1));
+        assert_eq!((r.with_session, r.sessions), (3, 1));
+        assert_eq!(r.changes.len(), 1);
+        let c = &r.changes[0];
+        assert_eq!((c.from.clone(), c.to.clone(), c.reason.as_str(), c.cache_writes_after), (format!("{}/flash", p.id), format!("{}/pro", p.id), "HTTP 429", 500));
+        assert_eq!(c.known_micro_usd, Some(7));
+    }
+
+    #[test]
     fn the_token_mix_splits_known_cost_and_keeps_the_rest_apart() {
         let conn = db::open_in_memory().unwrap();
         let p = gemini(&conn);
@@ -2761,7 +2905,7 @@ mod tests {
             record_usage(&conn, &UsageRecord { client_id: None, provider_id: &p.id, model_id: model, requested_model: "auto",
                 input_tokens: input, output_tokens: input.map(|_| output), cache_tokens: Some(read), cost: &cost, outcome: "ok",
                 http_status: Some(200), latency_ms: 1, error: None, cache_write_tokens: Some(write), session_key: None,
-                route_mode: None, route_reason: None, repeated_tokens: None }).unwrap();
+                route_mode: None, route_reason: None, facts: None, repeated_tokens: None }).unwrap();
         };
         let est = |micro| Cost::Estimated { micro_usd: micro, source: "price: user".into() };
         // A cached prompt: 100 new, 800 read, 100 written, 100 out, $0.001 recorded.
@@ -2794,7 +2938,7 @@ mod tests {
             record_usage(&conn, &UsageRecord { client_id: Some(&client.id), provider_id: &p.id, model_id: "flash",
                 requested_model: "coding", input_tokens: Some(10), output_tokens: Some(5), cache_tokens: None, cost,
                 outcome, http_status: Some(200), latency_ms: 12, error: None, cache_write_tokens: None, session_key: None,
-                route_mode: None, route_reason: None , repeated_tokens: None}).unwrap();
+                route_mode: None, route_reason: None , facts: None, repeated_tokens: None}).unwrap();
         }
         let csv = usage_csv(&conn, 0).unwrap();
         let lines: Vec<&str> = csv.trim_end().split("\r\n").collect();
@@ -2831,7 +2975,7 @@ mod tests {
             requested_model: "coding", input_tokens: None, output_tokens: None, cache_tokens: None,
             cost: &Cost::Estimated { micro_usd: 0, source: "not sent".into() }, outcome: "error", http_status: Some(429), latency_ms: 0,
             error: Some("Not sent: the web guard"), cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None,
-            repeated_tokens: None }).unwrap();
+            facts: None, repeated_tokens: None }).unwrap();
         // A check in an hour with requests adds nothing to them, and a request Pygg refused itself does not count.
         let at = now_ms() + 1;
         let strip = health_strip(&conn, &p.id, at).unwrap();
@@ -2866,7 +3010,7 @@ mod tests {
         let record = |provider: &str, model: &str, cost: &Cost, outcome: &str, latency_ms: u64, route_mode: Option<&str>| {
             record_usage(&conn, &UsageRecord { client_id: None, provider_id: provider, model_id: model, requested_model: model,
                 input_tokens: Some(100), output_tokens: Some(20), cache_tokens: None, cost, outcome, http_status: Some(200),
-                latency_ms, error: None, cache_write_tokens: None, session_key: None, route_mode, route_reason: None , repeated_tokens: None}).unwrap();
+                latency_ms, error: None, cache_write_tokens: None, session_key: None, route_mode, route_reason: None , facts: None, repeated_tokens: None}).unwrap();
         };
         let quota = pricing::resolve("subscription", None, Some(&usage));
         let local = pricing::resolve("local", None, Some(&usage));

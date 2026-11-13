@@ -49,4 +49,4 @@ Not copied: OmniRoute's engine taxonomy as navigation and percentages of eligibl
 
 1. T1 with the Summary / Requests split. **Done 2026-11-14**: Token Mix (tokens or the recorded known cost split by current prices) in Summary; Requests as its own view. Not done: per-event price snapshots (historical splits follow today's prices, and say so), Home's "View token mix" link, and folding Repeated Tool Output into a disclosure.
 2. T3 for OpenCode and Codex launches. **Done 2026-11-14**: `pygg run opencode` and `pygg run codex`, `launch-` session ids, the scope in a request's detail, the manual example fixed. Not done: the session-coverage states on CLI Tools ("18 of 30 attempts included a session ID").
-3. T2 with request chains and cache-hint diagnostics; then decide from T5's shadow observations whether any active experiment is worth it.
+3. T2 with request chains and cache-hint diagnostics (**done 2026-11-14**, schema v30: request id and attempt, billing and route kind as sent, cache hints, Usage → Routing and the attempt chain); then decide from T5's shadow observations whether any active experiment is worth it.

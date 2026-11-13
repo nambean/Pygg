@@ -270,6 +270,7 @@ pub fn run() {
             commands::usage_summary,
             commands::usage_requests,
             commands::usage_token_mix,
+            commands::usage_routing,
             commands::usage_over_time,
             commands::usage_export,
             commands::usage_alerts,

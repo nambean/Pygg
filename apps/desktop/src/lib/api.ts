@@ -227,7 +227,18 @@ export type UsageEvent = {
   atRiskMicroUsd: number | null;
   /** Why auto routing chose this target. */
   routeReason: string | null;
+  /** The client's request this attempt belongs to, and its place among the request's attempts (schema v30; null before). */
+  requestId?: string | null; attempt?: number | null;
+  /** The billing it was sent under, how its route was chosen, and what happened to prompt-cache hints (schema v30). */
+  billing?: string | null; routeKind?: string | null; cacheHint?: string | null;
 };
+
+/** A change of answering model inside a routing session (store::RouteChange). */
+export type RouteChange = { at: number; client: string | null; from: string; to: string; reason: string;
+  cacheWritesAfter: number; knownMicroUsd: number | null };
+/** Usage → Routing (Codex's fifth discussion, T2): how routing held together in a period. */
+export type RoutingSummary = { requests: number; attempts: number; answered: number; answeredAfterFallback: number;
+  withSession: number; sessions: number; changes: RouteChange[] };
 
 /** Repeated tool output in a period's requests (P1-4, shadow): measured, never removed. Tokens are about-figures. */
 export type ShadowSummary = {requests: number; requestsWithRepeats: number; repeatedTokens: number; inputTokens: number;
@@ -414,6 +425,7 @@ export interface GatewayApi {
   /** A page of the period's requests, newest first: `limit` of them from `offset` (Usage → Requests, 200 at a time). */
   usageRequests(days: number, offset: number, limit: number): Promise<UsageEvent[]>;
   usageTokenMix(days: number): Promise<TokenMix>;
+  usageRouting(days: number): Promise<RoutingSummary>;
   /** Usage per hour for one day, per day for longer, on this computer's clock. */
   usageOverTime(days: number): Promise<UsageBucket[]>;
   /** Each subscription connection's requests and tokens over the last `days`, with its stated limits. */
@@ -535,6 +547,7 @@ const native: GatewayApi = {
   usage: days => invoke('usage_summary', {days}),
   usageRequests: (days, offset, limit) => invoke('usage_requests', {days, offset, limit}),
   usageTokenMix: days => invoke('usage_token_mix', {days}),
+  usageRouting: days => invoke('usage_routing', {days}),
   usageOverTime: days => invoke('usage_over_time', {days, offsetMinutes: -new Date().getTimezoneOffset()}),
   exportUsage: days => invoke('usage_export', {days}),
   usageAlerts: () => invoke('usage_alerts'),

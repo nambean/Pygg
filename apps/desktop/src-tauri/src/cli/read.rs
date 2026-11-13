@@ -687,7 +687,7 @@ mod tests {
                     requested_model: "auto", input_tokens: (outcome == "ok").then_some(1200), output_tokens: (outcome == "ok").then_some(80),
                     cache_tokens: None, cost: &crate::gateway::pricing::Cost::Estimated { micro_usd: 0, source: "free".into() }, outcome,
                     http_status: Some(status), latency_ms: 900, error: Some("upstream \u{1b}[31msecret"), cache_write_tokens: None,
-                    session_key: Some("launch-abc"), route_mode: None, route_reason: None, repeated_tokens: None }).unwrap();
+                    session_key: Some("launch-abc"), route_mode: None, route_reason: None, facts: None, repeated_tokens: None }).unwrap();
             }
         }
         let conn = open_read(&Opts::parse("x", &strings(&["--db", path.to_str().unwrap()]), &[], &["db"]).unwrap()).unwrap();

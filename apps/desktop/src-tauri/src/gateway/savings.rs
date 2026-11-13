@@ -99,6 +99,17 @@ pub fn route_kind(requested_model: &str) -> &'static str {
     else { "combo" }
 }
 
+/// The ledger's route kind (migration 0030) as the estimate groups it: a pin or a combo's order does not change who chose.
+fn recorded_route(kind: &str) -> &'static str {
+    let kind = kind.split('+').next().unwrap_or(kind);
+    match kind {
+        "auto" => "auto",
+        "auto/cheap" => "auto/cheap",
+        "named" => "named",
+        _ => "combo",
+    }
+}
+
 fn part<'a>(parts: &'a mut Vec<SavingsPart>, key: &str) -> &'a mut SavingsPart {
     if let Some(i) = parts.iter().position(|p| p.key == key) { return &mut parts[i]; }
     parts.push(SavingsPart { key: key.to_string(), ..Default::default() });
@@ -131,7 +142,7 @@ fn baseline_price(conn: &Connection, baseline: &str) -> Result<Option<Price>> {
 }
 
 type Row = (String, Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>, String, String, String, Option<String>,
-    Option<String>, i64);
+    Option<String>, i64, Option<String>, Option<String>);
 
 /// The estimate since `since`; the trend in periods of `bucket_ms` aligned to the user's clock (`offset_ms` east of UTC),
 /// as `store::usage_over_time` aligns the usage chart.
@@ -145,17 +156,17 @@ pub fn savings(conn: &Connection, since: i64, bucket_ms: i64, offset_ms: i64) ->
     // Only requests to the user's connections: an agent's own run (`agent:…`) has no connection here.
     let mut stmt = conn.prepare(concat!(
         "SELECT u.outcome, u.input_tokens, u.output_tokens, u.cache_tokens, u.cache_write_tokens, u.cost_micro_usd, ",
-        "u.cost_status, u.provider, u.model, c.name, u.requested_model, u.created_at FROM usage_events u ",
+        "u.cost_status, u.provider, u.model, c.name, u.requested_model, u.created_at, u.billing, u.route_kind FROM usage_events u ",
         "JOIN providers p ON p.id = u.provider LEFT JOIN gateway_clients c ON c.id = u.client_id WHERE u.created_at >= ?1 ",
         "ORDER BY u.created_at"))
         .map_err(|e| e.to_string())?;
     let rows: Vec<Row> = stmt.query_map(params![since], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
-        r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?))).map_err(|e| e.to_string())?
+        r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?))).map_err(|e| e.to_string())?
         .collect::<rusqlite::Result<_>>().map_err(|e| e.to_string())?;
     // Billing by the same rule as the model list and the ledger (store::pricing_for), once per model.
     let mut billing_of: HashMap<(String, String), String> = HashMap::new();
     let bucket_ms = bucket_ms.max(60_000);
-    for (outcome, input, output, cached, written, cost, status, provider_id, model_id, client, requested, at) in rows {
+    for (outcome, input, output, cached, written, cost, status, provider_id, model_id, client, requested, at, sent_billing, sent_route) in rows {
         let known = status != "unknown";
         if outcome != "ok" {
             // Every attempt that gave no answer may have been billed, a client that left included: a known charge counts,
@@ -164,8 +175,11 @@ pub fn savings(conn: &Connection, since: i64, bucket_ms: i64, offset_ms: i64) ->
             if known { out.failed_attempts_micro_usd += cost.unwrap_or(0).max(0) as u64; } else { out.failed_unknown_cost += 1; }
             continue;
         }
+        // The billing it was sent under (migration 0030); an older row has none, and follows today's settings.
         let key = (provider_id, model_id);
-        if !billing_of.contains_key(&key) {
+        if let Some(b) = sent_billing {
+            billing_of.insert(key.clone(), b);
+        } else if !billing_of.contains_key(&key) {
             let b = match store::get_provider(conn, &key.0)? {
                 Some(p) => store::pricing_for(conn, &p, &key.1)?.0,
                 None => "unknown".to_string(),
@@ -180,7 +194,10 @@ pub fn savings(conn: &Connection, since: i64, bucket_ms: i64, offset_ms: i64) ->
             _ => { out.answered.unknown += 1; "unknown" }
         };
         let client = client.unwrap_or_default();
-        let route = route_kind(requested.as_deref().unwrap_or("auto"));
+        let route = match sent_route.as_deref() {
+            Some(kind) => recorded_route(kind),
+            None => route_kind(requested.as_deref().unwrap_or("auto")),
+        };
         part(&mut out.by_billing, billing).answered += 1;
         part(&mut out.by_client, &client).answered += 1;
         part(&mut out.by_route, route).answered += 1;
@@ -234,7 +251,7 @@ mod tests {
         store::record_usage(conn, &UsageRecord { client_id: None, provider_id: provider, model_id: model, requested_model: "auto",
             input_tokens: tokens.map(|t| t.0), output_tokens: tokens.map(|t| t.1), cache_tokens: None, cost, outcome,
             http_status: Some(200), latency_ms: 1, error: None, cache_write_tokens: None, session_key: None, route_mode: None,
-            route_reason: None, repeated_tokens: None }).unwrap();
+            route_reason: None, facts: None, repeated_tokens: None }).unwrap();
     }
 
     #[test]
@@ -284,7 +301,7 @@ mod tests {
         store::record_usage(&conn, &UsageRecord { client_id: None, provider_id: &p.id, model_id: "strong",
             requested_model: &format!("{}/strong", p.id), input_tokens: Some(10), output_tokens: Some(1),
             cache_tokens: None, cost: &est(1), outcome: "ok", http_status: Some(200), latency_ms: 1, error: None,
-            cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None, repeated_tokens: None }).unwrap();
+            cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None, facts: None, repeated_tokens: None }).unwrap();
         assert_eq!(savings(&conn, 0, 86_400_000, 0).unwrap().suggested, Some(format!("{}/strong", p.id)));
     }
 }

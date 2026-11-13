@@ -651,6 +651,8 @@ pub struct Forwarded {
     pub auto_header: Option<String>,
     /// Tool output the request repeated from earlier in itself (P1-4, shadow; `shadow.rs`).
     pub repeated_tokens: Option<u64>,
+    /// What the attempt was when it was sent (migration 0030).
+    pub facts: store::AttemptFacts,
     /// The journaled attempt, settled by `record_success`.
     journal: Option<Attempt>,
     _inflight: InflightGuard,
@@ -791,6 +793,11 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         }
     }
 
+    // One id for the client's request, shared by its attempts, and how its route was chosen (migration 0030).
+    let request_id = uuid::Uuid::new_v4().simple().to_string();
+    let route_kind = route_kind(shared, requested);
+    let mut journaled = 0u32;
+
     let count = targets.len();
     let mut sent = 0;
     let mut last: Option<Refusal> = None;
@@ -918,6 +925,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         let journal = match shared.with_db(|db| store::open_attempt(db, &start)) {
             Ok(Ok(id)) => {
                 shared.set_journal_error(None);
+                journaled += 1;
                 Attempt { db: shared.db.clone(), id, settled: false, owner: Some(owner) }
             }
             Ok(Err(over)) => {
@@ -932,10 +940,14 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             }
         };
 
+        let pinned_here = pinned_target.as_ref().is_some_and(|p| p.provider_id == provider.id && p.model_id == model_id);
+        let facts = store::AttemptFacts { request_id: request_id.clone(), attempt: journaled, billing: billing.clone(),
+            route_kind: if pinned_here { format!("{route_kind}+pinned") } else { route_kind.clone() },
+            cache_hint: cache_hint(incoming, &provider, mode).to_string() };
         let started = Instant::now();
         let settle_failure = |journal: Attempt, status: Option<u16>, cost: Cost, outcome: &str, error: &str| {
             journal.settle(shared, &UsageRecord {
-                session_key: incoming.session, route_mode: Some(mode.label()), route_reason: route_reason.as_deref(), repeated_tokens: None,
+                session_key: incoming.session, route_mode: Some(mode.label()), route_reason: route_reason.as_deref(), facts: Some(&facts), repeated_tokens: None,
                 ..UsageRecord::failed(&client.id, &provider.id, &model_id, requested, &cost, outcome, status,
                     started.elapsed().as_millis() as u64, error)
             });
@@ -1062,7 +1074,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                     response, provider, model_id, billing, price, started, attempt, mode, dropped,
                     session: incoming.session.map(String::from), pinned, client_id: client.id.clone(),
                     requested: requested.to_string(), auto_header, route_reason, journal: Some(journal), _inflight: inflight,
-                    repeated_tokens: shadow::repeated_tokens(incoming.surface, incoming.body),
+                    repeated_tokens: shadow::repeated_tokens(incoming.surface, incoming.body), facts: facts.clone(),
                 });
             }
             Ok(response) => {
@@ -1136,6 +1148,37 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
     };
     Err(Refusal { retry_after: wait, ..Refusal::new(status, kind, format!("No target could take \"{requested}\": {}.",
         skipped.join("; "))) })
+}
+
+/// The response header that names the client's request in Pygg's ledger (migration 0030), the same for all its attempts.
+pub const REQUEST_ID_HEADER: &str = "x-pygg-request-id";
+
+/// How a requested name is routed, for the ledger: `auto`, `auto/cheap`, a combo (`combo:cheapest` when it orders by
+/// this request's cost), a model by name (`named`, `connection/model`), or a pool.
+fn route_kind(shared: &Shared, requested: &str) -> String {
+    match auto::strategy(requested) {
+        Some(Ok(auto::Strategy::Tier)) => return "auto".into(),
+        Some(Ok(auto::Strategy::Cheap)) => return "auto/cheap".into(),
+        _ => {}
+    }
+    if let Ok(Some(strategy)) = shared.with_db(|db| store::combo_strategy(db, requested)) {
+        return if strategy == "cheapest" { "combo:cheapest".into() } else { "combo".into() };
+    }
+    let connection = requested.split('/').next().unwrap_or_default();
+    if shared.with_db(|db| store::get_provider(db, connection)).ok().flatten().is_some() { "named".into() } else { "pool".into() }
+}
+
+/// What happened to the client's prompt-cache hints on this target: kept as sent, carried into the OpenAI format where
+/// the provider takes them, or dropped; `none` when the request had none (an OpenAI-format client caches without them).
+fn cache_hint(incoming: &Incoming, provider: &Provider, mode: Mode) -> &'static str {
+    if incoming.surface != Surface::Anthropic || !anthropic::has_cache_control(incoming.body) {
+        return "none";
+    }
+    match mode {
+        Mode::Native => "preserved",
+        Mode::AnthropicToOpenAi if presets::find(&provider.kind).is_some_and(|p| p.accepts_cache_control) => "translated",
+        _ => "dropped",
+    }
 }
 
 fn db_now() -> i64 {
@@ -1257,7 +1300,7 @@ pub fn record_success(shared: &Shared, mut forwarded: Forwarded, usage: Option<&
         latency_ms: forwarded.started.elapsed().as_millis() as u64, error,
         cache_write_tokens: usage.map(|u| u.cache_write), session_key: forwarded.session.as_deref(),
         route_mode: Some(forwarded.mode.label()), route_reason: forwarded.route_reason.as_deref(),
-        repeated_tokens: forwarded.repeated_tokens,
+        facts: Some(&forwarded.facts), repeated_tokens: forwarded.repeated_tokens,
     };
     if let Some(journal) = journal {
         journal.settle(shared, &record);
@@ -1297,6 +1340,9 @@ pub fn route_headers(response: &mut Response, forwarded: &Forwarded) {
         headers.insert("x-smarttaskrouter-route", value);
     }
     headers.insert("x-smarttaskrouter-attempts", HeaderValue::from(forwarded.attempt));
+    if let Ok(value) = HeaderValue::from_str(&forwarded.facts.request_id) {
+        headers.insert(REQUEST_ID_HEADER, value);
+    }
     if let Some(value) = forwarded.auto_header.as_deref().and_then(|h| HeaderValue::from_str(h).ok()) {
         headers.insert("x-smarttaskrouter-auto", value);
     }

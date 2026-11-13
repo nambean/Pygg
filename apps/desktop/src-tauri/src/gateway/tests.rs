@@ -454,6 +454,14 @@ fn a_combo_falls_back_across_groups_and_cools_failing_targets_down() {
         assert_eq!(response.headers()["x-smarttaskrouter-route"], "backup/steady");
         let outcomes: Vec<(String, Option<u16>)> = rig.ledger().into_iter().map(|e| (e.outcome, e.http_status)).collect();
         assert_eq!(outcomes, [("fallback".into(), Some(429)), ("fallback".into(), Some(503)), ("ok".into(), Some(200))]);
+        // One request, three attempts in order, each with the billing and route it was sent under (migration 0030), and
+        // the request's id in the answer's headers.
+        let id = response.headers()[REQUEST_ID_HEADER].to_str().unwrap().to_string();
+        let ledger = rig.ledger();
+        assert!(ledger.iter().all(|e| e.request_id.as_deref() == Some(id.as_str())), "{ledger:?}");
+        assert_eq!(ledger.iter().map(|e| e.attempt).collect::<Vec<_>>(), [Some(1), Some(2), Some(3)]);
+        assert!(ledger.iter().all(|e| e.route_kind.as_deref() == Some("combo") && e.cache_hint.as_deref() == Some("none")));
+        assert!(ledger.iter().all(|e| e.billing.is_some()));
 
         // The 429 asked for two minutes: the next request skips that model without calling it.
         let again = rig.post("/v1/chat/completions", chat("coding")).await;

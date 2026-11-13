@@ -12,6 +12,7 @@ import { RepeatedOutput } from './RepeatedOutput';
 import { CostOverTime } from './CostOverTime';
 import { Savings, SavingsDetails, useSavings } from './Savings';
 import { TokenMix } from './TokenMix';
+import { Routing } from './Routing';
 
 type Range = '1' | '7' | '30';
 /** Requests shown at a time: the summary's first page, and each Show More. */
@@ -129,6 +130,7 @@ export function Usage({onOpenTools}: {onOpenTools?: () => void} = {}) {
       {overTime.data && <CostOverTime days={Number(range)} buckets={overTime.data}
         comparison={savings.data?.baseline && savings.data.baselinePriced ? {model: savings.data.baseline, periods: savings.data.periods} : null}/>}
       <TokenMix days={Number(range)}/>
+      <Routing days={Number(range)} onReview={() => { setShow('problems'); setOpenId(null); setPart('requests'); }}/>
       <SavingsDetails savings={savings} onPickClient={key => pick(setClient, key)}/>
       <RepeatedOutput days={Number(range)}/>
 
@@ -168,7 +170,8 @@ export function Usage({onOpenTools}: {onOpenTools?: () => void} = {}) {
               <th scope="col">{t('Source')}</th><th scope="col" className="num">{t('Time taken')}</th><th scope="col">{t('Result')}</th>
             </tr></thead>
             <tbody>
-              {rows.map(e => <LedgerRow key={e.id} event={e} open={openId === e.id} onToggle={() => setOpenId(openId === e.id ? null : e.id)}/>)}
+              {rows.map(e => <LedgerRow key={e.id} event={e} open={openId === e.id} onToggle={() => setOpenId(openId === e.id ? null : e.id)}
+                chain={e.requestId ? recent.filter(o => o.requestId === e.requestId).sort((a, b) => (a.attempt ?? 1) - (b.attempt ?? 1)) : []}/>)}
               {rows.length === 0 && <tr><td colSpan={8} className="table-empty">{t('Nothing to show for this filter.')}</td></tr>}
             </tbody>
           </table>
@@ -338,7 +341,18 @@ function GroupTable({title, column, groups, mono, onPick}: {title: string; colum
   </section>;
 }
 
-function LedgerRow({event: e, open, onToggle}: {event: UsageEvent; open: boolean; onToggle: () => void}) {
+/** How a route was chosen (schema v30's `route_kind`), in words. */
+function routeKindText(kind: string): string {
+  const [base, pinned] = kind.split('+');
+  const text = ({auto: t('auto (Pygg’s choice by tier)'), 'auto/cheap': t('auto/cheap (Pygg’s choice by cost)'), combo: t('a combo, in its order'),
+    'combo:cheapest': t('a combo, cheapest first'), pool: t('a pool of accounts'), named: t('a model by name')} as Record<string, string>)[base] ?? base;
+  return pinned ? t('{route}; the routing session’s model, kept', {route: text}) : text;
+}
+
+const cacheHintText = (hint: string) => ({preserved: t('Kept as the client sent them'), translated: t('Carried into the OpenAI format'),
+  dropped: t('Dropped: this provider takes none in this format'), none: t('None sent')} as Record<string, string>)[hint] ?? hint;
+
+function LedgerRow({event: e, open, onToggle, chain}: {event: UsageEvent; open: boolean; onToggle: () => void; chain: UsageEvent[]}) {
   const time = new Date(e.createdAt).toLocaleString(locale(), {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
   return <>
     <tr className={open ? 'ledger-row open' : 'ledger-row'} onClick={onToggle}>
@@ -352,7 +366,8 @@ function LedgerRow({event: e, open, onToggle}: {event: UsageEvent; open: boolean
       <td className={`num cost ${e.costStatus}`}>{costText(e.costMicroUsd, e.costStatus)}</td>
       <td className="secondary">{statusLabel(e.costStatus)}</td>
       <td className="num secondary">{e.latencyMs != null ? `${(e.latencyMs / 1000).toFixed(1)} s` : '—'}</td>
-      <td><OutcomeBadge outcome={e.outcome} status={e.httpStatus}/></td>
+      <td><OutcomeBadge outcome={e.outcome} status={e.httpStatus}/>
+        {e.outcome === 'ok' && (e.attempt ?? 1) > 1 && <small className="secondary"> {t('attempt {n}', {n: e.attempt ?? 1})}</small>}</td>
     </tr>
     {open && <tr className="ledger-detail"><td colSpan={8}>
       <dl>
@@ -365,7 +380,13 @@ function LedgerRow({event: e, open, onToggle}: {event: UsageEvent; open: boolean
           <dd>{t('{read} read · {write} written', {read: tokens(e.cacheTokens ?? 0), write: tokens(e.cacheWriteTokens ?? 0)})}</dd></> : null}
         {e.routeMode && <><dt>{t('Route')}</dt><dd>{e.routeMode === 'native' ? t('Passed through in the same format')
           : t('Translated ({mode})', {mode: e.routeMode.replace('translated:', '')})}</dd></>}
+        {e.routeKind && <><dt>{t('How the route was chosen')}</dt><dd>{routeKindText(e.routeKind)}</dd></>}
         {e.routeReason && <><dt>{t('Why this model')}</dt><dd>{e.routeReason}</dd></>}
+        {e.billing && <><dt>{t('Billing when sent')}</dt><dd>{e.billing}</dd></>}
+        {e.cacheHint && <><dt>{t('Prompt-cache hints')}</dt><dd>{cacheHintText(e.cacheHint)}</dd></>}
+        {chain.length > 1 && <><dt>{t('Attempts of this request')}</dt><dd>
+          <ol className="attempt-chain">{chain.map(a => <li key={a.id} className={a.id === e.id ? 'current' : ''}>
+            <span className="mono">{a.provider}/{a.model}</span> <OutcomeBadge outcome={a.outcome} status={a.httpStatus}/></li>)}</ol></dd></>}
         {e.sessionKey && <><dt>{t('Routing session')}</dt><dd><span className="mono">{e.sessionKey}</span>{' · '}
           {e.sessionKey.startsWith('launch-') ? t('one launch of the tool through pygg run') : t('named by the tool or a task step')}</dd></>}
         <dt>{t('Time taken')}</dt><dd>{e.latencyMs != null ? `${(e.latencyMs / 1000).toFixed(1)} s` : '—'}</dd>
