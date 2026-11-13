@@ -154,6 +154,15 @@ impl<R: Runtime> Windows for AppWindows<R> {
         Ok(())
     }
 
+    fn signed_in(&self, provider_id: &str) {
+        // Only a window the user opened to sign in: back to the site's hosts only, and out of sight.
+        if self.signing_in.lock().unwrap_or_else(|p| p.into_inner()).remove(provider_id) {
+            if let Some(window) = self.app.get_webview_window(&label(provider_id)) {
+                let _ = window.hide();
+            }
+        }
+    }
+
     fn forget(&self, provider_id: &str, profile: &str) {
         self.last_used.lock().unwrap_or_else(|p| p.into_inner()).remove(provider_id);
         if let Some(window) = self.app.get_webview_window(&label(provider_id)) {

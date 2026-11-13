@@ -591,6 +591,9 @@ pub trait Windows: Send + Sync {
     fn show(&self, provider: &Provider, recipe: &'static Recipe) -> Result<(), String>;
     /// Closes the connection's window and deletes its profile folder (or leaves it for the next start's sweep).
     fn forget(&self, provider_id: &str, profile: &str);
+    /// Hides the window the user opened to sign in, once a check finds the session signed in: the sign-in is done, and
+    /// Pygg goes on in the background. The window stays open, hidden; nothing is signed out.
+    fn signed_in(&self, _provider_id: &str) {}
 }
 
 /// How long each step may take. Tests shorten them.
@@ -857,6 +860,9 @@ impl Service {
         let (state, reason) = check(page.as_ref(), recipe, &self.timing).await;
         turn.finished = Some(Instant::now());
         self.record(provider_id, state, reason);
+        if state == "signed_in" {
+            self.windows.signed_in(provider_id);
+        }
         Ok(())
     }
 

@@ -450,6 +450,7 @@ fn diagnostics_never_name_a_profile_folder() {
 struct FakeWindows {
     page: Arc<FakePage>,
     forgotten: Mutex<Vec<String>>,
+    signed_in: Mutex<Vec<String>>,
 }
 
 impl Windows for FakeWindows {
@@ -461,6 +462,9 @@ impl Windows for FakeWindows {
     }
     fn forget(&self, _provider_id: &str, profile: &str) {
         self.forgotten.lock().unwrap().push(profile.to_string());
+    }
+    fn signed_in(&self, provider_id: &str) {
+        self.signed_in.lock().unwrap().push(provider_id.to_string());
     }
 }
 
@@ -478,18 +482,21 @@ struct Rig {
     page: Arc<FakePage>,
     muse: Provider,
     http: reqwest::Client,
+    windows: Arc<FakeWindows>,
+    service: Arc<Service>,
 }
 
 async fn rig(page: Arc<FakePage>) -> Rig {
     let (conn, muse) = web_store();
     store::update_provider(&conn, &muse.id, Some(true), None, None).unwrap();
     let db = Arc::new(Mutex::new(conn));
-    let windows = Arc::new(FakeWindows { page: page.clone(), forgotten: Mutex::default() });
-    let service = Arc::new(Service::new(db.clone(), windows, "web-token".into(), fast()));
+    let windows = Arc::new(FakeWindows { page: page.clone(), forgotten: Mutex::default(), signed_in: Mutex::default() });
+    let service = Arc::new(Service::new(db.clone(), windows.clone(), "web-token".into(), fast()));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let link = Link { base: format!("http://{}", listener.local_addr().unwrap()), token: "web-token".into() };
+    let service_ref = service.clone();
     tokio::spawn(serve(listener, service));
-    Rig { db, link, page, muse, http: reqwest::Client::new() }
+    Rig { db, link, page, muse, http: reqwest::Client::new(), windows, service: service_ref }
 }
 
 impl Rig {
@@ -669,5 +676,15 @@ fn the_daily_limit_refuses_before_the_site_is_touched() {
         let body: Value = response.json().await.unwrap();
         assert_eq!(body["error"]["code"], "daily_limit");
         assert_eq!(rig.page.navigations.load(Ordering::SeqCst), 0, "nothing reached the site");
+    });
+}
+
+#[test]
+fn a_check_that_finds_the_session_signed_in_hides_the_sign_in_window() {
+    rt().block_on(async {
+        let rig = rig(hello_page()).await;
+        rig.service.check(&rig.muse.id).await.unwrap();
+        assert_eq!(rig.muse().web_state.as_deref(), Some("signed_in"));
+        assert_eq!(*rig.windows.signed_in.lock().unwrap(), vec![rig.muse.id.clone()]);
     });
 }
