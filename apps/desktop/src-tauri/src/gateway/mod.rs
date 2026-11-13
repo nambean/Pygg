@@ -712,9 +712,12 @@ fn is_free(billing: &str) -> bool {
 }
 
 /// A failed request on a subscription uses the plan's quota, not money: an unknown cost says so, as a successful
-/// one does, so a money limit does not count it as spend at risk (found by the benchmark, ROADMAP C3).
-fn quota_not_money(billing: &str, cost: Cost) -> Cost {
+/// one does, so a money limit does not count it as spend at risk (found by the benchmark, ROADMAP C3). On a free web
+/// session (ADR-035, 2026-11-13) a request costs $0 whatever happened to it: the site is used on the user's plan.
+pub(crate) fn quota_not_money(web: bool, billing: &str, cost: Cost) -> Cost {
     match cost {
+        Cost::Unknown { source } if web && billing == "free" => Cost::Estimated { micro_usd: 0,
+            source: format!("web session: your plan with the site, no price per request ({source})") },
         Cost::Unknown { source } if billing == "subscription" => Cost::Unknown {
             source: format!("subscription: counts against a quota, not money ({source})") },
         other => other,
@@ -1017,7 +1020,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 // waiting, a dropped connection) may have run the request: stop, and say the cost is unknown.
                 let failure = if e.is_connect() { Failure::NotSent } else { Failure::Ambiguous };
                 let decision = apply(&failure, &message, &provider);
-                let cost = quota_not_money(&billing, if decision.maybe_billed {
+                let cost = quota_not_money(web, &billing, if decision.maybe_billed {
                     pricing::resolve_failure(None)
                 } else {
                     Cost::Estimated { micro_usd: 0, source: "could not connect".into() }
@@ -1077,7 +1080,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                         paid_retries_left -= 1;
                     }
                 }
-                let cost = quota_not_money(&billing, if decision.maybe_billed {
+                let cost = quota_not_money(web, &billing, if decision.maybe_billed {
                     Cost::Unknown { source: format!("HTTP {}: the provider may have run the request", status.as_u16()) }
                 } else {
                     pricing::resolve_failure(Some(status.as_u16()))
@@ -1225,6 +1228,8 @@ pub fn record_success(shared: &Shared, mut forwarded: Forwarded, usage: Option<&
         // subscription billing cost no money either way, so they keep what they say (a subscription's entry
         // still says quota, not money: the benchmark, ROADMAP C3, read it as possible spend).
         match pricing::resolve(&forwarded.billing, forwarded.price.as_ref(), usage) {
+            Cost::Estimated { micro_usd: 0, .. } if presets::is_web(&forwarded.provider.kind) =>
+                Cost::Estimated { micro_usd: 0, source: "web session: your plan with the site, no price per request (cut short)".into() },
             cost @ Cost::Estimated { micro_usd: 0, .. } => cost,
             cost if forwarded.billing == "subscription" => cost,
             _ => Cost::Unknown { source: "the response was cut short before usage was reported".into() },

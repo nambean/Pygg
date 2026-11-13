@@ -1312,11 +1312,11 @@ fn a_subscription_model_is_used_under_a_spending_limit_and_holds_nothing() {
 #[test]
 fn a_failed_subscription_request_is_quota_not_money() {
     use crate::gateway::pricing::Cost;
-    let failed = super::quota_not_money("subscription", Cost::Unknown { source: "HTTP 503: the provider may have run the request".into() });
+    let failed = super::quota_not_money(false, "subscription", Cost::Unknown { source: "HTTP 503: the provider may have run the request".into() });
     assert!(failed.source().starts_with("subscription: counts against a quota, not money"), "{}", failed.source());
-    let paid = super::quota_not_money("paid", Cost::Unknown { source: "HTTP 503".into() });
+    let paid = super::quota_not_money(false, "paid", Cost::Unknown { source: "HTTP 503".into() });
     assert_eq!(paid.source(), "HTTP 503");
-    let zero = super::quota_not_money("subscription", Cost::Estimated { micro_usd: 0, source: "rejected".into() });
+    let zero = super::quota_not_money(false, "subscription", Cost::Estimated { micro_usd: 0, source: "rejected".into() });
     assert_eq!(zero.micro_usd(), Some(0));
 }
 

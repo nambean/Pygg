@@ -629,6 +629,19 @@ async fn gateway_post(target: &str, body: Value) -> reqwest::Response {
 }
 
 #[test]
+fn a_free_web_session_costs_nothing_even_when_the_request_fails() {
+    use crate::gateway::pricing::Cost;
+    let failed = || Cost::Unknown { source: "HTTP 504: the provider may have run the request".into() };
+    match crate::gateway::quota_not_money(true, "free", failed()) {
+        Cost::Estimated { micro_usd: 0, source } => assert!(source.starts_with("web session") && source.contains("504"), "{source}"),
+        other => panic!("{other:?}"),
+    }
+    // A web session set to Subscription keeps saying quota, and a paid connection's unknown cost stays unknown.
+    assert!(matches!(crate::gateway::quota_not_money(true, "subscription", failed()), Cost::Unknown { ref source } if source.starts_with("subscription")));
+    assert!(matches!(crate::gateway::quota_not_money(false, "paid", failed()), Cost::Unknown { ref source } if source.starts_with("HTTP 504")));
+}
+
+#[test]
 fn the_gateway_reaches_a_named_web_model_and_records_it_at_no_cost() {
     rt().block_on(async {
         let (web, gateway, shared) = gateway_rig(hello_page(), true).await;
