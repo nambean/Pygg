@@ -607,3 +607,18 @@ fn without_the_app_a_web_session_is_skipped_with_the_reason() {
         assert_eq!(web.page.navigations.load(Ordering::SeqCst), 0);
     });
 }
+
+#[test]
+fn pygg_types_only_on_the_sites_own_page() {
+    assert_eq!(site_host(recipe("chatgpt-web").unwrap()), "chatgpt.com");
+    assert_eq!(site_host(recipe("perplexity-web").unwrap()), "perplexity.ai");
+    assert_eq!(site_host(recipe("deepseek-web").unwrap()), "chat.deepseek.com");
+    for r in RECIPES {
+        let fill = fill_script(r, "x");
+        let send = send_script(r);
+        // The guard comes first, before the box is touched or a button is clicked.
+        assert!(fill.find("offSite").unwrap() < fill.find("querySelector").unwrap(), "{}", r.preset);
+        assert!(send.find("'offsite'").unwrap() < send.find("querySelectorAll").unwrap(), "{}", r.preset);
+        assert!(fill.contains(&format!("\"{}\"", site_host(r))), "{}", r.preset);
+    }
+}

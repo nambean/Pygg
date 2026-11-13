@@ -51,6 +51,8 @@ pub const STATES: [&str; 4] = ["signed_in", "signed_out", "needs_you", "page_cha
 // Pygg's own wording for what the window showed. Never the page's text: that can hold the user's data.
 pub const NOT_SIGNED_IN: &str = "Not signed in yet. Open the sign-in window and sign in on the site.";
 pub const SIGNED_OUT: &str = "Signed out. Open the sign-in window and sign in again.";
+/// The page Pygg was about to type into is not the site's own (ADR-035, 2026-11-13): it stops before sending anything.
+pub const OFF_SITE: &str = "The window is not on the site's own page, so Pygg sent nothing. Open the window and go back to the site.";
 pub const CHALLENGE: &str = "The site is showing a check (a CAPTCHA, a bot check or a sign-in challenge). Open the window and deal with it yourself; Pygg does not answer such checks.";
 pub const SIGNED_IN: &str = "Signed in.";
 pub const NO_PROMPT_BOX: &str = "The page has changed: Pygg could not find its prompt box.";
@@ -391,9 +393,24 @@ pub fn state_script(r: &Recipe) -> String {
         challenge_hints = json!(r.challenge_hints), ready_attr = ready_attr)
 }
 
-/// Puts the prompt in the box the way typing would, so the site's own code sees it.
+/// The host of the site's own page (`chatgpt.com`, `perplexity.ai`), without `www.`: where Pygg may type.
+pub fn site_host(r: &Recipe) -> &'static str {
+    let host = r.site.strip_prefix("https://").unwrap_or(r.site);
+    let host = host.split(['/', '?', '#']).next().unwrap_or(host);
+    host.strip_prefix("www.").unwrap_or(host)
+}
+
+/// The JavaScript test that the page is the site's own: its host or a subdomain of it, over https. Sign-in hosts
+/// (Google, Meta, X) do not count, so a prompt is never typed into them, or into anything a redirect led to.
+fn on_site(r: &Recipe) -> String {
+    format!("(location.protocol === 'https:' && (location.hostname === {h} || location.hostname.endsWith('.' + {h})))", h = q(site_host(r)))
+}
+
+/// Puts the prompt in the box the way typing would, so the site's own code sees it. Off the site's own page it types
+/// nothing and says so.
 pub fn fill_script(r: &Recipe, text: &str) -> String {
     format!(r#"(() => {{
+  if (!{on_site}) return {{ ok: false, offSite: true }};
   const box = document.querySelector({input});
   if (!box) return {{ ok: false }};
   box.focus();
@@ -406,13 +423,14 @@ pub fn fill_script(r: &Recipe, text: &str) -> String {
     document.execCommand('insertText', false, {text});
   }}
   return {{ ok: true }};
-}})()"#, input = q(r.input), text = q(text))
+}})()"#, input = q(r.input), text = q(text), on_site = on_site(r))
 }
 
 /// Clicks the visible Send button: `clicked`, `disabled` or `missing`. Where the recipe says Enter sends and there is
 /// no such button, presses Enter in the prompt box instead: `entered`.
 pub fn send_script(r: &Recipe) -> String {
     format!(r#"(() => {{
+  if (!{on_site}) return 'offsite';
   const re = new RegExp({pattern}, 'i');
   const button = [...document.querySelectorAll('button,[role=button]')].filter(b => b.offsetParent !== null)
     .find(b => re.test((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('data-testid') || '')));
@@ -428,7 +446,7 @@ pub fn send_script(r: &Recipe) -> String {
     box.dispatchEvent(new KeyboardEvent(type, {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }}));
   }}
   return 'entered';
-}})()"#, pattern = q(r.send_pattern), enter = r.enter_sends, input = q(r.input))
+}})()"#, pattern = q(r.send_pattern), enter = r.enter_sends, input = q(r.input), on_site = on_site(r))
 }
 
 /// The conversation as it stands: how many replies, the last one's text, and the signals around it.
@@ -639,6 +657,9 @@ pub async fn converse(page: &dyn Page, recipe: &Recipe, prompt: &str, timing: &T
     open_chat(page, recipe, timing).await?;
     let base: ChatState = eval_as(page, read_script(recipe)).await?;
     let filled: Value = page.eval(fill_script(recipe, prompt)).await?;
+    if filled["offSite"] == true {
+        return Err(WebError::NeedsYou { state: "needs_you", reason: OFF_SITE });
+    }
     if filled["ok"] != true {
         return Err(WebError::PageChanged(NO_PROMPT_BOX));
     }
@@ -646,6 +667,7 @@ pub async fn converse(page: &dyn Page, recipe: &Recipe, prompt: &str, timing: &T
     loop {
         match page.eval(send_script(recipe)).await?.as_str() {
             Some("clicked" | "entered") => break,
+            Some("offsite") => return Err(WebError::NeedsYou { state: "needs_you", reason: OFF_SITE }),
             _ if started.elapsed() >= timing.send => return Err(WebError::PageChanged(NO_SEND_BUTTON)),
             _ => tokio::time::sleep(timing.poll).await,
         }

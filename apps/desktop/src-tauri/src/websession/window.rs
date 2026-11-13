@@ -10,7 +10,7 @@ use super::{host_allowed, Page, Recipe, WebError, Windows, NO_WINDOW};
 use crate::gateway::store::Provider;
 use futures_util::future::BoxFuture;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -38,11 +38,15 @@ pub struct AppWindows<R: Runtime> {
     app: AppHandle<R>,
     root: PathBuf,
     last_used: Arc<Mutex<HashMap<String, Instant>>>,
+    /// Windows the user has open to sign in (ADR-035, 2026-11-13): while they drive it, the window goes anywhere on
+    /// https, like a browser, since sign-in passes through hosts no recipe can list. Pygg's own typing is held to the
+    /// site's page either way (`fill_script`, `send_script`).
+    signing_in: Arc<Mutex<HashSet<String>>>,
 }
 
 impl<R: Runtime> AppWindows<R> {
     pub fn new(app: AppHandle<R>, root: PathBuf) -> Arc<AppWindows<R>> {
-        let windows = Arc::new(AppWindows { app, root, last_used: Arc::default() });
+        let windows = Arc::new(AppWindows { app, root, last_used: Arc::default(), signing_in: Arc::default() });
         // Closes hidden windows nobody has used for a while.
         let reaper = windows.clone();
         tauri::async_runtime::spawn(async move {
@@ -78,6 +82,7 @@ impl<R: Runtime> AppWindows<R> {
         std::fs::create_dir_all(&profile).map_err(|e| format!("Could not create the profile folder: {e}"))?;
         let url = recipe.site.parse().map_err(|_| "The site's address is not valid")?;
         let (app, provider_id) = (self.app.clone(), provider.id.clone());
+        let signing_in = self.signing_in.clone();
         let (app2, provider_id2) = (self.app.clone(), provider.id.clone());
         // Debug builds only, and only when asked: DevTools for the web window, to see why a page does not load.
         let args = if cfg!(debug_assertions) && std::env::var_os("PYGG_WEB_DEVTOOLS").is_some() {
@@ -85,7 +90,7 @@ impl<R: Runtime> AppWindows<R> {
         } else {
             BROWSER_ARGS.to_string()
         };
-        WebviewWindowBuilder::new(&self.app, label(&provider.id), WebviewUrl::External(url))
+        let window = WebviewWindowBuilder::new(&self.app, label(&provider.id), WebviewUrl::External(url))
             .title(format!("{} — web session (unofficial), Pygg", provider.label))
             .inner_size(1100.0, 820.0)
             .visible(false)
@@ -93,7 +98,9 @@ impl<R: Runtime> AppWindows<R> {
             .additional_browser_args(&args)
             // Only the site and its sign-in hosts; a blocked address is not loaded. Its host (only) is kept on the connection.
             .on_navigation(move |url| {
-                let allowed = host_allowed(recipe, url.as_str());
+                let user_driving = signing_in.lock().unwrap_or_else(|p| p.into_inner()).contains(&provider_id);
+                let allowed = if user_driving { url.scheme() == "https" || url.as_str() == "about:blank" }
+                    else { host_allowed(recipe, url.as_str()) };
                 // The host it refused, kept on the connection, so a stalled sign-in says why (nothing else of the address).
                 if !allowed && url.scheme() != "about" {
                     // An https address by its host; any other kind (http, data, a custom scheme) by its scheme only.
@@ -120,7 +127,15 @@ impl<R: Runtime> AppWindows<R> {
                 tauri::webview::NewWindowResponse::Deny
             })
             .build()
-            .map_err(|e| format!("Could not open the window: {e}"))
+            .map_err(|e| format!("Could not open the window: {e}"))?;
+        // Closing the window (it hides) ends the user's turn: back to the site's hosts only.
+        let (signing_in, id) = (self.signing_in.clone(), provider.id.clone());
+        window.on_window_event(move |event| {
+            if matches!(event, tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed) {
+                signing_in.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
+            }
+        });
+        Ok(window)
     }
 }
 
@@ -131,6 +146,7 @@ impl<R: Runtime> Windows for AppWindows<R> {
     }
 
     fn show(&self, provider: &Provider, recipe: &'static Recipe) -> Result<(), String> {
+        self.signing_in.lock().unwrap_or_else(|p| p.into_inner()).insert(provider.id.clone());
         let window = self.ensure(provider, recipe)?;
         window.show().map_err(|e| e.to_string())?;
         let _ = window.unminimize();
