@@ -215,6 +215,15 @@ pub fn set_web_state(conn: &Connection, provider_id: &str, state: &str, reason: 
     Ok(())
 }
 
+/// Says what the window last refused to open, keeping the session's state: a sign-in that stalls on an address
+/// outside the site's hosts shows why, by host only (owner, 2026-11-13: ChatGPT's Google sign-in kept spinning).
+pub fn set_web_blocked(conn: &Connection, provider_id: &str, host: &str) -> Result<()> {
+    let reason = format!("Pygg blocked {host} in this window: it is not one of this site's sign-in addresses. If sign-in \
+        stalls, this is why; the site's recipe needs it added.");
+    conn.execute("UPDATE providers SET web_state_reason = ?2, web_state_at = ?3 WHERE id = ?1", params![provider_id, reason, now_ms()])
+        .map(|_| ()).map_err(err)
+}
+
 /// The profile folder names of the web sessions that exist; any other folder under `websessions/` is a leftover.
 pub fn web_profiles(conn: &Connection) -> Result<Vec<String>> {
     let mut stmt = conn.prepare("SELECT web_profile FROM providers WHERE web_profile IS NOT NULL").map_err(err)?;

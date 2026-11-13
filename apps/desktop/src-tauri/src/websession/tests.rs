@@ -292,6 +292,16 @@ fn the_window_goes_only_to_the_sites_hosts() {
     assert!(host_allowed(r, "https://www.instagram.com/aymh/redirect-cycle/?t=6"), "Meta's sign-in passes through Instagram");
     assert!(!host_allowed(r, "http://muse.ai/"), "HTTPS only");
     assert!(!host_allowed(r, "https://muse.ai.evil.com/"));
+    // Google's country sign-in hosts, for recipes that sign in with Google, and nothing else of that shape.
+    let chatgpt = recipe("chatgpt-web").unwrap();
+    for ok in ["https://accounts.google.com.vn/accounts/SetSID", "https://accounts.google.co.jp/x", "https://accounts.google.de/x"] {
+        assert!(host_allowed(chatgpt, ok), "{ok}");
+    }
+    for no in ["https://accounts.google.evil.com/", "https://accounts.google.com.vn.evil.com/", "https://www.google.com.vn/",
+        "https://accounts.google.c0m/", "https://accounts.google.com.vnn/"] {
+        assert!(!host_allowed(chatgpt, no), "{no}");
+    }
+    assert!(!host_allowed(r, "https://accounts.google.com.vn/accounts/SetSID"), "Muse does not sign in with Google");
     assert!(!host_allowed(r, "https://evilmuse.ai/"));
     assert!(!host_allowed(r, "https://muse.ai@evil.com/"));
     assert!(!host_allowed(r, "https://muse.ai:8443/"));

@@ -149,10 +149,13 @@ pub const RECIPES: &[Recipe] = &[
         new_chat_url: "https://chatgpt.com/",
         hosts: &["chatgpt.com", "openai.com", GOOGLE[0], GOOGLE[1], "apple.com", "live.com", "microsoftonline.com", "microsoft.com"],
         models: &["chatgpt"],
-        input: "#prompt-textarea, textarea[name=\"prompt\"]",
+        // Signed in (2026-11-13, live): a ProseMirror `div[contenteditable]` with no id; signed out, `#prompt-textarea`.
+        input: "#prompt-textarea, div.ProseMirror[contenteditable=\"true\"], textarea[name=\"prompt\"]",
         send_pattern: "send",
         enter_sends: true,
-        reply: "[data-message-author-role=\"assistant\"]",
+        // 2026-11-13, live: a reply is a screen-reader heading `[data-conversation-role=assistant]` ("ChatGPT said:")
+        // followed by its body; older pages marked the body `[data-message-author-role=assistant]`.
+        reply: "[data-message-author-role=\"assistant\"], [data-conversation-role=\"assistant\"] + *",
         busy: Some("button[data-testid=\"stop-button\"], button[aria-label*=\"Stop\" i]"),
         approval: None,
         deny_pattern: "^(deny|decline|cancel)$",
@@ -255,6 +258,19 @@ pub fn host_allowed(recipe: &Recipe, url: &str) -> bool {
         return false;
     }
     recipe.hosts.iter().any(|h| host == *h || host.ends_with(&format!(".{h}")))
+        || (recipe.hosts.contains(&GOOGLE[0]) && google_country_sign_in(&host))
+}
+
+/// Google's sign-in sets its cookie on the account's country domain too (`accounts.google.com.vn` for an account in
+/// Viet Nam, after `accounts.youtube.com`); a blocked hop leaves the sign-in spinning (owner, 2026-11-13). Only that
+/// one name on a country suffix: `accounts.google.` and then `xx`, `com.xx` or `co.xx`.
+fn google_country_sign_in(host: &str) -> bool {
+    let Some(suffix) = host.strip_prefix("accounts.google.") else { return false };
+    let country = |s: &str| s.len() == 2 && s.bytes().all(|b| b.is_ascii_lowercase());
+    match suffix.split_once('.') {
+        None => country(suffix),
+        Some((second, cc)) => (second == "com" || second == "co") && country(cc),
+    }
 }
 
 // ---------- Requests ----------

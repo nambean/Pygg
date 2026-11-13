@@ -77,6 +77,7 @@ impl<R: Runtime> AppWindows<R> {
             .ok_or("This connection has no profile folder")?;
         std::fs::create_dir_all(&profile).map_err(|e| format!("Could not create the profile folder: {e}"))?;
         let url = recipe.site.parse().map_err(|_| "The site's address is not valid")?;
+        let (app, provider_id) = (self.app.clone(), provider.id.clone());
         // Debug builds only, and only when asked: DevTools for the web window, to see why a page does not load.
         let args = if cfg!(debug_assertions) && std::env::var_os("PYGG_WEB_DEVTOOLS").is_some() {
             format!("{BROWSER_ARGS} --remote-debugging-port=9462")
@@ -89,9 +90,15 @@ impl<R: Runtime> AppWindows<R> {
             .visible(false)
             .data_directory(profile)
             .additional_browser_args(&args)
-            // Only the site and its sign-in hosts; a blocked address is not loaded, and nothing is logged about it.
+            // Only the site and its sign-in hosts; a blocked address is not loaded. Its host (only) is kept on the connection.
             .on_navigation(move |url| {
                 let allowed = host_allowed(recipe, url.as_str());
+                // The host it refused, kept on the connection, so a stalled sign-in says why (nothing else of the address).
+                if !allowed && url.scheme() == "https" {
+                    if let (Some(host), Some(state)) = (url.host_str(), app.try_state::<crate::commands::AppState>()) {
+                        let _ = state.shared.with_db(|db| crate::gateway::store::set_web_blocked(db, &provider_id, host));
+                    }
+                }
                 // Debug builds, when asked: which addresses the window was refused (the address only, nothing from the page).
                 if cfg!(debug_assertions) && std::env::var_os("PYGG_WEB_DEVTOOLS").is_some() {
                     eprintln!("web-session navigation {} -> {}", url.as_str(), if allowed { "allowed" } else { "blocked" });
