@@ -42,7 +42,7 @@ export function AutoRouting() {
       <div className="group-row stacked">
         <p className="auto-intro"><Wand2 size={15} aria-hidden/>{t('Clients can ask for “auto” or “auto/cheap” instead of a model. The gateway then picks from your connected models when the request arrives, by fixed rules, and says why in the response.')}</p>
         <ul className="auto-rules">
-          <li><span className="mono">auto</span>{t(' — the lowest tier at or above the client’s minimum (T2 unless you change it in Clients), then local, free, subscription and paid in that order, then the lower estimated cost. This is the lowest eligible tier under your policy, not a promise of the cheapest answer.')}</li>
+          <li><span className="mono">auto</span>{t(' — the lowest tier at or above the client’s minimum (T2 unless you change it in Endpoint → API Keys → Limits…), then local, free, subscription and paid in that order, then the lower estimated cost. This is the lowest eligible tier under your policy, not a promise of the cheapest answer.')}</li>
           <li><span className="mono">auto/cheap</span>{t(' — the lowest estimated cost of this request among the models that can take it. No tier needed.')}</li>
           <li>{t('An Anthropic request that asks for thinking or an effort level goes only to Anthropic-API models known to take it; their model list says so (Providers → Check & Refresh Models). Claude Code asks for adaptive thinking.')}</li>
           <li>{t('A model takes part only for what it is known to support: set tiers, context sizes and the rest under Providers → Auto… (OpenRouter’s list fills most of it in). Unknown counts as missing. A session stays on the model that first answered it.')}</li>

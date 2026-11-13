@@ -148,7 +148,7 @@ export function SavingsDetails({savings, onPickClient}: {savings: Loaded; onPick
     <td className="num"><Diff p={p}/></td>
   </tr>;
   return <section className="group">
-    <h2>{t('How Pygg Saved It')}</h2>
+    <h2>{t('Comparison Breakdown')}</h2>
     <div className="two-columns">
       <div className="group-box table-box">
         <table className="data-table" aria-label={t('Comparison by client')}>

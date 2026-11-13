@@ -42,7 +42,7 @@ type View =
   | {kind: 'agents'}
   | {kind: 'guide'}
   | {kind: 'settings'};
-type Intent = 'connect' | 'create' | 'unpriced';
+type Intent = 'connect' | 'create' | 'unpriced' | 'auto' | `requests:${string}` | `failed:${string}`;
 
 // The gateway's screens in the order of setting it up, named as 9router and OmniRoute name theirs (SCREENS.md §2).
 const GATEWAY: {kind: GatewayDestination; title: string; icon: React.ReactElement}[] = [
@@ -250,12 +250,13 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         {view.kind === 'overview' && <Overview status={status} onStatus={setStatus} navigate={go}/>}
         {view.kind === 'connections' && <Connections intent={intent === 'connect' || intent === 'unpriced' ? intent : undefined}
           onIntentDone={intentDone} onNext={() => go('tools')}/>}
-        {view.kind === 'combos' && <Combos intent={intent === 'create' ? 'create' : undefined} onIntentDone={intentDone}
+        {view.kind === 'combos' && <Combos intent={intent === 'create' || intent === 'auto' ? intent : undefined} onIntentDone={intentDone}
           onConnect={() => go('connections', 'connect')}/>}
         {view.kind === 'endpoint' && <Endpoint status={status} onStatus={setStatus} intent={intent === 'create' ? 'create' : undefined}
           onIntentDone={intentDone}/>}
         {view.kind === 'tools' && <CliTools status={status} navigate={go}/>}
-        {view.kind === 'usage' && <Usage onOpenTools={() => go('tools')}/>}
+        {view.kind === 'usage' && <Usage onOpenTools={() => go('tools')} onIntentDone={intentDone}
+          intent={intent?.startsWith('requests:') || intent?.startsWith('failed:') ? intent : undefined}/>}
         {view.kind === 'agents' && <Agents/>}
         {view.kind === 'guide' && <Guide go={go} base={status?.baseUrl ?? (status ? `http://127.0.0.1:${status.port}` : null)}/>}
         {view.kind === 'tasks' && <>

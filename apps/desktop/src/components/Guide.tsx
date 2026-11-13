@@ -20,9 +20,9 @@ const SECTIONS: Section[] = [
     <ol className="guide-steps">
       <li><b>{t('Connect a provider.')}</b> {t('Providers → Connect Provider. A cloud provider takes its API key (Gemini, OpenRouter and Groq have free tiers); a local runtime such as Ollama takes its local address and no key. Pygg reads the model list; nothing is billed.')}{' '}
         <button type="button" className="link-button" onClick={() => go('connections')}>{t('Open Providers')}</button></li>
-      <li><b>{t('Set up your coding tool.')}</b> {t('CLI Tools: Codex and OpenCode in one click, Claude Code with a launcher, editors and SDKs with a snippet. CLI Tools makes a separate Pygg API key for each tool it sets up; for a tool set up by hand, make one in Endpoint → API Keys.')}{' '}
+      <li><b>{t('Set up your coding tool.')}</b> {t('If CLI Tools says auto has no eligible model, open the connection’s Models and review its routing facts (Auto…).')} {t('CLI Tools: Codex and OpenCode in one click, Claude Code with a launcher, editors and SDKs with a snippet. CLI Tools makes a separate Pygg API key for each tool it sets up; for a tool set up by hand, make one in Endpoint → API Keys.')}{' '}
         <button type="button" className="link-button" onClick={() => go('tools')}>{t('Open CLI Tools')}</button></li>
-      <li><b>{t('Work as usual, with the model auto.')}</b> {t('Pygg picks an eligible model for each request, within your limits, and records what it cost. CLI Tools says “Working” once a request has come through; Usage shows the cost and an estimate of what you saved.')}</li>
+      <li><b>{t('Work as usual, with the model auto.')}</b> {t('Pygg picks an eligible model for each request, within your limits, and records what it cost. CLI Tools says “Working” after that tool receives an answer; Usage shows the cost and an estimate of what you saved.')}</li>
     </ol>
     <p>{t('The gateway listens on this computer only. A tool set up by hand needs these three fields and a Pygg API key:')}</p>
     {code(`OpenAI-compatible:  ${a.base}/v1\nAnthropic:          ${a.base}\nModel:              auto\nAPI key:            a Pygg API key (Endpoint → API Keys)`, t('Addresses'))}
@@ -120,7 +120,7 @@ const SECTIONS: Section[] = [
       <tbody>
         {([
           [t('Connection refused, or “nothing is listening”'), t('Start the Pygg app (it serves the gateway), or check with pygg status. The port is set in Endpoint → Configure.')],
-          ['HTTP 401', t('The API key is wrong or revoked. Endpoint → API Keys → Show copies it again (keys made before this version cannot be shown: create a new one).')],
+          ['HTTP 401', t('The API key is wrong or revoked. Endpoint → API Keys → Show reveals it again (keys made before this version cannot be shown: create a new one).')],
           [t('HTTP 422 “No connected model is eligible for auto”'), t('No model has every fact auto needs (tier, price, tools, context). Run pygg gateway lookup, set them in Providers → Auto…, lower the key’s minimum tier, or name a model.')],
           [t('HTTP 429 or “cooling down”'), t('A provider’s rate limit or quota. auto and combos move on to the next model; Providers shows when it is tried again.')],
           [t('A cost shows as unknown'), t('The model has no price. Set one in Providers, or run pygg gateway lookup.')],

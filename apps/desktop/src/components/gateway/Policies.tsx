@@ -57,7 +57,10 @@ export function Policies({go, onSettings, onWorkspaces}: {go: Go; onSettings: ()
         <h2>{t('Connection Policies')}</h2>
         <button type="button" className="link-button" onClick={() => go('connections')}>{t('Open Providers')}</button>
       </div>
-      {connections.data && connections.data.length > 0 ? <div className="group-box table-box"><table className="data-table" aria-label={t('Connection Policies')}>
+      {connections.error && !connections.data ? <ErrorNote>{t('Couldn’t load the connections: {error}', {error: connections.error})}{' '}
+        <button type="button" className="link-button" onClick={connections.reload}>{t('Try Again')}</button></ErrorNote>
+      : !connections.data ? <Spinner label={t('Loading connections…')}/>
+      : connections.data.length > 0 ? <div className="group-box table-box"><table className="data-table" aria-label={t('Connection Policies')}>
         <thead><tr><th scope="col">{t('Connection')}</th><th scope="col">{t('Data use')}</th><th scope="col">{t('Quota')}</th>
           <th scope="col">{t('Pool')}</th><th scope="col">{t('Billing')}</th></tr></thead>
         <tbody>{connections.data.map(c => <tr key={c.id} className={c.enabled ? '' : 'disabled-row'}>
@@ -110,9 +113,10 @@ function Defaults() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ok: boolean; text: string} | null>(null);
   useEffect(() => {
-    if (saved.data) { setD(saved.data); setLimit(saved.data.monthlyBudgetMicroUsd === null ? '' : String(saved.data.monthlyBudgetMicroUsd / 1_000_000)); }
-  }, [saved.data]);
-  if (saved.error) return <ErrorNote>{saved.error}</ErrorNote>;
+    if (saved.data && !d) { setD(saved.data); setLimit(saved.data.monthlyBudgetMicroUsd === null ? '' : String(saved.data.monthlyBudgetMicroUsd / 1_000_000)); }
+  }, [saved.data, d]);
+  if (saved.error && !d) return <ErrorNote>{t('Couldn’t load the defaults: {error}', {error: saved.error})}{' '}
+    <button type="button" className="link-button" onClick={saved.reload}>{t('Try Again')}</button></ErrorNote>;
   if (!d) return <Spinner/>;
   const set = (patch: Partial<ClientDefaults>) => { setD({...d, ...patch}); setMessage(null); };
   const parsedLimit = limit.trim() === '' ? null : parseUsd(limit);
@@ -137,21 +141,13 @@ function Defaults() {
           <input id="default-limit" inputMode="decimal" value={limit} placeholder={t('No limit')} onChange={e => { setLimit(e.target.value); setMessage(null); }}
             aria-invalid={!limitValid}/></span>
       </FormRow>
-      <FormRow label={t('Strict limit')} hint={t('Strict: each request is held at the most it could cost, so the limit is never passed; a model without a price or maximum output is not used. Estimated: counted as requests finish, so one last request can pass it.') + ' ' + t('A strict limit holds each request at the most it could cost (output limit × price): Claude Code on a large repository is held at over $1 a request, so prefer the estimated limit there.')}>
-        <Segmented<'estimated' | 'strict'> label={t('Strict limit')} value={d.strictBudget ? 'strict' : 'estimated'}
+      <FormRow label={t('Limit mode')} hint={t('Strict reserves the most a request could cost before sending it; a model without a price or maximum output is not used. Estimated counts requests as they finish, so one last request can pass the limit. Provider price changes or unreported charges can make the bill differ either way.')}>
+        <Segmented<'estimated' | 'strict'> label={t('Limit mode')} value={d.strictBudget ? 'strict' : 'estimated'}
           onChange={v => set({strictBudget: v === 'strict'})}
           options={[{value: 'estimated', label: t('Estimated')}, {value: 'strict', label: t('Strict')}]}/>
       </FormRow>
-      <FormRow label={t('Strict limit')} hint={t('Strict: each request is held at the most it could cost, so the limit is never passed; a model without a price or maximum output is not used. Estimated: counted as requests finish, so one last request can pass it.') + ' ' + t('A strict limit holds each request at the most it could cost (output limit × price): Claude Code on a large repository is held at over $1 a request, so prefer the estimated limit there.')}>
-        <Segmented<'estimated' | 'strict'> label={t('Strict limit')} value={d.strictBudget ? 'strict' : 'estimated'}
-          onChange={v => set({strictBudget: v === 'strict'})}
-          options={[{value: 'estimated', label: t('Estimated')}, {value: 'strict', label: t('Strict')}]}/>
-      </FormRow>
-      <FormRow label={t('Strict limit')} hint={t('Strict: each request is held at the most it could cost, so the limit is never passed; a model without a price or maximum output is not used. Estimated: counted as requests finish, so one last request can pass it.') + ' ' + t('A strict limit holds each request at the most it could cost (output limit × price): Claude Code on a large repository is held at over $1 a request, so prefer the estimated limit there.')}>
-        <Segmented<'estimated' | 'strict'> label={t('Strict limit')} value={d.strictBudget ? 'strict' : 'estimated'}
-          onChange={v => set({strictBudget: v === 'strict'})}
-          options={[{value: 'estimated', label: t('Estimated')}, {value: 'strict', label: t('Strict')}]}/>
-      </FormRow>
+      <details className="form-disclosure"><summary>{t('When to choose which')}</summary>
+        <p className="secondary">{t('A strict limit holds each request at the most it could cost (output limit × price): Claude Code on a large repository is held at over $1 a request, so prefer the estimated limit there.')}</p></details>
       <FormRow label={t('Unknown prices')} hint={t('While a key has a limit: block keeps it from models without a price, whose cost could not be counted.')}>
         <Segmented<'block' | 'allow'> label={t('Unknown prices')} value={d.unknownCostPolicy ?? 'block'} onChange={v => set({unknownCostPolicy: v})}
           options={[{value: 'block', label: t('Block')}, {value: 'allow', label: t('Allow')}]}/>

@@ -37,7 +37,8 @@ export function OutcomeBadge({outcome, status}: {outcome: Outcome; status: numbe
 const statusLabel = (s: CostStatus) => ({actual: t('Actual'), estimated: t('Estimated'), unknown: t('Unknown')}[s]);
 
 /** Usage (SCREENS.md §5.6): what went through the gateway, with actual, estimated and unknown costs kept apart. */
-export function Usage({onOpenTools}: {onOpenTools?: () => void} = {}) {
+/** `requests:<client>` opens Requests filtered to that client; `failed:<client>` to its failures (Codex review 7). */
+export function Usage({onOpenTools, intent, onIntentDone}: {onOpenTools?: () => void; intent?: string; onIntentDone?: () => void} = {}) {
   const [range, setRange] = useState<Range>('7');
   const [view, setView] = useState<View>('api');
   const [part, setPart] = useState<Part>('summary');
@@ -49,6 +50,17 @@ export function Usage({onOpenTools}: {onOpenTools?: () => void} = {}) {
   const [client, setClient] = useState('');
   const [model, setModel] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!intent) return;
+    const [kind, ...rest] = intent.split(':');
+    // A drill-down starts clean: only the filter it names.
+    setClient(rest.join(':'));
+    setModel('');
+    setShow(kind === 'failed' ? 'problems' : 'all');
+    setOpenId(null);
+    setPart('requests');
+    onIntentDone?.();
+  }, [intent, onIntentDone]);
   // The summary brings the first page of requests; Show More fetches the next pages, which the next refresh keeps.
   const [more, setMore] = useState<{range: Range; rows: UsageEvent[]}>({range, rows: []});
   const [loadingMore, setLoadingMore] = useState<string | null>(null);
@@ -60,11 +72,21 @@ export function Usage({onOpenTools}: {onOpenTools?: () => void} = {}) {
     return [...first, ...more.rows.filter(e => !seen.has(e.id))];
   }, [usage.data, more, range]);
   const total = usage.data?.total.requests ?? 0;
+  const [paging, setPaging] = useState(false);
   const showMore = () => {
+    if (paging) return;
     setLoadingMore(null);
-    call(api => api.usageRequests(Number(range), recent.length, PAGE)).then(
-      page => setMore(m => ({range, rows: m.range === range ? [...m.rows, ...page] : page})),
-      e => setLoadingMore(errorText(e)));
+    setPaging(true);
+    const asked = range;
+    call(api => api.usageRequests(Number(asked), recent.length, PAGE)).then(
+      page => setMore(m => {
+        // An answer for a period no longer shown is dropped; rows already listed are not listed twice.
+        if (asked !== range) return m;
+        const rows = m.range === asked ? m.rows : [];
+        const seen = new Set(rows.map(e => e.id));
+        return {range: asked, rows: [...rows, ...page.filter(e => !seen.has(e.id))]};
+      }),
+      e => setLoadingMore(errorText(e))).finally(() => setPaging(false));
   };
   const rows = useMemo(() => recent.filter(e =>
     (show === 'all' || (show === 'unknown' ? e.costStatus === 'unknown' : e.outcome !== 'ok'))
@@ -172,12 +194,14 @@ export function Usage({onOpenTools}: {onOpenTools?: () => void} = {}) {
             <tbody>
               {rows.map(e => <LedgerRow key={e.id} event={e} open={openId === e.id} onToggle={() => setOpenId(openId === e.id ? null : e.id)}
                 chain={e.requestId ? recent.filter(o => o.requestId === e.requestId).sort((a, b) => (a.attempt ?? 1) - (b.attempt ?? 1)) : []}/>)}
-              {rows.length === 0 && <tr><td colSpan={8} className="table-empty">{t('Nothing to show for this filter.')}</td></tr>}
+              {rows.length === 0 && <tr><td colSpan={8} className="table-empty">{recent.length < total
+                ? t('No matches among the {n} attempts loaded. Show More loads older ones.', {n: recent.length})
+                : t('Nothing to show for this filter.')}</td></tr>}
             </tbody>
           </table>
         </div>
-        {recent.length < total && <button type="button" className="link-button table-more" onClick={showMore}>
-          {t('Show {n} more', {n: Math.min(PAGE, total - recent.length)})}</button>}
+        {recent.length < total && <button type="button" className="link-button table-more" onClick={showMore} disabled={paging}>
+          {paging ? t('Loading older attempts…') : t('Show {n} more', {n: Math.min(PAGE, total - recent.length)})}</button>}
         {loadingMore && <ErrorNote>{loadingMore}</ErrorNote>}
         <p className="group-footnote">{recent.length < total
           ? t('Showing the {shown} most recent of {total} requests in this period; Show More goes further back, and Export CSV has them all.', {shown: recent.length, total})
@@ -372,7 +396,7 @@ function LedgerRow({event: e, open, onToggle, chain}: {event: UsageEvent; open: 
     {open && <tr className="ledger-detail"><td colSpan={8}>
       <dl>
         <dt>{t('Asked for')}</dt><dd className="mono">{e.requestedModel ?? '—'}</dd>
-        <dt>{t('Answered by')}</dt><dd className="mono">{e.provider}/{e.model}</dd>
+        <dt>{e.outcome === 'ok' ? t('Answered by') : t('Attempted model')}</dt><dd className="mono">{e.provider}/{e.model}</dd>
         <dt>{t('Cost source')}</dt><dd>{statusLabel(e.costStatus)} · {sourceText(e.costSource)}</dd>
         {e.atRiskMicroUsd ? <><dt>{t('Counted against the limit')}</dt>
           <dd>{t('{amount}, the amount held for it: the provider may have charged for it', {amount: microUsd(e.atRiskMicroUsd)})}</dd></> : null}

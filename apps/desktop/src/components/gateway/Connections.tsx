@@ -76,7 +76,7 @@ export function Connections({intent, onIntentDone, onNext}: {intent?: 'connect' 
   return <div className="page">
     {list.error && <ErrorNote>{list.error}</ErrorNote>}
     {justConnected && onNext && <div className="next-step-note" role="status">
-      <span>{t('Connected. Next: set up your coding tool to use it, with the model auto.')}</span>
+      <span>{t('Connection added. Next, set up your coding tool; CLI Tools says whether a model qualifies for it.')}</span>
       <button type="button" className="button prominent small" onClick={onNext}>{t('Open CLI Tools')}</button>
       <button type="button" className="link-button" onClick={() => setJustConnected(false)}>{t('Not now')}</button>
     </div>}
@@ -326,7 +326,8 @@ function ConnectionDetail({connection: c, onRemoved, initialShow = 'all', plan}:
       gatewayChanged();
     }).finally(() => setRefreshing(false));
   };
-  const setBilling = (billing: Billing) => call(api => api.updateConnection(c.id, {billing})).then(gatewayChanged);
+  const setBilling = (billing: Billing) => call(api => api.updateConnection(c.id, {billing}))
+    .then(gatewayChanged, e => setMessage({ok: false, text: t('Couldn’t save billing: {error}', {error: errorText(e)})}));
 
   const shown = useMemo(() => (models.data ?? []).filter(m => {
     if (!m.modelId.toLowerCase().includes(query.trim().toLowerCase())) return false;
@@ -432,7 +433,8 @@ function ConnectionDetail({connection: c, onRemoved, initialShow = 'all', plan}:
                 : t('Assumed to share limits with other {provider} connections you add. Turn on only if the provider gives it a separate quota, for example a different organization.', {provider: c.presetName})}</small></span>
           <span className="group-control"><Switch checked={c.separateQuota} label={t('Independent quota confirmed')}
             onChange={separateQuota => separateQuota ? setSheet('quota')
-              : call(api => api.updateConnection(c.id, {separateQuota})).then(gatewayChanged)}/></span>
+              : call(api => api.updateConnection(c.id, {separateQuota})).then(gatewayChanged,
+                e => setMessage({ok: false, text: t('Couldn’t save the quota setting: {error}', {error: errorText(e)})}))}/></span>
         </div>
         <PoolRow connection={c}/>
         <TermsRow connection={c}/>
@@ -587,7 +589,9 @@ function ModelTestButton({model: m}: {model: Model}) {
   const [error, setError] = useState<string | null>(null);
   const paid = m.billing === 'paid' || m.billing === 'unknown';
   const run = () => {
-    if (paid && !window.confirm(t('Send one short request to {model}? It asks for one word, so it costs a fraction of a cent at its price, recorded in Usage.', {model: m.modelId}))) return;
+    if (paid && !window.confirm(m.price
+      ? t('Send one short request to {model}? It asks for one word and may incur a small charge at its price. The result appears in Usage.', {model: m.modelId})
+      : t('Send one short request to {model}? This may incur a charge. Pygg cannot estimate it because this model has no recorded price. The result appears in Usage.', {model: m.modelId}))) return;
     setBusy(true);
     setError(null);
     setResult(null);
@@ -608,9 +612,12 @@ function ModelRow({model: m, auto, health, reliability: r, onPrice, onCaps, onCh
   const needsPrice = m.billing === 'paid' || m.billing === 'unknown';
   const price = m.price ? priceText(m.price)
     : needsPrice ? t('No price · cost Unknown') : m.billing === 'subscription' ? t('Quota, not money') : t('Not needed');
+  const [failed, setFailed] = useState<string | null>(null);
+  const change = (action: Promise<unknown>) => { setFailed(null); action.then(onChange, e => setFailed(errorText(e))); };
   return <tr className={m.enabled ? '' : 'disabled-row'}>
     <td className="mono selectable" title={health ? `${m.modelId} · ${health.reason}` : m.modelId}>
-      {m.modelId}{health && <> <Badge tone="warn">{healthLabel(health)}</Badge></>}</td>
+      {m.modelId}{health && <> <Badge tone="warn">{healthLabel(health)}</Badge></>}
+      {failed && <small className="warn-text" role="alert"><br/>{t('Not saved: {error}', {error: failed})}</small>}</td>
     <td>{billingLabel(m.billing)}{!m.enabled && m.enabledSource === 'media-model' && <small className="source"
       title={t('The model catalog says this model makes audio, video or images, priced per item rather than per token, so Pygg turned it off. Turn it on if you mean to use it.')}>
       <br/>{t('Off: makes media')}</small>}{!m.enabled && m.enabledSource === 'free-connection'
@@ -623,13 +630,13 @@ function ModelRow({model: m, auto, health, reliability: r, onPrice, onCaps, onCh
         <br/>{t('{rate}% of {n} answered', {rate: Math.round((r.ok / r.requests) * 100), n: r.requests})}
         {r.medianLatencyMs !== null ? ` · ${t('median {s} s', {s: (r.medianLatencyMs / 1000).toFixed(1)})}` : ''}</small>}</td>
     <td className="narrow"><Switch checked={m.enabled} label={t('Use {model}', {model: m.modelId})}
-      onChange={enabled => call(api => api.updateModel(m.providerId, m.modelId, {enabled})).then(onChange)}/></td>
+      onChange={enabled => change(call(api => api.updateModel(m.providerId, m.modelId, {enabled})))}/></td>
     <td className="narrow row-buttons">
       <button type="button" className="button small" onClick={onPrice}>{m.price ? t('Edit Price…') : t('Set Price…')}</button>
       <button type="button" className="button small" onClick={onCaps}>{t('Auto…')}</button>
       <ModelTestButton model={m}/>
       <button type="button" className="button small icon-only" aria-label={t('Remove {model}', {model: m.modelId})} title={t('Remove')}
-        onClick={() => call(api => api.removeModel(m.providerId, m.modelId)).then(onChange)}><Trash2 size={13} aria-hidden/></button>
+        onClick={() => change(call(api => api.removeModel(m.providerId, m.modelId)))}><Trash2 size={13} aria-hidden/></button>
     </td>
   </tr>;
 }

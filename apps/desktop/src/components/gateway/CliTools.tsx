@@ -44,8 +44,9 @@ export function CliTools({status, navigate}: {status: GatewayStatus | null; navi
       {noProvider && <p className="client-check failed tool-status no-provider" role="status"><CircleAlert size={13} aria-hidden/>
         <span>{t('Connect a provider before sending requests through Pygg: until one is connected, every tool’s requests would be refused.')}{' '}
           <button type="button" className="link-button" onClick={() => navigate('connections', 'connect')}>{t('Connect Provider…')}</button></span></p>}
-      <ClaudeLauncher latestFor={latestFor} note={noProvider ? null : <Eligibility plan={anthropicPlan.data} tool={t('Claude Code')} navigate={navigate}/>}/>
-      <Integrations kind="gateway" status={i => <ToolStatus latest={latestFor(byName(i.clientName)?.id)}/>}
+      <ClaudeLauncher latestFor={latestFor} onFailed={client => navigate('usage', `failed:${client}`)} note={noProvider ? null : <Eligibility plan={anthropicPlan.data} tool={t('Claude Code')} navigate={navigate}/>}/>
+      <Integrations kind="gateway" status={i => <ToolStatus latest={latestFor(byName(i.clientName)?.id)}
+        onFailed={() => navigate('usage', `failed:${i.clientName ?? ''}`)}/>}
         note={i => noProvider ? null : <Eligibility plan={i.id === 'codex-gateway' ? openaiPlan.data : anthropicPlan.data} tool={i.id === 'codex-gateway' ? t('Codex') : t('OpenCode')} navigate={navigate}/>}/>
     </section>
     <details className="manual-setup">
@@ -67,23 +68,25 @@ function Eligibility({plan, tool, navigate}: {plan: AutoPlan | null | undefined;
     <span>{connected
       ? t('auto has no model yet that qualifies for {tool}’s requests (tools, the minimum tier, a price or free billing, and a provider that takes its format). Its requests would be refused until one does.', {tool})
       : t('No provider is connected yet, so {tool}’s requests through Pygg would be refused. Connect a provider first.', {tool})}{' '}
-      <button type="button" className="link-button" onClick={() => navigate(connected ? 'combos' : 'connections', connected ? undefined : 'connect')}>
+      <button type="button" className="link-button" onClick={() => navigate(connected ? 'combos' : 'connections', connected ? 'auto' : 'connect')}>
         {connected ? t('How auto chooses') : t('Connect Provider…')}</button></span></p>;
 }
 
 /** Configured, waiting for the first request; or working; or the last request failed. */
-function ToolStatus({latest}: {latest: LatestRequest | undefined}) {
+function ToolStatus({latest, onFailed}: {latest: LatestRequest | undefined; onFailed: () => void}) {
   if (!latest) return <p className="client-check waiting tool-status" role="status"><Circle size={13} aria-hidden/>
     {t('Configured. Waiting for its first request: start the tool and send one.')}</p>;
   const model = `${latest.provider}/${latest.model}`;
   if (latest.outcome === 'ok') return <p className="client-check ok tool-status" role="status"><CircleCheck size={13} aria-hidden/>
     {t('Working: answered by {model} {ago}.', {model, ago: ago(latest.createdAt)})}</p>;
   return <p className="client-check failed tool-status" role="status"><CircleAlert size={13} aria-hidden/>
-    {t('Its last request, {ago}, did not succeed ({outcome}). Usage has the details.', {ago: ago(latest.createdAt), outcome: latest.outcome})}</p>;
+    <span>{t('Its last request, {ago}, did not succeed ({outcome}).', {ago: ago(latest.createdAt), outcome: latest.outcome})}{' '}
+      <button type="button" className="link-button" onClick={onFailed}>{t('View Failed Requests')}</button></span></p>;
 }
 
 /** Claude Code: pointing its settings at Pygg would stop it using the user's Claude plan, so a launcher does it per launch. */
-function ClaudeLauncher({latestFor, note}: {latestFor: (clientId: string | null) => LatestRequest | undefined; note: ReactNode}) {
+function ClaudeLauncher({latestFor, note, onFailed}: {latestFor: (clientId: string | null) => LatestRequest | undefined; note: ReactNode;
+  onFailed: (client: string) => void}) {
   const launcher = useGateway(api => api.launcher());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +113,7 @@ function ClaudeLauncher({latestFor, note}: {latestFor: (clientId: string | null)
           <small className="secondary">{t('Nothing in Claude Code’s own settings: pointed at another endpoint, it would stop using your Claude plan. Pygg makes an API key for the launcher, kept in the Windows Credential Manager and never in a file, and hands it to Claude Code at each launch. Remove revokes the key.')}</small></details>
         {l.setUp && <CodeBlock code={command} label={t('Start Claude Code through Pygg')}/>}
         {l.setUp && <small className="secondary">{t('From npm (npm install -g @pygg/cli@dev) it is pygg run claude. Add Claude Code’s own arguments after it; --model before claude picks another model for every slot.')}</small>}
-        {l.setUp && <ToolStatus latest={latestFor(l.clientId)}/>}
+        {l.setUp && <ToolStatus latest={latestFor(l.clientId)} onFailed={() => onFailed(l.clientName ?? '')}/>}
         {!l.setUp && l.installed && note}
         {error && <ErrorNote>{error}</ErrorNote>}
       </span>

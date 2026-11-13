@@ -49,7 +49,7 @@ export function Routing({days, onReview}: {days: number; onReview: () => void}) 
             </tr>)}
           </tbody>
         </table></div>
-        <p className="group-footnote">{t('Usage after a change is observed; the extra cost caused by the change is not known.')}</p>
+        <p className="group-footnote">{r.changes.length > 50 ? t('Showing the 50 latest of {n} changes. ', {n: r.changes.length}) : ''}{t('Usage after a change is observed; the extra cost caused by the change is not known.')}</p>
       </details>}
     </div>
   </section>;

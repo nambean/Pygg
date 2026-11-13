@@ -23,6 +23,7 @@
   --green: #1F7A35;
   --orange: #C93400;
   --red: #D70015;
+  --destructive-fill: #C2001B;  /* white text on it about 6.4:1 */
   --paused: #8E8E93;
   --shadow: 0 0 0 .5px rgba(0, 0, 0, .12), 0 1px 2px rgba(0, 0, 0, .08);
   --popover-shadow: 0 0 0 .5px rgba(0, 0, 0, .14), 0 10px 30px rgba(0, 0, 0, .16);
@@ -49,6 +50,7 @@
     --green: #30D158;
     --orange: #FF9F0A;
     --red: #FF6961;
+    --destructive-fill: #B4232B;  /* white text on it about 6.5:1; the lighter red stays for text and icons */
     --paused: #8E8E93;
     --shadow: 0 0 0 .5px rgba(255, 255, 255, .1), 0 1px 2px rgba(0, 0, 0, .3);
     --popover-shadow: 0 0 0 .5px rgba(255, 255, 255, .14), 0 10px 30px rgba(0, 0, 0, .5);
@@ -319,7 +321,7 @@ button { cursor: default; }
 .button.small { height: 26px; padding: 0 10px; font-size: 12px; }
 .button.icon-only { width: 28px; padding: 0; }
 .button.small.icon-only { width: 26px; }
-.button.destructive { background: var(--red); color: #FFFFFF; font-weight: 600; box-shadow: none; }
+.button.destructive { background: var(--destructive-fill); color: #FFFFFF; font-weight: 600; box-shadow: none; }
 .popup-button.wide { width: 100%; }
 .spinner-label { display: inline-flex; align-items: center; gap: 8px; color: var(--secondary); font-size: 12px; }
 .dot.off { background: var(--paused); }
@@ -967,3 +969,15 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .attempt-chain li.current { font-weight: 600; }
 .table-scroll { overflow-x: auto; max-width: 100%; }
 .table-scroll .data-table td.mono { white-space: nowrap; }
+
+/* A disclosure under a form row: the longer explanation, on demand. */
+.form-disclosure { margin: 2px 0 6px; font-size: 12px; }
+.form-disclosure summary { cursor: pointer; color: var(--secondary); }
+
+/* A section closed until asked for (Usage → Repeated Tool Output). */
+details.group.observation > summary { display: flex; align-items: baseline; gap: 8px; cursor: pointer; list-style: none; }
+details.group.observation > summary::-webkit-details-marker { display: none; }
+details.group.observation > summary::before { content: "▸"; color: var(--secondary); font-size: 11px; }
+details.group.observation[open] > summary::before { content: "▾"; }
+details.group.observation > summary h2 { margin: 0; }
+details.group.observation > summary .secondary { font-size: 12px; }

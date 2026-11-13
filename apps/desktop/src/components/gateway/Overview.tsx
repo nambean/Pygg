@@ -13,7 +13,8 @@ import { UsageAlerts } from './UsageAlerts';
 
 /** The gateway's screens, in the sidebar's order: the path a 9router or OmniRoute user knows. */
 export type GatewayDestination = 'overview' | 'connections' | 'endpoint' | 'tools' | 'combos' | 'usage';
-export type Navigate = (to: GatewayDestination, intent?: 'connect' | 'create' | 'unpriced') => void;
+export type Navigate = (to: GatewayDestination,
+  intent?: 'connect' | 'create' | 'unpriced' | 'auto' | `requests:${string}` | `failed:${string}`) => void;
 
 export type ClientKind = 'claude' | 'opencode' | 'editor' | 'sdk' | 'curl';
 type Shell = 'powershell' | 'posix';
@@ -85,10 +86,11 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
       </ol>
       <p className="group-footnote">
         {t('Then work in your IDE or terminal as usual. auto picks a model from your connections for each request, within your limits; no combo is needed.')}{' '}
-        <button type="button" className="link-button" onClick={() => navigate('combos')}>{t('How auto chooses')}<ArrowRight size={12} aria-hidden/></button>
+        <button type="button" className="link-button" onClick={() => navigate('combos', 'auto')}>{t('How auto chooses')}<ArrowRight size={12} aria-hidden/></button>
       </p>
     </section>}
-    {ready && usage.data && <ClientCheck last={usage.data.recent[0]} onOpen={() => navigate('usage')}/>}
+    {ready && usage.data && <ClientCheck last={usage.data.recent[0]}
+      onOpen={() => navigate('usage', `requests:${usage.data?.recent[0]?.client ?? ''}`)}/>}
 
     <section className="group">
       <div className="group-heading">

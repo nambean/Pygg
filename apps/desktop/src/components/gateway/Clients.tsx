@@ -149,7 +149,7 @@ function CreateSheet({onClose}: {onClose: () => void}) {
       <button type="button" className="button prominent" onClick={onClose}>{t('Done')}</button>
     </>}>
       {created.client.tokenViewable
-        ? <p className="sheet-text">{t('Saved in the Windows Credential Manager: API Keys → Show copies it again later. The store keeps only its fingerprint.')}</p>
+        ? <p className="sheet-text">{t('Saved in the Windows Credential Manager: API Keys → use Show to reveal it again later. The store keeps only its fingerprint.')}</p>
         : <p className="warning-note"><TriangleAlert size={15} aria-hidden/>{t('Copy it now. The Credential Manager could not keep a copy, so it can’t be shown again.')}</p>}
       <div className="token-box">
         <code className="mono selectable">{created.token}</code>
@@ -163,7 +163,7 @@ function CreateSheet({onClose}: {onClose: () => void}) {
       <p className="sheet-text secondary">{t('Open a new terminal afterwards so it sees the variable.')}</p>
     </Sheet>;
   }
-  return <Sheet title={t('Create Client Token')} subtitle={t('For one app, such as Claude Code on this computer.')} onClose={onClose} busy={busy}
+  return <Sheet title={t('Create API Key')} subtitle={t('For one app, such as Claude Code on this computer.')} onClose={onClose} busy={busy}
     className="narrow" footer={<>
       <span className="spacer"/>
       <button type="button" className="button" onClick={onClose} disabled={busy}>{t('Cancel')}</button>

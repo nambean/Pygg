@@ -14,15 +14,19 @@ const key = (m: Target) => `${m.providerId}/${m.modelId}`;
  * Combos: named, ordered model lists, as in 9router and OmniRoute. A request for the name tries each model in turn on
  * hard errors. Templates build one from rules over the user's models; the second tab explains and simulates `auto`.
  */
-export function Combos({intent, onIntentDone, onConnect}: {intent?: 'create'; onIntentDone: () => void; onConnect: () => void}) {
-  const [tab, setTab] = useState<'combos' | 'auto'>('combos');
+export function Combos({intent, onIntentDone, onConnect}: {intent?: 'create' | 'auto'; onIntentDone: () => void; onConnect: () => void}) {
+  // A link named "How auto chooses" opens that tab; the sidebar opens the combos (Codex review 7).
+  const [tab, setTab] = useState<'combos' | 'auto'>(intent === 'auto' ? 'auto' : 'combos');
   const [templating, setTemplating] = useState(false);
   const combos = useGateway(api => api.combos());
   const connections = useGateway(api => api.connections());
   const models = useGateway(api => api.models());
   const [editing, setEditing] = useState<Combo | 'new' | null>(intent === 'create' ? 'new' : null);
   const [deleting, setDeleting] = useState<Combo | null>(null);
-  useEffect(() => { if (intent === 'create') { setEditing('new'); onIntentDone(); } }, [intent, onIntentDone]);
+  useEffect(() => {
+    if (intent === 'create') { setEditing('new'); onIntentDone(); }
+    if (intent === 'auto') { setTab('auto'); onIntentDone(); }
+  }, [intent, onIntentDone]);
 
   if (combos.loading && !combos.data) return <div className="page"><Spinner label={t('Loading combos…')}/></div>;
   const list = combos.data ?? [];
@@ -112,7 +116,7 @@ function ComboTestButton({name}: {name: string}) {
   const [result, setResult] = useState<string | null>(null);
   const [ok, setOk] = useState(true);
   const run = () => {
-    if (!window.confirm(t('Send one short request to {name}? Its first available member answers; a paid one costs a fraction of a cent, recorded in Usage.', {name}))) return;
+    if (!window.confirm(t('Send one short request through {name}? A paid model may answer, and fallback may try more than one model. Charges are recorded in Usage.', {name}))) return;
     setBusy(true);
     setResult(null);
     call(api => api.testCombo(name)).then(r => {

@@ -17,9 +17,10 @@ export function Agents() {
   return <div className="page">
     <section className="group">
       <h2>{t('Agents on This Computer')}</h2>
+      <p className="group-intro">{t('Experimental agent execution. To route your coding tool’s model requests through Pygg, use CLI Tools.')}</p>
       <p className="group-intro"><ShieldCheck size={15} aria-hidden/>
         {t('Pygg starts each agent’s own program with the sign-in it already has: a subscription, a free tier or a key it manages. Pygg never reads, stores or shares that sign-in, and never offers it to other apps.')}</p>
-      {agents.error && <ErrorNote>{agents.error}</ErrorNote>}
+      {agents.error && <ErrorNote>{agents.error}{' '}<button type="button" className="link-button" onClick={agents.reload}>{t('Check Again')}</button></ErrorNote>}
       {!agents.data && agents.loading && <SkeletonRows count={4} label={t('Looking for agents: asking each one for its version and sign-in…')}/>}
       <ul className="group-box agent-list">
         {(agents.data ?? []).map(a => <AgentRow key={a.id} agent={a}/>)}
@@ -98,7 +99,7 @@ function RunTask({agents}: {agents: AgentInfo[]}) {
           disabled={busy}/>{t('Allow')}</label>
       </FormRow>
       <div className="form-actions">
-        <span className="secondary">{t('Up to 15 minutes. The run uses the agent’s own plan or quota.')}</span>
+        <span className="secondary">{t('Up to 15 minutes. The run uses the agent’s own account; an API-key sign-in may incur provider charges Pygg may not know.')}</span>
         <button type="button" className="button prominent" onClick={start} disabled={!canRun}>
           {busy ? <Spinner/> : <Play size={13} aria-hidden/>}{busy ? t('Running…') : t('Run Task')}</button>
       </div>
@@ -187,7 +188,7 @@ function IdeSetup() {
       <Segmented label={t('Agent')} value={target} onChange={setTarget}
         options={[{value: 'claude', label: 'Claude Code'}, {value: 'codex', label: 'Codex CLI'}, {value: 'json', label: t('Cursor and others (JSON)')}]}/>
       <CodeBlock code={code} label={t('Setup')}/>
-      <p className="secondary small">{t('The token ends up in your agent’s configuration file. It can only reach this computer’s gateway, and you can revoke it in Clients.')}</p>
+      <p className="secondary small">{t('The token ends up in your agent’s configuration file. It can only reach this computer’s gateway, and you can revoke it in Endpoint → API Keys.')}</p>
       </details>
     </div>
   </section>;
@@ -236,8 +237,8 @@ export function Integrations({kind, status, note}: {kind: 'mcp' | 'gateway'; sta
                     : i.kind === 'gateway'
                     ? t('OpenCode already has a provider named pygg that Pygg did not make. Pygg leaves it alone.')
                     : t('{name} already has a server named pygg that Pygg did not make. Pygg leaves it alone.', {name: i.name}))
-                : i.id === CODEX_GATEWAY && i.state === 'not_set_up' ? t('Codex can use your connections through Pygg, with auto routing, limits and Pygg’s own record of what a task step cost. Your default model stays; you choose Pygg per run. {file}', {file: i.configPath})
-                : i.kind === 'gateway' && i.state === 'not_set_up' ? t('OpenCode can use your connections through Pygg, with auto routing, limits and Pygg’s own record of what a task step cost. {file}', {file: i.configPath})
+                : i.id === CODEX_GATEWAY && i.state === 'not_set_up' ? t('Codex can use your connections through Pygg, with auto routing, limits and Pygg’s own record of each request’s cost. Your default model stays; you choose Pygg per run. {file}', {file: i.configPath})
+                : i.kind === 'gateway' && i.state === 'not_set_up' ? t('OpenCode can use your connections through Pygg, with auto routing, limits and Pygg’s own record of each request’s cost. {file}', {file: i.configPath})
                 : i.state === 'removed_elsewhere' ? t('Pygg set this up, and the entry is gone. Remove revokes its token.')
                 : i.state === 'not_installed' ? t('Not found on this computer.')
                 : i.configPath}
@@ -259,11 +260,11 @@ export function Integrations({kind, status, note}: {kind: 'mcp' | 'gateway'; sta
     {removing && <ConfirmSheet title={t('Remove Pygg from {name}?', {name: removing.name})} confirmLabel={t('Remove')}
       message={removing.id === CODEX_GATEWAY
         ? (removing.state === 'set_up_elsewhere'
-          ? t('This removes the pygg model provider you added to Codex by hand, and pygg.config.toml if it uses it. Its token, if you made one, stays valid until you revoke it in Clients.')
+          ? t('This removes the pygg model provider you added to Codex by hand, and pygg.config.toml if it uses it. Its token, if you made one, stays valid until you revoke it in Endpoint → API Keys.')
           : t('This removes the pygg model provider from Codex’s config.toml and the profile file pygg.config.toml, and revokes the token Pygg made for it. Both files are backed up first; everything else in config.toml stays as it is.'))
         : removing.kind === 'gateway'
         ? (removing.state === 'set_up_elsewhere'
-          ? t('This removes the pygg provider you added to OpenCode by hand. Its token, if you made one, stays valid until you revoke it in Clients.')
+          ? t('This removes the pygg provider you added to OpenCode by hand. Its token, if you made one, stays valid until you revoke it in Endpoint → API Keys.')
           : t('This removes the pygg provider from OpenCode and revokes the token Pygg made for it. The configuration file is backed up first. OpenCode then uses only its own providers.'))
         : removing.state === 'set_up_elsewhere'
         ? t('This removes the pygg server you added to {name} by hand. Its token, if you made one, stays valid until you revoke it in Clients.', {name: removing.name})
@@ -300,7 +301,7 @@ function SetUpSheet({integration: i, onClose}: {integration: Integration; onClos
         ? t('Copy {file} into {dir} first.', {file: p.configPath, dir: p.backupDir})
         : t('{file} does not exist yet; it will be created.', {file: p.configPath})}</li>
       <li>{p.kind === 'gateway'
-        ? t('Create a client token, “{client}”, that reaches your connections like any client; set its limits in Clients.', {client: p.clientName})
+        ? t('Create a Pygg API key, “{client}”, that reaches your connections like any other; set its limits in Endpoint → API Keys.', {client: p.clientName})
         : t('Create a client token, “{client}”, that may start tasks and cannot use any model connection.', {client: p.clientName})}</li>
       <li>{p.method === 'command'
         ? t('Run {name}’s own command, so {name} edits its configuration itself (the new token in place of <new-token>):', {name: p.name})
