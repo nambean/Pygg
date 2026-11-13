@@ -207,6 +207,15 @@ export type UsageGroup = {
   knownMicroUsd: number; actualMicroUsd: number; unknownRequests: number;
 };
 
+/** Tokens of each kind, or the part of the known cost that went to them (store::TokenParts). */
+export type TokenParts = { newInput: number; cacheRead: number; cacheWrite: number; output: number };
+export type TokenMixGroup = { key: string; tokens: TokenParts; requests: number; knownMicroUsd: number };
+/** Usage → Token Mix (Codex's fifth discussion, T1): where a period's tokens went, and the known cost split among them. */
+export type TokenMix = {
+  tokens: TokenParts; cost: TokenParts; requests: number; withTokens: number; unsplitMicroUsd: number;
+  unknownCostRequests: number; byClient: TokenMixGroup[]; byModel: TokenMixGroup[];
+};
+
 export type CostStatus = 'actual' | 'estimated' | 'unknown';
 export type Outcome = 'ok' | 'fallback' | 'error' | 'client_disconnected' | 'stream_error' | 'interrupted';
 
@@ -404,6 +413,7 @@ export interface GatewayApi {
   usage(days: number): Promise<UsageSummary>;
   /** A page of the period's requests, newest first: `limit` of them from `offset` (Usage → Requests, 200 at a time). */
   usageRequests(days: number, offset: number, limit: number): Promise<UsageEvent[]>;
+  usageTokenMix(days: number): Promise<TokenMix>;
   /** Usage per hour for one day, per day for longer, on this computer's clock. */
   usageOverTime(days: number): Promise<UsageBucket[]>;
   /** Each subscription connection's requests and tokens over the last `days`, with its stated limits. */
@@ -524,6 +534,7 @@ const native: GatewayApi = {
   autoSimulate: (clientId, alias, needs) => invoke('auto_simulate', {clientId, alias, needs}),
   usage: days => invoke('usage_summary', {days}),
   usageRequests: (days, offset, limit) => invoke('usage_requests', {days, offset, limit}),
+  usageTokenMix: days => invoke('usage_token_mix', {days}),
   usageOverTime: days => invoke('usage_over_time', {days, offsetMinutes: -new Date().getTimezoneOffset()}),
   exportUsage: days => invoke('usage_export', {days}),
   usageAlerts: () => invoke('usage_alerts'),

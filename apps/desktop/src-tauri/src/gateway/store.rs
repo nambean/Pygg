@@ -2126,6 +2126,132 @@ pub fn usage_alerts(conn: &Connection, now: i64) -> Result<Vec<UsageAlert>> {
     Ok(out)
 }
 
+/// Tokens of one kind, and the part of the recorded cost that went to them.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenParts {
+    /// Prompt tokens neither read from nor written to the provider's cache.
+    pub new_input: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+    pub output: u64,
+}
+
+/// The token mix of one client or model.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenMixGroup {
+    pub key: String,
+    pub tokens: TokenParts,
+    /// Requests with token counts.
+    pub requests: u64,
+    /// The recorded known cost of those requests (actual and estimated).
+    pub known_micro_usd: u64,
+}
+
+/// Where a period's tokens went (Codex's fifth discussion, T1): new input, cache reads, cache writes and output, and
+/// each request's recorded known cost split among them by its model's current prices. Read from the ledger; nothing
+/// is changed. A provider that reports no cache figures shows its whole prompt as new input: the ledger cannot tell
+/// "none" from "not reported".
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenMix {
+    pub tokens: TokenParts,
+    /// The recorded known cost split by kind, in micro-USD; only requests whose model has a price now.
+    pub cost: TokenParts,
+    /// Requests in the period, and those with token counts.
+    pub requests: u64,
+    pub with_tokens: u64,
+    /// Known cost that could not be split, its model having no price now (a provider's own charge, a price removed).
+    pub unsplit_micro_usd: u64,
+    /// Requests with token counts whose cost is unknown: their tokens count, their money does not.
+    pub unknown_cost_requests: u64,
+    pub by_client: Vec<TokenMixGroup>,
+    pub by_model: Vec<TokenMixGroup>,
+}
+
+pub fn token_mix(conn: &Connection, since: i64) -> Result<TokenMix> {
+    use std::collections::HashMap;
+    let prices: HashMap<(String, String), Price> = list_models(conn, None)?.into_iter()
+        .filter_map(|m| m.price.map(|p| ((m.provider_id, m.model_id), p))).collect();
+    let mut mix = TokenMix {
+        requests: conn.query_row("SELECT COUNT(*) FROM usage_events WHERE created_at >= ?1", [since], |r| r.get::<_, i64>(0))
+            .map_err(err)?.max(0) as u64,
+        ..TokenMix::default()
+    };
+    let mut stmt = conn.prepare("SELECT u.provider, u.model, COALESCE(c.name, ''), u.input_tokens, COALESCE(u.cache_tokens, 0), \
+        COALESCE(u.cache_write_tokens, 0), COALESCE(u.output_tokens, 0), u.cost_status, u.cost_micro_usd \
+        FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id \
+        WHERE u.created_at >= ?1 AND (u.input_tokens IS NOT NULL OR u.output_tokens IS NOT NULL)").map_err(err)?;
+    let rows = stmt.query_map([since], |r| {
+        let n = |i: usize| r.get::<_, Option<i64>>(i).map(|v| v.unwrap_or(0).max(0) as u64);
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, n(3)?, n(4)?, n(5)?, n(6)?,
+            r.get::<_, String>(7)?, r.get::<_, Option<i64>>(8)?))
+    }).map_err(err)?;
+    let mut by_client: HashMap<String, TokenMixGroup> = HashMap::new();
+    let mut by_model: HashMap<String, TokenMixGroup> = HashMap::new();
+    for row in rows {
+        let (provider, model, client, input, read, write, output, status, cost) = row.map_err(err)?;
+        // An Anthropic prompt counts its cache reads and writes in the whole (pricing.rs); an OpenAI one its reads.
+        let parts = TokenParts { new_input: input.saturating_sub(read + write), cache_read: read.min(input), cache_write: write, output };
+        let known = (status != "unknown").then(|| cost.unwrap_or(0).max(0) as u64);
+        mix.with_tokens += 1;
+        add_parts(&mut mix.tokens, &parts);
+        match known {
+            None => mix.unknown_cost_requests += 1,
+            Some(0) => {}
+            Some(micro) => match prices.get(&(provider.clone(), model.clone())) {
+                Some(price) => add_parts(&mut mix.cost, &split_cost(micro, &parts, price)),
+                None => mix.unsplit_micro_usd += micro,
+            },
+        }
+        for (map, key) in [(&mut by_client, client), (&mut by_model, format!("{provider}/{model}"))] {
+            let group = map.entry(key.clone()).or_insert_with(|| TokenMixGroup { key, ..TokenMixGroup::default() });
+            add_parts(&mut group.tokens, &parts);
+            group.requests += 1;
+            group.known_micro_usd += known.unwrap_or(0);
+        }
+    }
+    let sorted = |map: HashMap<String, TokenMixGroup>| -> Vec<TokenMixGroup> {
+        let mut groups: Vec<TokenMixGroup> = map.into_values().collect();
+        let total = |g: &TokenMixGroup| g.tokens.new_input + g.tokens.cache_read + g.tokens.cache_write + g.tokens.output;
+        groups.sort_by(|a, b| total(b).cmp(&total(a)).then_with(|| a.key.cmp(&b.key)));
+        groups
+    };
+    mix.by_client = sorted(by_client);
+    mix.by_model = sorted(by_model);
+    Ok(mix)
+}
+
+fn add_parts(into: &mut TokenParts, parts: &TokenParts) {
+    into.new_input += parts.new_input;
+    into.cache_read += parts.cache_read;
+    into.cache_write += parts.cache_write;
+    into.output += parts.output;
+}
+
+/// A request's recorded cost split among its token kinds in proportion to what each costs at `price` (cached input
+/// and cache writes at the input price when the model has none of their own). The parts add up to `micro`.
+fn split_cost(micro: u64, parts: &TokenParts, price: &Price) -> TokenParts {
+    let weights = [
+        parts.new_input as u128 * u128::from(price.input_micro_per_mtok),
+        parts.cache_read as u128 * u128::from(price.cached_input_micro_per_mtok.unwrap_or(price.input_micro_per_mtok)),
+        parts.cache_write as u128 * u128::from(price.cache_write_micro_per_mtok.unwrap_or(price.input_micro_per_mtok)),
+        parts.output as u128 * u128::from(price.output_micro_per_mtok),
+    ];
+    let all: u128 = weights.iter().sum();
+    if all == 0 {
+        // Priced at $0 per token, yet charged: nothing to split by, so it stays with new input.
+        return TokenParts { new_input: micro, ..TokenParts::default() };
+    }
+    let mut shares = weights.map(|w| (u128::from(micro) * w / all) as u64);
+    // What rounding left goes to the largest part, so the parts add up.
+    let left = micro - shares.iter().sum::<u64>();
+    let largest = (0..4).max_by_key(|i| weights[*i]).unwrap_or(0);
+    shares[largest] += left;
+    TokenParts { new_input: shares[0], cache_read: shares[1], cache_write: shares[2], output: shares[3] }
+}
+
 pub fn usage_summary(conn: &Connection, since: i64, recent_limit: usize) -> Result<UsageSummary> {
     let group = |key_sql: &str| -> Result<Vec<UsageGroup>> {
         let sql = format!(
@@ -2620,6 +2746,41 @@ mod tests {
         }
         let failures = usage_alerts(&conn, now).unwrap().into_iter().find(|a| a.kind == "failures").unwrap();
         assert_eq!((failures.value, failures.against), (6, 12), "6 of the last hour's 12 requests failed");
+    }
+
+    #[test]
+    fn the_token_mix_splits_known_cost_and_keeps_the_rest_apart() {
+        let conn = db::open_in_memory().unwrap();
+        let p = gemini(&conn);
+        add_model(&conn, &p.id, "flash").unwrap();
+        add_model(&conn, &p.id, "pro").unwrap();
+        let price = Price { input_micro_per_mtok: 1_000_000, output_micro_per_mtok: 5_000_000, cached_input_micro_per_mtok: Some(100_000),
+            cache_write_micro_per_mtok: Some(1_250_000), source: "user".into(), observed_at: 0 };
+        update_model(&conn, &p.id, "flash", None, None, Some(Some(price))).unwrap();
+        let record = |model: &str, input: Option<u64>, read: u64, write: u64, output: u64, cost: Cost| {
+            record_usage(&conn, &UsageRecord { client_id: None, provider_id: &p.id, model_id: model, requested_model: "auto",
+                input_tokens: input, output_tokens: input.map(|_| output), cache_tokens: Some(read), cost: &cost, outcome: "ok",
+                http_status: Some(200), latency_ms: 1, error: None, cache_write_tokens: Some(write), session_key: None,
+                route_mode: None, route_reason: None, repeated_tokens: None }).unwrap();
+        };
+        let est = |micro| Cost::Estimated { micro_usd: micro, source: "price: user".into() };
+        // A cached prompt: 100 new, 800 read, 100 written, 100 out, $0.001 recorded.
+        record("flash", Some(1000), 800, 100, 100, est(1000));
+        // A model with no price now: its cost cannot be split.
+        record("pro", Some(50), 0, 0, 10, est(300));
+        // Unknown cost: its tokens count, its money does not. A request without token counts is not in the mix.
+        record("flash", Some(20), 0, 0, 5, Cost::Unknown { source: "no price".into() });
+        record("flash", None, 0, 0, 0, Cost::Unknown { source: "failed".into() });
+
+        let mix = token_mix(&conn, 0).unwrap();
+        assert_eq!((mix.requests, mix.with_tokens, mix.unknown_cost_requests), (4, 3, 1));
+        assert_eq!(mix.tokens, TokenParts { new_input: 170, cache_read: 800, cache_write: 100, output: 115 });
+        assert_eq!(mix.unsplit_micro_usd, 300);
+        // Split by the prices' weights (output 5×, cache writes 1.25×, reads 0.1×); the parts add up to what was recorded.
+        assert_eq!(mix.cost, TokenParts { new_input: 124, cache_read: 99, cache_write: 155, output: 622 });
+        assert_eq!(mix.by_model[0].key, format!("{}/flash", p.id));
+        assert_eq!((mix.by_model[0].requests, mix.by_model[0].known_micro_usd), (2, 1000));
+        assert_eq!(mix.by_client.len(), 1, "no client is one group");
     }
 
     #[test]

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, CalendarClock, ChartColumn, ChevronRight, Cpu, FileDown } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { CalendarClock, ChartColumn, ChevronRight, Cpu, FileDown } from 'lucide-react';
 import { call, errorText, type CostStatus, type LocalUsage, type Outcome, type SubscriptionUsage, type TaskQuality, type UsageEvent,
   type UsageGroup } from '../../lib/api';
 import { ago, windowText } from '../../lib/format';
@@ -11,12 +11,15 @@ import { UsageAlerts } from './UsageAlerts';
 import { RepeatedOutput } from './RepeatedOutput';
 import { CostOverTime } from './CostOverTime';
 import { Savings, SavingsDetails, useSavings } from './Savings';
+import { TokenMix } from './TokenMix';
 
 type Range = '1' | '7' | '30';
 /** Requests shown at a time: the summary's first page, and each Show More. */
 const PAGE = 200;
 /** The money ledger, plans paid by the month, and models on this computer (SCREENS.md §5.6). */
 type View = 'api' | 'subscriptions' | 'local';
+/** API Costs as a summary or as its requests (Codex's third review A4 and fifth discussion): two views, not one long scroll. */
+type Part = 'summary' | 'requests';
 
 export function OutcomeBadge({outcome, status}: {outcome: Outcome; status: number | null}) {
   const code = status && status !== 200 ? ` · ${status}` : '';
@@ -36,6 +39,7 @@ const statusLabel = (s: CostStatus) => ({actual: t('Actual'), estimated: t('Esti
 export function Usage({onOpenTools}: {onOpenTools?: () => void} = {}) {
   const [range, setRange] = useState<Range>('7');
   const [view, setView] = useState<View>('api');
+  const [part, setPart] = useState<Part>('summary');
   const usage = useGateway(api => api.usage(Number(range)), [range], 15_000);
   const quality = useGateway(api => api.taskQuality(Number(range)), [range], 15_000);
   const overTime = useGateway(api => api.usageOverTime(Number(range)), [range], 15_000);
@@ -66,7 +70,6 @@ export function Usage({onOpenTools}: {onOpenTools?: () => void} = {}) {
     && (!client || (e.client ?? '') === client) && (!model || `${e.provider}/${e.model}` === model)), [recent, show, client, model]);
   const clients = useMemo(() => [...new Set(recent.map(e => e.client ?? ''))].sort(), [recent]);
   const models = useMemo(() => [...new Set(recent.map(e => `${e.provider}/${e.model}`))].sort(), [recent]);
-  const requestsRef = useRef<HTMLElement>(null);
   const [exporting, setExporting] = useState(false);
   const [exported, setExported] = useState<{ok: boolean; text: string} | null>(null);
   const exportCsv = () => {
@@ -75,11 +78,8 @@ export function Usage({onOpenTools}: {onOpenTools?: () => void} = {}) {
     call(api => api.exportUsage(Number(range))).then(path => path && setExported({ok: true, text: t('Saved to {path}', {path})}),
       e => setExported({ok: false, text: errorText(e)})).finally(() => setExporting(false));
   };
-  // Smooth only when the system allows motion (D12).
-  const toRequests = () => requestsRef.current?.scrollIntoView({block: 'start',
-    behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'});
-  // A row of the summaries opens the requests behind it, as request logs in other gateways do.
-  const pick = (set: (v: string) => void, value: string) => { set(value); setOpenId(null); setTimeout(toRequests, 0); };
+  // A row of the summaries opens the requests behind it, as request logs in other gateways do: the Requests view, filtered.
+  const pick = (set: (v: string) => void, value: string) => { set(value); setOpenId(null); setPart('requests'); };
 
   const bar = <div className="page-bar">
     <Segmented label={t('Usage view')} value={view} onChange={setView} options={[
@@ -89,9 +89,9 @@ export function Usage({onOpenTools}: {onOpenTools?: () => void} = {}) {
     <span className="spacer"/>
     {view === 'api' && (usage.data?.total.requests ?? 0) > 0 && <button type="button" className="button small" disabled={exporting}
       onClick={exportCsv}><FileDown size={13} aria-hidden/>{t('Export CSV…')}</button>}
-    {view === 'api' && recent.length > 0 && <button type="button" className="link-button" onClick={toRequests}>
-      {t('Requests ({n})', {n: recent.length})}<ArrowDown size={12} aria-hidden/></button>}
   </div>;
+  const parts = view === 'api' && total > 0 && <Segmented label={t('API costs view')} value={part} onChange={v => { setPart(v); setOpenId(null); }}
+    options={[{value: 'summary', label: t('Summary')}, {value: 'requests', label: t('Requests ({n})', {n: total})}]}/>;
   if (view === 'subscriptions') return <div className="page">{bar}<Subscriptions days={Number(range)}/></div>;
   if (view === 'local') return <div className="page">{bar}<LocalRuntime days={Number(range)}/></div>;
   if (usage.loading && !usage.data) return <div className="page">{bar}<Spinner label={t('Loading usage…')}/></div>;
@@ -106,7 +106,8 @@ export function Usage({onOpenTools}: {onOpenTools?: () => void} = {}) {
       {t('Set up a coding tool, then send a request: it appears here with its model, its cost and where that figure comes from.')}
     </Empty>}
     {data && data.total.requests === 0 && quality.data && quality.data.tasks > 0 && <TaskResults q={quality.data}/>}
-    {data && data.total.requests > 0 && <>
+    {data && data.total.requests > 0 && <div className="page-bar">{parts}</div>}
+    {data && data.total.requests > 0 && part === 'summary' && <>
       <Savings savings={savings} period={range === '1' ? t('last 24 hours') : t('last {n} days', {n: range})}/>
       <section className="group">
         <h2>{t('API Costs')}</h2>
@@ -127,6 +128,7 @@ export function Usage({onOpenTools}: {onOpenTools?: () => void} = {}) {
 
       {overTime.data && <CostOverTime days={Number(range)} buckets={overTime.data}
         comparison={savings.data?.baseline && savings.data.baselinePriced ? {model: savings.data.baseline, periods: savings.data.periods} : null}/>}
+      <TokenMix days={Number(range)}/>
       <SavingsDetails savings={savings} onPickClient={key => pick(setClient, key)}/>
       <RepeatedOutput days={Number(range)}/>
 
@@ -134,8 +136,10 @@ export function Usage({onOpenTools}: {onOpenTools?: () => void} = {}) {
         <GroupTable title={t('By Model')} column={t('Model')} groups={data.byModel} mono onPick={key => pick(setModel, key)}/>
         <GroupTable title={t('By Client')} column={t('Client')} groups={data.byClient} onPick={key => pick(setClient, key)}/>
       </div>
-
-      <section className="group" ref={requestsRef}>
+      {quality.data && quality.data.tasks > 0 && <TaskResults q={quality.data}/>}
+    </>}
+    {data && data.total.requests > 0 && part === 'requests' && <>
+      <section className="group">
         <div className="group-heading">
           <h2>{t('Requests')}</h2>
           <span className="heading-actions">
@@ -177,7 +181,6 @@ export function Usage({onOpenTools}: {onOpenTools?: () => void} = {}) {
           : t('Every request of this period is listed, newest first.')}{' '}
           {t('Failed attempts before a fallback are listed too. A request the provider refused before answering is usually not billed; one cut off after it started may have been, so its cost shows as unknown or estimated.')}</p>
       </section>
-      {quality.data && quality.data.tasks > 0 && <TaskResults q={quality.data}/>}
     </>}
   </div>;
 }

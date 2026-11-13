@@ -948,3 +948,16 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .chart-key.routed { background: var(--accent-text); }
 .chart-legend .chart-key:first-child { margin-left: 0; }
 
+
+/* Usage → Token Mix: four kinds of token, told apart by shade and label, not by the green kept for the routing story. */
+.token-mix .mix-bar { margin: 8px 0 4px; }
+.token-figures dt { display: inline-flex; align-items: center; gap: 5px; }
+.token-figures dd small { font-weight: 400; }
+.tok-newInput { background: color-mix(in srgb, var(--label) 70%, var(--surface)); }
+.tok-cacheRead { background: color-mix(in srgb, var(--secondary) 45%, var(--surface)); }
+.tok-cacheWrite { background: var(--orange); }
+.tok-output { background: color-mix(in srgb, var(--label) 35%, var(--surface)); }
+.token-mix-details { margin-top: 8px; }
+.token-mix-details summary { cursor: pointer; font-size: 12px; color: var(--secondary); }
+.token-mix-details table { margin-top: 8px; }
+@media (forced-colors: active) { .token-mix .mix-bar > span { forced-color-adjust: none; border-inline-end: 1px solid CanvasText; } }

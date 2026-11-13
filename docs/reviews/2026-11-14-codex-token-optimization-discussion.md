@@ -47,6 +47,6 @@ Not copied: OmniRoute's engine taxonomy as navigation and percentages of eligibl
 
 ## D. Plan
 
-1. T1 with the Summary / Requests split.
+1. T1 with the Summary / Requests split. **Done 2026-11-14**: Token Mix (tokens or the recorded known cost split by current prices) in Summary; Requests as its own view. Not done: per-event price snapshots (historical splits follow today's prices, and say so), Home's "View token mix" link, and folding Repeated Tool Output into a disclosure.
 2. T3 for OpenCode and Codex launches.
 3. T2 with request chains and cache-hint diagnostics; then decide from T5's shadow observations whether any active experiment is worth it.

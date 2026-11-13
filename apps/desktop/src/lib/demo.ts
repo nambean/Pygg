@@ -4,7 +4,7 @@
  * data" banner whenever this is in use (ADR-014). It follows the core's rules (slugs, validation, honest
  * costs) closely enough for design review, not as a test of them.
  */
-import type { AgentInfo, Integration, Launcher, ClientDefaults, ConnectionCheck, HealthStrip, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus, SavingsPart, SavingsPeriod,
+import type { AgentInfo, Integration, Launcher, ClientDefaults, ConnectionCheck, HealthStrip, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, TokenMix, TokenMixGroup, TokenParts, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus, SavingsPart, SavingsPeriod,
   Health, Model, Preset, Target, Tier, UsageEvent, UsageBucket, UsageGroup, UsageSummary, Account, Wire,
   LocalUsage, SubscriptionUsage, Retention } from './api';
 import { TIERS, WEB_WARNING_VERSION } from './api';
@@ -266,8 +266,12 @@ export function demoApi(): GatewayApi {
         costMicroUsd: 0, costStatus: 'estimated', costSource: 'rejected by the provider (HTTP 400)', outcome: 'error', httpStatus: 400,
         error: 'Gemini answered HTTP 400: Invalid JSON payload received.'});
     } else {
+      // A coding agent re-sends its conversation each turn: most of a Claude Code prompt is read from Gemini's implicit
+      // cache (billed at the cached rate), as the CCHT benchmark measured (87–96%); a script's one-off prompt is not.
+      const read = client === 'Claude Code' ? Math.round(input * 0.85) : 0;
       events.push({...base, id: `e${i}`, provider: 'gemini', model: 'gemini-3.1-flash-lite', inputTokens: input, outputTokens: output,
-        costMicroUsd: Math.round(input * 0.1 + output * 0.4), costStatus: 'estimated', costSource: 'price: user', outcome: 'ok', httpStatus: 200});
+        cacheTokens: read, costMicroUsd: Math.round((input - read) * 0.1 + read * 0.025 + output * 0.4), costStatus: 'estimated',
+        costSource: 'price: user', outcome: 'ok', httpStatus: 200});
     }
   }
 
@@ -822,6 +826,42 @@ export function demoApi(): GatewayApi {
     usageRequests: async (days, offset, limit) => {
       const since = Date.now() - days * 86_400_000;
       return touch(events.filter(e => e.createdAt >= since).sort((a, b) => b.createdAt - a.createdAt).slice(offset, offset + limit));
+    },
+    usageTokenMix: async days => {
+      // As store::token_mix: each answer's tokens by kind, and its known cost split by its model's current prices.
+      const zero = (): TokenParts => ({newInput: 0, cacheRead: 0, cacheWrite: 0, output: 0});
+      const add = (into: TokenParts, p: TokenParts) => { into.newInput += p.newInput; into.cacheRead += p.cacheRead; into.cacheWrite += p.cacheWrite; into.output += p.output; };
+      const list = events.filter(e => e.createdAt >= Date.now() - days * 86_400_000);
+      const mix: TokenMix = {tokens: zero(), cost: zero(), requests: list.length, withTokens: 0, unsplitMicroUsd: 0, unknownCostRequests: 0, byClient: [], byModel: []};
+      const groups = {client: new Map<string, TokenMixGroup>(), model: new Map<string, TokenMixGroup>()};
+      for (const e of list.filter(e => e.inputTokens != null || e.outputTokens != null)) {
+        const input = e.inputTokens ?? 0, read = Math.min(e.cacheTokens ?? 0, input), write = e.cacheWriteTokens ?? 0;
+        const parts = {newInput: Math.max(0, input - read - write), cacheRead: read, cacheWrite: write, output: e.outputTokens ?? 0};
+        mix.withTokens += 1;
+        add(mix.tokens, parts);
+        const known = e.costStatus === 'unknown' ? null : e.costMicroUsd ?? 0;
+        if (known === null) mix.unknownCostRequests += 1;
+        else if (known > 0) {
+          const price = models.find(m => m.providerId === e.provider && m.modelId === e.model)?.price;
+          if (!price) mix.unsplitMicroUsd += known;
+          else {
+            const w = [parts.newInput * price.inputMicroPerMtok, parts.cacheRead * (price.cachedInputMicroPerMtok ?? price.inputMicroPerMtok),
+              parts.cacheWrite * (price.cacheWriteMicroPerMtok ?? price.inputMicroPerMtok), parts.output * price.outputMicroPerMtok];
+            const all = w.reduce((a, b) => a + b, 0) || 1;
+            const s = w.map(x => Math.floor(known * x / all));
+            s[w.indexOf(Math.max(...w))] += known - s.reduce((a, b) => a + b, 0);
+            add(mix.cost, {newInput: s[0], cacheRead: s[1], cacheWrite: s[2], output: s[3]});
+          }
+        }
+        for (const [map, key] of [[groups.client, e.client ?? ''], [groups.model, `${e.provider}/${e.model}`]] as const) {
+          const g = map.get(key) ?? {key, tokens: zero(), requests: 0, knownMicroUsd: 0};
+          add(g.tokens, parts); g.requests += 1; g.knownMicroUsd += known ?? 0; map.set(key, g);
+        }
+      }
+      const total = (g: TokenMixGroup) => g.tokens.newInput + g.tokens.cacheRead + g.tokens.cacheWrite + g.tokens.output;
+      mix.byClient = [...groups.client.values()].sort((a, b) => total(b) - total(a));
+      mix.byModel = [...groups.model.values()].sort((a, b) => total(b) - total(a));
+      return touch(mix);
     },
     usageSubscriptions: async days => {
       const list = events.filter(e => e.createdAt >= Date.now() - days * 86_400_000 && rowBilling(e) === 'subscription');

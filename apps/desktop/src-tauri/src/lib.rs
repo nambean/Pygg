@@ -269,6 +269,7 @@ pub fn run() {
             commands::connection_clear_health,
             commands::usage_summary,
             commands::usage_requests,
+            commands::usage_token_mix,
             commands::usage_over_time,
             commands::usage_export,
             commands::usage_alerts,
