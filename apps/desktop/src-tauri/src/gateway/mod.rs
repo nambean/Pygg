@@ -24,6 +24,7 @@
 pub mod anthropic;
 pub mod auto;
 pub mod catalog;
+pub mod checker;
 pub mod openai_to_anthropic;
 pub mod policy;
 pub mod presets;
@@ -404,6 +405,8 @@ pub async fn start(shared: Shared, port: u16) -> std::io::Result<Server> {
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
     let addr = listener.local_addr()?;
     let (probe_stop, probe_rx) = tokio::sync::watch::channel(false);
+    // The checker shares the probe's stop signal: both end with the server.
+    let _checker = checker::spawn(shared.clone(), probe_rx.clone());
     let probe = (probe_stop, probe::spawn(shared.clone(), probe_rx));
     let app = router(shared, addr.port());
     let (tx, rx) = oneshot::channel::<()>();

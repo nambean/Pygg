@@ -72,6 +72,9 @@ export type Connection = {
   webDailyLimit?: number | null; webRequestsToday?: number | null;
   /** The web guard (ADR-035, migration 0028): the hour's and day's shares by weight, the rest and any back-off. */
   webGuard?: WebGuard | null;
+  /** The last check of its state (migration 0029), and its last 24 hours an hour a dot. */
+  lastCheck?: ConnectionCheck | null;
+  healthStrip?: HealthStrip;
   webActs?: boolean;
   webAckAt?: number | null;
   webState?: WebState | null;
@@ -210,6 +213,14 @@ export type UsageAlert = {kind: 'near_limit' | 'over_limit' | 'spend_spike' | 'u
   value: number; against: number};
 
 /** Requests and money in one period of the usage chart (one hour or one day). */
+/** A check of a connection: its model list read (free, no prompt), or a web session's sign-in. */
+export type ConnectionCheck = {at: number; ok: boolean; kind: 'models' | 'sign_in'; detail: string};
+/** One hour of a connection: requests and checks that went well, and those the provider failed. */
+export type HealthBucket = {start: number; ok: number; failed: number};
+/** The last 24 hours, oldest first, and a score from 0 to 100 (recent hours count more); null when nothing happened. */
+export type HealthStrip = {buckets: HealthBucket[]; score: number | null};
+export type CheckAllResult = {checked: number; failed: number; webSkipped: number};
+
 /** What the web guard allows a web session now (ADR-035): a unit is a request, and one more per 2,000 characters. */
 export type WebGuard = {
   hourUnits: number; hourRequests: number; hourUnitsCap: number; hourRequestsCap: number; todayUnits: number; todayUnitsCap: number;
@@ -334,6 +345,10 @@ export interface GatewayApi {
   setConnectionKey(id: string, apiKey: string): Promise<Connection>;
   removeConnection(id: string): Promise<void>;
   refreshModels(id: string): Promise<{listed: number; added: number}>;
+  /** Checks one connection now: its model list (free, nothing imported) or a web session's sign-in. */
+  checkConnection(id: string): Promise<Connection>;
+  /** Checks every enabled connection; a web session only if its last check is over an hour old. */
+  checkAllConnections(): Promise<CheckAllResult>;
   /** Shows a web session's window, where the user signs in on the site's own page (ADR-035). */
   openWebSession(id: string): Promise<void>;
   setWebDailyLimit(id: string, limit: number | null): Promise<void>;
@@ -468,6 +483,8 @@ const native: GatewayApi = {
   setConnectionTerms: (id, terms, source) => invoke('connection_set_terms', {id, terms, source}),
   removeConnection: id => invoke('connection_remove', {id}),
   refreshModels: id => invoke('connection_refresh_models', {id}),
+  checkConnection: id => invoke('connection_check', {id}),
+  checkAllConnections: () => invoke('connections_check_all'),
   openWebSession: id => invoke('web_session_open', {id}),
   setWebDailyLimit: (id, limit) => invoke('web_session_set_daily_limit', {id, limit}),
   resumeWebSession: id => invoke('web_session_resume', {id}),

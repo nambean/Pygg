@@ -287,6 +287,8 @@ pub fn run() {
             commands::client_latest_requests,
             commands::web_session_set_daily_limit,
             commands::web_session_resume,
+            commands::connection_check,
+            commands::connections_check_all,
             commands::client_defaults,
             commands::client_set_defaults,
             commands::client_token,

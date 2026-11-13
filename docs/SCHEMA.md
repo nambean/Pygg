@@ -1,6 +1,6 @@
 # Store schema
 
-> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v28
+> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v29
 
 The local SQLite store (`db.rs`): every table after all migrations, in order. Credentials are never here: a
 connection holds only a reference to its key in the OS credential store (ADR-002). Client tokens are stored as
@@ -110,6 +110,22 @@ References: `provider_id` → `providers.id` (on delete cascade); `combo_id` →
 | `name` | TEXT | no |  |  | 0002_gateway |
 | `created_at` | INTEGER | no |  |  | 0002_gateway |
 | `strategy` | TEXT | no | `'order'` |  | 0025_combo_strategy |
+
+1 CHECK constraint (see the migrations).
+
+## `connection_checks`
+
+| Column | Type | Null | Default | Key | Added in |
+| --- | --- | --- | --- | --- | --- |
+| `provider_id` | TEXT | no |  |  | 0029_connection_checks |
+| `at` | INTEGER | no |  |  | 0029_connection_checks |
+| `ok` | INTEGER | no |  |  | 0029_connection_checks |
+| `kind` | TEXT | no |  |  | 0029_connection_checks |
+| `detail` | TEXT | no |  |  | 0029_connection_checks |
+
+References: `provider_id` → `providers.id` (on delete cascade).
+
+Indexes: `connection_checks_by_provider`.
 
 1 CHECK constraint (see the migrations).
 

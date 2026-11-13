@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AppWindow, KeyRound, Plug, Plus, RefreshCw, Search, ShieldAlert, Trash2 } from 'lucide-react';
-import { BILLINGS, TIERS, WEB_WARNING_VERSION, call, errorText, gatewayChanged, type Billing, type Connection, type WebGuard, type Health, type Model,
+import { BILLINGS, TIERS, WEB_WARNING_VERSION, call, errorText, gatewayChanged, type Billing, type Connection, type HealthStrip, type WebGuard, type Health, type Model,
   type Preset, type ModelTest, type Reliability, type Tier, type WebState } from '../../lib/api';
 import { ago, windowText } from '../../lib/format';
 import { locale, plural, t } from '../../lib/i18n';
@@ -13,7 +13,6 @@ import { ProviderLogo } from './ProviderLogo';
 const STORE = isMac ? 'Keychain' : 'Windows Credential Manager';
 
 /** Outcome of the last model refresh per connection, kept while the app is open (not stored). */
-const checks = new Map<string, {at: number; ok: boolean; text: string}>();
 
 function billingHint(billing: Billing, freeModels = false): string {
   if (billing === 'free' && freeModels) {
@@ -76,6 +75,9 @@ export function Connections({intent, onIntentDone, onNext}: {intent?: 'connect' 
         <section className="group">
           <div className="group-heading">
             <h2>{t('Providers')}</h2>
+            <span className="heading-actions">
+              <CheckAll/>
+            </span>
             {connections.length > 3 && <span className="heading-actions">
               <span className="search-field small">
                 <Search size={12} aria-hidden/>
@@ -103,6 +105,46 @@ export function Connections({intent, onIntentDone, onNext}: {intent?: 'connect' 
   </div>;
 }
 
+/** Checks every enabled connection now; web sessions only if checked over an hour ago. */
+function CheckAll() {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const run = () => {
+    setBusy(true);
+    setResult(null);
+    call(api => api.checkAllConnections()).then(r => {
+      setResult([t('{n} checked', {n: r.checked}), r.failed ? t('{n} failed', {n: r.failed}) : null,
+        r.webSkipped ? t('{n} web sessions checked within the hour, left alone', {n: r.webSkipped}) : null].filter(Boolean).join(' · '));
+      gatewayChanged();
+    }, e => setResult(errorText(e))).finally(() => setBusy(false));
+  };
+  return <>
+    {result && <small className="secondary" role="status">{result}</small>}
+    <button type="button" className="button small" onClick={run} disabled={busy}
+      title={t('Reads each API connection’s model list (free, no prompt) and checks each web session’s sign-in unless it was checked within the hour.')}>
+      {busy ? <Spinner/> : <RefreshCw size={12} aria-hidden/>}{t('Check All')}</button>
+  </>;
+}
+
+/**
+ * A connection's last 24 hours, an hour a dot (oldest on the left): dim with nothing, light when all went well, orange
+ * when something failed, red when at least half did; and its score from 0 to 100, recent hours counting more.
+ */
+export function HealthDots({strip, compact}: {strip: HealthStrip; compact?: boolean}) {
+  const tone = (b: HealthStrip['buckets'][number]) => b.ok + b.failed === 0 ? 'none' : b.failed === 0 ? 'ok' : b.failed * 2 >= b.ok + b.failed ? 'bad' : 'warn';
+  const when = (at: number) => new Date(at).toLocaleTimeString(locale(), {hour: '2-digit', minute: '2-digit'});
+  const label = strip.score === null ? t('No requests or checks in the last 24 hours')
+    : t('Health {score} of 100 over the last 24 hours', {score: strip.score});
+  return <span className={compact ? 'health-dots compact' : 'health-dots'} role="img" aria-label={label} title={compact ? label : undefined}>
+    <span className="health-dot-row">
+      {strip.buckets.map(b => <span key={b.start} className={`health-dot ${tone(b)}`}
+        title={compact ? undefined : `${when(b.start)}: ${t('{ok} ok · {failed} failed', {ok: b.ok, failed: b.failed})}`}/>)}
+    </span>
+    <span className={'health-score' + (strip.score === null ? ' none' : strip.score < 50 ? ' bad' : strip.score < 90 ? ' warn' : '')}>
+      {strip.score ?? '—'}</span>
+  </span>;
+}
+
 export function connectionState(c: Connection): {tone: 'ok' | 'warn' | 'off' | 'error'; text: string} {
   // A web session (ADR-035): what its window last showed comes first, since it decides whether it can answer at all.
   if (c.web) {
@@ -116,12 +158,12 @@ export function connectionState(c: Connection): {tone: 'ok' | 'warn' | 'off' | '
   const whole = c.health.find(h => h.modelId === '');
   if (whole?.state === 'invalid_credentials') return {tone: 'error', text: t('Key rejected')};
   if (whole) return {tone: 'warn', text: healthLabel(whole)};
-  const check = checks.get(c.id);
+  const check = c.lastCheck;
   if (check && !check.ok) return {tone: 'error', text: t('Check failed')};
   if (c.models === 0) return {tone: 'warn', text: t('No models yet')};
   if (c.health.length) return {tone: 'warn', text: plural(c.health.length, '{n} model cooling down', '{n} models cooling down')};
   // Green only once a check answered: without one, no problem has been seen, which is not the same as working.
-  return check?.ok ? {tone: 'ok', text: t('Checked')} : {tone: 'off', text: t('Not checked yet')};
+  return check?.ok ? {tone: 'ok', text: t('Checked {ago}', {ago: ago(check.at)})} : {tone: 'off', text: t('Not checked yet')};
 }
 
 /**
@@ -222,6 +264,7 @@ function ConnectionRow({connection: c, selected, onSelect}: {connection: Connect
         <span className="select-row-title">{c.label} <span className="mono secondary">{c.id}/…</span></span>
         <small>{c.presetName} · {billingLabel(c.defaultBilling)} · {plural(c.models, '{n} model', '{n} models')}</small>
       </span>
+      {c.healthStrip && <HealthDots strip={c.healthStrip} compact/>}
       <Badge tone={state.tone}>{state.text}</Badge>
     </button>
     <Switch checked={c.enabled} onChange={toggle} label={c.enabled ? t('Disable {name}', {name: c.label}) : t('Enable {name}', {name: c.label})}/>
@@ -237,18 +280,21 @@ function ConnectionDetail({connection: c, onRemoved, initialShow = 'all'}: {conn
   const [sheet, setSheet] = useState<'key' | 'remove' | 'add-model' | 'quota' | {price: Model} | {caps: Model} | null>(null);
   const [query, setQuery] = useState('');
   const [show, setShow] = useState<'all' | 'enabled' | 'free' | 'unpriced'>(initialShow);
-  const check = checks.get(c.id);
+  const check = c.lastCheck;
+  const [checking, setChecking] = useState(false);
+  const checkNow = () => {
+    setChecking(true);
+    call(api => api.checkConnection(c.id)).then(gatewayChanged, e => setMessage({ok: false, text: errorText(e)})).finally(() => setChecking(false));
+  };
 
   const refresh = () => {
     setRefreshing(true);
     setMessage(null);
     call(api => api.refreshModels(c.id)).then(r => {
       const text = r.added ? t('{listed} models listed, {added} new.', r) : t('{listed} models listed, nothing new.', r);
-      checks.set(c.id, {at: Date.now(), ok: true, text: t('Reachable · {n} models listed', {n: r.listed})});
       setMessage({ok: true, text});
       gatewayChanged();
     }, e => {
-      checks.set(c.id, {at: Date.now(), ok: false, text: errorText(e)});
       setMessage({ok: false, text: errorText(e)});
       gatewayChanged();
     }).finally(() => setRefreshing(false));
@@ -279,11 +325,19 @@ function ConnectionDetail({connection: c, onRemoved, initialShow = 'all'}: {conn
         <span className="group-control value">{c.hasKey ? t('API key · stored in {store}', {store: STORE})
           : c.needsKey ? <Badge tone="error">{t('Key missing')}</Badge> : t('No key needed')}</span>
       </div>}
-      <div className="group-row">
-        <span className="group-label">{t('Health')}</span>
-        <span className="group-control value">{check
-          ? <span title={check.text}>{check.ok ? check.text : <Badge tone="error">{check.text}</Badge>} · {t('checked {time}', {time: new Date(check.at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})})}</span>
-          : c.health.length ? t('See below') : t('No problems seen')}</span>
+      <div className="group-row stacked">
+        <span className="group-label">{t('Health')}
+          <small>{c.web
+            ? t('The last 24 hours, an hour a dot: its answers and sign-in checks. A web session is checked only when you ask, so its site sees no program loading pages.')
+            : t('The last 24 hours, an hour a dot: its answers and Pygg’s checks. Pygg reads its model list every 30 minutes while the gateway runs, which costs nothing and sends no prompt.')}{' '}
+            {t('Requests Pygg refused itself, and requests the provider refused as malformed, are not counted.')}</small></span>
+        {c.healthStrip && <HealthDots strip={c.healthStrip}/>}
+        <span className="health-check-line">
+          {check ? <span title={check.detail}>{check.ok ? check.detail : <Badge tone="error">{check.detail}</Badge>} · {t('checked {ago}', {ago: ago(check.at)})}</span>
+            : <span className="secondary">{t('Not checked yet.')}</span>}
+          <button type="button" className="button small" onClick={checkNow} disabled={checking}>
+            {checking ? <Spinner/> : <RefreshCw size={12} aria-hidden/>}{c.web ? t('Check Sign-In') : t('Check Now')}</button>
+        </span>
       </div>
       {c.health.length > 0 && <div className="group-row stacked"><HealthList connection={c}/></div>}
       {c.readsAccount && <AccountRow connection={c}/>}
@@ -626,10 +680,9 @@ function ConnectSheet({onClose, onConnected}: {onClose: () => void; onConnected:
       const added = await call(api => signIn ? api.signInConnection(connection) : api.addConnection(connection));
       // Connecting checks the key by reading the model list; a failure still keeps the connection.
       try {
-        const r = await call(api => api.refreshModels(added.id));
-        checks.set(added.id, {at: Date.now(), ok: true, text: t('Reachable · {n} models listed', {n: r.listed})});
+        // The gateway keeps this as the connection's first check (migration 0029).
+        await call(api => api.refreshModels(added.id));
       } catch (e) {
-        checks.set(added.id, {at: Date.now(), ok: false, text: errorText(e)});
         gatewayChanged();
         setLookupFailed({id: added.id, error: errorText(e)});
         setBusy(false);
@@ -837,8 +890,9 @@ function KeySheet({connection: c, onClose}: {connection: Connection; onClose: ()
   const [error, setError] = useState<string | null>(null);
   const save = () => {
     setBusy(true);
-    // The last check was of the old key; until the new one is checked, nothing is known about it.
-    call(api => api.setConnectionKey(c.id, key)).then(() => { checks.delete(c.id); gatewayChanged(); onClose(); },
+    // The last check was of the old key: check the new one at once (its model list, free, no prompt).
+    call(api => api.setConnectionKey(c.id, key)).then(() => call(api => api.checkConnection(c.id)).catch(() => undefined))
+      .then(() => { gatewayChanged(); onClose(); },
       e => { setError(errorText(e)); setBusy(false); });
   };
   return <Sheet title={c.hasKey ? t('Replace Key for {name}', {name: c.label}) : t('Add Key for {name}', {name: c.label})}

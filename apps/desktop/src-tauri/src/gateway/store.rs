@@ -1195,6 +1195,102 @@ pub fn unreachable_to_probe(conn: &Connection, gap_ms: i64) -> Result<Vec<String
     rows.collect::<rusqlite::Result<_>>().map_err(err)
 }
 
+/// A check of a connection's state: its model list read, or a web session's sign-in (migration 0029).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Check {
+    pub at: i64,
+    pub ok: bool,
+    /// `models` (an API connection's model list) or `sign_in` (a web session).
+    pub kind: String,
+    /// Pygg's own wording: "Reachable · 14 models listed", or the error.
+    pub detail: String,
+}
+
+/// Keeps a check's result; checks older than seven days go.
+pub fn record_check(conn: &Connection, provider_id: &str, ok: bool, kind: &str, detail: &str) -> Result<()> {
+    let now = now_ms();
+    conn.execute("INSERT INTO connection_checks (provider_id, at, ok, kind, detail) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![provider_id, now, ok as i64, kind, detail]).map_err(err)?;
+    conn.execute("DELETE FROM connection_checks WHERE at < ?1", [now - 7 * 86_400_000]).map(|_| ()).map_err(err)
+}
+
+/// A connection's last check, if any.
+pub fn last_check(conn: &Connection, provider_id: &str) -> Result<Option<Check>> {
+    conn.query_row("SELECT at, ok, kind, detail FROM connection_checks WHERE provider_id = ?1 ORDER BY at DESC LIMIT 1",
+        [provider_id], |r| Ok(Check { at: r.get(0)?, ok: r.get::<_, i64>(1)? == 1, kind: r.get(2)?, detail: r.get(3)? }))
+        .optional().map_err(err)
+}
+
+/// Enabled connections whose last check is older than `every_ms` (or that were never checked), oldest first.
+pub fn checks_due(conn: &Connection, every_ms: i64, now: i64) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT p.id, (SELECT MAX(at) FROM connection_checks c WHERE c.provider_id = p.id) AS last \
+        FROM providers p WHERE p.enabled = 1 AND (last IS NULL OR last < ?1) ORDER BY COALESCE(last, 0), p.id").map_err(err)?;
+    let rows = stmt.query_map([now - every_ms], |r| r.get(0)).map_err(err)?;
+    rows.collect::<rusqlite::Result<_>>().map_err(err)
+}
+
+/// One hour of a connection's health strip: answers and checks that went well, and those that did not.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthBucket {
+    pub start: i64,
+    pub ok: u32,
+    pub failed: u32,
+}
+
+/// A connection's last 24 hours, an hour a bucket, oldest first, and a score from 0 to 100: the share that went well,
+/// recent hours counting more (the last hour four times the oldest). `None` when nothing happened.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthStrip {
+    pub buckets: Vec<HealthBucket>,
+    pub score: Option<u8>,
+}
+
+pub const STRIP_HOURS: i64 = 24;
+
+/// A request counts against the connection when the provider failed it: an error, a fallback to another model or a
+/// stream cut off, except a request Pygg itself refused before sending ("Not sent", `not sent`) and one the provider
+/// refused as malformed (400, 413, 422), which says nothing about the provider. A client that left, or a restart, is
+/// not counted either way.
+const PROVIDER_FAILED: &str = "(u.outcome IN ('error', 'fallback', 'stream_error') AND COALESCE(u.http_status, 0) NOT IN (400, 413, 422) \
+    AND COALESCE(u.error, '') NOT LIKE '%Not sent%' AND COALESCE(u.source, '') <> 'not sent')";
+
+pub fn health_strip(conn: &Connection, provider_id: &str, now: i64) -> Result<HealthStrip> {
+    const HOUR: i64 = 3_600_000;
+    let since = now - STRIP_HOURS * HOUR;
+    let mut counts = vec![(0u32, 0u32); STRIP_HOURS as usize];
+    let mut add = |sql: &str| -> Result<()> {
+        let mut stmt = conn.prepare(sql).map_err(err)?;
+        let rows = stmt.query_map(params![provider_id, since, now, HOUR], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)))
+            .map_err(err)?;
+        for row in rows {
+            let (ago, ok, failed) = row.map_err(err)?;
+            if (0..STRIP_HOURS).contains(&ago) {
+                let slot = &mut counts[(STRIP_HOURS - 1 - ago) as usize];
+                slot.0 += ok.max(0) as u32;
+                slot.1 += failed.max(0) as u32;
+            }
+        }
+        Ok(())
+    };
+    add(&format!("SELECT (?3 - u.created_at) / ?4 AS ago, SUM(u.outcome = 'ok'), SUM({PROVIDER_FAILED}) FROM usage_events u \
+        WHERE u.provider = ?1 AND u.created_at > ?2 GROUP BY ago"))?;
+    add("SELECT (?3 - at) / ?4 AS ago, SUM(ok = 1), SUM(ok = 0) FROM connection_checks WHERE provider_id = ?1 AND at > ?2 GROUP BY ago")?;
+    let buckets: Vec<HealthBucket> = counts.iter().enumerate()
+        .map(|(i, (ok, failed))| HealthBucket { start: now - (STRIP_HOURS - i as i64) * HOUR, ok: *ok, failed: *failed }).collect();
+    // The newest hour weighs 1, the oldest 0.25, in a straight line.
+    let (mut good, mut all) = (0.0f64, 0.0f64);
+    for (i, b) in buckets.iter().enumerate() {
+        let weight = 0.25 + 0.75 * i as f64 / (STRIP_HOURS - 1) as f64;
+        good += weight * f64::from(b.ok);
+        all += weight * f64::from(b.ok + b.failed);
+    }
+    let score = (all > 0.0).then(|| (100.0 * good / all).round().clamp(0.0, 100.0) as u8);
+    Ok(HealthStrip { buckets, score })
+}
+
 /// The probe reached the provider: its connection-wide outage is over.
 pub fn probe_succeeded(conn: &Connection, provider_id: &str) -> Result<()> {
     conn.execute("DELETE FROM connection_health WHERE provider_id = ?1 AND model_id = '' AND state = 'unreachable'", [provider_id])
@@ -2531,7 +2627,24 @@ mod tests {
         assert_eq!([page(0, 2), page(2, 2)].concat(), all);
         assert!(page(3, 2).is_empty());
         let client = list_clients(&conn).unwrap().remove(0);
-        assert_eq!((client.month_spend_micro_usd, client.month_unknown_requests), (3000, 1));
+        assert_eq!((client.month_spend_micro_usd, client.month_unknown_requests), (3000, 1));        // The health strip: the fallback counts against the connection, the unknown-cost answer is an answer; a check
+        // counts too, and a request Pygg refused itself does not.
+        let strip = health_strip(&conn, &p.id, now_ms() + 1).unwrap();
+        assert_eq!(strip.buckets.len(), STRIP_HOURS as usize);
+        assert_eq!(strip.buckets.last().map(|b| (b.ok, b.failed)), Some((2, 1)));
+        assert_eq!(strip.score, Some(67));
+        record_check(&conn, &p.id, true, "models", "Reachable · 1 models listed").unwrap();
+        record_usage(&conn, &UsageRecord { client_id: Some(&client.id), provider_id: &p.id, model_id: "flash",
+            requested_model: "coding", input_tokens: None, output_tokens: None, cache_tokens: None,
+            cost: &Cost::Estimated { micro_usd: 0, source: "not sent".into() }, outcome: "error", http_status: Some(429), latency_ms: 0,
+            error: Some("Not sent: the web guard"), cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None,
+            repeated_tokens: None }).unwrap();
+        let strip = health_strip(&conn, &p.id, now_ms() + 1).unwrap();
+        assert_eq!(strip.buckets.last().map(|b| (b.ok, b.failed)), Some((3, 1)));
+        assert_eq!(strip.score, Some(75));
+        assert!(last_check(&conn, &p.id).unwrap().is_some_and(|c| c.ok));
+        assert!(checks_due(&conn, 60_000, now_ms()).unwrap().iter().all(|id| id != &p.id), "just checked");
+        assert!(health_strip(&conn, "nobody", now_ms()).unwrap().score.is_none());
     }
 
     #[test]

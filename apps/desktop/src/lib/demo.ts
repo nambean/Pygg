@@ -4,7 +4,7 @@
  * data" banner whenever this is in use (ADR-014). It follows the core's rules (slugs, validation, honest
  * costs) closely enough for design review, not as a test of them.
  */
-import type { AgentInfo, Integration, Launcher, ClientDefaults, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
+import type { AgentInfo, Integration, Launcher, ClientDefaults, ConnectionCheck, HealthStrip, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
   Health, Model, Preset, Target, Tier, UsageEvent, UsageBucket, UsageGroup, UsageSummary, Account, Wire,
   LocalUsage, SubscriptionUsage, Retention } from './api';
 import { TIERS, WEB_WARNING_VERSION } from './api';
@@ -328,6 +328,7 @@ export function demoApi(): GatewayApi {
       health: health.filter(h => h.providerId === c.id && (h.untilMs === null || h.untilMs > Date.now())),
       sharesQuotaWith: connections.filter(o => o.id !== c.id && quotaGroup(o) === quotaGroup(c)).map(o => o.label),
       // Illustrative: what Anthropic's API sends with an answer.
+      ...demoHealth(c),
       // Illustrative: the web guard after a long prompt and a timeout (ADR-035, migration 0028).
       ...(c.web ? {webGuard: {hourUnits: 7, hourRequests: 3, hourUnitsCap: 20, hourRequestsCap: 15, todayUnits: 12, todayUnitsCap: 100,
         maxPromptChars: 12_000, restingUntil: Date.now() + 70_000, backoffUntil: c.kind === 'grok-web' ? Date.now() + 5 * 60_000 : null,
@@ -335,6 +336,24 @@ export function demoApi(): GatewayApi {
       limits: c.kind === 'qwen' ? planLimits() : c.kind === 'anthropic' ? [{modelId: 'claude-sonnet-4-5', httpStatus: 200, observedAt: Date.now() - 6 * 60_000, headers: {
         'anthropic-ratelimit-requests-limit': '50', 'anthropic-ratelimit-requests-remaining': '49',
         'anthropic-ratelimit-tokens-remaining': '39000', 'anthropic-ratelimit-tokens-reset': '2026-11-12T02:31:00Z'}}] : []};
+  }
+  /** The health strip from the demo's own requests, as store::health_strip counts them, and a check an hour ago. */
+  function demoHealth(c: Stored): {healthStrip: HealthStrip; lastCheck: ConnectionCheck | null} {
+    const hour = 3_600_000;
+    const now = Date.now();
+    const buckets = Array.from({length: 24}, (_, i) => ({start: now - (24 - i) * hour, ok: 0, failed: 0}));
+    for (const e of events.filter(e => e.provider === c.id && e.createdAt > now - 24 * hour)) {
+      const b = buckets[23 - Math.floor((now - e.createdAt) / hour)];
+      if (!b) continue;
+      if (e.outcome === 'ok') b.ok += 1;
+      else if (['error', 'fallback', 'stream_error'].includes(e.outcome) && ![400, 413, 422].includes(e.httpStatus ?? 0)) b.failed += 1;
+    }
+    const checked = c.enabled && !c.web;
+    if (checked) buckets[22].ok += 1;
+    let good = 0, all = 0;
+    buckets.forEach((b, i) => { const w = 0.25 + 0.75 * i / 23; good += w * b.ok; all += w * (b.ok + b.failed); });
+    return {healthStrip: {buckets, score: all > 0 ? Math.round(100 * good / all) : null},
+      lastCheck: checked ? {at: now - 50 * 60_000, ok: true, kind: 'models', detail: 'Reachable · models listed'} : null};
   }
   /** Illustrative: the windows a coding plan states with each answer, already read as quota.rs reads them. */
   function planLimits() {
@@ -605,6 +624,9 @@ export function demoApi(): GatewayApi {
     // The preview has no window to open or drive.
     openWebSession: async () => { await sleep(150); throw 'The browser preview cannot open a sign-in window; run the desktop app.'; },
     setWebDailyLimit: async () => { await sleep(100); },
+    checkConnection: async id => { await sleep(400); return view(connections.find(c => c.id === id)!); },
+    checkAllConnections: async () => { await sleep(800);
+      return {checked: connections.filter(c => c.enabled && !c.web).length, failed: 0, webSkipped: connections.filter(c => c.enabled && c.web).length}; },
     resumeWebSession: async () => { await sleep(100); },
     checkWebSession: async id => { await sleep(400); return touch(view(find(id))); },
     refreshModels: async id => {
