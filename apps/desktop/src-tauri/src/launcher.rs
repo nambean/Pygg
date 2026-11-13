@@ -83,6 +83,14 @@ pub fn token(conn: &Connection) -> Result<String, String> {
         .ok_or_else(|| "The launcher's key is missing from the credential store. Remove the launcher in CLI Tools and set it up again.".into())
 }
 
+/// A launch session's id (`pygg run`): `launch-` and a fresh UUID, so the ledger tells a launch from a task attempt or
+/// a session the tool named itself (Codex's fifth discussion, T3).
+pub const LAUNCH_PREFIX: &str = "launch-";
+
+pub fn launch_session() -> String {
+    format!("{LAUNCH_PREFIX}{}", uuid::Uuid::new_v4().simple())
+}
+
 /// The variables Claude Code is started with: the gateway, the key, `model` for every model slot, and a fresh session
 /// so the whole session stays on one model (and one prompt cache).
 pub fn environment(base_url: &str, token: &str, model: &str, session: &str) -> Vec<(String, String)> {

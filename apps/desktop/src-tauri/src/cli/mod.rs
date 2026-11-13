@@ -7,7 +7,7 @@
 //!   pygg-cli mcp                     the MCP server for IDE agents (as `Pygg.exe mcp`)
 //!   pygg-cli gateway [--db P] …      the headless gateway: serve, connections, clients, combos, usage
 //!   pygg-cli agent [--db P] …        agent detection, one-off runs, smart tasks, quality
-//!   pygg-cli run claude [args…]      Claude Code through Pygg for one launch (run.rs, launcher.rs)
+//!   pygg-cli run <tool> [args…]      Claude Code, OpenCode or Codex through Pygg, a routing session per launch (run.rs)
 //!   pygg-cli setup [<tool>]          set Pygg up in an agent, as the Agents screen does (setup.rs)
 //!   pygg-cli diagnostics --out PATH  the redacted diagnostics bundle (diagnostics.rs), as Settings → Diagnostics saves
 //!
@@ -32,8 +32,9 @@ usage: pygg <command> [options]
 Use coding tools through Pygg
   setup claude-launcher     route Claude Code's requests through Pygg; then `pygg run claude`
   run claude [args…]        start Claude Code through Pygg for this launch only (plain `claude` keeps your Claude sign-in)
-  setup codex-models        point Codex's models at Pygg; then `codex --profile pygg`
-  setup opencode-models     point OpenCode's models at Pygg; then choose Pygg in `/models`
+  setup codex-models        point Codex's models at Pygg; then `pygg run codex`
+  setup opencode-models     point OpenCode's models at Pygg; then `pygg run opencode` and choose Pygg in `/models`
+  run opencode|codex […]    start OpenCode or Codex as set up, with a routing session of their own for this launch
   setup                     list every tool Pygg can set up, and its state (--dry-run previews, --remove undoes)
 
 Manage the gateway
@@ -59,7 +60,7 @@ Start here: open Pygg and connect a provider. Then, in a terminal:
   pygg setup claude-launcher   route Claude Code's requests through Pygg
   pygg run claude              start Claude Code through Pygg, with the model auto
 
-Codex: `pygg setup codex-models`, then `codex --profile pygg`.
+Codex: `pygg setup codex-models`, then `pygg run codex`. OpenCode: `pygg setup opencode-models`, then `pygg run opencode`.
 Run `pygg --help` for every command.";
 
 /// Whether the arguments ask for help.

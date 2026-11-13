@@ -366,7 +366,8 @@ function LedgerRow({event: e, open, onToggle}: {event: UsageEvent; open: boolean
         {e.routeMode && <><dt>{t('Route')}</dt><dd>{e.routeMode === 'native' ? t('Passed through in the same format')
           : t('Translated ({mode})', {mode: e.routeMode.replace('translated:', '')})}</dd></>}
         {e.routeReason && <><dt>{t('Why this model')}</dt><dd>{e.routeReason}</dd></>}
-        {e.sessionKey && <><dt>{t('Session')}</dt><dd className="mono">{e.sessionKey}</dd></>}
+        {e.sessionKey && <><dt>{t('Routing session')}</dt><dd><span className="mono">{e.sessionKey}</span>{' · '}
+          {e.sessionKey.startsWith('launch-') ? t('one launch of the tool through pygg run') : t('named by the tool or a task step')}</dd></>}
         <dt>{t('Time taken')}</dt><dd>{e.latencyMs != null ? `${(e.latencyMs / 1000).toFixed(1)} s` : '—'}</dd>
         {e.error && <><dt>{t('Error')}</dt><dd className="selectable">{e.error}</dd></>}
       </dl>

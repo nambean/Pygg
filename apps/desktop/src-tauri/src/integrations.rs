@@ -314,8 +314,9 @@ fn opencode_has_entry(config: &Option<serde_json::Map<String, Value>>) -> bool {
 }
 
 /// OpenCode's provider entry for Pygg's gateway. It speaks the Anthropic format, which the gateway serves for every
-/// connection (translating where the connection speaks OpenAI's), and sends the attempt id Pygg gives a task step as
-/// its session header; outside a task the variable is empty and the gateway ignores the header.
+/// connection (translating where the connection speaks OpenAI's), and sends `PYGG_ATTEMPT_ID` as its session header:
+/// the id Pygg gives a task step, or a launch session from `pygg run opencode`. Started any other way, the variable is
+/// empty and the gateway ignores the header.
 pub fn opencode_provider(server: &Server, token: &str) -> Value {
     let models = opencode_models(&server.models);
     json!({
@@ -401,6 +402,26 @@ fn opencode_has_provider(config: &Option<serde_json::Map<String, Value>>) -> boo
     config.as_ref().and_then(|c| c.get("provider")).and_then(|m| m.get(PROVIDER)).is_some()
 }
 
+/// Whether `pygg run <tool>` can start OpenCode or Codex through Pygg: their Pygg provider is in their configuration
+/// (and, for Codex, Pygg's profile file is there), as CLI Tools → Set Up leaves them. Says how to set it up if not.
+pub fn launch_ready(tool: &str, homes: &Homes) -> Result<(), String> {
+    match tool {
+        "opencode" => {
+            let config = read_opencode(&homes.opencode)?;
+            if opencode_has_provider(&config) { Ok(()) } else {
+                Err("OpenCode's Pygg provider is not set up: open Pygg → CLI Tools → OpenCode → Set Up, or run `pygg setup opencode-models`.".into())
+            }
+        }
+        "codex" => {
+            let doc = read_codex(&homes.codex)?;
+            if codex_has_provider(&doc) && codex_profile_path(&homes.codex).is_file() { Ok(()) } else {
+                Err("Codex's Pygg provider is not set up: open Pygg → CLI Tools → Codex → Set Up, or run `pygg setup codex-models`.".into())
+            }
+        }
+        other => Err(format!("pygg run does not start {other} this way")),
+    }
+}
+
 /// Reads Codex's `config.toml`. A missing file is an empty configuration; a file that is not valid TOML is refused,
 /// naming only the line (the file may hold other secrets, so none of it is quoted).
 pub fn read_codex(path: &Path) -> Result<Option<toml_edit::DocumentMut>, String> {
@@ -419,8 +440,8 @@ pub fn read_codex(path: &Path) -> Result<Option<toml_edit::DocumentMut>, String>
 }
 
 /// Codex's `[model_providers.pygg]`: Pygg's gateway over the Responses API (ADR-033), with the client token as the
-/// bearer and the attempt id Pygg gives a task step as its session header. Codex sends no header when the variable
-/// is unset, which is the case outside a task.
+/// bearer and `PYGG_ATTEMPT_ID` as its session header: the id Pygg gives a task step, or a launch session from
+/// `pygg run codex`. Codex sends no header when the variable is unset.
 fn codex_provider(server: &Server, token: &str) -> toml_edit::Table {
     let mut t = toml_edit::Table::new();
     t["name"] = toml_edit::value("Pygg");
@@ -1049,6 +1070,22 @@ mod tests {
         std::fs::write(&homes.opencode, r#"{"model":"x/y"}"#).unwrap();
         assert_eq!(sync_opencode_models(&db, &homes), Ok(false));
         assert_eq!(std::fs::read_to_string(&homes.opencode).unwrap(), r#"{"model":"x/y"}"#);
+    }
+
+    #[test]
+    fn pygg_run_starts_opencode_and_codex_only_once_they_are_set_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let homes = Homes { claude: dir.path().join(".claude.json"), codex: dir.path().join("config.toml"),
+            opencode: dir.path().join("opencode.json") };
+        assert!(launch_ready("opencode", &homes).unwrap_err().contains("pygg setup opencode-models"));
+        assert!(launch_ready("codex", &homes).unwrap_err().contains("pygg setup codex-models"));
+        write_opencode(&homes.opencode, &with_opencode_provider(None, opencode_provider(&server(None), "str-o")).unwrap()).unwrap();
+        assert_eq!(launch_ready("opencode", &homes), Ok(()));
+        // Codex needs its provider and Pygg's profile file, which `--profile pygg` reads.
+        write_codex(&homes.codex, &with_codex_provider(None, &server(None), "str-c").unwrap()).unwrap();
+        assert!(launch_ready("codex", &homes).is_err());
+        write_codex_profile(&codex_profile_path(&homes.codex)).unwrap();
+        assert_eq!(launch_ready("codex", &homes), Ok(()));
     }
 
     #[test]

@@ -241,7 +241,8 @@ export function Integrations({kind, status, note}: {kind: 'mcp' | 'gateway'; sta
                 : i.state === 'removed_elsewhere' ? t('Pygg set this up, and the entry is gone. Remove revokes its token.')
                 : i.state === 'not_installed' ? t('Not found on this computer.')
                 : i.configPath}
-              {i.id === CODEX_GATEWAY && i.state === 'set_up' && <><br/>{t('Use it with:')} <span className="mono">codex --profile pygg</span></>}
+              {i.kind === 'gateway' && i.state === 'set_up' && <><br/>{t('Use it with:')} <span className="mono">{i.id === CODEX_GATEWAY ? 'pygg run codex' : 'pygg run opencode'}</span>
+                {' · '}{t('each launch keeps its own routing session')}</>}
               {i.detail && <><br/><span className="mono">{i.detail}</span></>}
             </small>
             {status && i.state === 'set_up' && status(i)}
@@ -311,9 +312,9 @@ function SetUpSheet({integration: i, onClose}: {integration: Integration; onClos
         : t('Check that {name} lists the pygg server. If anything fails, the file is put back and the token revoked.', {name: p.name})}</li>
     </ol>}
     <p className="secondary small">{codex
-      ? t('Your default model and provider are not changed. Run codex --profile pygg to use Pygg with auto, or codex --profile pygg -m <connection>/<model> for a model from Connections. Requests through this provider carry the id of the task step Pygg is running, if any, so a task shows what Pygg’s ledger recorded for it. Codex’s own sign-in is not touched.')
+      ? t('Your default model and provider are not changed. Run pygg run codex to use Pygg with auto (or codex --profile pygg; add -m <connection>/<model> for a model from Connections). Through pygg run, each launch has a routing session of its own, so the gateway keeps it on the model that answered it, and its prompt cache; when Pygg runs Codex for a task, the session is the task step. Codex’s own sign-in is not touched.')
       : i.kind === 'gateway'
-      ? t('OpenCode then lists auto, auto/cheap and the models enabled in Providers under the provider “Pygg”; pick one with /models. Pygg keeps the list current as models are enabled, disabled or looked up; only the list changes. When Pygg runs OpenCode for a task, each request carries the step’s id, so the task shows what Pygg’s ledger recorded for it. OpenCode’s own providers and sign-in are not touched.')
+      ? t('OpenCode then lists auto, auto/cheap and the models enabled in Providers under the provider “Pygg”; pick one with /models. Pygg keeps the list current as models are enabled, disabled or looked up; only the list changes. Start it with pygg run opencode and each launch has a routing session of its own, so the gateway keeps it on the model that answered it, and its prompt cache; when Pygg runs OpenCode for a task, the session is the task step. OpenCode’s own providers and sign-in are not touched.')
       : t('The entry serves all your projects: the server takes the project from the folder your agent runs in. The token is written into {name}’s own configuration for your user, never into a project file. {name}’s own sign-in is not touched.', {name: i.name})}</p>
     {error && <ErrorNote>{error}</ErrorNote>}
   </Sheet>;

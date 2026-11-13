@@ -285,7 +285,7 @@ export function snippetFor(kind: ClientKind, shell: Shell, baseUrl: string, mode
     return JSON.stringify({
       $schema: 'https://opencode.ai/config.json',
       provider: {smarttaskrouter: {npm: '@ai-sdk/openai-compatible', name: 'Pygg',
-        options: {baseURL: v1, apiKey: '{env:SMARTTASKROUTER_TOKEN}', headers: {'x-smarttaskrouter-session': 'opencode'}},
+        options: {baseURL: v1, apiKey: '{env:SMARTTASKROUTER_TOKEN}', headers: {'x-smarttaskrouter-session': '{env:PYGG_ATTEMPT_ID}'}},
         models: {[model]: {name: model}}}},
       model: `smarttaskrouter/${model}`,
     }, null, 2);
