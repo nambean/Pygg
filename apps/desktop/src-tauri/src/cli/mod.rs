@@ -1,67 +1,66 @@
-//! `pygg-cli`, one console program for everything Pygg does without its window (PV-04, ADR-030). The app's own
-//! program is `Pygg.exe`, and Windows does not tell `pygg.exe` from it, so the console program has its own name; an
-//! npm launcher can expose it as `pygg` later. It runs the same Rust core and store as the app:
+//! `pygg-cli`, one console program for everything Pygg does without its window (PV-04, ADR-030), published on npm as
+//! the `pygg` command. The app's own program is `Pygg.exe`, and Windows does not tell `pygg.exe` from it, so the
+//! console program has its own name. It runs the same Rust core and store as the app (docs/design/CLI.md):
 //!
-//!   pygg-cli status                  is Pygg serving, on which store, and is its gateway answering
-//!   pygg-cli doctor                  status, plus the store's schema, the agents found and their Pygg set-up
-//!   pygg-cli mcp                     the MCP server for IDE agents (as `Pygg.exe mcp`)
-//!   pygg-cli gateway [--db P] …      the headless gateway: serve, connections, clients, combos, usage
-//!   pygg-cli agent [--db P] …        agent detection, one-off runs, smart tasks, quality
-//!   pygg-cli run <tool> [args…]      Claude Code, OpenCode or Codex through Pygg, a routing session per launch (run.rs)
-//!   pygg-cli setup [<tool>]          set Pygg up in an agent, as the Agents screen does (setup.rs)
-//!   pygg-cli diagnostics --out PATH  the redacted diagnostics bundle (diagnostics.rs), as Settings → Diagnostics saves
+//!   pygg                             where you are: gateway, providers, tools set up, and what to type next
+//!   pygg setup [claude|codex|opencode]   route a coding tool through Pygg (setup.rs)
+//!   pygg run claude|codex|opencode   start it through Pygg, a routing session per launch (run.rs)
+//!   pygg status | doctor             is the gateway answering; plus the schema, the tools and providers needing attention
+//!   pygg providers | models | logs | usage   read the store, `--json` on each (read.rs)
+//!   pygg gateway [--db P] …          the headless gateway: serve, connections, clients, combos, usage (advanced)
+//!   pygg mcp [setup …]               the experimental task integration's MCP server, and registering it
+//!   pygg agent [--db P] …            agent detection, one-off runs, smart tasks, quality (on hold)
+//!   pygg diagnostics --out PATH      the redacted diagnostics bundle (diagnostics.rs), as Settings → Diagnostics saves
 //!
-//! `status`, `doctor` and `diagnostics` only read: they open the store read-only, never migrate it, and never start a second
-//! gateway on a store the app holds (gateway/mod.rs, one store per gateway).
+//! The read commands, `status`, `doctor` and `diagnostics` open the store read-only: they never create or migrate it,
+//! and never start a second gateway on a store the app holds (gateway/mod.rs, one store per gateway). Exit codes: 0
+//! done, 1 failed, 2 wrong usage, 3 a check found a problem; `run` returns the tool's own.
 
 pub mod agent;
 pub mod gateway;
+pub mod read;
 pub mod run;
 pub mod setup;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-const USAGE: &str = "usage: pygg-cli status|doctor|mcp|gateway …|agent …|setup …|diagnostics --out PATH [--db PATH] [--port N]";
+use read::{Fail, Opts};
+use serde::Serialize;
+use serde_json::json;
 
-/// `pygg --help`: every command in a line, grouped by what a person is doing, and where to read more.
+/// `pygg --help`: every command in a line, grouped by what a person is doing (docs/design/CLI.md).
 const HELP: &str = "Pygg: one local gateway for your AI coding tools.
 
-usage: pygg <command> [options]
+usage: pygg <command> [options]        `pygg` alone shows where you are and what to type next
 
 Use coding tools through Pygg
-  setup claude-launcher     route Claude Code's requests through Pygg; then `pygg run claude`
-  run claude [args…]        start Claude Code through Pygg for this launch only (plain `claude` keeps your Claude sign-in)
-  setup codex-models        point Codex's models at Pygg; then `pygg run codex`
-  setup opencode-models     point OpenCode's models at Pygg; then `pygg run opencode` and choose Pygg in `/models`
-  run opencode|codex […]    start OpenCode or Codex as set up, with a routing session of their own for this launch
-  setup                     list every tool Pygg can set up, and its state (--dry-run previews, --remove undoes)
+  setup                       the tools, whether each is installed and set up, and what to type next
+  setup claude|codex|opencode route the tool through Pygg   (--dry-run previews, --remove undoes)
+  run claude|codex|opencode   start it through Pygg, with a routing session for this launch
+                              (pygg run --model auto/cheap claude: Pygg's options go before the tool's name)
 
-Manage the gateway
-  status                    is Pygg serving, on which store, and does its gateway answer
-  doctor                    status, plus the store's schema, the agents found and what is set up in them
-  gateway <command> …       the gateway without the window: serve, connections, models, clients, combos, usage
-  diagnostics --out PATH    save the redacted diagnostics bundle (no keys, tokens or prompts)
-  --version                 the version of this program
+See what Pygg has and does (read only; --json on each)
+  status                      is the gateway answering, and on which store
+  doctor                      status, plus your tools and the providers that need attention
+  providers                   saved connections: on, last check, health, models
+  models [CONNECTION]         the models to ask for, with billing and price   (--search TEXT, --all)
+  logs                        recent request attempts   (--limit N, --client NAME, --failed)
+  usage                       requests, known and unknown cost, token mix   (--days 1|7|30)
+
+Advanced
+  gateway <command> ...       the gateway without the window: serve, add-connection, model, client, combo, auto
+  diagnostics --out PATH      save the redacted diagnostics bundle (no keys, tokens or prompts)
+  --version                   this program's version
 
 Experimental task integration (on hold)
-  setup claude-code|codex|opencode   register Pygg's MCP server in the tool, so it can hand tasks to Pygg
-  mcp                       the MCP server itself, which the tool starts
-  agent <command> …         agent CLIs: detect, run, task, quality
+  mcp setup [TOOL]            register Pygg's MCP server in claude-code, codex or opencode
+  mcp                         the MCP server itself, which the tool starts
+  agent <command> ...         agent CLIs: detect, run, task, quality
 
-Options: --db PATH (another store), --port N (status and doctor). `pygg gateway --help` and `pygg agent --help` list
-their commands. The desktop app does everything here with a window: https://github.com/nambean/smarttaskrouter";
-
-/// `pygg` with nothing after it: where to start, in five lines. Not an error.
-const START: &str = "Pygg: one local gateway for your AI coding tools.
-
-Start here: open Pygg and connect a provider. Then, in a terminal:
-  pygg doctor                  is Pygg serving, and what is set up in your tools
-  pygg setup claude-launcher   route Claude Code's requests through Pygg
-  pygg run claude              start Claude Code through Pygg, with the model auto
-
-Codex: `pygg setup codex-models`, then `pygg run codex`. OpenCode: `pygg setup opencode-models`, then `pygg run opencode`.
-Run `pygg --help` for every command.";
+Every command takes --db PATH (another store); `pygg <command> --help` says more.
+Connect providers in the Pygg desktop app, which also runs the gateway: https://github.com/nambean/smarttaskrouter
+Exit codes: 0 done, 1 failed, 2 wrong usage, 3 a check found a problem; `run` returns the tool's own.";
 
 /// Whether the arguments ask for help.
 pub fn wants_help(args: &[String]) -> bool {
@@ -87,71 +86,157 @@ fn schema_of(store: &Path) -> Result<u32, String> {
     conn.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(|e| e.to_string())
 }
 
-/// What `/health` says on the port, if anything answers there.
+/// What `/health` says on the port, if Pygg answers there: an HTTP success whose `app` is Pygg (Codex's review of
+/// 2026-11-14: any JSON used to pass).
 pub(crate) async fn health(port: u16) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(3)).build().map_err(|e| e.to_string())?;
-    let response = client.get(format!("http://127.0.0.1:{port}/health")).send().await.map_err(|e| {
-        if e.is_connect() { "nothing is listening".to_string() } else { e.to_string() }
-    })?;
-    response.json().await.map_err(|e| format!("an answer that is not Pygg's: {e}"))
+    health_within(port, Duration::from_secs(3)).await
 }
 
-/// Prints the state, and says whether everything checked is as it should be.
-async fn status(args: &[String]) -> bool {
-    let store = flag(args, "--db").map(PathBuf::from).or_else(default_store);
-    let port: u16 = flag(args, "--port").and_then(|p| p.parse().ok()).unwrap_or(crate::gateway::DEFAULT_PORT);
-    let mut ok = true;
-    match &store {
-        Some(path) if path.is_file() => {
-            let held = crate::gateway::store_in_use(path);
-            println!("Store       {} ({})", path.display(), if held { "served by a running Pygg" } else { "not served" });
-        }
-        Some(path) => { println!("Store       {} (not created yet: Pygg has not run with it)", path.display()); ok = false; }
-        None => { println!("Store       not found: pass --db"); ok = false; }
+/// Whether Pygg answers on the port, waiting under a second: for a bare `pygg`, which must stay quick.
+pub(crate) async fn health_quick(port: u16) -> Result<(), String> {
+    health_within(port, Duration::from_millis(900)).await.map(|_| ())
+}
+
+async fn health_within(port: u16, wait: Duration) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::builder().timeout(wait).build().map_err(|e| e.to_string())?;
+    let response = client.get(format!("http://127.0.0.1:{port}/health")).send().await.map_err(|e| {
+        if e.is_connect() { "nothing is listening".to_string() } else if e.is_timeout() { "no answer in time".to_string() } else { e.to_string() }
+    })?;
+    if !response.status().is_success() {
+        return Err(format!("an answer that is not Pygg's (HTTP {})", response.status().as_u16()));
     }
-    match health(port).await {
-        Ok(h) => {
-            let app = h["app"].as_str().unwrap_or("unknown");
-            let accounting = h["accounting"].as_str().unwrap_or("unknown");
-            println!("Gateway     http://127.0.0.1:{port} answers: {app}, accounting {accounting}");
-            if accounting != "ok" {
-                ok = false;
-                if let Some(e) = h["accountingError"].as_str() {
-                    println!("            {e}");
-                }
+    let body: serde_json::Value = response.json().await.map_err(|_| "an answer that is not Pygg's".to_string())?;
+    if body["app"].as_str() != Some("Pygg") {
+        return Err("an answer that is not Pygg's".into());
+    }
+    Ok(body)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoreOut {
+    path: Option<String>,
+    exists: bool,
+    /// A running Pygg serves this store.
+    served: bool,
+    schema: Option<u32>,
+    /// The schema this program expects.
+    expected_schema: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GatewayOut {
+    url: String,
+    answering: bool,
+    /// `ok` when the ledger is written as it should be.
+    accounting: Option<String>,
+    error: Option<String>,
+}
+
+/// The state `status` and `doctor` report, and whether it is all as it should be.
+async fn status_of(opts: &Opts) -> Result<(StoreOut, GatewayOut, bool), Fail> {
+    let path = read::store_path(opts);
+    let exists = path.as_ref().is_some_and(|p| p.is_file());
+    let schema = path.as_ref().filter(|_| exists).and_then(|p| schema_of(p).ok());
+    let conn = path.as_ref().filter(|_| exists).and_then(|p| rusqlite::Connection::open_with_flags(p,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX).ok());
+    let port = read::gateway_port(opts, conn.as_ref())?;
+    let url = format!("http://127.0.0.1:{port}");
+    let gateway = match health(port).await {
+        Ok(h) => GatewayOut { url, answering: true, accounting: h["accounting"].as_str().map(String::from),
+            error: h["accountingError"].as_str().map(String::from) },
+        Err(e) => GatewayOut { url, answering: false, accounting: None, error: Some(e) },
+    };
+    let ok = exists && schema == Some(crate::db::SCHEMA_VERSION) && gateway.answering && gateway.accounting.as_deref() == Some("ok");
+    let store = StoreOut { served: path.as_ref().is_some_and(|p| exists && crate::gateway::store_in_use(p)),
+        path: path.map(|p| p.display().to_string()), exists, schema, expected_schema: crate::db::SCHEMA_VERSION };
+    Ok((store, gateway, ok))
+}
+
+fn print_status(store: &StoreOut, gateway: &GatewayOut) {
+    match (&store.path, store.exists) {
+        (Some(p), true) => println!("Store       {p} ({})", if store.served { "served by a running Pygg" } else { "not served" }),
+        (Some(p), false) => println!("Store       {p} (not created yet: open the Pygg desktop app once)"),
+        (None, _) => println!("Store       not found: pass --db PATH"),
+    }
+    match store.schema {
+        Some(v) if v == store.expected_schema => println!("Schema      v{v}, as this program expects"),
+        Some(v) if v < store.expected_schema =>
+            println!("Schema      v{v}; this program knows v{}. Open the Pygg app once to update it.", store.expected_schema),
+        Some(v) => println!("Schema      v{v} is newer than this program (v{}): update @pygg/cli", store.expected_schema),
+        None => {}
+    }
+    if gateway.answering {
+        println!("Gateway     {} answers, accounting {}", gateway.url, gateway.accounting.as_deref().unwrap_or("unknown"));
+        if let Some(e) = &gateway.error {
+            println!("            {e}");
+        }
+    } else {
+        println!("Gateway     {}: {}. Open the Pygg desktop app; it runs the gateway.", gateway.url,
+            gateway.error.as_deref().unwrap_or("not answering"));
+    }
+}
+
+const STATUS_HELP: &str = "usage: pygg status [--json] [--port N] [--db PATH]
+
+Whether Pygg's gateway answers, on which store, and whether the store's schema is the one this program knows.
+Exit code 3 when something is not as it should be. The port is --port, else the one Pygg saved, else 8741.";
+
+const DOCTOR_HELP: &str = "usage: pygg doctor [--json] [--port N] [--db PATH]
+
+`status`, plus the coding tools found on this computer and their Pygg set-up, and the providers that need attention
+(last check failed, or cooling down). Sends nothing to any provider. Exit code 3 when something is not as it should be.";
+
+async fn status(args: &[String]) -> Result<i32, Fail> {
+    let opts = Opts::parse("status", args, &["json"], &["db", "port"])?;
+    let (store, gateway, ok) = status_of(&opts).await?;
+    if opts.has("json") {
+        println!("{}", serde_json::to_string_pretty(&json!({ "schemaVersion": read::JSON_SCHEMA, "ok": ok, "store": store,
+            "gateway": gateway })).unwrap_or_default());
+    } else {
+        print_status(&store, &gateway);
+    }
+    Ok(if ok { 0 } else { 3 })
+}
+
+async fn doctor(args: &[String]) -> Result<i32, Fail> {
+    let opts = Opts::parse("doctor", args, &["json"], &["db", "port"])?;
+    let (store, gateway, mut ok) = status_of(&opts).await?;
+    let conn = read::open_read(&opts).ok();
+    let tools = match &conn { Some(c) => setup::tool_states(c).await, None => Vec::new() };
+    let agents = crate::agents::detect().await;
+    let attention = conn.as_ref().map(read::attention).unwrap_or_default();
+    ok &= attention.is_empty();
+    if opts.has("json") {
+        let tools: Vec<_> = tools.iter().map(|t| json!({ "name": t.name, "installed": t.installed, "setUp": t.set_up, "state": t.state })).collect();
+        let agents: Vec<_> = agents.iter().map(|a| json!({ "id": a.id, "installed": a.installed, "version": a.version })).collect();
+        println!("{}", serde_json::to_string_pretty(&json!({ "schemaVersion": read::JSON_SCHEMA, "ok": ok, "store": store,
+            "gateway": gateway, "tools": tools, "agents": agents, "providersNeedingAttention": attention })).unwrap_or_default());
+        return Ok(if ok { 0 } else { 3 });
+    }
+    print_status(&store, &gateway);
+    if !tools.is_empty() {
+        println!("\nCoding tools through Pygg (pygg setup)");
+        for t in &tools {
+            println!("  {:<10} {:<10} {}", t.name, if t.installed { "installed" } else { "not found" }, t.state);
+        }
+    }
+    println!("\nAgents found on this computer");
+    for a in &agents {
+        println!("  {:<12} {:<10} {}", a.id, if a.installed { "installed" } else { "not found" }, a.version.clone().unwrap_or_default());
+    }
+    if conn.is_some() {
+        if attention.is_empty() {
+            println!("\nProviders   none needs attention");
+        } else {
+            println!("\nProviders that need attention (pygg providers; fix them in the Pygg app)");
+            for a in &attention {
+                println!("  {a}");
             }
         }
-        Err(e) => { println!("Gateway     http://127.0.0.1:{port}: {e}"); ok = false; }
     }
-    ok
-}
-
-async fn doctor(args: &[String]) -> bool {
-    let mut ok = status(args).await;
-    if let Some(path) = flag(args, "--db").map(PathBuf::from).or_else(default_store).filter(|p| p.is_file()) {
-        match schema_of(&path) {
-            Ok(v) if v == crate::db::SCHEMA_VERSION => println!("Schema      v{v}, as this program expects"),
-            Ok(v) if v < crate::db::SCHEMA_VERSION =>
-                println!("Schema      v{v}; this program knows v{}. Pygg updates it the next time it opens the store.", crate::db::SCHEMA_VERSION),
-            Ok(v) => { println!("Schema      v{v} is newer than this program (v{}): update Pygg", crate::db::SCHEMA_VERSION); ok = false; }
-            Err(e) => { println!("Schema      could not be read: {e}"); ok = false; }
-        }
-    }
-    println!("Agents");
-    for a in crate::agents::detect().await {
-        println!("  {:<12} {:<10} {} {}", a.id, if a.installed { "installed" } else { "not found" },
-            a.version.unwrap_or_default(), a.login.unwrap_or_default());
-    }
-    // Pygg's own set-up records are read from the store without migrating it.
-    let records = flag(args, "--db").map(PathBuf::from).or_else(default_store).filter(|p| p.is_file())
-        .and_then(|p| rusqlite::Connection::open_with_flags(&p, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok())
-        .map(|c| crate::integrations::records(&c))
-        .unwrap_or_else(|| crate::integrations::TARGETS.iter().map(|t| (t.0.to_string(), None)).collect());
-    println!("Set up in your agents (Agents screen, or `pygg setup`)");
-    for i in crate::integrations::list_with(records, &crate::integrations::Homes::from_env()).await {
-        println!("  {:<12} {:<18} {}", i.id, i.state, i.config_path);
-    }
-    ok
+    Ok(if ok { 0 } else { 3 })
 }
 
 /// Writes the diagnostics bundle of the store to `--out`, reading the store without migrating it.
@@ -198,6 +283,19 @@ mod tests {
     }
 
     #[test]
+    fn status_says_what_is_wrong_with_exit_code_3_and_refuses_a_bad_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = dir.path().join("store.sqlite3");
+        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port().to_string();
+        let args = |extra: &[&str]| ["--db", store.to_str().unwrap()].iter().chain(extra).map(|s| s.to_string()).collect::<Vec<_>>();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        assert_eq!(rt.block_on(status(&args(&["--port", &port]))), Ok(3), "no store, no gateway: a problem found");
+        assert_eq!(rt.block_on(status(&args(&["--port", "nonsense"]))).unwrap_err().code, 2);
+        assert_eq!(rt.block_on(status(&args(&["--verbose"]))).unwrap_err().code, 2);
+        assert!(!store.exists(), "status creates nothing");
+    }
+
+    #[test]
     fn diagnostics_writes_a_zip_without_migrating_the_store() {
         let dir = tempfile::tempdir().unwrap();
         let store = dir.path().join("store.sqlite3");
@@ -218,25 +316,41 @@ mod tests {
 /// Runs `pygg-cli` with its arguments (without the program's name); the exit code says whether all was well.
 pub async fn run(mut args: Vec<String>) -> i32 {
     if args.is_empty() {
-        println!("{START}");
-        return 0;
+        return read::home().await;
     }
     let command = args.remove(0);
+    // A command's own --help, before anything is opened.
+    let help = |text: &str| { println!("{text}"); 0 };
     match command.as_str() {
         "-V" | "--version" | "version" => { println!("pygg-cli {}", env!("CARGO_PKG_VERSION")); 0 }
-        "status" => if status(&args).await { 0 } else { 1 },
-        "doctor" => if doctor(&args).await { 0 } else { 1 },
-        // Started by the program before its runtime (bin/pygg-cli.rs), since the MCP server runs its own.
-        "mcp" => { eprintln!("start the MCP server as `pygg-cli mcp`"); 2 }
+        "status" if wants_help(&args) => help(STATUS_HELP),
+        "status" => read::finish(status(&args).await),
+        "doctor" if wants_help(&args) => help(DOCTOR_HELP),
+        "doctor" => read::finish(doctor(&args).await),
+        "providers" | "provider" if wants_help(&args) => help(read::PROVIDERS_HELP),
+        "providers" | "provider" => read::finish(read::providers(&args)),
+        "models" | "model" if wants_help(&args) => help(read::MODELS_HELP),
+        "models" | "model" => read::finish(read::models(&args)),
+        "logs" | "log" if wants_help(&args) => help(read::LOGS_HELP),
+        "logs" | "log" => read::finish(read::logs(&args)),
+        "usage" if wants_help(&args) => help(read::USAGE_HELP),
+        "usage" => read::finish(read::usage(&args)),
+        // `pygg mcp setup …` registers the server; a bare `pygg mcp` is started by the program before its runtime
+        // (bin/pygg-cli.rs), since the MCP server runs its own.
+        "mcp" if args.first().map(String::as_str) == Some("setup") => setup::run_mcp(args[1..].to_vec()).await,
+        "mcp" => { eprintln!("pygg: start the MCP server as `pygg mcp`; register it with `pygg mcp setup`."); 2 }
         "gateway" => { gateway::run(args).await; 0 }
         "agent" => { agent::run(args).await; 0 }
         "setup" => setup::run(args).await,
         "run" => run::run(args).await,
         "diagnostics" => match diagnostics(&args).await {
             Ok(path) => { println!("Saved {} (no keys, tokens, prompts or agent output; see README.txt inside)", path.display()); 0 }
-            Err(e) => { eprintln!("{e}"); 1 }
+            Err(e) => { eprintln!("pygg: {e}"); 1 }
         },
-        "-h" | "--help" | "help" => { println!("{HELP}"); 0 }
-        other => { eprintln!("unknown command {other}\n{USAGE}\nRun `pygg --help` for the list."); 2 }
+        "-h" | "--help" | "help" => help(HELP),
+        other => {
+            eprintln!("pygg: unknown command {other}.\nUse: pygg --help (or `pygg` alone for where to start)");
+            2
+        }
     }
 }

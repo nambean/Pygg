@@ -68,7 +68,7 @@ A site with no API, used through a window the user signs in to, served to the ga
 ## Setting a tool up (`integrations.rs`, `launcher.rs`, `cli/setup.rs`, `cli/run.rs`)
 
 - **One-click set-up** (`integrations.rs`): the MCP server in Claude Code, Codex CLI or OpenCode (Agents), and Codex's or OpenCode's models through the gateway (CLI Tools). Each backs up the tool's configuration, makes a Pygg API key of its own, writes the change and checks it, putting the file back if a step fails; Remove takes Pygg's change out (after another backup) and revokes the key. `pygg setup [<tool>] [--dry-run | --remove]` (`cli/setup.rs`) runs the same code from a terminal.
-- **The Claude Code launcher** (`launcher.rs`): set up in CLI Tools or with `pygg setup claude-launcher`, it keeps a Pygg API key in the OS credential store. `pygg run claude` (`cli/run.rs`) reads it, checks the gateway answers, and starts Claude Code with the gateway's address, that key and `auto` in that one process's environment, without `ANTHROPIC_API_KEY` or the host session's variables. Claude Code's own settings are never changed.
+- **The Claude Code launcher** (`launcher.rs`): set up in CLI Tools or with `pygg setup claude`, it keeps a Pygg API key in the OS credential store. `pygg run claude` (`cli/run.rs`) reads it, checks the gateway answers, and starts Claude Code with the gateway's address, that key and `auto` in that one process's environment, without `ANTHROPIC_API_KEY` or the host session's variables. Claude Code's own settings are never changed.
 
 ## Boundaries
 

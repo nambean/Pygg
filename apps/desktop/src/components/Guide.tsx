@@ -29,21 +29,21 @@ const SECTIONS: Section[] = [
   </>},
   {id: 'claude', title: 'Claude Code', body: go => <>
     <p>{t('Pointing Claude Code’s own settings at another endpoint would stop it using your Claude plan, so Pygg uses a launcher: set it up once in CLI Tools (or with the command below), then start Claude Code through Pygg when you want it. Plain claude keeps your Claude sign-in.')}</p>
-    {code('pygg setup claude-launcher --dry-run\npygg setup claude-launcher\npygg run claude\npygg run --model auto/cheap claude\npygg run claude -p "Explain this repository"', t('Claude Code through Pygg'))}
+    {code('pygg setup claude --dry-run\npygg setup claude\npygg run claude\npygg run --model auto/cheap claude\npygg run claude -p "Explain this repository"', t('Claude Code through Pygg'))}
     <p>{t('Arguments after claude are Claude Code’s own; --model before claude sets the model for every slot. Claude Code may say it does not recognize the model “auto” and assume a 200k context: that is expected.')}{' '}
       <button type="button" className="link-button" onClick={() => go('tools')}>{t('Open CLI Tools')}</button></p>
     <p>{t('To let Claude Code hand tasks to Pygg instead (smart tasks, experimental):')}</p>
-    {code('pygg setup claude-code', t('MCP server for Claude Code'))}
+    {code('pygg mcp setup claude-code', t('MCP server for Claude Code'))}
   </>},
   {id: 'codex', title: 'Codex CLI', body: () => <>
     <p>{t('Pygg adds a pygg provider and a profile to Codex’s configuration, after a backup. Codex’s default model is not changed: choose Pygg per run with the profile.')}</p>
-    {code('pygg setup codex-models --dry-run\npygg setup codex-models\ncodex --profile pygg\ncodex --profile pygg -m auto/cheap\ncodex --profile pygg -m anthropic/claude-haiku-5-5', t('Codex through Pygg'))}
-    {code('pygg setup codex-models --remove', t('Undo'))}
+    {code('pygg setup codex --dry-run\npygg setup codex\npygg run codex\ncodex --profile pygg -m auto/cheap\ncodex --profile pygg -m anthropic/claude-haiku-5-5', t('Codex through Pygg'))}
+    {code('pygg setup codex --remove', t('Undo'))}
   </>},
   {id: 'opencode', title: 'OpenCode', body: () => <>
     <p>{t('Pygg adds a provider named Pygg to opencode.json, after a backup, listing auto, auto/cheap and your enabled models; it keeps the list current when models change.')}</p>
-    {code('pygg setup opencode-models\nopencode\n# then in OpenCode: /models → Pygg → auto', t('OpenCode through Pygg'))}
-    {code('pygg setup opencode-models --remove', t('Undo'))}
+    {code('pygg setup opencode\npygg run opencode\n# then in OpenCode: /models → Pygg → auto', t('OpenCode through Pygg'))}
+    {code('pygg setup opencode --remove', t('Undo'))}
   </>},
   {id: 'editors', title: 'Editors and SDKs', body: go => <>
     <p>{t('Cline, Continue, Roo Code and other tools that call the API from this computer: choose an OpenAI-compatible provider and fill in the address, a Pygg API key from Endpoint, and the model. Tools that send requests from their own servers cannot reach 127.0.0.1.')}{' '}
@@ -58,8 +58,8 @@ const SECTIONS: Section[] = [
   </>},
   {id: 'cli', title: 'Command line and npm', body: () => <>
     <p>{t('The pygg command does from a terminal what CLI Tools does with a click. npm installs the command only: the Pygg app still runs the gateway, and your coding tool is installed as before. Install @pygg/cli; run pygg. @dev is the Windows x64 developer preview, not code-signed, so SmartScreen or an antivirus may warn about it.')}</p>
-    {code('npm install -g @pygg/cli@dev\npygg doctor\npygg setup claude-launcher\npygg run claude', t('Install, check, set up Claude Code, start it through Pygg'))}
-    {code('pygg setup codex-models\ncodex --profile pygg', t('Codex'))}
+    {code('npm install -g @pygg/cli@dev\npygg doctor\npygg setup claude\npygg run claude', t('Install, check, set up Claude Code, start it through Pygg'))}
+    {code('pygg setup codex\npygg run codex', t('Codex'))}
     {code('npx --yes --package=@pygg/cli@dev pygg doctor', t('Try it without installing globally'))}
     <p className="secondary">{t('npx downloads the package into npm’s cache and runs it; setup still makes the same changes to your tool’s configuration. Without Node.js, use the program the installer put next to the app:')}</p>
     {code('& "$env:LOCALAPPDATA\\Pygg\\pygg-cli.exe" doctor', t('Without npm'))}
@@ -70,15 +70,18 @@ const SECTIONS: Section[] = [
       <thead><tr><th scope="col">{t('Command')}</th><th scope="col">{t('What it does')}</th></tr></thead>
       <tbody>
         {([
-          ['pygg status', t('Is Pygg serving, on which store, and does the gateway answer')],
-          ['pygg doctor', t('Status, plus the store’s schema, the agents found and what is set up in them')],
-          ['pygg setup', t('List the tools Pygg can set up, and their state')],
-          ['pygg setup claude-launcher', t('Route Claude Code’s requests through Pygg: the command pygg run claude')],
-          ['pygg setup codex-models | opencode-models', t('Point Codex or OpenCode’s models at Pygg (--dry-run previews, --remove undoes)')],
-          ['pygg setup claude-code | codex | opencode', t('The experimental MCP task integration, not the gateway: the tool can hand tasks to Pygg')],
-          ['pygg run [--model M] claude [args…]', t('Claude Code through Pygg for one launch')],
-          ['pygg gateway list', t('Connections, models, combos and API keys in the store')],
-          ['pygg gateway usage', t('What the ledger recorded')],
+          ['pygg', t('Where you are: the gateway, providers, tools set up, and what to type next')],
+          ['pygg setup', t('The three tools, whether each is installed and set up, and what to type next')],
+          ['pygg setup claude | codex | opencode', t('Route the tool’s requests through Pygg (--dry-run previews, --remove undoes)')],
+          ['pygg run claude | codex | opencode', t('Start the tool through Pygg, a routing session per launch (--model before claude picks a model)')],
+          ['pygg status', t('Is the gateway answering, and on which store (exit code 3 if not)')],
+          ['pygg doctor', t('Status, plus your tools and the providers that need attention')],
+          ['pygg providers', t('Saved connections: on, last check, health, models')],
+          ['pygg models [CONNECTION] --search TEXT', t('The models to ask for, with billing and price')],
+          ['pygg logs --limit 20 --failed', t('Recent request attempts, newest first')],
+          ['pygg usage --days 7', t('Requests, known and unknown cost, token mix, by client and model')],
+          ['--json', t('On status, doctor, providers, models, logs and usage: the same as JSON for scripts')],
+          ['pygg mcp setup claude-code | codex | opencode', t('The experimental MCP task integration, not the gateway: the tool can hand tasks to Pygg')],
           ['pygg gateway test-model --model C/M', t('One short request to a model (a paid model costs a little)')],
           ['pygg gateway lookup', t('Fill model facts (prices, context, tools) from the models.dev catalog')],
           ['pygg gateway auto --alias auto', t('Which model auto would choose, and why')],

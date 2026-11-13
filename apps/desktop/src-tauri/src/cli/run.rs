@@ -19,29 +19,37 @@ own settings and sign-in are not changed; run plain `claude` to use them as befo
 
   --model M   a model for every slot instead of auto: auto/cheap, a combo, or connection/model
 
-opencode, codex: starts the tool as set up in Pygg → CLI Tools (`pygg setup opencode-models`, `pygg setup
+opencode, codex: starts the tool as set up in Pygg → CLI Tools (`pygg setup opencode`, `pygg setup
 codex-models`; codex runs with --profile pygg), with a routing session of its own for this launch.
 
 Each launch gets its own routing session: the gateway keeps the launch on the model that answered it, while that
 model stays eligible, so its prompt cache is kept. An editor or a long-lived tool shares one session across its
 conversations until it is started again.
 
-Set Claude Code up once with `pygg setup claude-launcher` or in Pygg → CLI Tools.";
+Set Claude Code up once with `pygg setup claude` or in Pygg → CLI Tools.";
 
 /// The tools `pygg run` starts.
 pub const TOOLS: [&str; 3] = ["claude", "opencode", "codex"];
 
 /// Runs `pygg run …`; the exit code is the tool's, or Pygg's own for a problem before it starts.
 pub async fn run(args: Vec<String>) -> i32 {
-    if args.is_empty() || super::wants_help(&args) {
+    // Pygg's flags come before the tool's name; everything after it is the tool's, `--help` included
+    // (`pygg run claude --help` is Claude Code's help).
+    let at = args.iter().position(|a| !a.starts_with("--") && !is_flag_value(&args, a));
+    if args.is_empty() || super::wants_help(&args[..at.unwrap_or(args.len())]) {
         println!("{HELP}");
         return if args.is_empty() { 2 } else { 0 };
     }
-    // Pygg's flags come before the tool's name; everything after it is the tool's.
-    let Some(at) = args.iter().position(|a| !a.starts_with("--") && !is_flag_value(&args, a)) else {
-        eprintln!("name the tool to run: pygg run claude, pygg run opencode or pygg run codex");
+    let Some(at) = at else {
+        eprintln!("pygg: name the tool to run.
+Use: pygg run claude, pygg run opencode or pygg run codex");
         return 2;
     };
+    if let Some(unknown) = args[..at].iter().find(|a| a.starts_with("--") && !matches!(a.as_str(), "--model" | "--db")) {
+        eprintln!("pygg: unknown option {unknown} for pygg run (Pygg's options go before the tool's name: --model, --db).
+Use: pygg run --help");
+        return 2;
+    }
     let (ours, rest) = args.split_at(at);
     let tool = rest[0].as_str();
     let tool_args = &rest[1..];

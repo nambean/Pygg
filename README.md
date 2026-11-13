@@ -135,9 +135,13 @@ cd apps/desktop/src-tauri; cargo test --lib           # core, gateway, web-sessi
 `pygg-cli` (or `pygg` from npm) uses the same core and store as the app. API keys are read from an environment variable, so they never appear on a command line.
 
 ```powershell
-pygg status
-pygg setup codex-models            # Codex through Pygg: codex --profile pygg
-pygg setup claude-launcher         # then: pygg run claude
+pygg                               # where you are, and what to type next
+pygg setup claude                  # route Claude Code through Pygg; also codex, opencode
+pygg run claude                    # start it through Pygg, a routing session per launch
+pygg providers                     # saved connections: on, last check, health, models
+pygg models --search flash         # the models to ask for, with billing and price
+pygg logs --failed                 # recent request attempts that did not answer
+pygg usage --days 7 --json         # requests, cost and token mix, for scripts
 pygg gateway add-connection --preset gemini --key-env GEMINI_API_KEY
 pygg gateway auto --alias auto --tools yes   # which model auto would choose, and why
 pygg --help

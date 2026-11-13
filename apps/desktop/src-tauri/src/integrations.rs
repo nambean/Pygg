@@ -409,13 +409,13 @@ pub fn launch_ready(tool: &str, homes: &Homes) -> Result<(), String> {
         "opencode" => {
             let config = read_opencode(&homes.opencode)?;
             if opencode_has_provider(&config) { Ok(()) } else {
-                Err("OpenCode's Pygg provider is not set up: open Pygg → CLI Tools → OpenCode → Set Up, or run `pygg setup opencode-models`.".into())
+                Err("OpenCode's Pygg provider is not set up: open Pygg → CLI Tools → OpenCode → Set Up, or run `pygg setup opencode`.".into())
             }
         }
         "codex" => {
             let doc = read_codex(&homes.codex)?;
             if codex_has_provider(&doc) && codex_profile_path(&homes.codex).is_file() { Ok(()) } else {
-                Err("Codex's Pygg provider is not set up: open Pygg → CLI Tools → Codex → Set Up, or run `pygg setup codex-models`.".into())
+                Err("Codex's Pygg provider is not set up: open Pygg → CLI Tools → Codex → Set Up, or run `pygg setup codex`.".into())
             }
         }
         other => Err(format!("pygg run does not start {other} this way")),
@@ -1077,8 +1077,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let homes = Homes { claude: dir.path().join(".claude.json"), codex: dir.path().join("config.toml"),
             opencode: dir.path().join("opencode.json") };
-        assert!(launch_ready("opencode", &homes).unwrap_err().contains("pygg setup opencode-models"));
-        assert!(launch_ready("codex", &homes).unwrap_err().contains("pygg setup codex-models"));
+        assert!(launch_ready("opencode", &homes).unwrap_err().contains("pygg setup opencode"));
+        assert!(launch_ready("codex", &homes).unwrap_err().contains("pygg setup codex"));
         write_opencode(&homes.opencode, &with_opencode_provider(None, opencode_provider(&server(None), "str-o")).unwrap()).unwrap();
         assert_eq!(launch_ready("opencode", &homes), Ok(()));
         // Codex needs its provider and Pygg's profile file, which `--profile pygg` reads.

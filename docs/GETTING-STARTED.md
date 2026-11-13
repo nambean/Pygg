@@ -65,8 +65,8 @@ Some notes:
 Pointing Claude Code's own settings at another endpoint would stop it using your Claude plan. Pygg uses a launcher instead: set it up once, then start Claude Code through Pygg when you want it. Plain `claude` keeps your Claude sign-in.
 
 ```powershell
-pygg setup claude-launcher --dry-run     # shows what would change
-pygg setup claude-launcher
+pygg setup claude --dry-run     # shows what would change
+pygg setup claude
 pygg run claude                          # Claude Code through Pygg, this launch only
 pygg run --model auto/cheap claude
 pygg run claude -p "Explain this repository"
@@ -81,11 +81,11 @@ Verified: a headless Claude Code session (`claude -p`) through the gateway answe
 Pygg adds a `pygg` provider and a profile to Codex's configuration, after a backup. Codex's default model is not changed; choose Pygg per run with the profile.
 
 ```powershell
-pygg setup codex-models --dry-run
-pygg setup codex-models
-codex --profile pygg
+pygg setup codex --dry-run
+pygg setup codex
+pygg run codex
 codex --profile pygg -m auto/cheap
-pygg setup codex-models --remove         # undo
+pygg setup codex --remove         # undo
 ```
 
 Verified live on 2026-11-12: Codex through the Responses API, and the one-click set-up in CLI Tools.
@@ -95,10 +95,10 @@ Verified live on 2026-11-12: Codex through the Responses API, and the one-click 
 Pygg adds a provider named Pygg to `opencode.json`, after a backup, listing `auto`, `auto/cheap` and your enabled models, and keeps the list current when models change.
 
 ```powershell
-pygg setup opencode-models
-opencode
+pygg setup opencode
+pygg run opencode
 # then in OpenCode: /models → Pygg → auto
-pygg setup opencode-models --remove      # undo
+pygg setup opencode --remove      # undo
 ```
 
 Verified live on 2026-11-11 with the generated snippet (`opencode run` completed; a combo fallback happened and the ledger said so). The one-click set-up calls the same code.

@@ -78,7 +78,7 @@ pub fn remove(conn: &Connection) -> Result<State, String> {
 
 /// The launcher's key, read from the credential store for one launch.
 pub fn token(conn: &Connection) -> Result<String, String> {
-    let r = record(conn).ok_or("The Claude Code launcher is not set up: open Pygg → CLI Tools → Claude Code → Set Up, or run `pygg setup claude-launcher`.")?;
+    let r = record(conn).ok_or("The Claude Code launcher is not set up: open Pygg → CLI Tools → Claude Code → Set Up, or run `pygg setup claude`.")?;
     crate::vault::read(&r.vault_ref).map_err(|e| e.to_string())?
         .ok_or_else(|| "The launcher's key is missing from the credential store. Remove the launcher in CLI Tools and set it up again.".into())
 }
