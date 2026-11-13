@@ -221,7 +221,8 @@ pub const RECIPES: &[Recipe] = &[
         preset: "grok-web",
         site: "https://grok.com",
         new_chat_url: "https://grok.com/",
-        hosts: &["grok.com", "x.ai", "x.com", "twitter.com", GOOGLE[0], GOOGLE[1], "apple.com"],
+        // 2026-11-13, live: after its OAuth callback Grok sets its cookie on auth.grok.com and then auth.grokusercontent.com.
+        hosts: &["grok.com", "grokusercontent.com", "x.ai", "x.com", "twitter.com", GOOGLE[0], GOOGLE[1], "apple.com"],
         models: &["grok"],
         input: "textarea, div.ProseMirror[contenteditable=\"true\"]",
         send_pattern: "submit|send",

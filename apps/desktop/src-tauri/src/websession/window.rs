@@ -78,6 +78,7 @@ impl<R: Runtime> AppWindows<R> {
         std::fs::create_dir_all(&profile).map_err(|e| format!("Could not create the profile folder: {e}"))?;
         let url = recipe.site.parse().map_err(|_| "The site's address is not valid")?;
         let (app, provider_id) = (self.app.clone(), provider.id.clone());
+        let (app2, provider_id2) = (self.app.clone(), provider.id.clone());
         // Debug builds only, and only when asked: DevTools for the web window, to see why a page does not load.
         let args = if cfg!(debug_assertions) && std::env::var_os("PYGG_WEB_DEVTOOLS").is_some() {
             format!("{BROWSER_ARGS} --remote-debugging-port=9462")
@@ -94,9 +95,11 @@ impl<R: Runtime> AppWindows<R> {
             .on_navigation(move |url| {
                 let allowed = host_allowed(recipe, url.as_str());
                 // The host it refused, kept on the connection, so a stalled sign-in says why (nothing else of the address).
-                if !allowed && url.scheme() == "https" {
-                    if let (Some(host), Some(state)) = (url.host_str(), app.try_state::<crate::commands::AppState>()) {
-                        let _ = state.shared.with_db(|db| crate::gateway::store::set_web_blocked(db, &provider_id, host));
+                if !allowed && url.scheme() != "about" {
+                    // An https address by its host; any other kind (http, data, a custom scheme) by its scheme only.
+                    let what = if url.scheme() == "https" { url.host_str().unwrap_or("").to_string() } else { format!("a {}: address", url.scheme()) };
+                    if let Some(state) = app.try_state::<crate::commands::AppState>() {
+                        let _ = state.shared.with_db(|db| crate::gateway::store::set_web_blocked(db, &provider_id, &what));
                     }
                 }
                 // Debug builds, when asked: which addresses the window was refused (the address only, nothing from the page).
@@ -105,7 +108,17 @@ impl<R: Runtime> AppWindows<R> {
                 }
                 allowed
             })
-            .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
+            // No popups: a site that signs in through one is told so on the connection (host only), as for a refused address.
+            .on_new_window(move |url, _| {
+                if cfg!(debug_assertions) && std::env::var_os("PYGG_WEB_DEVTOOLS").is_some() {
+                    eprintln!("web-session popup {} -> denied", url.as_str());
+                }
+                if let Some(state) = app2.try_state::<crate::commands::AppState>() {
+                    let what = format!("a popup window ({})", url.host_str().unwrap_or(url.scheme()));
+                    let _ = state.shared.with_db(|db| crate::gateway::store::set_web_blocked(db, &provider_id2, &what));
+                }
+                tauri::webview::NewWindowResponse::Deny
+            })
             .build()
             .map_err(|e| format!("Could not open the window: {e}"))
     }

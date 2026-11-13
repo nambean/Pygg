@@ -302,6 +302,7 @@ fn the_window_goes_only_to_the_sites_hosts() {
         assert!(!host_allowed(chatgpt, no), "{no}");
     }
     assert!(!host_allowed(r, "https://accounts.google.com.vn/accounts/SetSID"), "Muse does not sign in with Google");
+    assert!(host_allowed(recipe("grok-web").unwrap(), "https://auth.grokusercontent.com/set-cookie"), "Grok's sign-in cookie hop");
     assert!(!host_allowed(r, "https://evilmuse.ai/"));
     assert!(!host_allowed(r, "https://muse.ai@evil.com/"));
     assert!(!host_allowed(r, "https://muse.ai:8443/"));
