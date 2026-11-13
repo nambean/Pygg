@@ -2,7 +2,7 @@
 
 > **Status:** Current · the benchmark harness and its cases · reviewed 2026-11-11 · order: [ROADMAP](../docs/ROADMAP.md) · built: [Implementation Status](../docs/IMPLEMENTATION-STATUS.md)
 
-Tests the product's core idea (ADR-013): does a cascade that climbs model tiers on check failure reach a comparable pass rate at a lower cost per success than always using one model? It also compares the baselines in [ROADMAP](../docs/ROADMAP.md) "P0 release proof": a pinned premium model, a pinned inexpensive capable one, a static combo and Auto. Paid traffic is capped at **$5 in total** (ADR-028). Results, each approved for publication by the owner: [the first pass](reports/2026-11-11-c3-first-pass.md) (every arm but Qwen passed every case, so a harder suite was next); [N2](reports/2026-11-12-n2-savings.md) (12 harder cases: Haiku 5.5 instead of Sonnet 5.5 cost 88% less per solved task); [P0](reports/2026-11-12-p0-optimization.md) (`auto/cheap` 89% less than pinned Sonnet with OpenCode, Claude Code with Haiku 79% less than with Sonnet); [web sessions](reports/2026-11-13-web-sessions.md) (five AI websites as providers: 47 of 48 short tasks, about 18 s each).
+Tests the product's core idea (ADR-013): does a cascade that climbs model tiers on check failure reach a comparable pass rate at a lower cost per success than always using one model? It also compares the baselines in [ROADMAP](../docs/ROADMAP.md) "P0 release proof": a pinned premium model, a pinned inexpensive capable one, a static combo and Auto. Paid traffic is capped at **$5 in total** (ADR-028). Results, each approved for publication by the owner: [the first pass](reports/2026-11-11-c3-first-pass.md) (every arm but Qwen passed every case, so a harder suite was next); [N2](reports/2026-11-12-n2-savings.md) (12 harder cases: Haiku 5.5 instead of Sonnet 5.5 cost 88% less per solved task); [P0](reports/2026-11-12-p0-optimization.md) (`auto/cheap` 89% less than pinned Sonnet with OpenCode, Claude Code with Haiku 79% less than with Sonnet); [web sessions](reports/2026-11-13-web-sessions.md) (five AI websites as providers: 47 of 48 short tasks, about 18 s each); [a real repository](reports/2026-11-13-ccht-real-repository.md) (six tasks cut from a private production monorepo: Claude Code with Haiku 6 of 6 for $1.50, Sonnet 4 of 5 for $1.19, OpenCode with `auto/cheap` 2 of 6); [web sessions on coding tasks](reports/2026-11-13-web-coding.md) (the 12 `hard-*` cases in one reply each: ChatGPT 17 and 21 of 24, DeepSeek 17, Haiku's API 16 the same way; Muse, Grok and Perplexity mostly timed out).
 
 ## Layout
 
@@ -55,6 +55,10 @@ cargo run --release --bin bench -- `
 - `--only <id>` runs one case; `--agent-timeout` and `--check-timeout` set limits in seconds.
 
 Each attempt runs in its own Git worktree and is discarded afterwards. Checks run even when the agent exits with an error.
+
+### One reply, no tools (`scripts/bench-web-agent.py`)
+
+For a provider that takes no tools, such as a web session (ADR-035), `--agent "python -I scripts/bench-web-agent.py {prompt_file} {model} {workdir}"` sends one request through the running gateway with the task and every fixture file, writes the files that come back, and exits; the checks then run. It reads a Markdown reply and the page-text form a web session returns (file name, language word, the page's Copy and Download buttons, then the code). `PYGG_BENCH_KEY_FILE` names a file holding a Pygg API key. The cost is unknown to the bench, so run with `--allow-unknown yes`. Results: [web sessions on coding tasks](reports/2026-11-13-web-coding.md).
 
 ### Through the task engine (`--engine`)
 
