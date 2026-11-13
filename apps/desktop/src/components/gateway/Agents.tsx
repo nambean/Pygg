@@ -208,7 +208,9 @@ const INTEGRATION_STATE: Record<Integration['state'], {tone: 'ok' | 'warn' | 'of
  * One click per agent (ROADMAP D2): Pygg shows what it will change, backs up the agent's configuration, makes a
  * token that may start tasks and reaches no model, registers its MCP server and checks the agent lists it.
  */
-export function Integrations({kind, status}: {kind: 'mcp' | 'gateway'; status?: (i: Integration) => ReactNode}) {
+export function Integrations({kind, status, note}: {kind: 'mcp' | 'gateway'; status?: (i: Integration) => ReactNode;
+  /** Shown under a tool that can be set up, before Set Up: on CLI Tools, whether auto has a model for its requests. */
+  note?: (i: Integration) => ReactNode}) {
   const all = useGateway(api => api.integrations(), [], undefined, 'integrations');
   const list = {...all, data: all.data?.filter(i => (i.kind ?? 'mcp') === kind)};
   const [planning, setPlanning] = useState<Integration | null>(null);
@@ -243,6 +245,7 @@ export function Integrations({kind, status}: {kind: 'mcp' | 'gateway'; status?: 
               {i.detail && <><br/><span className="mono">{i.detail}</span></>}
             </small>
             {status && i.state === 'set_up' && status(i)}
+            {note && canSetUp && note(i)}
           </span>
           <span className="row-actions">
             {canSetUp && <button type="button" className="button small" onClick={() => setPlanning(i)}>{t('Set Up…')}</button>}

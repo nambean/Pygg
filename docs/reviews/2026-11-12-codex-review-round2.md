@@ -13,10 +13,10 @@ Codex compared each screen with 9router's and OmniRoute's dashboard source and r
 - demo fixtures;
 - shared spacing and sizes.
 
-Not built:
-- request pagination beyond 200;
-- a chart metric switch;
-- a check that `auto` has an eligible model before a tool is set up.
+Built later the next day (2026-11-13), on the owner's decision:
+- request pagination beyond 200 (Show More, 200 at a time);
+- a chart metric switch (cost, requests, tokens);
+- a check that `auto` has an eligible model before a tool is set up (a note under each tool on CLI Tools, per API surface).
 
 ## The review, as written
 

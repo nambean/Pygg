@@ -727,6 +727,10 @@ export function demoApi(): GatewayApi {
         recent: [...list].sort((a, b) => b.createdAt - a.createdAt).slice(0, 200)};
       return touch(summary);
     },
+    usageRequests: async (days, offset, limit) => {
+      const since = Date.now() - days * 86_400_000;
+      return touch(events.filter(e => e.createdAt >= since).sort((a, b) => b.createdAt - a.createdAt).slice(offset, offset + limit));
+    },
     usageSubscriptions: async days => {
       const list = events.filter(e => e.createdAt >= Date.now() - days * 86_400_000 && rowBilling(e) === 'subscription');
       const out: SubscriptionUsage[] = connections.filter(c => c.defaultBilling === 'subscription').map(c => {
@@ -783,8 +787,11 @@ export function demoApi(): GatewayApi {
       const buckets = new Map<number, UsageBucket>();
       for (const e of events.filter(e => e.createdAt >= since)) {
         const start = Math.floor((e.createdAt + offset) / size) * size - offset;
-        const b = buckets.get(start) ?? {start, requests: 0, failed: 0, knownMicroUsd: 0, actualMicroUsd: 0, unknownRequests: 0};
+        const b = buckets.get(start) ?? {start, requests: 0, failed: 0, knownMicroUsd: 0, actualMicroUsd: 0, unknownRequests: 0,
+          inputTokens: 0, outputTokens: 0};
         b.requests += 1;
+        b.inputTokens += e.inputTokens ?? 0;
+        b.outputTokens += e.outputTokens ?? 0;
         b.failed += e.outcome === 'ok' || e.outcome === 'fallback' ? 0 : 1;
         b.knownMicroUsd += e.costMicroUsd ?? 0;
         b.actualMicroUsd += e.costStatus === 'actual' ? e.costMicroUsd ?? 0 : 0;

@@ -105,7 +105,7 @@ Built the same day, from that review:
 - **Claude Code launcher** (`launcher.rs`, `pygg run claude`): a key of its own kept in the Windows Credential Manager and handed to Claude Code at launch with the gateway's address and `auto`. Claude Code's settings are not changed, so plain `claude` keeps the user's Claude plan.
 - **Estimated Savings** (`gateway/savings.rs`) on Usage and Home: the answered requests priced again at a model the user picks, with the same tokens. It counts what it leaves out (unknown cost, no tokens, failed attempts that may have been billed, subscription requests) and is labelled as an estimate.
 
-Still to do: a check before set-up that `auto` has an eligible model for that tool's requests. `auto` is described as choosing an eligible model within the user's rules: it does not judge how hard a prompt is.
+Built 2026-11-13: a note under each tool, before Set Up, when `auto` has no eligible model for that tool's requests on its API surface, linking to Connect Provider or How auto chooses. `auto` is described as choosing an eligible model within the user's rules: it does not judge how hard a prompt is.
 
 The notes below predate this navigation where they name Overview, Connections or Clients.
 

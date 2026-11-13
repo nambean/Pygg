@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, CalendarClock, ChartColumn, ChevronRight, Cpu, FileDown } from 'lucide-react';
 import { call, errorText, type CostStatus, type LocalUsage, type Outcome, type SubscriptionUsage, type TaskQuality, type UsageEvent,
   type UsageGroup } from '../../lib/api';
@@ -13,6 +13,8 @@ import { CostOverTime } from './CostOverTime';
 import { Savings } from './Savings';
 
 type Range = '1' | '7' | '30';
+/** Requests shown at a time: the summary's first page, and each Show More. */
+const PAGE = 200;
 /** The money ledger, plans paid by the month, and models on this computer (SCREENS.md §5.6). */
 type View = 'api' | 'subscriptions' | 'local';
 
@@ -41,7 +43,23 @@ export function Usage() {
   const [client, setClient] = useState('');
   const [model, setModel] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
-  const recent = usage.data?.recent ?? [];
+  // The summary brings the first page of requests; Show More fetches the next pages, which the next refresh keeps.
+  const [more, setMore] = useState<{range: Range; rows: UsageEvent[]}>({range, rows: []});
+  const [loadingMore, setLoadingMore] = useState<string | null>(null);
+  useEffect(() => setMore(m => m.range === range ? m : {range, rows: []}), [range]);
+  const recent = useMemo(() => {
+    const first = usage.data?.recent ?? [];
+    if (more.range !== range || more.rows.length === 0) return first;
+    const seen = new Set(first.map(e => e.id));
+    return [...first, ...more.rows.filter(e => !seen.has(e.id))];
+  }, [usage.data, more, range]);
+  const total = usage.data?.total.requests ?? 0;
+  const showMore = () => {
+    setLoadingMore(null);
+    call(api => api.usageRequests(Number(range), recent.length, PAGE)).then(
+      page => setMore(m => ({range, rows: m.range === range ? [...m.rows, ...page] : page})),
+      e => setLoadingMore(errorText(e)));
+  };
   const rows = useMemo(() => recent.filter(e =>
     (show === 'all' || (show === 'unknown' ? e.costStatus === 'unknown' : e.outcome !== 'ok'))
     && (!client || (e.client ?? '') === client) && (!model || `${e.provider}/${e.model}` === model)), [recent, show, client, model]);
@@ -147,7 +165,13 @@ export function Usage() {
             </tbody>
           </table>
         </div>
-        <p className="group-footnote">{t('Shows up to 200 of the most recent requests in this period. Failed attempts before a fallback are listed too. A request the provider refused before answering is usually not billed; one cut off after it started may have been, so its cost shows as unknown or estimated.')}</p>
+        {recent.length < total && <button type="button" className="link-button table-more" onClick={showMore}>
+          {t('Show {n} more', {n: Math.min(PAGE, total - recent.length)})}</button>}
+        {loadingMore && <ErrorNote>{loadingMore}</ErrorNote>}
+        <p className="group-footnote">{recent.length < total
+          ? t('Showing the {shown} most recent of {total} requests in this period; Show More goes further back, and Export CSV has them all.', {shown: recent.length, total})
+          : t('Every request of this period is listed, newest first.')}{' '}
+          {t('Failed attempts before a fallback are listed too. A request the provider refused before answering is usually not billed; one cut off after it started may have been, so its cost shows as unknown or estimated.')}</p>
       </section>
       {quality.data && quality.data.tasks > 0 && <TaskResults q={quality.data}/>}
     </>}

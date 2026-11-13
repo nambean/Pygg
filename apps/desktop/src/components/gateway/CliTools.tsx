@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { CircleAlert, CircleCheck, Circle, TerminalSquare } from 'lucide-react';
-import { call, errorText, gatewayChanged, type GatewayStatus, type LatestRequest } from '../../lib/api';
+import { call, errorText, gatewayChanged, type AutoPlan, type GatewayStatus, type LatestRequest } from '../../lib/api';
 import { t } from '../../lib/i18n';
 import { ago } from '../../lib/format';
 import { useGateway } from '../../hooks/useGateway';
@@ -13,7 +13,9 @@ import { ClientSetup, type Navigate } from './Overview';
  * Code through a launcher (launcher.rs: a key of its own in the credential store, handed over at launch), Codex and
  * OpenCode in one click (integrations.rs: backup, a key of their own, the change, a check; Remove puts it back), the
  * others by hand. Each tool's own key says whether it works: configured, then working once a request has come.
- * Nothing is sent to find out.
+ * Nothing is sent to find out. Before a tool is set up, the same simulation Home uses says whether auto has a model for
+ * that tool's requests (Claude Code and OpenCode speak the Anthropic format, Codex the OpenAI one), so set-up does not
+ * end in "no eligible model".
  */
 export function CliTools({status, navigate}: {status: GatewayStatus | null; navigate: Navigate}) {
   const combos = useGateway(api => api.combos());
@@ -26,6 +28,10 @@ export function CliTools({status, navigate}: {status: GatewayStatus | null; navi
     ...(models.data ?? []).filter(m => m.enabled).map(m => ({value: `${m.providerId}/${m.modelId}`, label: `${m.providerId}/${m.modelId}`})),
   ], [combos.data, models.data]);
   const active = (clients.data ?? []).filter(c => !c.revokedAt);
+  // A coding agent's request on each surface: tools, a short prompt, no image. New keys get the Policies defaults.
+  const needs = {tools: true, vision: false, inputTokens: 2000, maxTokens: 1000, thinking: null, effort: null};
+  const anthropicPlan = useGateway(api => api.autoSimulate(null, 'auto', {surfaceAnthropic: true, ...needs}));
+  const openaiPlan = useGateway(api => api.autoSimulate(null, 'auto', {surfaceAnthropic: false, ...needs}));
   const latestFor = (clientId: string | undefined | null) => clientId ? latest.data?.find(r => r.clientId === clientId) : undefined;
   const byName = (name: string | null) => active.find(c => c.name === name);
   return <div className="page">
@@ -33,8 +39,9 @@ export function CliTools({status, navigate}: {status: GatewayStatus | null; navi
     <section className="group">
       <h2>{t('One-Click Setup')}</h2>
       <p className="group-intro">{t('Each tool gets a Pygg API key of its own, so you can see what it spends and whether it works. Pygg backs up a tool’s configuration before changing it; Remove puts it back and revokes the key.')}</p>
-      <ClaudeLauncher latestFor={latestFor}/>
-      <Integrations kind="gateway" status={i => <ToolStatus latest={latestFor(byName(i.clientName)?.id)}/>}/>
+      <ClaudeLauncher latestFor={latestFor} note={<Eligibility plan={anthropicPlan.data} tool={t('Claude Code')} navigate={navigate}/>}/>
+      <Integrations kind="gateway" status={i => <ToolStatus latest={latestFor(byName(i.clientName)?.id)}/>}
+        note={i => <Eligibility plan={i.id === 'codex-gateway' ? openaiPlan.data : anthropicPlan.data} tool={i.id === 'codex-gateway' ? t('Codex') : t('OpenCode')} navigate={navigate}/>}/>
     </section>
     <details className="manual-setup">
       <summary>{t('Set up by hand: Claude Code without the launcher, Cline, Continue, SDKs, curl')}</summary>
@@ -42,6 +49,21 @@ export function CliTools({status, navigate}: {status: GatewayStatus | null; navi
         hasToken={active.length > 0} onCreateToken={() => navigate('endpoint', 'create')}/>
     </details>
   </div>;
+}
+
+/**
+ * Before a tool is set up: whether auto has a model for its requests (ROADMAP, Codex review r2 #1). Nothing when it has;
+ * otherwise what is missing and where to fix it. Set Up still works, so the warning never blocks.
+ */
+function Eligibility({plan, tool, navigate}: {plan: AutoPlan | null | undefined; tool: string; navigate: Navigate}) {
+  if (!plan || plan.ranked.length > 0) return null;
+  const connected = plan.excluded.length > 0;
+  return <p className="client-check failed tool-status" role="status"><CircleAlert size={13} aria-hidden/>
+    <span>{connected
+      ? t('auto has no model yet that qualifies for {tool}’s requests (tools, the minimum tier, a price or free billing, and a provider that takes its format). Its requests would be refused until one does.', {tool})
+      : t('No provider is connected yet, so {tool}’s requests through Pygg would be refused. Connect a provider first.', {tool})}{' '}
+      <button type="button" className="link-button" onClick={() => navigate(connected ? 'combos' : 'connections', connected ? undefined : 'connect')}>
+        {connected ? t('How auto chooses') : t('Connect Provider…')}</button></span></p>;
 }
 
 /** Configured, waiting for the first request; or working; or the last request failed. */
@@ -56,7 +78,7 @@ function ToolStatus({latest}: {latest: LatestRequest | undefined}) {
 }
 
 /** Claude Code: pointing its settings at Pygg would stop it using the user's Claude plan, so a launcher does it per launch. */
-function ClaudeLauncher({latestFor}: {latestFor: (clientId: string | null) => LatestRequest | undefined}) {
+function ClaudeLauncher({latestFor, note}: {latestFor: (clientId: string | null) => LatestRequest | undefined; note: ReactNode}) {
   const launcher = useGateway(api => api.launcher());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +104,7 @@ function ClaudeLauncher({latestFor}: {latestFor: (clientId: string | null) => La
         {l.setUp && <CodeBlock code={command} label={t('Start Claude Code through Pygg')}/>}
         {l.setUp && <small className="secondary">{t('From npm (npm install -g @pygg/cli@dev) it is pygg run claude. Add Claude Code’s own arguments after it; --model before claude picks another model for every slot.')}</small>}
         {l.setUp && <ToolStatus latest={latestFor(l.clientId)}/>}
+        {!l.setUp && l.installed && note}
         {error && <ErrorNote>{error}</ErrorNote>}
       </span>
       <span className="row-actions">

@@ -1,6 +1,6 @@
 # Web-session connections: does an AI website work as a provider, and how fast? 2026-11-13
 
-> **Status:** Record · not yet approved for publication · design: [ADR-035](../../docs/DECISIONS.md) · raw results: [`results/2026-11-13-web-sessions`](../results/2026-11-13-web-sessions/)
+> **Status:** Record · **approved for publication by the owner on 2026-11-13** · design: [ADR-035](../../docs/DECISIONS.md) · raw results: [`results/2026-11-13-web-sessions`](../results/2026-11-13-web-sessions/)
 
 **In one line:** six signed-in accounts on five AI websites answered **47 of 48** short tasks correctly through Pygg's gateway. The typical answer took **about 18 s**, at the pace Pygg keeps so that use looks like a person's: one request at a time per account, and a 10-second rest after each reply.
 

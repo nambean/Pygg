@@ -1726,6 +1726,8 @@ pub struct UsageBucket {
     pub known_micro_usd: u64,
     pub actual_micro_usd: u64,
     pub unknown_requests: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
 }
 
 /// Usage since `since` in periods of `bucket_ms`, aligned to the user's clock (`offset_ms` east of UTC), oldest first.
@@ -1735,11 +1737,12 @@ pub fn usage_over_time(conn: &Connection, since: i64, bucket_ms: i64, offset_ms:
     let mut stmt = conn.prepare(
         "SELECT ((created_at + ?3) / ?2) * ?2 - ?3 AS start, COUNT(*), SUM(outcome NOT IN ('ok', 'fallback')), \
          COALESCE(SUM(cost_micro_usd), 0), COALESCE(SUM(CASE WHEN cost_status = 'actual' THEN cost_micro_usd END), 0), \
-         SUM(cost_status = 'unknown') FROM usage_events WHERE created_at >= ?1 GROUP BY start ORDER BY start").map_err(err)?;
+         SUM(cost_status = 'unknown'), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0) \
+         FROM usage_events WHERE created_at >= ?1 GROUP BY start ORDER BY start").map_err(err)?;
     let rows = stmt.query_map(params![since, bucket_ms, offset_ms], |r| {
         let n = |i: usize| r.get::<_, Option<i64>>(i).map(|v| v.unwrap_or(0).max(0) as u64);
         Ok(UsageBucket { start: r.get(0)?, requests: n(1)?, failed: n(2)?, known_micro_usd: n(3)?, actual_micro_usd: n(4)?,
-            unknown_requests: n(5)? })
+            unknown_requests: n(5)?, input_tokens: n(6)?, output_tokens: n(7)? })
     }).map_err(err)?;
     rows.collect::<rusqlite::Result<_>>().map_err(err)
 }
@@ -1966,18 +1969,23 @@ pub fn usage_summary(conn: &Connection, since: i64, recent_limit: usize) -> Resu
     let total = group("'all'")?.into_iter().next().unwrap_or(UsageGroup { key: "all".into(), ..Default::default() });
     let by_model = group("u.provider || '/' || u.model")?;
     let by_client = group("COALESCE(c.name, '')")?;
+    let recent = usage_requests(conn, since, 0, recent_limit)?;
+    Ok(UsageSummary { since, total, by_model, by_client, recent })
+}
 
+/// A page of the requests since `since`, newest first: `limit` of them from `offset` (Usage → Requests, 200 at a time).
+pub fn usage_requests(conn: &Connection, since: i64, offset: usize, limit: usize) -> Result<Vec<UsageEvent>> {
     let mut stmt = conn
         .prepare(
             "SELECT u.id, u.created_at, c.name, u.provider, u.model, u.requested_model, u.input_tokens, u.output_tokens, \
              u.cost_micro_usd, u.cost_status, u.source, u.outcome, u.http_status, u.latency_ms, u.error, \
              u.cache_tokens, u.cache_write_tokens, u.session_key, u.route_mode, u.at_risk_micro_usd, u.route_reason \
              FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id \
-             WHERE u.created_at >= ?1 ORDER BY u.created_at DESC LIMIT ?2",
+             WHERE u.created_at >= ?1 ORDER BY u.created_at DESC, u.id DESC LIMIT ?2 OFFSET ?3",
         )
         .map_err(err)?;
-    let recent = stmt
-        .query_map(params![since, recent_limit as i64], |r| {
+    let rows = stmt
+        .query_map(params![since, limit as i64, offset as i64], |r| {
             let u = |i: usize| r.get::<_, Option<i64>>(i).map(|v| v.map(|v| v.max(0) as u64));
             Ok(UsageEvent {
                 id: r.get(0)?,
@@ -2006,7 +2014,7 @@ pub fn usage_summary(conn: &Connection, since: i64, recent_limit: usize) -> Resu
         .map_err(err)?
         .collect::<rusqlite::Result<_>>()
         .map_err(err)?;
-    Ok(UsageSummary { since, total, by_model, by_client, recent })
+    Ok(rows)
 }
 
 // ---------- Subscriptions and local runtime (Usage tabs, SCREENS.md §5.6) ----------
@@ -2446,6 +2454,13 @@ mod tests {
         assert_eq!((summary.total.known_micro_usd, summary.total.unknown_requests), (3000, 1));
         assert_eq!(summary.by_client[0].key, "Codex");
         assert_eq!(summary.recent.len(), 3);
+        // The chart's periods carry tokens; the request list pages newest first without a gap or a repeat.
+        assert_eq!(buckets.iter().map(|b| (b.input_tokens, b.output_tokens)).fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1)), (30, 15));
+        let page = |offset, limit| usage_requests(&conn, 0, offset, limit).unwrap().into_iter().map(|e| e.id).collect::<Vec<_>>();
+        let all = page(0, 10);
+        assert_eq!(all.len(), 3);
+        assert_eq!([page(0, 2), page(2, 2)].concat(), all);
+        assert!(page(3, 2).is_empty());
         let client = list_clients(&conn).unwrap().remove(0);
         assert_eq!((client.month_spend_micro_usd, client.month_unknown_requests), (3000, 1));
     }

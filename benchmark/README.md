@@ -2,7 +2,7 @@
 
 > **Status:** Current · the benchmark harness and its cases · reviewed 2026-11-11 · order: [ROADMAP](../docs/ROADMAP.md) · built: [Implementation Status](../docs/IMPLEMENTATION-STATUS.md)
 
-Tests the product's core idea (ADR-013): does a cascade that climbs model tiers on check failure reach a comparable pass rate at a lower cost per success than always using one model? It also compares the baselines in [ROADMAP](../docs/ROADMAP.md) "P0 release proof": a pinned premium model, a pinned inexpensive capable one, a static combo and Auto. Paid traffic is capped at **$5 in total** (ADR-028). Results: [the first pass](reports/2026-11-11-c3-first-pass.md) (every arm but Qwen passed every case, so a harder suite is next).
+Tests the product's core idea (ADR-013): does a cascade that climbs model tiers on check failure reach a comparable pass rate at a lower cost per success than always using one model? It also compares the baselines in [ROADMAP](../docs/ROADMAP.md) "P0 release proof": a pinned premium model, a pinned inexpensive capable one, a static combo and Auto. Paid traffic is capped at **$5 in total** (ADR-028). Results, each approved for publication by the owner: [the first pass](reports/2026-11-11-c3-first-pass.md) (every arm but Qwen passed every case, so a harder suite was next); [N2](reports/2026-11-12-n2-savings.md) (12 harder cases: Haiku 5.5 instead of Sonnet 5.5 cost 88% less per solved task); [P0](reports/2026-11-12-p0-optimization.md) (`auto/cheap` 89% less than pinned Sonnet with OpenCode, Claude Code with Haiku 79% less than with Sonnet); [web sessions](reports/2026-11-13-web-sessions.md) (five AI websites as providers: 47 of 48 short tasks, about 18 s each).
 
 ## Layout
 

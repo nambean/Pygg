@@ -210,6 +210,7 @@ export type UsageAlert = {kind: 'near_limit' | 'over_limit' | 'spend_spike' | 'u
 /** Requests and money in one period of the usage chart (one hour or one day). */
 export type UsageBucket = {
   start: number; requests: number; failed: number; knownMicroUsd: number; actualMicroUsd: number; unknownRequests: number;
+  inputTokens: number; outputTokens: number;
 };
 
 export type UsageSummary = {
@@ -360,6 +361,8 @@ export interface GatewayApi {
   /** What an auto alias would choose, from a client's point of view (null: a new client's defaults). Sends nothing. */
   autoSimulate(clientId: string | null, alias: AutoAlias, needs: AutoNeeds): Promise<AutoPlan>;
   usage(days: number): Promise<UsageSummary>;
+  /** A page of the period's requests, newest first: `limit` of them from `offset` (Usage → Requests, 200 at a time). */
+  usageRequests(days: number, offset: number, limit: number): Promise<UsageEvent[]>;
   /** Usage per hour for one day, per day for longer, on this computer's clock. */
   usageOverTime(days: number): Promise<UsageBucket[]>;
   /** Each subscription connection's requests and tokens over the last `days`, with its stated limits. */
@@ -476,6 +479,7 @@ const native: GatewayApi = {
   setModelCapabilities: (providerId, modelId, capabilities) => invoke('model_set_capabilities', {providerId, modelId, capabilities}),
   autoSimulate: (clientId, alias, needs) => invoke('auto_simulate', {clientId, alias, needs}),
   usage: days => invoke('usage_summary', {days}),
+  usageRequests: (days, offset, limit) => invoke('usage_requests', {days, offset, limit}),
   usageOverTime: days => invoke('usage_over_time', {days, offsetMinutes: -new Date().getTimezoneOffset()}),
   exportUsage: days => invoke('usage_export', {days}),
   usageAlerts: () => invoke('usage_alerts'),
