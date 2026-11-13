@@ -4,7 +4,7 @@
 
 **One Flow. Many Agents.** A local AI gateway that cuts what your coding tools cost.
 
-The repository and its technical identifiers keep the engineering name SmartTaskRouter. Documentation index: [docs/README.md](docs/README.md). Brand assets: [branding](branding/README.md).
+The repository and its technical identifiers keep the engineering name SmartTaskRouter. New here? Read [Getting started](docs/GETTING-STARTED.md). Every document is listed in [docs/README.md](docs/README.md); brand assets are in [branding](branding/README.md).
 
 Pygg runs on your computer. You connect your providers once, point Claude Code, Codex, OpenCode, an editor or an SDK at it, and choose the model `auto`. Each request then goes to an eligible model you connected, free and cheap ones first where they qualify, within the limits you set. Every request is recorded with what it cost and where that figure came from. The app hosts no chat of its own (ADR-028).
 
@@ -25,6 +25,8 @@ The setup follows 9router and OmniRoute, so it feels familiar:
    - Claude Code starts through Pygg with `pygg run claude`, one launch at a time, so your Claude plan stays as it was.
    - Editors and SDKs get a snippet.
 4. **Work as usual with the model `auto`.** Home shows the first request, what it cost, and an estimate of what it saved against the model you would otherwise use.
+
+Step by step, with each tool's commands and a troubleshooting table: [Getting started](docs/GETTING-STARTED.md).
 
 ## What works today
 
@@ -147,6 +149,21 @@ More is in the in-app **Guide** and in [AGENTS.md](docs/AGENTS.md).
 
 MIT, see [LICENSE](LICENSE). Third-party notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## Roadmap
+## Documentation
 
-The [roadmap](docs/ROADMAP.md) is the single authority for order. [docs/README.md](docs/README.md) lists every document and its status, and reviews with their answers are in [docs/reviews](docs/reviews). Benchmarks, each with its method and raw results, are in [benchmark/reports](benchmark/reports).
+**Using Pygg**
+
+- [Getting started](docs/GETTING-STARTED.md): install, first run, connect a provider, set up Claude Code, Codex, OpenCode or an editor, see cost and savings, troubleshooting, FAQ.
+- [Providers](docs/PROVIDERS.md): every connection preset, its endpoint, its free tier and whether it has answered live; the web-session sites.
+- [Security](docs/SECURITY.md): what Pygg protects, what you are trusted with, how to report a problem.
+- The in-app **Guide** repeats the steps with every command ready to copy.
+
+**Engineering**
+
+- [Implementation status](docs/IMPLEMENTATION-STATUS.md): what is built and how each part was verified, including what is not verified yet. The authority on whether something works.
+- [Roadmap](docs/ROADMAP.md): delivery order and release gates. The authority on what comes next.
+- [Architecture](docs/ARCHITECTURE.md), [Decisions](docs/DECISIONS.md) (ADR-001 to ADR-035), [Schema](docs/SCHEMA.md), [Agents and smart tasks](docs/AGENTS.md).
+- [Contributing](CONTRIBUTING.md): how to change Pygg.
+- [Benchmarks](benchmark/reports): each run with its method, cost and raw results.
+- [Reviews](docs/reviews) with their answers, and [research](docs/research), as written at the time.
+- [docs/README.md](docs/README.md): the full index, grouped by reader, with each document's status.
