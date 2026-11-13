@@ -600,6 +600,7 @@ export function demoApi(): GatewayApi {
     },
     // The preview has no window to open or drive.
     openWebSession: async () => { await sleep(150); throw 'The browser preview cannot open a sign-in window; run the desktop app.'; },
+    setWebDailyLimit: async () => { await sleep(100); },
     checkWebSession: async id => { await sleep(400); return touch(view(find(id))); },
     refreshModels: async id => {
       await sleep(700);

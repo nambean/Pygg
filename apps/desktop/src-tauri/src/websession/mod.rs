@@ -53,6 +53,12 @@ pub const NOT_SIGNED_IN: &str = "Not signed in yet. Open the sign-in window and 
 pub const SIGNED_OUT: &str = "Signed out. Open the sign-in window and sign in again.";
 /// The page Pygg was about to type into is not the site's own (ADR-035, 2026-11-13): it stops before sending anything.
 pub const OFF_SITE: &str = "The window is not on the site's own page, so Pygg sent nothing. Open the window and go back to the site.";
+/// Requests a web session sends to its site per UTC day unless the user sets another limit: a person's pace, not a
+/// script's. Bursts of automated requests are what get accounts of tools like 9router flagged (owner, 2026-11-13).
+pub const DEFAULT_DAILY_LIMIT: u32 = 50;
+/// The rest between two requests on one account, after the reply ends: a person's pace (owner, 2026-11-13: rotation
+/// "must avoid sending requests continuously"). Fixed, not randomised: Pygg slows down, it does not disguise itself.
+pub const PACE_SECS: u64 = 10;
 pub const CHALLENGE: &str = "The site is showing a check (a CAPTCHA, a bot check or a sign-in challenge). Open the window and deal with it yourself; Pygg does not answer such checks.";
 pub const SIGNED_IN: &str = "Signed in.";
 pub const NO_PROMPT_BOX: &str = "The page has changed: Pygg could not find its prompt box.";
@@ -517,13 +523,15 @@ pub enum WebError {
     Unavailable(&'static str),
     /// The request itself cannot be sent: 400.
     BadRequest(String),
+    /// Pygg's own daily limit for this web session is used: 429 until 00:00 UTC; nothing reached the site.
+    DailyLimit { limit: u32, retry_after: u64 },
 }
 
 impl WebError {
     pub fn status(&self) -> StatusCode {
         match self {
             WebError::NeedsYou { .. } => StatusCode::UNAUTHORIZED,
-            WebError::Busy { .. } | WebError::Quota => StatusCode::TOO_MANY_REQUESTS,
+            WebError::Busy { .. } | WebError::Quota | WebError::DailyLimit { .. } => StatusCode::TOO_MANY_REQUESTS,
             WebError::PageChanged(_) | WebError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             WebError::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
             WebError::BadRequest(_) => StatusCode::BAD_REQUEST,
@@ -537,6 +545,8 @@ impl WebError {
             WebError::Quota => QUOTA.into(),
             WebError::PageChanged(why) | WebError::Timeout(why) | WebError::Unavailable(why) => why.to_string(),
             WebError::BadRequest(why) => why.clone(),
+            WebError::DailyLimit { limit, .. } => format!("Not sent: this web session reached its daily limit of {limit} \
+                requests, which keeps its use at a person's pace. It resets at 00:00 UTC; change it in Pygg → Providers."),
         }
     }
 
@@ -556,10 +566,10 @@ impl WebError {
             StatusCode::BAD_REQUEST => "invalid_request_error",
             _ => "api_error",
         };
-        let code = matches!(self, WebError::Quota).then_some("insufficient_quota");
+        let code = match self { WebError::Quota => Some("insufficient_quota"), WebError::DailyLimit { .. } => Some("daily_limit"), _ => None };
         let mut response = (self.status(), axum::Json(json!({ "error": {
             "message": self.message(), "type": kind, "code": code } }))).into_response();
-        if let WebError::Busy { retry_after } = self {
+        if let WebError::Busy { retry_after } | WebError::DailyLimit { retry_after, .. } = self {
             response.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(*retry_after));
         }
         response
@@ -603,7 +613,7 @@ impl Default for Timing {
     fn default() -> Timing {
         Timing { poll: Duration::from_millis(300), ready: Duration::from_secs(45), send: Duration::from_secs(5),
             first_word: Duration::from_secs(60), reply: Duration::from_secs(300), stable: 4, stable_busy: 12,
-            queue: Duration::from_secs(60), gap: Duration::from_secs(3) }
+            queue: Duration::from_secs(60), gap: Duration::from_secs(PACE_SECS) }
     }
 }
 
@@ -916,6 +926,14 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
     let model = body["model"].as_str().unwrap_or(recipe.models[0]).to_string();
     let stream = body["stream"] == true;
 
+    // Pygg's own pace limit, before anything reaches the site.
+    let now = crate::db::now_ms();
+    let limit = provider.web_daily_limit.unwrap_or(DEFAULT_DAILY_LIMIT);
+    let used = service.with_db(|db| store::web_requests_today(db, provider_id, now)).unwrap_or(0);
+    if used >= u64::from(limit) {
+        let retry_after = ((86_400_000 - now.rem_euclid(86_400_000)) / 1000).max(1) as u64;
+        return Err(WebError::DailyLimit { limit, retry_after });
+    }
     let mut turn = service.take_turn(provider_id).await?;
     let page = service.windows.page(&provider, recipe)?;
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();

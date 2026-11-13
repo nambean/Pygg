@@ -393,7 +393,34 @@ fn a_web_session_needs_the_warning_and_starts_off_with_unknown_cost_and_no_tools
     assert!(store::update_provider(&conn, &muse.id, None, Some("free"), None).is_err(), "never $0");
     assert!(store::update_provider(&conn, &muse.id, None, Some("paid"), None).is_err());
     store::update_provider(&conn, &muse.id, Some(true), Some("subscription"), Some(true)).unwrap();
-    assert!(store::set_pool(&conn, &muse.id, Some("muses")).unwrap_err().contains("cannot join a pool"));
+    // Accounts of one site pool together (owner, 2026-11-13), each confirmed as its own account.
+    store::set_pool(&conn, &muse.id, Some("muses")).unwrap();
+    assert!(store::set_pool(&conn, &other.id, Some("muses")).unwrap_err().contains("own provider quota"));
+    store::update_provider(&conn, &other.id, Some(true), Some("subscription"), Some(true)).unwrap();
+    store::set_pool(&conn, &other.id, Some("muses")).unwrap();
+
+    // The pool sends to the account used least today; a refusal Pygg made itself (429) does not count as use.
+    let used = |p: &str, status: u16| store::record_usage(&conn, &store::UsageRecord { client_id: None, provider_id: p, model_id: "muse",
+        requested_model: "muses/muse", input_tokens: None, output_tokens: None, cache_tokens: None,
+        cost: &crate::gateway::pricing::Cost::Unknown { source: "subscription".into() }, outcome: if status == 200 { "ok" } else { "error" },
+        http_status: Some(status), latency_ms: 1, error: None, cache_write_tokens: None, session_key: None, route_mode: None,
+        route_reason: None, repeated_tokens: None }).unwrap();
+    let order = || store::resolve(&conn, "muses/muse").unwrap().into_iter().map(|(p, _)| p.id).collect::<Vec<_>>();
+    assert_eq!(order(), vec![muse.id.clone(), other.id.clone()], "a tie keeps the pool's order");
+    used(&muse.id, 200);
+    used(&muse.id, 200);
+    used(&other.id, 429);
+    assert_eq!(store::web_requests_today(&conn, &muse.id, crate::db::now_ms()).unwrap(), 2);
+    assert_eq!(store::web_requests_today(&conn, &other.id, crate::db::now_ms()).unwrap(), 0);
+    assert_eq!(order(), vec![other.id.clone(), muse.id.clone()], "the account used least today goes first");
+
+    // The daily limit: 1 to 1,000, or Pygg's default.
+    assert!(store::set_web_daily_limit(&conn, &muse.id, Some(0)).is_err());
+    assert!(store::set_web_daily_limit(&conn, &muse.id, Some(1001)).is_err());
+    store::set_web_daily_limit(&conn, &muse.id, Some(2)).unwrap();
+    assert_eq!(store::get_provider(&conn, &muse.id).unwrap().unwrap().web_daily_limit, Some(2));
+    store::set_web_daily_limit(&conn, &muse.id, None).unwrap();
+    assert_eq!(store::get_provider(&conn, &muse.id).unwrap().unwrap().web_daily_limit, None);
 }
 
 #[test]
@@ -621,4 +648,26 @@ fn pygg_types_only_on_the_sites_own_page() {
         assert!(send.find("'offsite'").unwrap() < send.find("querySelectorAll").unwrap(), "{}", r.preset);
         assert!(fill.contains(&format!("\"{}\"", site_host(r))), "{}", r.preset);
     }
+}
+
+#[test]
+fn the_daily_limit_refuses_before_the_site_is_touched() {
+    rt().block_on(async {
+        let rig = rig(hello_page()).await;
+        {
+            let conn = rig.db.lock().unwrap();
+            store::set_web_daily_limit(&conn, &rig.muse.id, Some(1)).unwrap();
+            store::record_usage(&conn, &store::UsageRecord { client_id: None, provider_id: &rig.muse.id, model_id: "muse",
+                requested_model: "muse", input_tokens: None, output_tokens: None, cache_tokens: None,
+                cost: &crate::gateway::pricing::Cost::Unknown { source: "subscription".into() }, outcome: "ok", http_status: Some(200),
+                latency_ms: 1, error: None, cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None,
+                repeated_tokens: None }).unwrap();
+        }
+        let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        assert_eq!(response.status(), 429);
+        assert!(response.headers().get("retry-after").is_some(), "says when the limit resets");
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["error"]["code"], "daily_limit");
+        assert_eq!(rig.page.navigations.load(Ordering::SeqCst), 0, "nothing reached the site");
+    });
 }

@@ -284,6 +284,7 @@ pub fn run() {
             commands::combo_set_strategy,
             commands::connection_reliability,
             commands::client_latest_requests,
+            commands::web_session_set_daily_limit,
             commands::client_defaults,
             commands::client_set_defaults,
             commands::client_token,

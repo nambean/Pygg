@@ -171,6 +171,9 @@ pub struct ConnectionView {
     /// A web session (ADR-035), and whether its warning was acknowledged in its current text.
     pub web: bool,
     pub web_ack_current: bool,
+    /// A web session's daily limit (its own, or Pygg's default) and the requests sent today (migration 0026).
+    pub web_daily_limit: Option<u32>,
+    pub web_requests_today: Option<u64>,
     /// The site's assistant can act for the user (Muse).
     pub web_acts: bool,
 }
@@ -188,6 +191,8 @@ fn view(state: &AppState, provider: Provider) -> ConnectionView {
     ConnectionView {
         web,
         web_ack_current: web && provider.web_ack_version == Some(crate::websession::WARNING_VERSION),
+        web_daily_limit: web.then(|| provider.web_daily_limit.unwrap_or(crate::websession::DEFAULT_DAILY_LIMIT)),
+        web_requests_today: if web { state.shared.with_db(|db| store::web_requests_today(db, &provider.id, crate::db::now_ms())).ok() } else { None },
         web_acts: preset.is_some_and(|p| p.web_acts),
         limits,
         account,
@@ -450,6 +455,12 @@ pub async fn web_session_check(state: State<'_, AppState>, id: String) -> Res<Co
     state.web.as_ref().ok_or(crate::websession::APP_ONLY)?.check(&id).await?;
     let provider = state.shared.with_db(|db| store::get_provider(db, &id))?.ok_or("Connection not found")?;
     Ok(view(&state, provider))
+}
+
+/// A web session's daily request limit; `None` returns it to Pygg's default.
+#[tauri::command]
+pub fn web_session_set_daily_limit(state: State<'_, AppState>, id: String, limit: Option<u32>) -> Res<()> {
+    state.shared.with_db(|db| store::set_web_daily_limit(db, &id, limit))
 }
 
 /// How a connection's models have answered over the last 30 days (SCREENS §5.4), from the ledger.

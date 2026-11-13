@@ -68,6 +68,8 @@ export type Connection = {
    * (in Pygg's own words, never the page's). */
   web?: boolean;
   webAckCurrent?: boolean;
+  /** A web session's daily request limit and the requests sent today (UTC). */
+  webDailyLimit?: number | null; webRequestsToday?: number | null;
   webActs?: boolean;
   webAckAt?: number | null;
   webState?: WebState | null;
@@ -325,6 +327,7 @@ export interface GatewayApi {
   refreshModels(id: string): Promise<{listed: number; added: number}>;
   /** Shows a web session's window, where the user signs in on the site's own page (ADR-035). */
   openWebSession(id: string): Promise<void>;
+  setWebDailyLimit(id: string, limit: number | null): Promise<void>;
   /** Opens a new chat in a web session's window to see whether it is signed in. */
   checkWebSession(id: string): Promise<Connection>;
   models(providerId?: string): Promise<Model[]>;
@@ -453,6 +456,7 @@ const native: GatewayApi = {
   removeConnection: id => invoke('connection_remove', {id}),
   refreshModels: id => invoke('connection_refresh_models', {id}),
   openWebSession: id => invoke('web_session_open', {id}),
+  setWebDailyLimit: (id, limit) => invoke('web_session_set_daily_limit', {id, limit}),
   checkWebSession: id => invoke('web_session_check', {id}),
   models: providerId => invoke('models_list', {providerId: providerId ?? null}),
   addModel: (providerId, modelId) => invoke('model_add', {providerId, modelId}),

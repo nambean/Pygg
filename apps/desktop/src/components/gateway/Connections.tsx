@@ -124,6 +124,33 @@ export function connectionState(c: Connection): {tone: 'ok' | 'warn' | 'off' | '
   return check?.ok ? {tone: 'ok', text: t('Checked')} : {tone: 'off', text: t('Not checked yet')};
 }
 
+/**
+ * A web session's pace (migration 0026): requests per UTC day, and a rest between two requests. What the site sees is
+ * a person's pace, never a burst; in a pool, the account used least today goes first.
+ */
+function WebPaceRow({connection: c}: {connection: Connection}) {
+  const [value, setValue] = useState(String(c.webDailyLimit ?? 50));
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { setValue(String(c.webDailyLimit ?? 50)); }, [c.webDailyLimit]);
+  const n = Number(value);
+  const valid = Number.isInteger(n) && n >= 1 && n <= 1000;
+  const save = () => {
+    if (!valid || n === c.webDailyLimit) return;
+    setError(null);
+    call(api => api.setWebDailyLimit(c.id, n)).then(gatewayChanged, e => setError(errorText(e)));
+  };
+  return <div className="group-row">
+    <span className="group-label"><label htmlFor={`web-limit-${c.id}`}>{t('Daily limit')}</label>
+      <small>{t('{used} of {limit} requests sent today (UTC). Pygg rests 10 s between two requests and sends one at a time, so the site sees a person’s pace; at the limit it sends nothing until 00:00 UTC. In a pool, the account used least today answers first.',
+        {used: String(c.webRequestsToday ?? 0), limit: String(c.webDailyLimit ?? 50)})}</small>
+      {error && <small className="warn-text">{error}</small>}</span>
+    <span className="group-control">
+      <input id={`web-limit-${c.id}`} className="text-input narrow-input" inputMode="numeric" value={value} aria-invalid={!valid}
+        onChange={e => setValue(e.target.value)} onBlur={save} onKeyDown={e => { if (e.key === 'Enter') save(); }}/>
+    </span>
+  </div>;
+}
+
 export function webStateLabel(state: WebState): string {
   return {signed_in: t('Signed in'), signed_out: t('Not signed in'), needs_you: t('Needs you'), page_changed: t('Page changed')}[state];
 }
@@ -279,9 +306,11 @@ function ConnectionDetail({connection: c, onRemoved, initialShow = 'all'}: {conn
             : t('OpenAI-format requests pass through unchanged. Anthropic requests are translated, and prompt-cache hints survive only where the provider accepts them.')}</small></span>
           <span className="group-control value">{c.wire === 'anthropic' ? t('Anthropic Messages') : t('OpenAI Chat Completions')}</span>
         </div>}
-        {!c.web && <div className="group-row">
-          <span className="group-label"><label htmlFor={`quota-${c.id}`}>{t('Independent quota confirmed')}</label>
-            <small>{c.separateQuota
+        <div className="group-row">
+          <span className="group-label"><label htmlFor={`quota-${c.id}`}>{c.web ? t('Another account on the site') : t('Independent quota confirmed')}</label>
+            <small>{c.web
+              ? t('Turn on if this connection is signed in to a different account from your other {provider} connections. Then it can join a pool with them; each keeps its own daily limit and pace.', {provider: c.presetName})
+              : c.separateQuota
               ? t('You confirmed on {date} that this connection has its own provider quota. When another connection is rate-limited or refused, this one may still answer. The provider’s own limits still apply.',
                   {date: new Date(c.quotaConfirmedAt ?? c.createdAt).toLocaleDateString()})
               : c.sharesQuotaWith.length
@@ -290,8 +319,8 @@ function ConnectionDetail({connection: c, onRemoved, initialShow = 'all'}: {conn
           <span className="group-control"><Switch checked={c.separateQuota} label={t('Independent quota confirmed')}
             onChange={separateQuota => separateQuota ? setSheet('quota')
               : call(api => api.updateConnection(c.id, {separateQuota})).then(gatewayChanged)}/></span>
-        </div>}
-        {!c.web && <PoolRow connection={c}/>}
+        </div>
+        <PoolRow connection={c}/>
         <TermsRow connection={c}/>
         <div className="group-row">
           <span className="group-label">{t('Model names')}<small>{t('Clients ask for a model of this connection by this name.')}</small></span>
@@ -762,6 +791,7 @@ function WebSessionRows({connection: c}: {connection: Connection}) {
     {state === 'signed_in' && !c.enabled && <div className="group-row">
       <span className="group-label secondary">{t('Signed in. Turn the connection on in the list above to use it.')}</span>
     </div>}
+    <WebPaceRow connection={c}/>
     <div className="group-row stacked">
       <span className="group-label"><span><ShieldAlert size={13} aria-hidden/> {t('Web session (unofficial)')}</span>
         <small>{c.webAckCurrent

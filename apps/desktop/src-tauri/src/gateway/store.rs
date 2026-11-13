@@ -57,12 +57,14 @@ pub struct Provider {
     pub web_state: Option<String>,
     pub web_state_reason: Option<String>,
     pub web_state_at: Option<i64>,
+    /// Requests a web session may send to its site per UTC day; `None` is Pygg's default (migration 0026).
+    pub web_daily_limit: Option<u32>,
 }
 
 const PROVIDER_COLUMNS: &str =
     "id, kind, account_label, COALESCE(endpoint, ''), enabled, credential_ref, default_billing, data_use_terms, created_at, \
      wire, COALESCE(quota_group, kind), quota_group IS NOT NULL, quota_confirmed_at, terms_source, terms_checked_at, pool, pool_rank, \
-     web_profile, web_ack_version, web_ack_at, web_state, web_state_reason, web_state_at";
+     web_profile, web_ack_version, web_ack_at, web_state, web_state_reason, web_state_at, web_daily_limit";
 
 fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
     let kind: String = row.get(1)?;
@@ -94,6 +96,7 @@ fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
         web_state: row.get(20)?,
         web_state_reason: row.get(21)?,
         web_state_at: row.get(22)?,
+        web_daily_limit: row.get::<_, Option<i64>>(23)?.map(|n| n.clamp(1, 1000) as u32),
     })
 }
 
@@ -213,6 +216,23 @@ pub fn set_web_state(conn: &Connection, provider_id: &str, state: &str, reason: 
         clear_health(conn, provider_id)?;
     }
     Ok(())
+}
+
+/// A web session's daily request limit; `None` returns it to Pygg's default.
+pub fn set_web_daily_limit(conn: &Connection, provider_id: &str, limit: Option<u32>) -> Result<()> {
+    if limit.is_some_and(|n| !(1..=1000).contains(&n)) {
+        return Err("A daily limit is 1 to 1,000 requests".into());
+    }
+    conn.execute("UPDATE providers SET web_daily_limit = ?2 WHERE id = ?1", params![provider_id, limit]).map(|_| ()).map_err(err)
+}
+
+/// Requests sent to a web session's site since 00:00 UTC: the ledger's entries for it, less those Pygg refused itself
+/// (busy, or this limit), which never reached the site.
+pub fn web_requests_today(conn: &Connection, provider_id: &str, now: i64) -> Result<u64> {
+    let day_start = now - now.rem_euclid(86_400_000);
+    conn.query_row("SELECT COUNT(*) FROM usage_events WHERE provider = ?1 AND created_at >= ?2 \
+        AND COALESCE(http_status, 0) <> 429", params![provider_id, day_start], |r| r.get::<_, i64>(0))
+        .map(|n| n.max(0) as u64).map_err(err)
 }
 
 /// Says what the window last refused to open, keeping the session's state: a sign-in that stalls on an address
@@ -1458,9 +1478,8 @@ pub fn set_pool(conn: &Connection, provider_id: &str, pool: Option<&str>) -> Res
     if name == AUTO || get_provider(conn, name)?.is_some() || list_combos(conn)?.iter().any(|c| c.name == name) {
         return Err(format!("{name} is already a connection, a combo or auto; pick another name for the pool"));
     }
-    if super::presets::is_web(&provider.kind) {
-        return Err("A web session cannot join a pool (ADR-034, ADR-035): pools are for separate API-key accounts".into());
-    }
+    // Web sessions may pool with others of the same site (owner, 2026-11-13; ADR-035): each account keeps its own daily
+    // limit and pace, and the pool sends to the one used least today. Confirming its own quota says it is another account.
     if !provider.separate_quota {
         return Err("Confirm first that this connection has its own provider quota (Independent quota confirmed): a pool is \
             for separate accounts, not several keys of one account".into());
@@ -1501,8 +1520,17 @@ pub fn resolve(conn: &Connection, requested: &str) -> Result<Vec<(Provider, Stri
         Some(combo) => combo.members,
         None => match requested.split_once('/') {
             Some((prefix, model_id)) if !model_id.is_empty() && get_provider(conn, prefix)?.is_none() => {
-                pool_members(conn, prefix)?.into_iter()
-                    .map(|p| Target { provider_id: p.id, model_id: model_id.into() }).collect()
+                let mut members = pool_members(conn, prefix)?;
+                // A pool of web sessions spreads its requests: the account that sent fewest today first, then the pool's
+                // order. Each still stops at its own daily limit, and the next one answers.
+                if members.iter().all(|p| super::presets::is_web(&p.kind)) {
+                    let now = now_ms();
+                    let mut used: Vec<(u64, Provider)> = members.into_iter()
+                        .map(|p| (web_requests_today(conn, &p.id, now).unwrap_or(0), p)).collect();
+                    used.sort_by_key(|(n, p)| (*n, p.pool_rank.unwrap_or(i64::MAX)));
+                    members = used.into_iter().map(|(_, p)| p).collect();
+                }
+                members.into_iter().map(|p| Target { provider_id: p.id, model_id: model_id.into() }).collect()
             }
             Some((provider_id, model_id)) if !model_id.is_empty() => {
                 vec![Target { provider_id: provider_id.into(), model_id: model_id.into() }]
