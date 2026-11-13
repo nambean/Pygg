@@ -914,3 +914,52 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .health-score.bad { color: var(--red); }
 .health-check-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; }
 @media (forced-colors: active) { .health-dot { forced-color-adjust: none; border: 1px solid CanvasText; } .health-dot.ok { background: CanvasText; } }
+
+/* The savings story (SCREENS.md §2.2): the three figures behind the estimate, where the answers came from, the method. */
+.savings-figures { display: flex; flex-wrap: wrap; gap: 6px 28px; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+.savings-figures > div { display: grid; gap: 1px; }
+.savings-figures dt { font-size: 11px; color: var(--secondary); }
+.savings-figures dd { margin: 0; font-size: 15px; font-weight: 600; }
+.savings-good { color: var(--accent-text); }
+.savings-bad { color: var(--orange); }
+.billing-mix { display: grid; gap: 5px; margin-top: 4px; }
+.mix-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--fill, rgba(127,127,127,.18)); }
+.mix-bar > span { display: block; min-width: 2px; }
+.mix-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 12px; }
+.mix-legend li { display: inline-flex; align-items: center; gap: 5px; }
+.mix-dot { width: 8px; height: 8px; border-radius: 2px; }
+.mix-free { background: var(--accent-text); }
+.mix-local { background: color-mix(in srgb, var(--accent-text) 55%, var(--surface)); }
+.mix-subscription { background: color-mix(in srgb, var(--accent-text) 30%, var(--secondary)); }
+.mix-paid { background: var(--orange); }
+.mix-unknown { background: var(--secondary); opacity: .55; }
+.savings-method { font-size: 12px; }
+.savings-method > summary { cursor: default; color: var(--secondary); }
+.savings-method ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 3px; color: var(--secondary); }
+.data-table caption { text-align: left; padding: 8px 12px 4px; font-size: 13px; font-weight: 600; caption-side: top; }
+/* The comparison metric: the baseline bar behind, what it cost through Pygg in front. */
+.chart-bar.baseline { background: color-mix(in srgb, var(--accent-text) 28%, transparent); }
+.chart-bar.routed { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 50%; max-width: 14px; background: var(--accent-text); }
+.client-check.no-provider { margin: 0 0 10px; }
+.setup-details { font-size: 12px; margin-top: 2px; }
+.setup-details > summary { cursor: default; color: var(--secondary); }
+.chart-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 4px 0 10px; vertical-align: -1px; }
+.chart-key.baseline { background: color-mix(in srgb, var(--accent-text) 28%, transparent); }
+.chart-key.routed { background: var(--accent-text); }
+.chart-legend .chart-key:first-child { margin-left: 0; }
+
+/* A connection's health: the last 24 hours, an hour a dot, and a score (Providers). */
+.health-dots { display: inline-flex; align-items: center; gap: 10px; }
+.health-dots.compact { gap: 8px; margin-inline-start: auto; }
+.health-dot-row { display: inline-flex; gap: 3px; }
+.health-dots.compact .health-dot-row { gap: 2px; }
+.health-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--track); }
+.health-dots.compact .health-dot { width: 4px; height: 4px; }
+.health-dot.ok { background: var(--secondary); }
+.health-dot.warn { background: var(--orange); }
+.health-dot.bad { background: var(--red); }
+.health-score { min-width: 24px; text-align: end; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; }
+.health-score.none { color: var(--secondary); font-weight: 400; }
+.health-score.warn { color: var(--orange); }
+.health-score.bad { color: var(--red); }
+@media (forced-colors: active) { .health-dot { forced-color-adjust: none; border: 1px solid CanvasText; } .health-dot.ok { background: CanvasText; } }

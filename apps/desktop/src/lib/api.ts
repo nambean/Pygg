@@ -89,6 +89,10 @@ export type RateLimits = {modelId: string; headers: Record<string, string>; http
 /** How a model has answered over the last 30 days, from the ledger. */
 export type Reliability = {modelId: string; requests: number; ok: number; medianLatencyMs: number | null};
 
+/** One slice of the estimate: a billing, a client, or how the model was asked for (`auto`, `auto/cheap`, `combo`, `named`). */
+export type SavingsPart = {key: string; answered: number; compared: number; routedMicroUsd: number; baselineMicroUsd: number};
+/** The compared requests of one hour or day on this computer's clock, for the trend. */
+export type SavingsPeriod = {start: number; compared: number; routedMicroUsd: number; baselineMicroUsd: number};
 /** What routing saved, as an estimate against a model the user chose (gateway/savings.rs). */
 export type Savings = {
   baseline: string | null; baselinePriced: boolean;
@@ -97,6 +101,11 @@ export type Savings = {
   leftOutUnknownCost: number; leftOutNoTokens: number; failedUnknownCost: number;
   /** A baseline to propose, from evidence: the paid, priced model asked for by name most often. */
   suggested: string | null;
+  /** How the saving came about: each answered request in one slice of each. */
+  byBilling: SavingsPart[]; byClient: SavingsPart[]; byRoute: SavingsPart[];
+  periods: SavingsPeriod[];
+  /** Attempts that failed and were followed by the next model: tried, not necessarily saved. */
+  fellBack: number;
 };
 
 /** Defaults applied when an API key is created (Policies); null keeps Pygg's own default. */
@@ -474,7 +483,7 @@ const native: GatewayApi = {
   latestRequests: () => invoke('client_latest_requests'),
   clientDefaults: () => invoke('client_defaults'),
   setClientDefaults: defaults => invoke('client_set_defaults', {defaults}),
-  savings: days => invoke('usage_savings', {days}),
+  savings: days => invoke('usage_savings', {days, offsetMinutes: -new Date().getTimezoneOffset()}),
   setSavingsBaseline: baseline => invoke('usage_set_savings_baseline', {baseline}),
   launcher: () => invoke('launcher_state'),
   launcherSetUp: () => invoke('launcher_set_up'),

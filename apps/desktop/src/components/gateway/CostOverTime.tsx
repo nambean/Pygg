@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
-import type { UsageBucket } from '../../lib/api';
+import type { SavingsPeriod, UsageBucket } from '../../lib/api';
 import { locale, plural, t } from '../../lib/i18n';
 import { microUsd, tokens } from '../../lib/money';
 import { Segmented } from '../ui';
 
-/** What the bars measure: known cost, requests, or tokens in and out (a switch 9router's usage chart has too). */
-export type ChartMetric = 'cost' | 'requests' | 'tokens';
+/** What the bars measure: known cost, requests, tokens in and out (a switch 9router's usage chart has too), or the
+ *  comparison: what the compared answers cost through Pygg against the same tokens at the comparison model. */
+export type ChartMetric = 'cost' | 'requests' | 'tokens' | 'comparison';
 
 /** A round top for the axis whose half is round too: 1, 2, 4, 6 or 8 times a power of ten, at least `floor` (two cents
  *  for money, so the labels never need more than two decimals; a handful for counts). */
@@ -34,21 +35,28 @@ function periods(days: number, buckets: UsageBucket[]): UsageBucket[] {
  * or tokens, from the same periods. Unknown costs are not in the cost bars; a period with requests of unknown cost
  * carries a warning marker, named in the legend and the tooltip.
  */
-export function CostOverTime({days, buckets}: {days: number; buckets: UsageBucket[]}) {
+export function CostOverTime({days, buckets, comparison}: {days: number; buckets: UsageBucket[];
+  /** The savings estimate's periods and its model, when one is chosen: the fourth metric. */
+  comparison?: {model: string; periods: SavingsPeriod[]} | null}) {
   const rows = useMemo(() => periods(days, buckets), [days, buckets]);
+  const compared = useMemo(() => new Map((comparison?.periods ?? []).map(p => [p.start, p])), [comparison]);
   const [hover, setHover] = useState<number | null>(null);
   const [metric, setMetric] = useState<ChartMetric>('cost');
   const hourly = days <= 1;
-  const value = (r: UsageBucket) => metric === 'cost' ? r.knownMicroUsd : metric === 'requests' ? r.requests : r.inputTokens + r.outputTokens;
-  const label = (n: number) => metric === 'cost' ? microUsd(n) : metric === 'requests' ? plural(n, '{n} request', '{n} requests')
+  const money = metric === 'cost' || metric === 'comparison';
+  const at = (r: UsageBucket) => compared.get(r.start);
+  const value = (r: UsageBucket) => metric === 'cost' ? r.knownMicroUsd : metric === 'requests' ? r.requests
+    : metric === 'tokens' ? r.inputTokens + r.outputTokens : at(r)?.baselineMicroUsd ?? 0;
+  const label = (n: number) => money ? microUsd(n) : metric === 'requests' ? plural(n, '{n} request', '{n} requests')
     : t('{n} tokens', {n: tokens(n)});
-  const axis = (n: number) => metric === 'cost' ? microUsd(n) : tokens(n);
-  const top = niceMax(Math.max(0, ...rows.map(value)), metric === 'cost' ? 20_000 : 4);
+  const axis = (n: number) => money ? microUsd(n) : tokens(n);
+  const top = niceMax(Math.max(0, ...rows.map(value)), money ? 20_000 : 4);
   const anyUnknown = metric === 'cost' && rows.some(r => r.unknownRequests > 0);
   const title = {
     cost: hourly ? t('Cost per Hour') : t('Cost per Day'),
     requests: hourly ? t('Requests per Hour') : t('Requests per Day'),
     tokens: hourly ? t('Tokens per Hour') : t('Tokens per Day'),
+    comparison: hourly ? t('Comparison per Hour') : t('Comparison per Day'),
   }[metric];
   const when = (start: number) => new Date(start).toLocaleString(locale(), hourly
     ? {hour: 'numeric'} : {day: 'numeric', month: 'numeric'});
@@ -63,7 +71,8 @@ export function CostOverTime({days, buckets}: {days: number; buckets: UsageBucke
       <h2>{title}</h2>
       <span className="heading-actions">
         <Segmented label={t('Chart metric')} value={metric} onChange={m => { setMetric(m); setHover(null); }} options={[
-          {value: 'cost', label: t('Cost')}, {value: 'requests', label: t('Requests')}, {value: 'tokens', label: t('Tokens')}]}/>
+          {value: 'cost', label: t('Cost')}, {value: 'requests', label: t('Requests')}, {value: 'tokens', label: t('Tokens')},
+          ...(comparison ? [{value: 'comparison' as const, label: t('Comparison')}] : [])]}/>
       </span>
     </div>
     <div className="group-box usage-chart">
@@ -76,11 +85,15 @@ export function CostOverTime({days, buckets}: {days: number; buckets: UsageBucke
           <div className="chart-bars" role="list" aria-label={title}>
             {rows.map((r, i) => <div key={r.start} role="listitem" tabIndex={0} className={'chart-column' + (hover === i ? ' active' : '')}
               aria-label={`${whenLong(r.start)}: ${label(value(r))}`
+                + (metric === 'comparison' ? `, ${t('{amount} through Pygg', {amount: microUsd(at(r)?.routedMicroUsd ?? 0)})}` : '')
                 + (metric !== 'requests' ? `, ${plural(r.requests, '{n} request', '{n} requests')}` : '')
                 + (anyUnknown && r.unknownRequests ? `, ${plural(r.unknownRequests, '{n} with unknown cost', '{n} with unknown cost')}` : '')}
               onMouseEnter={() => setHover(i)} onFocus={() => setHover(i)} onBlur={() => setHover(null)}>
               {anyUnknown && r.unknownRequests > 0 && <span className="chart-unknown" style={{bottom: `calc(${(value(r) / top) * 100}% + 4px)`}}/>}
-              <span className="chart-bar" style={{height: value(r) > 0 ? `max(2px, ${(value(r) / top) * 100}%)` : 0}}/>
+              <span className={metric === 'comparison' ? 'chart-bar baseline' : 'chart-bar'}
+                style={{height: value(r) > 0 ? `max(2px, ${(value(r) / top) * 100}%)` : 0}}/>
+              {metric === 'comparison' && (at(r)?.compared ?? 0) > 0 && <span className="chart-bar routed"
+                style={{height: `max(2px, ${((at(r)?.routedMicroUsd ?? 0) / top) * 100}%)`}}/>}
             </div>)}
           </div>
           {shown && hover !== null && <div className="chart-tooltip" role="status"
@@ -90,6 +103,7 @@ export function CostOverTime({days, buckets}: {days: number; buckets: UsageBucke
             {metric === 'cost' && <span>{t('{amount} known', {amount: microUsd(shown.knownMicroUsd)})}
               {shown.actualMicroUsd > 0 && <> · {t('{amount} actual', {amount: microUsd(shown.actualMicroUsd)})}</>}</span>}
             {metric === 'tokens' && <span>{t('{in} in → {out} out', {in: tokens(shown.inputTokens), out: tokens(shown.outputTokens)})}</span>}
+            {metric === 'comparison' && <Comparison period={at(shown)} model={comparison?.model ?? ''}/>}
             <span className={metric === 'requests' ? '' : 'secondary'}>{plural(shown.requests, '{n} request', '{n} requests')}
               {shown.failed > 0 && <> · {plural(shown.failed, '{n} failed', '{n} failed')}</>}</span>
             {metric === 'cost' && shown.unknownRequests > 0 && <span className="warn-text">
@@ -102,6 +116,21 @@ export function CostOverTime({days, buckets}: {days: number; buckets: UsageBucke
       </div>
       {anyUnknown && <p className="chart-legend"><span className="chart-unknown legend"/>
         {t('Has requests with unknown cost, which are not in the bar')}</p>}
+      {metric === 'comparison' && <p className="chart-legend">
+        <span className="chart-key baseline" aria-hidden/>{t('The same tokens at {model}', {model: comparison?.model ?? ''})}
+        <span className="chart-key routed" aria-hidden/>{t('What they cost through Pygg')}
+        <span className="secondary">· {t('compared answers only; failed attempts and unknown costs are not in the bars')}</span></p>}
     </div>
   </section>;
+}
+
+/** The tooltip's comparison lines: both prices, the difference, and how many answers it rests on. */
+function Comparison({period: c, model}: {period: SavingsPeriod | undefined; model: string}) {
+  if (!c || c.compared === 0) return <span className="secondary">{t('No answer compared')}</span>;
+  const d = c.baselineMicroUsd - c.routedMicroUsd;
+  return <>
+    <span>{t('≈{amount} at {model}', {amount: microUsd(c.baselineMicroUsd), model})} · {t('{amount} through Pygg', {amount: microUsd(c.routedMicroUsd)})}</span>
+    <span className={d >= 0 ? 'savings-good' : 'savings-bad'}>{d >= 0 ? t('≈{amount} less', {amount: microUsd(d)}) : t('≈{amount} more', {amount: microUsd(-d)})}
+      <span className="secondary"> · {plural(c.compared, '{n} answer compared', '{n} answers compared')}</span></span>
+  </>;
 }

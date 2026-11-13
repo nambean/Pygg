@@ -432,9 +432,12 @@ pub async fn connection_refresh_models(state: State<'_, AppState>, id: String) -
 
 /// What routing saved over the last `days`, against the model the user chose (gateway/savings.rs).
 #[tauri::command]
-pub fn usage_savings(state: State<'_, AppState>, days: u32) -> Res<gateway::savings::Savings> {
+pub fn usage_savings(state: State<'_, AppState>, days: u32, offset_minutes: i32) -> Res<gateway::savings::Savings> {
     let since = crate::db::now_ms() - i64::from(days.clamp(1, 366)) * 86_400_000;
-    state.shared.with_db(|db| gateway::savings::savings(db, since))
+    // The trend's periods as the usage chart's: hours for one day, days beyond, on the user's clock.
+    let bucket = if days <= 1 { 3_600_000 } else { 86_400_000 };
+    let offset = offset_minutes.clamp(-14 * 60, 14 * 60) as i64 * 60_000;
+    state.shared.with_db(|db| gateway::savings::savings(db, since, bucket, offset))
 }
 
 /// The model to compare with, as `connection/model`, or none.

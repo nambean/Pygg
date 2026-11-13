@@ -37,6 +37,7 @@ export function Combos({intent, onIntentDone, onConnect}: {intent?: 'create'; on
     </div>
     {tab === 'auto' && <AutoRouting/>}
     {tab === 'combos' && <>
+    <p className="page-intro">{t('Using auto? You don’t need a combo. Make one when you want to choose the models and their fallback order yourself; the next model is tried only before an answer starts.')}</p>
     {combos.error && <ErrorNote>{combos.error}</ErrorNote>}
     {list.length === 0
       ? <Empty icon={<ListOrdered size={40} strokeWidth={1.4}/>} title={t('No Combos Yet')}

@@ -24,23 +24,43 @@ use std::time::Duration;
 
 const USAGE: &str = "usage: pygg-cli status|doctor|mcp|gateway …|agent …|setup …|diagnostics --out PATH [--db PATH] [--port N]";
 
-/// `pygg --help`: every command in a line, and where to read more.
-const HELP: &str = "Pygg: one local gateway for your AI coding tools, and the agents behind them.
+/// `pygg --help`: every command in a line, grouped by what a person is doing, and where to read more.
+const HELP: &str = "Pygg: one local gateway for your AI coding tools.
 
 usage: pygg <command> [options]
 
+Use coding tools through Pygg
+  setup claude-launcher     route Claude Code's requests through Pygg; then `pygg run claude`
+  run claude [args…]        start Claude Code through Pygg for this launch only (plain `claude` keeps your Claude sign-in)
+  setup codex-models        point Codex's models at Pygg; then `codex --profile pygg`
+  setup opencode-models     point OpenCode's models at Pygg; then choose Pygg in `/models`
+  setup                     list every tool Pygg can set up, and its state (--dry-run previews, --remove undoes)
+
+Manage the gateway
   status                    is Pygg serving, on which store, and does its gateway answer
-  doctor                    status, plus the store's schema, the agents found and their Pygg set-up
-  mcp                       the MCP server for IDE agents (what Claude Code, Codex and OpenCode start)
+  doctor                    status, plus the store's schema, the agents found and what is set up in them
   gateway <command> …       the gateway without the window: serve, connections, models, clients, combos, usage
-  agent <command> …         agent CLIs: detect, run, task, quality
-  run claude [args…]        start Claude Code through Pygg for this launch only (set up: `pygg setup claude-launcher`)
-  setup [<tool>]            set Pygg up in Codex, OpenCode or Claude Code, as the Agents screen does (--dry-run, --remove)
   diagnostics --out PATH    save the redacted diagnostics bundle (no keys, tokens or prompts)
   --version                 the version of this program
 
+Experimental task integration (on hold)
+  setup claude-code|codex|opencode   register Pygg's MCP server in the tool, so it can hand tasks to Pygg
+  mcp                       the MCP server itself, which the tool starts
+  agent <command> …         agent CLIs: detect, run, task, quality
+
 Options: --db PATH (another store), --port N (status and doctor). `pygg gateway --help` and `pygg agent --help` list
 their commands. The desktop app does everything here with a window: https://github.com/nambean/smarttaskrouter";
+
+/// `pygg` with nothing after it: where to start, in five lines. Not an error.
+const START: &str = "Pygg: one local gateway for your AI coding tools.
+
+Start here: open Pygg and connect a provider. Then, in a terminal:
+  pygg doctor                  is Pygg serving, and what is set up in your tools
+  pygg setup claude-launcher   route Claude Code's requests through Pygg
+  pygg run claude              start Claude Code through Pygg, with the model auto
+
+Codex: `pygg setup codex-models`, then `codex --profile pygg`.
+Run `pygg --help` for every command.";
 
 /// Whether the arguments ask for help.
 pub fn wants_help(args: &[String]) -> bool {
@@ -197,8 +217,8 @@ mod tests {
 /// Runs `pygg-cli` with its arguments (without the program's name); the exit code says whether all was well.
 pub async fn run(mut args: Vec<String>) -> i32 {
     if args.is_empty() {
-        eprintln!("{HELP}");
-        return 2;
+        println!("{START}");
+        return 0;
     }
     let command = args.remove(0);
     match command.as_str() {

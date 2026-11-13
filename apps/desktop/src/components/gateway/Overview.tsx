@@ -8,7 +8,7 @@ import { ago } from '../../lib/format';
 import { useGateway } from '../../hooks/useGateway';
 import { Badge, CodeBlock, CopyButton, ErrorNote, FormRow, Segmented, Sheet, Spinner, Switch } from '../ui';
 import { OutcomeBadge } from './Usage';
-import { Savings } from './Savings';
+import { Savings, useSavings } from './Savings';
 import { UsageAlerts } from './UsageAlerts';
 
 /** The gateway's screens, in the sidebar's order: the path a 9router or OmniRoute user knows. */
@@ -29,6 +29,8 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
   const usage = useGateway(api => api.usage(1), [], 10_000);
   const launcher = useGateway(api => api.launcher());
   const integrations = useGateway(api => api.integrations(), [], undefined, 'integrations');
+  const latest = useGateway(api => api.latestRequests(), [], 10_000);
+  const savings = useSavings(1);
   // Whether auto has a model for a coding agent's request (tools, a short prompt): the check behind "ready".
   const codingPlan = useGateway(api => api.autoSimulate(null, 'auto', {surfaceAnthropic: false, tools: true, vision: false,
     inputTokens: 2000, maxTokens: 1000, thinking: null, effort: null}));
@@ -41,9 +43,11 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
   // A tool counts as set up once Pygg set it up, or once a key of the user's own has been used.
   const toolSetUp = !!launcher.data?.setUp || (integrations.data ?? []).some(i => i.kind === 'gateway' && i.state === 'set_up')
     || activeClients.some(c => c.lastUsedAt && c.name !== 'Pygg (model tests)' && !c.name.endsWith('(MCP)'));
-  const used = activeClients.some(c => c.lastUsedAt && c.name !== 'Pygg (model tests)' && !c.name.endsWith('(MCP)'));
+  // The last step is done once a tool's request was answered, not merely sent: a refused first request is not "working".
+  const own = (name: string | null | undefined) => !!name && name !== 'Pygg (model tests)' && !name.endsWith('(MCP)');
+  const used = (latest.data ?? []).some(r => r.outcome === 'ok' && own(activeClients.find(c => c.id === r.clientId)?.name));
   const steps = [
-    {done: usable, title: t('Connect a provider'),
+    {done: usable && eligible !== 0, title: t('Connect a provider'),
       detail: (connections.data?.length ?? 0) > 0 && !usable
         ? t('A connection exists, but none is on with a key and models listed yet. Open Providers to check it.')
         : usable && eligible === 0
@@ -53,8 +57,8 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
     {done: toolSetUp, title: t('Set up your coding tool'),
       detail: t('Claude Code with the launcher, Codex and OpenCode in one click, editors and SDKs by hand. Use the model auto.'),
       action: (primary: boolean) => <button type="button" className={primary ? 'button prominent' : 'button'} onClick={() => navigate('tools')}>{t('Open CLI Tools')}</button>},
-    {done: used, title: t('Use it as usual'),
-      detail: t('Work in your IDE or terminal. The first request through Pygg shows here, with what it cost.'),
+    {done: used, title: t('First request answered'),
+      detail: t('Work in your IDE or terminal. The first request a tool sends through Pygg shows here, with the model that answered and what it cost.'),
       action: () => null},
   ];
   const ready = steps.every(s => s.done);
@@ -63,7 +67,7 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
   return <div className="page">
     <GatewayCard status={status} onStatus={onStatus} onConfigure={() => setConfiguring(true)}/>
     <UsageAlerts onOpen={() => navigate('usage')} onUnpriced={() => navigate('connections', 'unpriced')}/>
-    {(usage.data?.total.requests ?? 0) > 0 && <Savings days={1} period={t('last 24 hours')}/>}
+    {(usage.data?.total.requests ?? 0) > 0 && <Savings savings={savings} period={t('last 24 hours')}/>}
     {status?.accountingError && <ErrorNote>
       {t('The last usage entry couldn’t be written: {error}. The request stays in the journal and is recorded with an unknown cost when the gateway next starts. Requests are refused while nothing can be written.', {error: status.accountingError})}
     </ErrorNote>}
@@ -99,7 +103,7 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
           <Stat label={t('Known cost')} value={microUsd(usage.data.total.knownMicroUsd)}
             note={usage.data.total.knownMicroUsd > usage.data.total.actualMicroUsd ? t('includes estimates') : undefined}/>
           <Stat label={t('Cost unknown')} value={String(usage.data.total.unknownRequests)} note={t('requests, not in the total')}/>
-          <Stat label={t('Fell back')} value={String(usage.data.total.fallbacks)} note={t('to the next model')}/>
+          <Stat label={t('Fallback attempts')} value={String(usage.data.total.fallbacks)} note={t('another model was tried')}/>
           <Stat label={t('Failed')} value={String(usage.data.total.failed)}/>
         </div>
         {usage.data.recent.length > 0 ? <ul className="group-box compact-list">
@@ -129,7 +133,7 @@ export function ClientCheck({last, onOpen}: {last: UsageEvent | undefined; onOpe
     <Circle size={14} aria-hidden/>{t('No request yet. Start the client with these settings; its first request shows here within seconds.')}</p>;
   const who = last.client ?? t('No client');
   if (last.outcome === 'ok') return <p className="client-check ok" role="status"><CircleCheck size={14} aria-hidden/>
-    {t('Working: {client} sent a request {ago}, answered by {model}.', {client: who, ago: ago(last.createdAt), model: `${last.provider}/${last.model}`})} {open}</p>;
+    {t('Latest answered request: {client} → {model} · {ago}. Each tool’s own state is in CLI Tools.', {client: who, ago: ago(last.createdAt), model: `${last.provider}/${last.model}`})} {open}</p>;
   return <p className="client-check failed" role="status"><CircleAlert size={14} aria-hidden/>
     {t('The last request, from {client} {ago}, did not succeed.', {client: who, ago: ago(last.createdAt)})} {open}</p>;
 }
@@ -142,7 +146,8 @@ function Stat({label, value, note}: {label: string; value: string; note?: string
   </div>;
 }
 
-export function GatewayCard({status, onStatus, onConfigure}: {status: GatewayStatus | null; onStatus: (s: GatewayStatus) => void; onConfigure: () => void}) {
+export function GatewayCard({status, onStatus, onConfigure, copies}: {status: GatewayStatus | null; onStatus: (s: GatewayStatus) => void;
+  onConfigure: () => void; /** The copy buttons, instead of one for the root URL. */ copies?: {label: string; text: string}[]}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const act = (f: () => Promise<GatewayStatus>) => {
@@ -170,7 +175,7 @@ export function GatewayCard({status, onStatus, onConfigure}: {status: GatewaySta
       </div>
     </div>
     <div className="gateway-card-actions">
-      {running && status.baseUrl && <CopyButton text={status.baseUrl} label={t('Copy URL')}/>}
+      {running && status.baseUrl && (copies ?? [{label: t('Copy URL'), text: status.baseUrl}]).map(c => <CopyButton key={c.label} text={c.text} label={c.label}/>)}
       <button type="button" className="button" onClick={onConfigure} disabled={busy}><Settings2 size={13} aria-hidden/>{t('Configure…')}</button>
       {running
         ? <button type="button" className="button" disabled={busy} onClick={() => act(() => call(api => api.gatewayStop()))}>

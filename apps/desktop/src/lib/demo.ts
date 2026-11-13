@@ -4,7 +4,7 @@
  * data" banner whenever this is in use (ADR-014). It follows the core's rules (slugs, validation, honest
  * costs) closely enough for design review, not as a test of them.
  */
-import type { AgentInfo, Integration, Launcher, ClientDefaults, ConnectionCheck, HealthStrip, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus,
+import type { AgentInfo, Integration, Launcher, ClientDefaults, ConnectionCheck, HealthStrip, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus, SavingsPart, SavingsPeriod,
   Health, Model, Preset, Target, Tier, UsageEvent, UsageBucket, UsageGroup, UsageSummary, Account, Wire,
   LocalUsage, SubscriptionUsage, Retention } from './api';
 import { TIERS, WEB_WARNING_VERSION } from './api';
@@ -513,20 +513,55 @@ export function demoApi(): GatewayApi {
       const since = Date.now() - days * 86_400_000;
       const shown = events.filter(e => e.createdAt >= since);
       const ok = shown.filter(e => e.outcome === 'ok');
-      const priced = ok.filter(e => e.costStatus !== 'unknown' && e.inputTokens !== null && e.outputTokens !== null);
-      const failed = shown.filter(e => e.outcome !== 'ok' && e.costStatus !== 'unknown').reduce((n, e) => n + (e.costMicroUsd ?? 0), 0);
       const baseline = savingsBaseline;
+      const priceAt = (e: UsageEvent) => (e.inputTokens ?? 0) * 2 + (e.outputTokens ?? 0) * 10;
+      const comparable = (e: UsageEvent) => !!baseline && rowBilling(e) !== 'subscription' && e.costStatus !== 'unknown'
+        && e.inputTokens !== null && e.outputTokens !== null;
+      const failedRows = shown.filter(e => e.outcome !== 'ok' && e.outcome !== 'client_disconnected');
+      const failed = failedRows.filter(e => e.costStatus !== 'unknown').reduce((n, e) => n + (e.costMicroUsd ?? 0), 0);
+      const routeKind = (m: string | null) => !m || m === 'auto' ? 'auto' : m === 'auto/cheap' ? 'auto/cheap'
+        : m.startsWith('auto/') ? 'auto' : m.includes('/') ? 'named' : 'combo';
+      const slice = (keyOf: (e: UsageEvent) => string): SavingsPart[] => {
+        const parts = new Map<string, SavingsPart>();
+        for (const e of ok) {
+          const key = keyOf(e);
+          const p = parts.get(key) ?? {key, answered: 0, compared: 0, routedMicroUsd: 0, baselineMicroUsd: 0};
+          p.answered += 1;
+          if (comparable(e)) { p.compared += 1; p.routedMicroUsd += e.costMicroUsd ?? 0; p.baselineMicroUsd += priceAt(e); }
+          parts.set(key, p);
+        }
+        return [...parts.values()].sort((a, b) => b.answered - a.answered);
+      };
+      const order = ['free', 'local', 'subscription', 'paid', 'unknown'];
+      const count = (b: string) => ok.filter(e => (rowBilling(e) as string) === b).length;
+      const size = days <= 1 ? 3_600_000 : 86_400_000;
+      const offset = -new Date().getTimezoneOffset() * 60_000;
+      const periods = new Map<number, SavingsPeriod>();
+      const compared = ok.filter(comparable);
+      for (const e of compared) {
+        const start = Math.floor((e.createdAt + offset) / size) * size - offset;
+        const p = periods.get(start) ?? {start, compared: 0, routedMicroUsd: 0, baselineMicroUsd: 0};
+        p.compared += 1;
+        p.routedMicroUsd += e.costMicroUsd ?? 0;
+        p.baselineMicroUsd += priceAt(e);
+        periods.set(start, p);
+      }
       return touch({
         baseline, baselinePriced: baseline !== null,
-        answered: {free: 0, local: ok.filter(e => e.provider === 'ollama').length, subscription: 0,
-          paid: ok.filter(e => e.provider !== 'ollama' && e.costStatus !== 'unknown').length, unknown: ok.filter(e => e.costStatus === 'unknown').length},
-        compared: baseline ? priced.length : 0,
-        routedMicroUsd: baseline ? priced.reduce((n, e) => n + (e.costMicroUsd ?? 0), 0) + failed : 0,
-        baselineMicroUsd: baseline ? priced.reduce((n, e) => n + (e.inputTokens ?? 0) * 2 + (e.outputTokens ?? 0) * 10, 0) : 0,
+        answered: {free: count('free'), local: count('local'), subscription: count('subscription'), paid: count('paid'), unknown: count('unknown')},
+        compared: compared.length,
+        routedMicroUsd: baseline ? compared.reduce((n, e) => n + (e.costMicroUsd ?? 0), 0) + failed : 0,
+        baselineMicroUsd: compared.reduce((n, e) => n + priceAt(e), 0),
         failedAttemptsMicroUsd: baseline ? failed : 0,
-        leftOutUnknownCost: baseline ? ok.filter(e => e.costStatus === 'unknown').length : 0, leftOutNoTokens: 0,
-        failedUnknownCost: shown.filter(e => e.outcome !== 'ok' && e.costStatus === 'unknown').length,
+        leftOutUnknownCost: baseline ? ok.filter(e => e.costStatus === 'unknown' && rowBilling(e) !== 'subscription').length : 0,
+        leftOutNoTokens: 0,
+        failedUnknownCost: failedRows.filter(e => e.costStatus === 'unknown').length,
         suggested: baseline ? null : 'anthropic/claude-sonnet-4-5',
+        byBilling: slice(e => rowBilling(e) as string).sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key)),
+        byClient: slice(e => e.client ?? ''),
+        byRoute: slice(e => routeKind(e.requestedModel)),
+        periods: [...periods.values()].sort((a, b) => a.start - b.start),
+        fellBack: shown.filter(e => e.outcome === 'fallback').length,
       });
     },
     setSavingsBaseline: async baseline => { savingsBaseline = baseline; },

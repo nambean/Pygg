@@ -67,8 +67,18 @@ const PRIMARY: Partial<Record<GatewayDestination, {label: string; intent: Intent
 const customChrome = runningInDesktop && !isMac;
 const isGateway = (kind: View['kind']): kind is GatewayDestination => GATEWAY.some(g => g.kind === kind);
 
+/** The browser preview can open on a screen (`?screen=usage`, `?screen=guide`), for reviews and screenshots; the app
+ *  itself always starts on Home. */
+function startView(): View {
+  if (runningInDesktop) return {kind: 'overview'};
+  const screen = new URLSearchParams(location.search).get('screen') ?? '';
+  if (isGateway(screen as View['kind'])) return {kind: screen as GatewayDestination};
+  if (screen === 'guide' || screen === 'settings' || screen === 'agents') return {kind: screen};
+  return {kind: 'overview'};
+}
+
 function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (choice: LanguageChoice) => void}) {
-  const [view, setView] = useState<View>({kind: 'overview'});
+  const [view, setView] = useState<View>(startView);
   const [intent, setIntent] = useState<Intent | undefined>();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [query, setQuery] = useState('');
@@ -245,9 +255,9 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         {view.kind === 'endpoint' && <Endpoint status={status} onStatus={setStatus} intent={intent === 'create' ? 'create' : undefined}
           onIntentDone={intentDone}/>}
         {view.kind === 'tools' && <CliTools status={status} navigate={go}/>}
-        {view.kind === 'usage' && <Usage/>}
+        {view.kind === 'usage' && <Usage onOpenTools={() => go('tools')}/>}
         {view.kind === 'agents' && <Agents/>}
-        {view.kind === 'guide' && <Guide go={go}/>}
+        {view.kind === 'guide' && <Guide go={go} base={status?.baseUrl ?? (status ? `http://127.0.0.1:${status.port}` : null)}/>}
         {view.kind === 'tasks' && <>
           <div className="page-bar task-filters">
             <Segmented label={t('Show')} value={view.filter} onChange={filter => setView({kind: 'tasks', filter})}

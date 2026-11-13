@@ -5,7 +5,9 @@ import { CodeBlock } from './ui';
 
 type Go = (to: 'connections' | 'endpoint' | 'tools' | 'combos' | 'usage') => void;
 
-type Section = {id: string; title: string; body: (go: Go) => React.ReactNode};
+/** The gateway's addresses, from the running gateway; the defaults until it answers. */
+type Addresses = {base: string};
+type Section = {id: string; title: string; body: (go: Go, a: Addresses) => React.ReactNode};
 
 const code = (text: string, label: string) => <CodeBlock code={text} label={label}/>;
 
@@ -14,16 +16,16 @@ const code = (text: string, label: string) => <CodeBlock code={text} label={labe
  * OmniRoute's docs pages do). Static: nothing here sends a request or changes a setting.
  */
 const SECTIONS: Section[] = [
-  {id: 'start', title: 'Quick start', body: go => <>
+  {id: 'start', title: 'Quick start', body: (go, a) => <>
     <ol className="guide-steps">
-      <li><b>{t('Connect a provider.')}</b> {t('Providers → Connect Provider: choose one (Gemini, OpenRouter and Groq have free tiers; Ollama runs on this computer), paste its API key. Pygg reads its model list; nothing is billed.')}{' '}
+      <li><b>{t('Connect a provider.')}</b> {t('Providers → Connect Provider. A cloud provider takes its API key (Gemini, OpenRouter and Groq have free tiers); a local runtime such as Ollama takes its local address and no key. Pygg reads the model list; nothing is billed.')}{' '}
         <button type="button" className="link-button" onClick={() => go('connections')}>{t('Open Providers')}</button></li>
-      <li><b>{t('Set up your coding tool.')}</b> {t('CLI Tools: Codex and OpenCode in one click, Claude Code with a launcher, editors and SDKs with a snippet. Each tool gets a Pygg API key of its own.')}{' '}
+      <li><b>{t('Set up your coding tool.')}</b> {t('CLI Tools: Codex and OpenCode in one click, Claude Code with a launcher, editors and SDKs with a snippet. CLI Tools makes a separate Pygg API key for each tool it sets up; for a tool set up by hand, make one in Endpoint → API Keys.')}{' '}
         <button type="button" className="link-button" onClick={() => go('tools')}>{t('Open CLI Tools')}</button></li>
       <li><b>{t('Work as usual, with the model auto.')}</b> {t('Pygg picks an eligible model for each request, within your limits, and records what it cost. CLI Tools says “Working” once a request has come through; Usage shows the cost and an estimate of what you saved.')}</li>
     </ol>
-    <p>{t('The gateway listens on this computer only:')}</p>
-    {code('OpenAI-compatible:  http://127.0.0.1:8741/v1\nAnthropic:          http://127.0.0.1:8741\nModel:              auto', t('Addresses'))}
+    <p>{t('The gateway listens on this computer only. A tool set up by hand needs these three fields and a Pygg API key:')}</p>
+    {code(`OpenAI-compatible:  ${a.base}/v1\nAnthropic:          ${a.base}\nModel:              auto\nAPI key:            a Pygg API key (Endpoint → API Keys)`, t('Addresses'))}
   </>},
   {id: 'claude', title: 'Claude Code', body: go => <>
     <p>{t('Pointing Claude Code’s own settings at another endpoint would stop it using your Claude plan, so Pygg uses a launcher: set it up once in CLI Tools (or with the command below), then start Claude Code through Pygg when you want it. Plain claude keeps your Claude sign-in.')}</p>
@@ -55,10 +57,15 @@ const SECTIONS: Section[] = [
     {code('Command:    pygg   (or the full path of Pygg.exe)\nArguments:  mcp', 'MCP')}
   </>},
   {id: 'cli', title: 'Command line and npm', body: () => <>
-    <p>{t('The installer puts pygg-cli.exe next to the app (usually %LOCALAPPDATA%\\Pygg). From npm, the same program is called pygg:')}</p>
-    {code('node --version\nnpm install -g @pygg/cli@dev\npygg --version\npygg status\npygg doctor', t('Install and check'))}
-    <p className="secondary">{t('@dev is the developer preview. Without Node.js, use the program the installer put next to the app; after installing from npm, open a new terminal if pygg is not found.')}</p>
+    <p>{t('The pygg command does from a terminal what CLI Tools does with a click. npm installs the command only: the Pygg app still runs the gateway, and your coding tool is installed as before. Install @pygg/cli; run pygg. @dev is the Windows x64 developer preview, not code-signed, so SmartScreen or an antivirus may warn about it.')}</p>
+    {code('npm install -g @pygg/cli@dev\npygg doctor\npygg setup claude-launcher\npygg run claude', t('Install, check, set up Claude Code, start it through Pygg'))}
+    {code('pygg setup codex-models\ncodex --profile pygg', t('Codex'))}
+    {code('npx --yes --package=@pygg/cli@dev pygg doctor', t('Try it without installing globally'))}
+    <p className="secondary">{t('npx downloads the package into npm’s cache and runs it; setup still makes the same changes to your tool’s configuration. Without Node.js, use the program the installer put next to the app:')}</p>
     {code('& "$env:LOCALAPPDATA\\Pygg\\pygg-cli.exe" doctor', t('Without npm'))}
+    <p><b>{t('If pygg is not found.')}</b> {t('Open a new terminal first. Then check where npm put it, and add that folder to your user PATH if it is missing:')}</p>
+    {code('where.exe pygg\nnpm prefix -g', t('Where npm put the command'))}
+    <p className="secondary">{t('If PowerShell refuses to run scripts, call pygg.cmd instead of pygg. To use another program, set PYGG_CLI to its full path; pygg --launcher-info shows which program the command runs.')}</p>
     <table className="data-table guide-table">
       <thead><tr><th scope="col">{t('Command')}</th><th scope="col">{t('What it does')}</th></tr></thead>
       <tbody>
@@ -66,7 +73,9 @@ const SECTIONS: Section[] = [
           ['pygg status', t('Is Pygg serving, on which store, and does the gateway answer')],
           ['pygg doctor', t('Status, plus the store’s schema, the agents found and what is set up in them')],
           ['pygg setup', t('List the tools Pygg can set up, and their state')],
-          ['pygg setup <tool> [--dry-run | --remove]', t('codex-models, opencode-models, claude-launcher; claude-code, codex, opencode for MCP')],
+          ['pygg setup claude-launcher', t('Route Claude Code’s requests through Pygg: the command pygg run claude')],
+          ['pygg setup codex-models | opencode-models', t('Point Codex or OpenCode’s models at Pygg (--dry-run previews, --remove undoes)')],
+          ['pygg setup claude-code | codex | opencode', t('The experimental MCP task integration, not the gateway: the tool can hand tasks to Pygg')],
           ['pygg run [--model M] claude [args…]', t('Claude Code through Pygg for one launch')],
           ['pygg gateway list', t('Connections, models, combos and API keys in the store')],
           ['pygg gateway usage', t('What the ledger recorded')],
@@ -131,7 +140,8 @@ const SECTIONS: Section[] = [
   </dl>},
 ];
 
-export function Guide({go}: {go: Go}) {
+export function Guide({go, base}: {go: Go; /** The gateway's root URL, from its status; the default until it answers. */ base?: string | null}) {
+  const addresses: Addresses = {base: base ?? 'http://127.0.0.1:8741'};
   const [open, setOpen] = useState(SECTIONS[0].id);
   const section = SECTIONS.find(s => s.id === open) ?? SECTIONS[0];
   return <div className="page guide">
@@ -141,7 +151,7 @@ export function Guide({go}: {go: Go}) {
     </nav>
     <article className="guide-body" aria-labelledby="guide-title">
       <h2 id="guide-title"><BookOpen size={16} aria-hidden/>{t(section.title)}</h2>
-      {section.body(go)}
+      {section.body(go, addresses)}
     </article>
   </div>;
 }

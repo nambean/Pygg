@@ -10,7 +10,7 @@ import { Badge, Empty, ErrorNote, Segmented, Spinner } from '../ui';
 import { UsageAlerts } from './UsageAlerts';
 import { RepeatedOutput } from './RepeatedOutput';
 import { CostOverTime } from './CostOverTime';
-import { Savings } from './Savings';
+import { Savings, SavingsDetails, useSavings } from './Savings';
 
 type Range = '1' | '7' | '30';
 /** Requests shown at a time: the summary's first page, and each Show More. */
@@ -33,12 +33,13 @@ export function OutcomeBadge({outcome, status}: {outcome: Outcome; status: numbe
 const statusLabel = (s: CostStatus) => ({actual: t('Actual'), estimated: t('Estimated'), unknown: t('Unknown')}[s]);
 
 /** Usage (SCREENS.md §5.6): what went through the gateway, with actual, estimated and unknown costs kept apart. */
-export function Usage() {
+export function Usage({onOpenTools}: {onOpenTools?: () => void} = {}) {
   const [range, setRange] = useState<Range>('7');
   const [view, setView] = useState<View>('api');
   const usage = useGateway(api => api.usage(Number(range)), [range], 15_000);
   const quality = useGateway(api => api.taskQuality(Number(range)), [range], 15_000);
   const overTime = useGateway(api => api.usageOverTime(Number(range)), [range], 15_000);
+  const savings = useSavings(Number(range));
   const [show, setShow] = useState<'all' | 'problems' | 'unknown'>('all');
   const [client, setClient] = useState('');
   const [model, setModel] = useState('');
@@ -100,12 +101,13 @@ export function Usage() {
     {usage.error && <ErrorNote>{usage.error}</ErrorNote>}
     <UsageAlerts/>
     {exported && (exported.ok ? <p className="group-footnote" role="status">{exported.text}</p> : <ErrorNote>{exported.text}</ErrorNote>)}
-    {data && data.total.requests === 0 && <Empty icon={<ChartColumn size={40} strokeWidth={1.4}/>} title={t('No Usage Recorded Yet')}>
-      {t('Point a client at the gateway and its requests appear here, each with its cost and where that figure comes from.')}
+    {data && data.total.requests === 0 && <Empty icon={<ChartColumn size={40} strokeWidth={1.4}/>} title={t('No gateway requests in this period')}
+      action={onOpenTools && <button type="button" className="button prominent" onClick={onOpenTools}>{t('Open CLI Tools')}</button>}>
+      {t('Set up a coding tool, then send a request: it appears here with its model, its cost and where that figure comes from.')}
     </Empty>}
     {data && data.total.requests === 0 && quality.data && quality.data.tasks > 0 && <TaskResults q={quality.data}/>}
     {data && data.total.requests > 0 && <>
-      <Savings days={Number(range)} period={range === '1' ? t('last 24 hours') : t('last {n} days', {n: range})}/>
+      <Savings savings={savings} period={range === '1' ? t('last 24 hours') : t('last {n} days', {n: range})}/>
       <section className="group">
         <h2>{t('API Costs')}</h2>
         <div className="group-box totals">
@@ -123,7 +125,9 @@ export function Usage() {
         </div>
       </section>
 
-      {overTime.data && <CostOverTime days={Number(range)} buckets={overTime.data}/>}
+      {overTime.data && <CostOverTime days={Number(range)} buckets={overTime.data}
+        comparison={savings.data?.baseline && savings.data.baselinePriced ? {model: savings.data.baseline, periods: savings.data.periods} : null}/>}
+      <SavingsDetails savings={savings} onPickClient={key => pick(setClient, key)}/>
       <RepeatedOutput days={Number(range)}/>
 
       <div className="two-columns">

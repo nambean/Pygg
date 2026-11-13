@@ -34,14 +34,19 @@ export function CliTools({status, navigate}: {status: GatewayStatus | null; navi
   const openaiPlan = useGateway(api => api.autoSimulate(null, 'auto', {surfaceAnthropic: false, ...needs}));
   const latestFor = (clientId: string | undefined | null) => clientId ? latest.data?.find(r => r.clientId === clientId) : undefined;
   const byName = (name: string | null) => active.find(c => c.name === name);
+  // No provider at all: one warning above the list, not the same one under each tool.
+  const noProvider = !!anthropicPlan.data && !!openaiPlan.data && [anthropicPlan.data, openaiPlan.data].every(p => p.ranked.length === 0 && p.excluded.length === 0);
   return <div className="page">
     <p className="page-intro">{t('Point your coding tool at Pygg and choose the model auto, then work as usual. Pygg picks an eligible model for each request from your providers, free and cheap ones first where they qualify, within your limits, and records what each request cost.')}</p>
     <section className="group">
       <h2>{t('One-Click Setup')}</h2>
       <p className="group-intro">{t('Each tool gets a Pygg API key of its own, so you can see what it spends and whether it works. Pygg backs up a tool’s configuration before changing it; Remove puts it back and revokes the key.')}</p>
-      <ClaudeLauncher latestFor={latestFor} note={<Eligibility plan={anthropicPlan.data} tool={t('Claude Code')} navigate={navigate}/>}/>
+      {noProvider && <p className="client-check failed tool-status no-provider" role="status"><CircleAlert size={13} aria-hidden/>
+        <span>{t('Connect a provider before sending requests through Pygg: until one is connected, every tool’s requests would be refused.')}{' '}
+          <button type="button" className="link-button" onClick={() => navigate('connections', 'connect')}>{t('Connect Provider…')}</button></span></p>}
+      <ClaudeLauncher latestFor={latestFor} note={noProvider ? null : <Eligibility plan={anthropicPlan.data} tool={t('Claude Code')} navigate={navigate}/>}/>
       <Integrations kind="gateway" status={i => <ToolStatus latest={latestFor(byName(i.clientName)?.id)}/>}
-        note={i => <Eligibility plan={i.id === 'codex-gateway' ? openaiPlan.data : anthropicPlan.data} tool={i.id === 'codex-gateway' ? t('Codex') : t('OpenCode')} navigate={navigate}/>}/>
+        note={i => noProvider ? null : <Eligibility plan={i.id === 'codex-gateway' ? openaiPlan.data : anthropicPlan.data} tool={i.id === 'codex-gateway' ? t('Codex') : t('OpenCode')} navigate={navigate}/>}/>
     </section>
     <details className="manual-setup">
       <summary>{t('Set up by hand: Claude Code without the launcher, Cline, Continue, SDKs, curl')}</summary>
@@ -99,8 +104,10 @@ function ClaudeLauncher({latestFor, note}: {latestFor: (clientId: string | null)
         <span className="agent-title">{t('Claude Code: models through Pygg')}
           <Badge tone={l.setUp ? 'ok' : 'off'}>{l.setUp ? t('Set up') : l.installed ? t('Not set up') : t('Not found')}</Badge></span>
         <small className="secondary">{l.setUp
-          ? t('Start Claude Code through Pygg with the command below; plain claude still uses your Claude sign-in. The key is in the Windows Credential Manager, not in a file.')
-          : t('Claude Code pointed at another endpoint stops using your Claude plan, so Pygg changes none of its settings. Set Up makes a key for it, kept in the Windows Credential Manager, and a command that starts Claude Code through Pygg with auto, one launch at a time.')}</small>
+          ? t('Start Claude Code with the command below to use your connected providers; plain claude keeps your Claude sign-in.')
+          : t('Set Up gives you a command that starts Claude Code through Pygg with auto, one launch at a time; plain claude keeps your Claude sign-in.')}</small>
+        <details className="setup-details"><summary>{t('What Set Up changes')}</summary>
+          <small className="secondary">{t('Nothing in Claude Code’s own settings: pointed at another endpoint, it would stop using your Claude plan. Pygg makes an API key for the launcher, kept in the Windows Credential Manager and never in a file, and hands it to Claude Code at each launch. Remove revokes the key.')}</small></details>
         {l.setUp && <CodeBlock code={command} label={t('Start Claude Code through Pygg')}/>}
         {l.setUp && <small className="secondary">{t('From npm (npm install -g @pygg/cli@dev) it is pygg run claude. Add Claude Code’s own arguments after it; --model before claude picks another model for every slot.')}</small>}
         {l.setUp && <ToolStatus latest={latestFor(l.clientId)}/>}
