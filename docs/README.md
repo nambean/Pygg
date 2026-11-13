@@ -26,6 +26,7 @@ Read them in this order when they disagree:
 
 | Document | Status | What it holds |
 | --- | --- | --- |
+| [BENCHMARKS.md](BENCHMARKS.md) | Current | What Pygg changes, measured: every published benchmark in one table, with what it does not claim |
 | [GETTING-STARTED.md](GETTING-STARTED.md) | Current | Install, first run, connect a provider, set up Claude Code, Codex, OpenCode or an editor, cost and savings, the command line, troubleshooting, FAQ |
 | [PROVIDERS.md](PROVIDERS.md) | Current | Connection presets, their endpoints, free tiers, which have answered live, and the documentation each came from; web-session sites and their sign-in hosts |
 | [SECURITY.md](SECURITY.md) | Current | What Pygg protects and how, what the user is trusted with, how to report a problem |

@@ -24,7 +24,7 @@ Pygg runs on your computer. You connect your providers once, point Claude Code, 
 ## What makes Pygg different
 
 - **Cost you can trace.** Every request is recorded with its cost and where that figure came from: actual (the provider said), estimated (a price you or a catalog set) or **unknown**, never shown as $0. Savings are an estimate against a model you choose, with what was left out said beside it.
-- **It keeps the provider's cache working.** A coding agent re-sends its whole conversation every turn; the provider's prompt cache bills that at a tenth or less. Pygg keeps a launch on one model, passes cache hints through unchanged, turns on Anthropic's caching for clients that cannot ask for it, and shows the token mix so you can see it working ([ADR-036](docs/DECISIONS.md)).
+- **It keeps the provider's cache working.** A coding agent re-sends its whole conversation every turn; the provider's prompt cache bills that at a tenth or less. Pygg keeps a launch on one model, passes cache hints through unchanged, turns on Anthropic's caching for clients that cannot ask for it, and shows the token mix so you can see it working ([ADR-036](docs/DECISIONS.md)). Measured: Codex on Claude through Pygg cost 30% less in all and 68% less on input than through a gateway without it, with the same 16 of 16 tasks solved ([benchmarks](docs/BENCHMARKS.md)).
 - **Setup you can undo.** Each tool gets its own key; its configuration is backed up first and Remove puts it back. Claude Code keeps your Claude sign-in: `pygg run claude` routes one launch at a time.
 - **Local, with your own accounts.** Keys stay in the Windows Credential Manager, the gateway listens on 127.0.0.1 only, and Pygg contacts nothing but the providers you connected and a public model catalog.
 
