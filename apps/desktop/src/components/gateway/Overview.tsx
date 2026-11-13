@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ArrowRight, CircleAlert, CircleCheck, Circle, Power, Settings2, TerminalSquare } from 'lucide-react';
-import { call, errorText, gatewayChanged, type GatewayStatus, type UsageEvent } from '../../lib/api';
+import { CODING_NEEDS, call, errorText, gatewayChanged, type GatewayStatus, type UsageEvent } from '../../lib/api';
 import { t } from '../../lib/i18n';
 import { isMac } from '../../lib/platform';
 import { costText, microUsd, sourceText, tokens } from '../../lib/money';
@@ -32,8 +32,7 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
   const latest = useGateway(api => api.latestRequests(), [], 10_000);
   const savings = useSavings(1);
   // Whether auto has a model for a coding agent's request (tools, a short prompt): the check behind "ready".
-  const codingPlan = useGateway(api => api.autoSimulate(null, 'auto', {surfaceAnthropic: false, tools: true, vision: false,
-    inputTokens: 2000, maxTokens: 1000, thinking: null, effort: null}));
+  const codingPlan = useGateway(api => api.autoSimulate(null, 'auto', CODING_NEEDS));
   const [configuring, setConfiguring] = useState(false);
 
   const activeClients = clients.data?.filter(c => !c.revokedAt) ?? [];

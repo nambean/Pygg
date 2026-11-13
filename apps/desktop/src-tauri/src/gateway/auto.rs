@@ -122,7 +122,17 @@ pub struct Excluded {
     pub provider_id: String,
     pub model_id: String,
     pub reason: String,
+    /// What would bring it in, for Providers' readiness line (Codex's fourth review, B1): `facts` (a routing fact or
+    /// a price is missing; the user can set it), `unavailable` (cooling down, held after 429, its quota used: it comes
+    /// back by itself), `policy` (the client's rules or what the request needs rule it out), `web` (a web session,
+    /// never chosen by auto).
+    pub kind: &'static str,
 }
+
+pub const FACTS: &str = "facts";
+pub const UNAVAILABLE: &str = "unavailable";
+pub const POLICY: &str = "policy";
+pub const WEB: &str = "web";
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -275,7 +285,8 @@ pub fn plan(conn: &Connection, client: &Client, alias: &str, strategy: Strategy,
                 ranked.push((Ranked { provider_id: model.provider_id.clone(), model_id: model.model_id.clone(), tier,
                     billing: model.billing.clone(), estimate_micro_usd: estimate, reason }, key));
             }
-            Err(reason) => excluded.push(Excluded { provider_id: model.provider_id.clone(), model_id: model.model_id.clone(), reason }),
+            Err((kind, reason)) => excluded.push(Excluded { provider_id: model.provider_id.clone(), model_id: model.model_id.clone(),
+                reason, kind }),
         }
     }
     ranked.sort_by(|(a, ka), (b, kb)| {
@@ -290,51 +301,51 @@ pub fn plan(conn: &Connection, client: &Client, alias: &str, strategy: Strategy,
 
 /// Whether one model may serve the request: its estimated cost and how it was stated, or why not.
 fn judge(conn: &Connection, client: &Client, provider: &Provider, model: &Model, strategy: Strategy,
-    min_tier: Option<&str>, needs: &Needs) -> store::Result<Result<(u64, String), String>> {
+    min_tier: Option<&str>, needs: &Needs) -> store::Result<Result<(u64, String), (&'static str, String)>> {
     let caps = &model.capabilities;
-    let no = |reason: String| Ok(Err(reason));
+    let no = |kind: &'static str, reason: String| Ok(Err((kind, reason)));
     // A web session (ADR-035) is slow, unofficial and, for an agent like Muse, acts as the signed-in user: it serves
     // only a request that names it or a combo the user built, never one auto chose.
     if super::presets::is_web(&provider.kind) {
-        return no(crate::websession::NOT_FOR_AUTO.into());
+        return no(WEB, crate::websession::NOT_FOR_AUTO.into());
     }
     if let Err(why) = client.allows(provider) {
-        return no(why);
+        return no(POLICY, why);
     }
     let now = crate::db::now_ms();
     if let Some(held) = hold(conn, &provider.id, &model.model_id, now) {
         let until = store::iso_utc(held.until_ms.unwrap_or(now)).replace('T', " ")[..16].to_string();
-        return no(format!("{HELD} until {until} UTC: it answered 429 {} in a row ({})", held.strikes, held.reason));
+        return no(UNAVAILABLE, format!("{HELD} until {until} UTC: it answered 429 {} in a row ({})", held.strikes, held.reason));
     }
     // Both formats reach both kinds of target since ROADMAP B5: OpenAI → Anthropic is translated too.
     if let Some(health) = store::blocking_health(conn, &provider.id, &model.model_id)? {
-        return no(format!("{} ({})", health.state.replace('_', " "), health.reason));
+        return no(UNAVAILABLE, format!("{} ({})", health.state.replace('_', " "), health.reason));
     }
     if let Some((holder, hold)) = store::group_hold(conn, provider, &model.model_id)? {
-        return no(format!("shares limits with {}, which is {}", holder.label, hold.state.replace('_', " ")));
+        return no(UNAVAILABLE, format!("shares limits with {}, which is {}", holder.label, hold.state.replace('_', " ")));
     }
     if let Some(why) = super::quota::exhausted(conn, provider, model, now)? {
-        return no(why);
+        return no(UNAVAILABLE, why);
     }
     if strategy == Strategy::Tier {
-        let Some(tier) = caps.tier.as_deref() else { return no("no tier set".into()) };
+        let Some(tier) = caps.tier.as_deref() else { return no(FACTS, "no tier set".into()) };
         let floor = min_tier.unwrap_or("T0");
         if tier_rank(tier) < tier_rank(floor) {
-            return no(format!("tier {tier} is below this client's minimum {floor}"));
+            return no(POLICY, format!("tier {tier} is below this client's minimum {floor}"));
         }
     }
     if needs.tools {
         match caps.supports_tools {
             Some(true) => {}
-            Some(false) => return no("does not take tools".into()),
-            None => return no("tool support unknown".into()),
+            Some(false) => return no(POLICY, "does not take tools".into()),
+            None => return no(FACTS, "tool support unknown".into()),
         }
     }
     if needs.vision {
         match caps.supports_vision {
             Some(true) => {}
-            Some(false) => return no("does not take images".into()),
-            None => return no("image support unknown".into()),
+            Some(false) => return no(POLICY, "does not take images".into()),
+            None => return no(FACTS, "image support unknown".into()),
         }
     }
     // Thinking and effort reach only a native Anthropic target; a translated route drops them and says so.
@@ -342,29 +353,29 @@ fn judge(conn: &Connection, client: &Client, provider: &Provider, model: &Model,
         if let Some(kind) = &needs.thinking {
             match &caps.thinking_types {
                 Some(types) if types.contains(kind) => {}
-                Some(_) => return no(format!("does not take thinking: {kind}")),
-                None => return no(format!("unknown whether it takes thinking: {kind} (refresh its model list, or set it)")),
+                Some(_) => return no(POLICY, format!("does not take thinking: {kind}")),
+                None => return no(FACTS, format!("unknown whether it takes thinking: {kind} (refresh its model list, or set it)")),
             }
         }
         if let Some(level) = &needs.effort {
             match &caps.effort_levels {
                 Some(levels) if levels.contains(level) => {}
-                Some(_) => return no(format!("does not take effort: {level}")),
-                None => return no(format!("unknown whether it takes effort: {level} (refresh its model list, or set it)")),
+                Some(_) => return no(POLICY, format!("does not take effort: {level}")),
+                None => return no(FACTS, format!("unknown whether it takes effort: {level} (refresh its model list, or set it)")),
             }
         }
     }
-    let Some(context) = caps.context_tokens else { return no("context size unknown".into()) };
+    let Some(context) = caps.context_tokens else { return no(FACTS, "context size unknown".into()) };
     let wanted = needs.input_tokens + needs.output_tokens();
     if wanted > context {
-        return no(format!("about {} prompt and {} output tokens do not fit its {context}-token context",
+        return no(POLICY, format!("about {} prompt and {} output tokens do not fit its {context}-token context",
             needs.input_tokens, needs.output_tokens()));
     }
     if let Some(limit) = needs.max_tokens {
         match caps.max_output_tokens {
-            Some(max) if limit > max => return no(format!("the request allows {limit} output tokens; it gives at most {max}")),
+            Some(max) if limit > max => return no(POLICY, format!("the request allows {limit} output tokens; it gives at most {max}")),
             Some(_) => {}
-            None => return no("maximum output unknown, and the request sets one".into()),
+            None => return no(FACTS, "maximum output unknown, and the request sets one".into()),
         }
     }
     match model.billing.as_str() {
@@ -379,13 +390,13 @@ fn judge(conn: &Connection, client: &Client, provider: &Provider, model: &Model,
                 let strict = client.strict_budget && client.monthly_budget_micro_usd.is_some();
                 let estimate = match (strict, needs.max_tokens, caps.max_output_tokens) {
                     (true, None, Some(most)) => Needs { max_tokens: Some(most), ..needs.clone() }.estimate_micro(price),
-                    (true, None, None) => return no("this client's limit is strict, and neither the request nor the model states a maximum output".into()),
+                    (true, None, None) => return no(FACTS, "this client's limit is strict, and neither the request nor the model states a maximum output".into()),
                     _ => needs.estimate_micro(price),
                 };
                 let which = if price.source == "user" { "your price" } else { "the provider's list price" };
                 Ok(Ok((estimate, format!("about {} at {which}", money(estimate)))))
             }
-            None => no("price unknown".into()),
+            None => no(FACTS, "price unknown".into()),
         },
     }
 }
@@ -426,7 +437,7 @@ mod tests {
 
     #[test]
     fn a_refusal_groups_its_reasons_by_connection_largest_first() {
-        let ex = |p: &str, m: &str, r: &str| Excluded { provider_id: p.into(), model_id: m.into(), reason: r.into() };
+        let ex = |p: &str, m: &str, r: &str| Excluded { provider_id: p.into(), model_id: m.into(), reason: r.into(), kind: FACTS };
         let mut excluded = vec![ex("claude", "opus", "tool support unknown"), ex("claude", "haiku", "tier T1 is below this client's minimum T2")];
         for i in 0..5 {
             excluded.push(ex("openrouter", &format!("m{i}"), &format!("payment required (you can only afford {} tokens)", 100 + i)));
@@ -527,6 +538,27 @@ mod tests {
         let again = super::plan(&w.conn, &w.client, "auto", Strategy::Tier, &needs).unwrap();
         assert!(names(&again).contains(&"paid/mid".to_string()));
         assert!(!again.header(&again.ranked[0]).contains("held"), "{}", again.header(&again.ranked[0]));
+    }
+
+    #[test]
+    fn each_exclusion_says_what_would_bring_the_model_in() {
+        let w = world();
+        let now = crate::db::now_ms();
+        strike(&w.conn, "paid", "mid", None, "You exceeded your current quota", now).unwrap();
+        let web = store::add_web_provider(&w.conn, "muse-web", "Muse", crate::websession::WARNING_VERSION).unwrap();
+        store::update_provider(&w.conn, &web.id, Some(true), None, None).unwrap();
+        // A coding tool's request: tools, a short prompt.
+        let needs = Needs { tools: true, input_tokens: 2000, max_tokens: Some(1000), ..Needs::default() };
+        let plan = plan(&w.conn, &w.client, "auto", Strategy::Tier, &needs).unwrap();
+        let kind = |model: &str| plan.excluded.iter().find(|e| e.model_id == model).map(|e| e.kind).unwrap_or("ranked");
+        // A fact or a price the user can set.
+        assert_eq!((kind("untiered"), kind("unpriced"), kind("gift")), (FACTS, FACTS, FACTS));
+        // Comes back by itself.
+        assert_eq!(kind("mid"), UNAVAILABLE);
+        // Ruled out by the client's minimum tier, or by what the request needs.
+        assert_eq!((kind("small"), kind("notools")), (POLICY, POLICY));
+        assert_eq!(kind("muse"), WEB);
+        assert_eq!(kind("big"), "ranked");
     }
 
     #[test]

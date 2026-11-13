@@ -33,7 +33,7 @@ Codex: fix the guard first (done above), and do **not** route by the health scor
 
 | Rank | Proposal (Codex) | Smallest useful version | Schema |
 | --- | --- | --- | --- |
-| 1 | **Auto readiness on Providers** | "2 models eligible for coding auto · 3 missing routing facts · 1 cooling down", from `auto::plan`'s own exclusions, each linking to its models | None |
+| 1 | **Auto readiness on Providers** · **Done 2026-11-14** | "2 models eligible for coding auto · 3 missing routing facts · 1 cooling down", from `auto::plan`'s own exclusions, each linking to its models. Built as proposed: the planner tags each exclusion (`facts`, `unavailable`, `policy`, `web`); a line under the provider list, a count per row, a verdict per model and four model filters | None |
 | 2 | **Billing and routing kept on each usage event** | `billing_at_request` and a structured `routing_code` recorded at admission; old rows say "not recorded", never today's settings | One migration |
 | 3 | **A logical request id across fallback attempts** | One id at gateway ingress, attempt numbers, a response header; Usage groups attempts and says "Answered after fallback" | Same migration as #2 |
 | 4 | **Usage: Summary and Requests** | Two views; CLI Tools opens Requests filtered by its client; filters run in the query, not on the loaded page | None |

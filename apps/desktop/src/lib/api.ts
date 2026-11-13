@@ -164,7 +164,14 @@ export type AutoNeeds = { surfaceAnthropic: boolean; tools: boolean; vision: boo
   /** An Anthropic request's thinking.type and output_config.effort. */
   thinking: 'adaptive' | 'enabled' | 'disabled' | null; effort: string | null };
 export type AutoRanked = { providerId: string; modelId: string; tier: Tier | null; billing: Billing; estimateMicroUsd: number; reason: string };
-export type AutoExcluded = { providerId: string; modelId: string; reason: string };
+/** Why auto left a model out, and what would bring it in (auto.rs `Excluded::kind`): a routing fact or price the user can
+ *  set, a state that passes by itself, the client's rules or the request's needs, or a web session (never auto). */
+/** A coding tool's request, as Home, CLI Tools and Providers ask auto about it: tools, a short prompt, a short answer,
+ *  OpenAI format. Eligibility depends on the request; this is the one that matters most. */
+export const CODING_NEEDS = {surfaceAnthropic: false, tools: true, vision: false, inputTokens: 2000, maxTokens: 1000,
+  thinking: null, effort: null};
+export type AutoExclusionKind = 'facts' | 'unavailable' | 'policy' | 'web';
+export type AutoExcluded = { providerId: string; modelId: string; reason: string; kind: AutoExclusionKind };
 export type AutoPlan = { alias: AutoAlias; strategy: 'tier' | 'cheap'; minTier: Tier | null; ranked: AutoRanked[]; excluded: AutoExcluded[] };
 /** How many ranked models make up an auto route. */
 export const AUTO_ROUTE_LENGTH = 5;

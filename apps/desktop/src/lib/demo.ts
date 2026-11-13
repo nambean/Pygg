@@ -438,37 +438,39 @@ export function demoApi(): GatewayApi {
       const conn = connections.find(c => c.id === m.providerId);
       if (!conn?.enabled || !m.enabled) continue;
       const caps = m.capabilities, billing = m.billing === 'unknown' ? conn.defaultBilling : m.billing;
-      const no = (reason: string) => excluded.push({providerId: m.providerId, modelId: m.modelId, reason});
-      if (client?.allowedConnections && !client.allowedConnections.includes(conn.id)) { no(`this client may not use ${conn.label}`); continue; }
-      if (!needs.surfaceAnthropic && conn.wire === 'anthropic') { no('speaks the Anthropic API, which an OpenAI-format request cannot reach yet'); continue; }
+      // Each exclusion says what would bring the model in, as auto.rs's `kind` does.
+      const no = (kind: AutoExcluded['kind'], reason: string) => excluded.push({providerId: m.providerId, modelId: m.modelId, reason, kind});
+      if (conn.web) { no('web', 'A web session is used only by name or in a combo you build, never chosen by auto.'); continue; }
+      if (client?.allowedConnections && !client.allowedConnections.includes(conn.id)) { no('policy', `this client may not use ${conn.label}`); continue; }
+      // Both API formats reach both kinds of target (auto.rs, ROADMAP B5).
       const h = health.find(x => x.providerId === conn.id && (x.modelId === '' || x.modelId === m.modelId) && (x.untilMs ?? Infinity) > Date.now());
-      if (h) { no(`${h.state.replace('_', ' ')} (${h.reason})`); continue; }
+      if (h) { no('unavailable', `${h.state.replace('_', ' ')} (${h.reason})`); continue; }
       if (minTier) {
-        if (!caps.tier) { no('no tier set'); continue; }
-        if (rank(caps.tier) < rank(minTier)) { no(`tier ${caps.tier} is below this client's minimum ${minTier}`); continue; }
+        if (!caps.tier) { no('facts', 'no tier set'); continue; }
+        if (rank(caps.tier) < rank(minTier)) { no('policy', `tier ${caps.tier} is below this client's minimum ${minTier}`); continue; }
       }
-      if (needs.tools && caps.supportsTools !== true) { no(caps.supportsTools === false ? 'does not take tools' : 'tool support unknown'); continue; }
-      if (needs.vision && caps.supportsVision !== true) { no(caps.supportsVision === false ? 'does not take images' : 'image support unknown'); continue; }
+      if (needs.tools && caps.supportsTools !== true) { caps.supportsTools === false ? no('policy', 'does not take tools') : no('facts', 'tool support unknown'); continue; }
+      if (needs.vision && caps.supportsVision !== true) { caps.supportsVision === false ? no('policy', 'does not take images') : no('facts', 'image support unknown'); continue; }
       if (conn.wire === 'anthropic' && needs.thinking) {
-        if (caps.thinkingTypes === null) { no(`unknown whether it takes thinking: ${needs.thinking} (refresh its model list, or set it)`); continue; }
-        if (!caps.thinkingTypes.includes(needs.thinking)) { no(`does not take thinking: ${needs.thinking}`); continue; }
+        if (caps.thinkingTypes === null) { no('facts', `unknown whether it takes thinking: ${needs.thinking} (refresh its model list, or set it)`); continue; }
+        if (!caps.thinkingTypes.includes(needs.thinking)) { no('policy', `does not take thinking: ${needs.thinking}`); continue; }
       }
       if (conn.wire === 'anthropic' && needs.effort) {
-        if (caps.effortLevels === null) { no(`unknown whether it takes effort: ${needs.effort} (refresh its model list, or set it)`); continue; }
-        if (!caps.effortLevels.includes(needs.effort)) { no(`does not take effort: ${needs.effort}`); continue; }
+        if (caps.effortLevels === null) { no('facts', `unknown whether it takes effort: ${needs.effort} (refresh its model list, or set it)`); continue; }
+        if (!caps.effortLevels.includes(needs.effort)) { no('policy', `does not take effort: ${needs.effort}`); continue; }
       }
-      if (!caps.contextTokens) { no('context size unknown'); continue; }
+      if (!caps.contextTokens) { no('facts', 'context size unknown'); continue; }
       if (needs.inputTokens + output > caps.contextTokens) {
-        no(`about ${needs.inputTokens} prompt and ${output} output tokens do not fit its ${caps.contextTokens}-token context`); continue;
+        no('policy', `about ${needs.inputTokens} prompt and ${output} output tokens do not fit its ${caps.contextTokens}-token context`); continue;
       }
       if (needs.maxTokens != null) {
-        if (caps.maxOutputTokens == null) { no('maximum output unknown, and the request sets one'); continue; }
-        if (needs.maxTokens > caps.maxOutputTokens) { no(`the request allows ${needs.maxTokens} output tokens; it gives at most ${caps.maxOutputTokens}`); continue; }
+        if (caps.maxOutputTokens == null) { no('facts', 'maximum output unknown, and the request sets one'); continue; }
+        if (needs.maxTokens > caps.maxOutputTokens) { no('policy', `the request allows ${needs.maxTokens} output tokens; it gives at most ${caps.maxOutputTokens}`); continue; }
       }
       let estimate = 0, cost = `${billing} (as set)`;
       if (billing === 'subscription') cost = "the plan's quota, not money; quota left not tracked";
       if (billing !== 'free' && billing !== 'local' && billing !== 'subscription') {
-        if (!m.price) { no('price unknown'); continue; }
+        if (!m.price) { no('facts', 'price unknown'); continue; }
         const inPrice = Math.max(m.price.inputMicroPerMtok, m.price.cacheWriteMicroPerMtok ?? 0);
         estimate = Math.ceil(needs.inputTokens * inPrice / 1e6) + Math.ceil(output * m.price.outputMicroPerMtok / 1e6);
         cost = `about $${(estimate / 1e6).toFixed(4)} at ${m.price.source === 'user' ? 'your price' : "the provider's list price"}`;

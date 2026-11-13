@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AppWindow, KeyRound, Plug, Plus, RefreshCw, Search, ShieldAlert, Trash2 } from 'lucide-react';
-import { BILLINGS, TIERS, WEB_WARNING_VERSION, call, errorText, gatewayChanged, type Billing, type Connection, type HealthStrip, type WebGuard, type Health, type Model,
-  type Preset, type ModelTest, type Reliability, type Tier, type WebState } from '../../lib/api';
+import { BILLINGS, CODING_NEEDS, TIERS, WEB_WARNING_VERSION, call, errorText, gatewayChanged, type Billing, type Connection, type HealthStrip, type WebGuard, type Health, type Model,
+  type Preset, type ModelTest, type Reliability, type Tier, type WebState, type AutoPlan, type AutoExcluded, type AutoExclusionKind } from '../../lib/api';
 import { ago, windowText } from '../../lib/format';
 import { locale, plural, t } from '../../lib/i18n';
 import { billingLabel, parseUsd, priceText } from '../../lib/money';
@@ -35,7 +35,12 @@ export function Connections({intent, onIntentDone, onNext}: {intent?: 'connect' 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(intent === 'connect');
   // Opened from "Review unpriced models": the first connection with an enabled model that has no price, filtered so.
-  const [modelFilter, setModelFilter] = useState<'all' | 'unpriced'>('all');
+  // A count on the auto readiness line opens the connection with the most such models, filtered so too.
+  const [modelFilter, setModelFilter] = useState<ModelShow>('all');
+  const [jump, setJump] = useState(0);
+  // How ready auto is for a coding tool's request (Codex's fourth review, B1): the same question Home asks.
+  const coding = useGateway(api => api.autoSimulate(null, 'auto', CODING_NEEDS));
+  const readiness = useMemo(() => autoReadiness(coding.data), [coding.data]);
   const [justConnected, setJustConnected] = useState(false);
   useEffect(() => {
     if (intent === 'connect') { setConnecting(true); onIntentDone(); }
@@ -57,6 +62,15 @@ export function Connections({intent, onIntentDone, onNext}: {intent?: 'connect' 
       : show === 'local' ? c.defaultBilling === 'local' : c.wire === 'anthropic')));
   // Only a connection the list shows can be open below it, so a search never leaves another one's settings in view.
   const selected = visible.find(c => c.id === selectedId) ?? visible[0];
+  const openAuto = (kind: AutoKind) => {
+    const id = readiness.top(kind);
+    if (!id) return;
+    setQuery('');
+    setShow('all');
+    setSelectedId(id);
+    setModelFilter(AUTO_FILTER[kind]);
+    setJump(n => n + 1);
+  };
 
   if (list.loading && !list.data) return <div className="page"><Spinner label={t('Loading connections…')}/></div>;
   return <div className="page">
@@ -94,12 +108,13 @@ export function Connections({intent, onIntentDone, onNext}: {intent?: 'connect' 
           </div>
           <ul className="group-box select-list" aria-label={t('Providers')}>
             {visible.map(c => <ConnectionRow key={c.id} connection={c} selected={c.id === selected?.id}
-              onSelect={() => setSelectedId(c.id)}/>)}
+              autoCount={coding.data ? readiness.eligibleOn(c.id) : undefined} onSelect={() => setSelectedId(c.id)}/>)}
             {visible.length === 0 && <li className="table-empty">{t('No connection matches.')}</li>}
           </ul>
+          {coding.data && <AutoReadinessLine readiness={readiness} onOpen={openAuto}/>}
         </section>
-        {selected && <ConnectionDetail key={`${selected.id}-${modelFilter}`} connection={selected} onRemoved={() => setSelectedId(null)}
-          initialShow={modelFilter}/>}
+        {selected && <ConnectionDetail key={`${selected.id}-${modelFilter}-${jump}`} connection={selected} onRemoved={() => setSelectedId(null)}
+          initialShow={modelFilter} plan={coding.data}/>}
       </>}
     {connecting && <ConnectSheet onClose={() => setConnecting(false)} onConnected={id => { setSelectedId(id); setConnecting(false); setJustConnected(true); }}/>}
   </div>;
@@ -260,7 +275,8 @@ function HealthList({connection: c}: {connection: Connection}) {
   </div>;
 }
 
-function ConnectionRow({connection: c, selected, onSelect}: {connection: Connection; selected: boolean; onSelect: () => void}) {
+function ConnectionRow({connection: c, selected, autoCount, onSelect}: {connection: Connection; selected: boolean; autoCount?: number;
+  onSelect: () => void}) {
   const state = connectionState(c);
   const toggle = (enabled: boolean) => call(api => api.updateConnection(c.id, {enabled})).then(gatewayChanged);
   return <li className={selected ? 'select-row selected' : 'select-row'}>
@@ -268,7 +284,8 @@ function ConnectionRow({connection: c, selected, onSelect}: {connection: Connect
       <ProviderLogo kind={c.kind} name={c.label} size={17}/>
       <span className="select-row-text">
         <span className="select-row-title">{c.label} <span className="mono secondary">{c.id}/…</span></span>
-        <small>{c.presetName} · {billingLabel(c.defaultBilling)} · {plural(c.models, '{n} model', '{n} models')}</small>
+        <small>{c.presetName} · {billingLabel(c.defaultBilling)} · {plural(c.models, '{n} model', '{n} models')}
+          {autoCount !== undefined && !c.web && c.enabled && c.models > 0 && <> · {t('{n} for auto', {n: autoCount})}</>}</small>
       </span>
       {c.healthStrip && <HealthDots strip={c.healthStrip} compact/>}
       <Badge tone={state.tone}>{state.text}</Badge>
@@ -277,15 +294,19 @@ function ConnectionRow({connection: c, selected, onSelect}: {connection: Connect
   </li>;
 }
 
-function ConnectionDetail({connection: c, onRemoved, initialShow = 'all'}: {connection: Connection; onRemoved: () => void;
-  initialShow?: 'all' | 'unpriced'}) {
+function ConnectionDetail({connection: c, onRemoved, initialShow = 'all', plan}: {connection: Connection; onRemoved: () => void;
+  initialShow?: ModelShow; plan?: AutoPlan | null}) {
   const models = useGateway(api => api.models(c.id), [c.id]);
   const reliability = useGateway(api => api.reliability(c.id), [c.id], 30_000);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState<{ok: boolean; text: string} | null>(null);
   const [sheet, setSheet] = useState<'key' | 'remove' | 'add-model' | 'quota' | {price: Model} | {caps: Model} | null>(null);
   const [query, setQuery] = useState('');
-  const [show, setShow] = useState<'all' | 'enabled' | 'free' | 'unpriced'>(initialShow);
+  const [show, setShow] = useState<ModelShow>(initialShow);
+  // What auto makes of each model for a coding tool's request: eligible, or why not.
+  const autoOf = (m: Model): AutoVerdict | undefined => !plan ? undefined
+    : plan.ranked.some(r => r.providerId === c.id && r.modelId === m.modelId) ? 'eligible'
+    : plan.excluded.find(e => e.providerId === c.id && e.modelId === m.modelId);
   const check = c.lastCheck;
   const [checking, setChecking] = useState(false);
   const checkNow = () => {
@@ -307,11 +328,19 @@ function ConnectionDetail({connection: c, onRemoved, initialShow = 'all'}: {conn
   };
   const setBilling = (billing: Billing) => call(api => api.updateConnection(c.id, {billing})).then(gatewayChanged);
 
-  const shown = useMemo(() => (models.data ?? []).filter(m =>
-    m.modelId.toLowerCase().includes(query.trim().toLowerCase())
-    && (show === 'all' || (show === 'enabled' ? m.enabled : show === 'free' ? m.billing === 'free' || m.billing === 'local'
-      : !m.price && (m.billing === 'paid' || m.billing === 'unknown')))),
-  [models.data, query, show]);
+  const shown = useMemo(() => (models.data ?? []).filter(m => {
+    if (!m.modelId.toLowerCase().includes(query.trim().toLowerCase())) return false;
+    if (show.startsWith('auto-')) {
+      const verdict = autoOf(m);
+      return show === 'auto-eligible' ? verdict === 'eligible'
+        : typeof verdict === 'object' && verdict.kind !== 'web' && AUTO_FILTER[verdict.kind] === show;
+    }
+    return show === 'all' || (show === 'enabled' ? m.enabled : show === 'free' ? m.billing === 'free' || m.billing === 'local'
+      : !m.price && (m.billing === 'paid' || m.billing === 'unknown'));
+  }),
+  // autoOf reads only `plan` and the connection's id.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [models.data, query, show, plan, c.id]);
 
   return <section className="group" aria-label={c.label}>
     <div className="group-heading">
@@ -427,6 +456,12 @@ function ConnectionDetail({connection: c, onRemoved, initialShow = 'all'}: {conn
           <option value="enabled">{t('Enabled')}</option>
           <option value="free">{t('Free')}</option>
           <option value="unpriced">{t('Paid or unknown, no price')}</option>
+          {plan && !c.web && <optgroup label={t('Auto, for a coding tool’s request')}>
+            <option value="auto-eligible">{t('Eligible for auto')}</option>
+            <option value="auto-facts">{t('Missing auto facts')}</option>
+            <option value="auto-unavailable">{t('Unavailable to auto now')}</option>
+            <option value="auto-policy">{t('Outside auto’s rules')}</option>
+          </optgroup>}
         </select>
         <button type="button" className="button" onClick={() => setSheet('add-model')}><Plus size={13} aria-hidden/>{t('Add Model…')}</button>
       </span>
@@ -442,7 +477,7 @@ function ConnectionDetail({connection: c, onRemoved, initialShow = 'all'}: {conn
             <th scope="col" className="narrow">{t('Enabled')}</th><th scope="col" className="narrow"><span className="sr-only">{t('Actions')}</span></th>
           </tr></thead>
           <tbody>
-            {shown.map(m => <ModelRow key={m.modelId} model={m} onPrice={() => setSheet({price: m})} onCaps={() => setSheet({caps: m})}
+            {shown.map(m => <ModelRow key={m.modelId} model={m} auto={autoOf(m)} onPrice={() => setSheet({price: m})} onCaps={() => setSheet({caps: m})}
               health={c.health.find(h => h.modelId === m.modelId)} reliability={reliability.data?.find(r => r.modelId === m.modelId)}
               onChange={() => { models.reload(); gatewayChanged(); }}/>)}
             {shown.length === 0 && <tr><td colSpan={6} className="table-empty">{t('No models match.')}</td></tr>}
@@ -568,8 +603,8 @@ function ModelTestButton({model: m}: {model: Model}) {
   </>;
 }
 
-function ModelRow({model: m, health, reliability: r, onPrice, onCaps, onChange}: {model: Model; health?: Health; reliability?: Reliability;
-  onPrice: () => void; onCaps: () => void; onChange: () => void}) {
+function ModelRow({model: m, auto, health, reliability: r, onPrice, onCaps, onChange}: {model: Model; auto?: AutoVerdict; health?: Health;
+  reliability?: Reliability; onPrice: () => void; onCaps: () => void; onChange: () => void}) {
   const needsPrice = m.billing === 'paid' || m.billing === 'unknown';
   const price = m.price ? priceText(m.price)
     : needsPrice ? t('No price · cost Unknown') : m.billing === 'subscription' ? t('Quota, not money') : t('Not needed');
@@ -583,6 +618,7 @@ function ModelRow({model: m, health, reliability: r, onPrice, onCaps, onChange}:
         <br/>{t('Off: not $0')}</small>}</td>
     <td className={m.price ? '' : 'secondary'}>{price}{m.price && <small className="source"> · {m.price.source === 'user' ? t('your price') : t('list price')}</small>}</td>
     <td className={m.capabilities.tier ? '' : 'secondary'}>{capsText(m)}
+      {auto && <AutoVerdictLine verdict={auto}/>}
       {r && r.requests > 0 && <small className="source" title={t('From the ledger over the last 30 days; requests the client left are not counted.')}>
         <br/>{t('{rate}% of {n} answered', {rate: Math.round((r.ok / r.requests) * 100), n: r.requests})}
         {r.medianLatencyMs !== null ? ` · ${t('median {s} s', {s: (r.medianLatencyMs / 1000).toFixed(1)})}` : ''}</small>}</td>
@@ -982,6 +1018,66 @@ function PriceSheet({model: m, onClose, onSaved}: {model: Model; onClose: () => 
     <p className="sheet-text secondary">{t('Providers that report the charge themselves, such as OpenRouter, are recorded as Actual and don’t need a price.')}</p>
     {error && <ErrorNote>{error}</ErrorNote>}
   </Sheet>;
+}
+
+type ModelShow = 'all' | 'enabled' | 'free' | 'unpriced' | 'auto-eligible' | 'auto-facts' | 'auto-unavailable' | 'auto-policy';
+type AutoKind = 'eligible' | Exclude<AutoExclusionKind, 'web'>;
+type AutoVerdict = 'eligible' | AutoExcluded;
+const AUTO_FILTER: Record<AutoKind, ModelShow> = {eligible: 'auto-eligible', facts: 'auto-facts', unavailable: 'auto-unavailable', policy: 'auto-policy'};
+const AUTO_KINDS: AutoKind[] = ['eligible', 'facts', 'unavailable', 'policy'];
+
+/** Auto's verdict on every enabled model for a coding tool's request, counted by kind and by connection. Web sessions
+ *  are left out: auto never chooses them, so they say nothing about how ready it is. */
+function autoReadiness(plan: AutoPlan | null | undefined) {
+  const counts: Record<AutoKind, Map<string, number>> = {eligible: new Map(), facts: new Map(), unavailable: new Map(), policy: new Map()};
+  const add = (kind: AutoKind, id: string) => counts[kind].set(id, (counts[kind].get(id) ?? 0) + 1);
+  plan?.ranked.forEach(r => add('eligible', r.providerId));
+  plan?.excluded.forEach(e => { if (e.kind !== 'web') add(e.kind, e.providerId); });
+  const total = (kind: AutoKind) => [...counts[kind].values()].reduce((a, b) => a + b, 0);
+  return {
+    total,
+    eligibleOn: (id: string) => counts.eligible.get(id) ?? 0,
+    /** The connection with the most models of this kind (the first seen on a tie). */
+    top: (kind: AutoKind) => [...counts[kind].entries()].sort((a, b) => b[1] - a[1])[0]?.[0],
+  };
+}
+
+/** Providers' line on auto (Codex's fourth review, B1): how many models auto could use for a coding tool's request, and
+ *  why the rest cannot, each count opening the connection that has the most of them. */
+function AutoReadinessLine({readiness, onOpen}: {readiness: ReturnType<typeof autoReadiness>; onOpen: (kind: AutoKind) => void}) {
+  if (AUTO_KINDS.every(k => readiness.total(k) === 0)) return null;
+  const label: Record<AutoKind, (n: number) => string> = {
+    eligible: n => plural(n, '{n} model eligible', '{n} models eligible'),
+    facts: n => plural(n, '{n} missing routing facts', '{n} missing routing facts'),
+    unavailable: n => plural(n, '{n} unavailable now', '{n} unavailable now'),
+    policy: n => plural(n, '{n} outside the rules', '{n} outside the rules'),
+  };
+  const title: Record<AutoKind, string> = {
+    eligible: t('Auto can choose these for such a request.'),
+    facts: t('A tier, a context size, tool support or a price is not known. Set it with Auto… or Set Price…, or refresh the model list.'),
+    unavailable: t('Cooling down, held after repeated 429 answers, or out of quota. They come back by themselves.'),
+    policy: t('Below a new key’s minimum tier, unable to take tools, or too small for the request. Policies sets the minimum.'),
+  };
+  const shown = AUTO_KINDS.filter(k => k === 'eligible' || readiness.total(k) > 0);
+  return <p className="group-intro auto-readiness" role="status">
+    <span>{t('Auto, for a coding tool’s request (tools, a short prompt, a new key’s defaults):')}{' '}
+      {shown.map((k, i) => <span key={k}>{i > 0 && ' · '}
+        {readiness.total(k) > 0
+          ? <button type="button" className="link-button" title={title[k]} onClick={() => onOpen(k)}>
+              {k === 'eligible' ? <strong>{label[k](readiness.total(k))}</strong> : label[k](readiness.total(k))}</button>
+          : <strong className="warn-text" title={title.facts}>{t('no model eligible')}</strong>}
+      </span>)}
+    </span>
+  </p>;
+}
+
+/** Under a model's routing facts: whether auto would choose it for a coding tool's request, or why not. */
+function AutoVerdictLine({verdict}: {verdict: AutoVerdict}) {
+  if (verdict === 'eligible') return <small className="source"><br/>{t('Auto: eligible')}</small>;
+  if (verdict.kind === 'web') return null;
+  return <small className="source" title={verdict.reason}><br/>
+    {verdict.kind === 'facts' ? t('Auto skips: {reason} (Auto… sets it)', {reason: verdict.reason})
+      : t('Auto skips: {reason}', {reason: verdict.reason})}</small>;
 }
 
 /** A short summary of what auto routing knows about a model. */
