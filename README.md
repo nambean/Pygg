@@ -18,6 +18,8 @@ Pygg runs on your computer. You connect your providers once, point Claude Code, 
 > - **On hold:** smart tasks, run by agent CLIs and started from an IDE, work but are paused until the owner re-evaluates them.
 >
 > See [implementation status](docs/IMPLEMENTATION-STATUS.md) and the [roadmap](docs/ROADMAP.md). Installers are not code-signed yet, so Windows SmartScreen warns about them.
+>
+> **Not yet for unattended or financially critical use:** spending limits rely on prices and token estimates, and clean-machine installation and long-running behaviour need more validation ([production readiness](docs/reports/2026-11-14-production-readiness.md)). Web sessions are optional, unofficial and experimental; automated use can lead to account restrictions.
 
 ## What makes Pygg different
 

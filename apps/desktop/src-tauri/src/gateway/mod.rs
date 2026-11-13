@@ -1176,7 +1176,9 @@ fn route_kind(shared: &Shared, requested: &str) -> String {
 /// 1.25x on what it writes, repaid by the next turn's read. A request the client marked itself, a native Anthropic
 /// request, a one-off question without tools, and Anthropic-format endpoints of other providers are left as they are.
 fn adds_cache(incoming: &Incoming, provider: &Provider, mode: Mode) -> bool {
-    provider.kind == "anthropic"
+    // `PYGG_ANTHROPIC_AUTO_CACHE=off` turns it off for the process: the benchmark's "plain translating gateway" arm.
+    let enabled = std::env::var("PYGG_ANTHROPIC_AUTO_CACHE").map_or(true, |v| v != "off");
+    enabled && provider.kind == "anthropic"
         && matches!(mode, Mode::OpenAiToAnthropic | Mode::ResponsesToAnthropic)
         && incoming.body["tools"].as_array().is_some_and(|t| !t.is_empty())
 }
@@ -1416,7 +1418,7 @@ async fn chat_completions(State(shared): State<Shared>, headers: HeaderMap, body
     if !stream {
         let mut forwarded = forwarded;
         let response = std::mem::replace(&mut forwarded.response, status_only(status));
-        return match response.bytes().await {
+        return match read_body(response).await {
             Ok(bytes) => {
                 let parsed = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
                 shared.capture_signatures(&parsed);
@@ -1460,7 +1462,7 @@ async fn from_anthropic_response(shared: Shared, mut forwarded: Forwarded, strea
     requested: String) -> Response {
     let upstream = std::mem::replace(&mut forwarded.response, status_only(StatusCode::OK));
     if !stream {
-        return match upstream.bytes().await {
+        return match read_body(upstream).await {
             Ok(bytes) => {
                 let parsed = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
                 let (body, usage) = openai_to_anthropic::from_anthropic(&parsed, &requested);
@@ -1504,7 +1506,7 @@ async fn from_anthropic_response(shared: Shared, mut forwarded: Forwarded, strea
                     break 'read;
                 }
                 for piece in translator.push(&event) {
-                    if tx.send(Ok(Bytes::from(piece))).await.is_err() {
+                    if !deliver(&tx, Ok(Bytes::from(piece))).await {
                         outcome = "client_disconnected";
                         break 'read;
                     }
@@ -1513,15 +1515,42 @@ async fn from_anthropic_response(shared: Shared, mut forwarded: Forwarded, strea
         }
         if outcome == "ok" {
             for piece in translator.finish() {
-                let _ = tx.send(Ok(Bytes::from(piece))).await;
+                let _ = deliver(&tx, Ok(Bytes::from(piece))).await;
             }
         } else if outcome == "stream_error" {
-            let _ = tx.send(Err(std::io::Error::other("upstream stream failed"))).await;
+            let _ = deliver(&tx, Err(std::io::Error::other("upstream stream failed"))).await;
         }
         let usage = translator.usage.clone();
         record_success(&shared, forwarded, usage.as_ref(), outcome, error.as_deref());
     });
     out
+}
+
+/// The most of a provider's non-streamed answer Pygg reads (Codex's production review): a provider that sends more is
+/// treated as a broken answer, not held in memory without end.
+pub const MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
+/// How long a streamed piece may wait for the client to take it. A client that stops reading without leaving would
+/// otherwise hold the attempt, its concurrency slot and the store's ownership for ever; past this it counts as gone.
+pub const CLIENT_WAIT: Duration = Duration::from_secs(120);
+
+/// A provider's whole answer, refused past `MAX_RESPONSE_BYTES`.
+pub async fn read_body(response: reqwest::Response) -> Result<Bytes, String> {
+    let mut stream = response.bytes_stream();
+    let mut body = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
+            return Err(format!("the answer passed {} MB, more than Pygg reads", MAX_RESPONSE_BYTES / (1024 * 1024)));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(Bytes::from(body))
+}
+
+/// Hands one piece of a streamed answer to the client; `false` when the client left or stopped reading
+/// (`CLIENT_WAIT`).
+pub async fn deliver<T>(tx: &mpsc::Sender<T>, item: T) -> bool {
+    matches!(tokio::time::timeout(CLIENT_WAIT, tx.send(item)).await, Ok(Ok(())))
 }
 
 /// A streamed response whose body is fed from `rx`.
@@ -1546,12 +1575,12 @@ pub async fn pump(upstream: reqwest::Response, tx: &mpsc::Sender<Result<Bytes, s
         match chunk {
             Ok(chunk) => {
                 watch(&chunk);
-                if tx.send(Ok(chunk)).await.is_err() {
+                if !deliver(&tx, Ok(chunk)).await {
                     return ("client_disconnected", None);
                 }
             }
             Err(e) => {
-                let _ = tx.send(Err(std::io::Error::other("upstream stream failed"))).await;
+                let _ = deliver(&tx, Err(std::io::Error::other("upstream stream failed"))).await;
                 return ("stream_error", Some(crate::redact::redact(&e.to_string(), &[])));
             }
         }

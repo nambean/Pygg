@@ -565,7 +565,7 @@ async fn native(shared: Shared, mut forwarded: super::Forwarded, stream: bool) -
     let upstream_headers = forwarded.response.headers().clone();
     let upstream = std::mem::replace(&mut forwarded.response, status_only(status));
     if !stream {
-        return match upstream.bytes().await {
+        return match super::read_body(upstream).await {
             Ok(bytes) => {
                 let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
                 let usage = Usage::from_anthropic(&parsed["usage"]);
@@ -608,7 +608,7 @@ async fn translated(shared: Shared, mut forwarded: super::Forwarded, stream: boo
     let upstream = std::mem::replace(&mut forwarded.response, status_only(status));
 
     if !stream {
-        return match upstream.bytes().await {
+        return match super::read_body(upstream).await {
             Ok(bytes) => {
                 let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
                 shared.capture_signatures(&parsed);
@@ -671,7 +671,7 @@ async fn translated(shared: Shared, mut forwarded: super::Forwarded, stream: boo
                     if let Some(file) = capture.as_mut() {
                         let _ = write!(file, "OUT {event}");
                     }
-                    if tx.send(Ok(Bytes::from(event))).await.is_err() {
+                    if !super::deliver(&tx, Ok(Bytes::from(event))).await {
                         outcome = "client_disconnected";
                         break 'read;
                     }
@@ -690,13 +690,13 @@ async fn translated(shared: Shared, mut forwarded: super::Forwarded, stream: boo
                 let message = if error.as_deref() == Some(EMPTY_ANSWER) { EMPTY_ANSWER } else { "The provider's stream broke off" };
                 let event = format!("event: error\ndata: {}\n\n",
                     json!({ "type": "error", "error": { "type": "api_error", "message": message } }));
-                let _ = tx.send(Ok(Bytes::from(event))).await;
+                let _ = super::deliver(&tx, Ok(Bytes::from(event))).await;
             } else {
                 for event in translator.finish() {
                     if let Some(file) = capture.as_mut() {
                         let _ = write!(file, "OUT {event}");
                     }
-                    let _ = tx.send(Ok(Bytes::from(event))).await;
+                    let _ = super::deliver(&tx, Ok(Bytes::from(event))).await;
                 }
             }
         }
@@ -752,7 +752,7 @@ pub async fn count_tokens(State(shared): State<Shared>, headers: HeaderMap, body
         }
         if let Ok(response) = call.send().await {
             if response.status().is_success() {
-                if let Ok(bytes) = response.bytes().await {
+                if let Ok(bytes) = super::read_body(response).await {
                     let mut out = Response::new(Body::from(bytes));
                     out.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
                     return out;

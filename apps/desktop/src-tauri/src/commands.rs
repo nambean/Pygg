@@ -942,7 +942,7 @@ pub async fn diagnostics_export(app: tauri::AppHandle, state: State<'_, AppState
     let now = crate::db::now_ms();
     let gateway = status_of(&state).await;
     let context = crate::diagnostics::Context { made_by: "app", gateway_state: gateway.state.to_string(),
-        gateway_port: gateway.port, gateway_error: gateway.error.or(gateway.accounting_error), log_lines: Vec::new() };
+        gateway_port: gateway.port, gateway_error: gateway.error.or(gateway.accounting_error), log_lines: crate::applog::tail(200) };
     let zip = state.shared.with_db(|db| crate::diagnostics::bundle(db, &context, now))?;
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog().file().set_title("Save Diagnostics").set_file_name(crate::diagnostics::file_name(now)).add_filter("Zip", &["zip"])

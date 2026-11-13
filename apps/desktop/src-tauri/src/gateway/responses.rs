@@ -865,8 +865,8 @@ pub async fn responses(State(shared): State<Shared>, headers: HeaderMap, body: B
     }
 }
 
-fn broke_off(shared: &Shared, forwarded: Forwarded, error: reqwest::Error) -> Response {
-    let message = crate::redact::redact(&error.to_string(), &[]);
+fn broke_off(shared: &Shared, forwarded: Forwarded, error: String) -> Response {
+    let message = crate::redact::redact(&error, &[]);
     record_success(shared, forwarded, None, "stream_error", Some(&message));
     openai_error(StatusCode::BAD_GATEWAY, "api_error", &format!("The provider's response broke off: {message}"))
 }
@@ -878,7 +878,7 @@ async fn native(shared: Shared, mut forwarded: Forwarded, stream: bool) -> Respo
     let upstream_headers = forwarded.response.headers().clone();
     let upstream = std::mem::replace(&mut forwarded.response, status_only(status));
     if !stream {
-        return match upstream.bytes().await {
+        return match super::read_body(upstream).await {
             Ok(bytes) => {
                 let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
                 let usage = Usage::from_responses(&parsed["usage"]);
@@ -952,7 +952,7 @@ fn sse_response(forwarded: &Forwarded) -> (mpsc::Sender<Result<Bytes, std::io::E
 
 async fn send_all(tx: &mpsc::Sender<Result<Bytes, std::io::Error>>, events: Vec<String>) -> bool {
     for event in events {
-        if tx.send(Ok(Bytes::from(event))).await.is_err() {
+        if !super::deliver(&tx, Ok(Bytes::from(event))).await {
             return false;
         }
     }
@@ -963,7 +963,7 @@ async fn send_all(tx: &mpsc::Sender<Result<Bytes, std::io::Error>>, events: Vec<
 async fn from_chat_upstream(shared: Shared, mut forwarded: Forwarded, stream: bool, ctx: Context) -> Response {
     let upstream = std::mem::replace(&mut forwarded.response, status_only(StatusCode::OK));
     if !stream {
-        return match upstream.bytes().await {
+        return match super::read_body(upstream).await {
             Ok(bytes) => {
                 let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
                 shared.capture_signatures(&parsed);
@@ -1030,7 +1030,7 @@ async fn from_anthropic_upstream(shared: Shared, mut forwarded: Forwarded, strea
     let upstream = std::mem::replace(&mut forwarded.response, status_only(StatusCode::OK));
     let model = ctx.model.clone();
     if !stream {
-        return match upstream.bytes().await {
+        return match super::read_body(upstream).await {
             Ok(bytes) => {
                 let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
                 let (chat, usage) = openai_to_anthropic::from_anthropic(&parsed, &model);

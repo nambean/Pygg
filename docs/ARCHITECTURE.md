@@ -20,7 +20,7 @@ Pygg is one desktop program: a Rust core inside a Tauri 2 window, with the same 
                         ┌──────────────┼───────────────┐                  │ provider APIs (keys from
                         ▼              ▼               ▼                  ▼ the OS credential store)
                    Task engine    SQLite store    OS credential     OpenAI-compatible and
-                   (tasks.rs)     (db.rs, v26)    store (vault.rs)  Anthropic endpoints, local runtimes,
+                   (tasks.rs)     (db.rs, v30)    store (vault.rs)  Anthropic endpoints, local runtimes,
                                                                     and web sessions (websession/: a
                                                                     loopback endpoint → a Pygg window)
                         │
@@ -32,7 +32,7 @@ Pygg is one desktop program: a Rust core inside a Tauri 2 window, with the same 
 ```
 
 - **One crate** (`apps/desktop/src-tauri`, ADR-005). The app is the default binary; `pygg-cli`, `gateway`, `agent`, `bench` and `pygg-mcp` are the same library run headless. `pygg-cli` (`cli/`) is the one console program: `status`, `doctor`, `mcp`, `gateway …`, `agent …`, `setup` (`cli/setup.rs`), `run claude` (`cli/run.rs`), `diagnostics` and `--version`. The npm package `@pygg/cli` (`packages/npm`) is only a Node launcher that runs it as `pygg`. The interface is React 19 and Vite in `apps/desktop/src`, talking to the core only through Tauri commands (`commands.rs`, `lib/native.ts`).
-- **One store**, `store.sqlite3` in the app data folder (`%APPDATA%\app.smarttaskrouter.desktop` on Windows, or `PYGG_DATA_DIR`). Migrations run in one transaction when it opens. Schema: [SCHEMA.md](SCHEMA.md), generated from the migrations.
+- **One store**, `store.sqlite3` in the app data folder (`%APPDATA%\app.smarttaskrouter.desktop` on Windows, or `PYGG_DATA_DIR`). Migrations run in one transaction when it opens. Schema: [SCHEMA.md](SCHEMA.md), generated from the migrations. A consistent copy is written to `backups/` at start-up and once a day (the newest three kept, `backup.rs`), and the app's own log, redacted and rotated at 1 MB, is `logs/pygg.log` (`applog.rs`), included in the diagnostics bundle.
 - **One gateway per store**: `gateway::start` takes an OS file lock next to the store, held until every attempt it sent is settled.
 
 ## A request through the gateway (`gateway/`)

@@ -2,6 +2,8 @@
 //! talks to it through Tauri commands (src/commands.rs), and the local gateway runs in the same process.
 
 pub mod agents;
+pub mod applog;
+pub mod backup;
 pub mod bench;
 pub mod checks;
 pub mod cli;
@@ -91,29 +93,43 @@ pub fn run() {
                 None => app.path().app_data_dir()?,
             };
             std::fs::create_dir_all(&dir)?;
+            applog::init(&dir);
+            applog::info(&format!("Pygg {} starting", env!("CARGO_PKG_VERSION")));
             let path = dir.join("store.sqlite3");
-            let conn = db::open(&path)?;
+            let conn = match db::open(&path) {
+                Ok(conn) => conn,
+                Err(e) => {
+                    // A store that cannot be opened says where its daily copies are (backup.rs).
+                    applog::line("error", &format!("could not open {}: {e}. Daily copies are in {}; quit Pygg and copy one over store.sqlite3 to restore it.", path.display(), backup::folder(&dir).display()));
+                    return Err(e.into());
+                }
+            };
+            match backup::daily(&conn, &dir, db::now_ms()) {
+                Ok(Some(copy)) => applog::info(&format!("backed up the store to {}", copy.display())),
+                Ok(None) => {}
+                Err(e) => applog::warn(&e),
+            }
             // Web-session profile folders whose connection is gone are deleted before any window opens (ADR-035).
             let web_root = dir.join("websessions");
             match gateway::store::web_profiles(&conn) {
                 Ok(keep) => { websession::sweep(&web_root, &keep); }
-                Err(e) => eprintln!("web sessions: {e}"),
+                Err(e) => applog::warn(&format!("web sessions: {e}")),
             }
             let worktrees = dir.join("worktrees");
             // Nothing runs here yet: a task left running was cut off when the app last closed, unless another process
             // (`gateway serve --tasks`) holds the store and may be running it.
             if gateway::store_in_use(&path) {
-                eprintln!("another gateway holds the store; tasks are not recovered");
+                applog::warn("another gateway holds the store; tasks are not recovered");
             } else if let Err(e) = tasks::recover(&conn, &worktrees) {
-                eprintln!("could not recover tasks: {e}");
+                applog::warn(&format!("could not recover tasks: {e}"));
             }
             // Models from before the tier table (ROADMAP B3) get its starting tiers where nobody set one.
             if let Err(e) = gateway::store::fill_curated_tiers(&conn) {
-                eprintln!("could not fill tiers: {e}");
+                applog::warn(&format!("could not fill tiers: {e}"));
             }
             // Paid models on a connection used for its free models start off (ADR-032), stores from before included.
             if let Err(e) = gateway::store::apply_free_connection_rule(&conn) {
-                eprintln!("could not apply the free-connection rule: {e}");
+                applog::warn(&format!("could not apply the free-connection rule: {e}"));
             }
             let db = Arc::new(Mutex::new(conn));
             let handle = app.handle().clone();
@@ -134,7 +150,7 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     match tokio::net::TcpListener::from_std(web_listener) {
                         Ok(listener) => websession::serve(listener, web).await,
-                        Err(e) => eprintln!("web sessions: {e}"),
+                        Err(e) => applog::warn(&format!("web sessions: {e}")),
                     }
                 });
             }
@@ -152,24 +168,31 @@ pub fn run() {
                     if let Some(catalog) = gateway::reference::current(&shared.http, &cache).await {
                         shared.with_db(|db| match gateway::reference::apply(db, &catalog) {
                             Ok(_) => gateway::reference::mark_applied(db),
-                            Err(e) => eprintln!("reference catalog: {e}"),
+                            Err(e) => applog::warn(&format!("reference catalog: {e}")),
                         });
                     }
                     // What each account has left, where the provider has an endpoint for it (quota.rs).
                     gateway::quota::refresh_accounts(&shared).await;
                     // OpenCode's list of Pygg's models follows what the catalog filled (integrations.rs).
                     if let Err(e) = integrations::sync_opencode_models(&shared, &integrations::Homes::from_env()) {
-                        eprintln!("OpenCode's model list: {e}");
+                        applog::warn(&format!("OpenCode's model list: {e}"));
                     }
                 });
             }
             // Usage history older than the user keeps (Settings → Data) goes at start-up and once a day; forever by default.
+            // The store's daily copy (backup.rs) is made on the same round.
             {
                 let shared = state.shared.clone();
+                let data_dir = dir.clone();
                 tauri::async_runtime::spawn(async move {
                     loop {
                         if let Err(e) = shared.with_db(|db| retention::prune(db, db::now_ms())) {
-                            eprintln!("usage history clean-up: {e}");
+                            applog::warn(&format!("usage history clean-up: {e}"));
+                        }
+                        match shared.with_db(|db| backup::daily(db, &data_dir, db::now_ms())) {
+                            Ok(Some(copy)) => applog::info(&format!("backed up the store to {}", copy.display())),
+                            Ok(None) => {}
+                            Err(e) => applog::warn(&e),
                         }
                         tokio::time::sleep(retention::EVERY).await;
                     }
