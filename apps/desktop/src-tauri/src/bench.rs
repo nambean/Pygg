@@ -35,16 +35,21 @@ pub struct CaseFile {
 
 /// The protected files an attempt changed or deleted, compared with the fixture.
 pub fn changed_protected(case: &Case, worktree: &Path) -> Vec<String> {
-    case.file.protected.iter().filter(|path| {
-        let original = std::fs::read(case.fixture.join(path.as_str()));
-        let now = std::fs::read(worktree.join(path.as_str()));
-        // Git may have changed line endings on checkout; compare the text without them.
-        let strip = |bytes: Vec<u8>| bytes.into_iter().filter(|b| *b != b'\r').collect::<Vec<_>>();
-        match (original, now) {
-            (Ok(a), Ok(b)) => strip(a) != strip(b),
-            _ => true,
-        }
-    }).cloned().collect()
+    case.file
+        .protected
+        .iter()
+        .filter(|path| {
+            let original = std::fs::read(case.fixture.join(path.as_str()));
+            let now = std::fs::read(worktree.join(path.as_str()));
+            // Git may have changed line endings on checkout; compare the text without them.
+            let strip = |bytes: Vec<u8>| bytes.into_iter().filter(|b| *b != b'\r').collect::<Vec<_>>();
+            match (original, now) {
+                (Ok(a), Ok(b)) => strip(a) != strip(b),
+                _ => true,
+            }
+        })
+        .cloned()
+        .collect()
 }
 
 fn default_repo() -> String {
@@ -151,8 +156,9 @@ pub struct GatewayUsage {
 /// serving it.
 pub fn gateway_usage(db: &Path, session: &str) -> Result<GatewayUsage, String> {
     use rusqlite::OpenFlags;
-    let conn = rusqlite::Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
-        .map_err(|e| format!("{}: {e}", db.display()))?;
+    let conn =
+        rusqlite::Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
+            .map_err(|e| format!("{}: {e}", db.display()))?;
     conn.busy_timeout(Duration::from_secs(5)).map_err(|e| e.to_string())?;
     let mut statement = conn.prepare(
         "SELECT provider, model, outcome, input_tokens, output_tokens, cache_tokens, cache_write_tokens, cost_micro_usd, \
@@ -161,13 +167,16 @@ pub fn gateway_usage(db: &Path, session: &str) -> Result<GatewayUsage, String> {
     let mut usage = GatewayUsage::default();
     while let Some(row) = rows.next().map_err(|e| e.to_string())? {
         let get_u = |i: usize| row.get::<_, Option<i64>>(i).ok().flatten().unwrap_or(0).max(0) as u64;
-        let target = format!("{}/{}", row.get::<_, String>(0).unwrap_or_default(), row.get::<_, String>(1).unwrap_or_default());
+        let target =
+            format!("{}/{}", row.get::<_, String>(0).unwrap_or_default(), row.get::<_, String>(1).unwrap_or_default());
         let outcome: String = row.get(2).unwrap_or_default();
         let status: String = row.get(8).unwrap_or_default();
         let source: String = row.get(9).unwrap_or_default();
         usage.requests += 1;
         if outcome == "ok" {
-            if !usage.models.contains(&target) { usage.models.push(target); }
+            if !usage.models.contains(&target) {
+                usage.models.push(target);
+            }
         } else {
             usage.failed += 1;
         }
@@ -199,9 +208,8 @@ impl Ledger {
         if self.unknown_attempts > 0 && !config.allow_unknown {
             return Some("an attempt's cost was unknown, so the budget cap cannot be enforced".into());
         }
-        (self.spent_micro_usd >= cap).then(|| {
-            format!("budget cap reached ({} of {} estimated)", usd(self.spent_micro_usd), usd(cap))
-        })
+        (self.spent_micro_usd >= cap)
+            .then(|| format!("budget cap reached ({} of {} estimated)", usd(self.spent_micro_usd), usd(cap)))
     }
 }
 
@@ -338,13 +346,18 @@ pub fn run_label(rungs: &[Rung], cascade: bool) -> String {
 }
 
 /// Runs one case: each rung in order until an attempt passes all checks (cascade), or only the first rung.
-pub async fn run_case(case: &Case, rungs: &[Rung], cascade: bool, config: &Config, ledger: &mut Ledger)
-    -> Result<CaseRecord, String> {
+pub async fn run_case(
+    case: &Case, rungs: &[Rung], cascade: bool, config: &Config, ledger: &mut Ledger,
+) -> Result<CaseRecord, String> {
     let started = Instant::now();
     let label = run_label(rungs, cascade);
     // One flat folder: a model name's `/` would nest folders, and an agent that guesses an absolute path from
     // them can land outside its worktree (seen with Qwen, ROADMAP N4).
-    let slot = config.scratch.join(format!("{}-{}", case.file.id, label.replace([':', '>', '='], "_").replace(['/', '\\'], "-")));
+    let slot = config.scratch.join(format!(
+        "{}-{}",
+        case.file.id,
+        label.replace([':', '>', '='], "_").replace(['/', '\\'], "-")
+    ));
     let repo = slot.join("repo");
     copy_dir(&case.fixture, &repo).map_err(|e| format!("copying fixture: {e}"))?;
     let base = isolation::init_repository(&repo, &format!("fixture {}", case.file.id)).map_err(|e| e.to_string())?;
@@ -362,8 +375,8 @@ pub async fn run_case(case: &Case, rungs: &[Rung], cascade: bool, config: &Confi
             break;
         }
         let number = index + 1;
-        let worktree = isolation::create(&repo, &base, &slot.join(format!("attempt-{number}")))
-            .map_err(|e| e.to_string())?;
+        let worktree =
+            isolation::create(&repo, &base, &slot.join(format!("attempt-{number}"))).map_err(|e| e.to_string())?;
         let command = config
             .agent
             .replace("{prompt_file}", &prompt_file.to_string_lossy())
@@ -390,7 +403,9 @@ pub async fn run_case(case: &Case, rungs: &[Rung], cascade: bool, config: &Confi
         let (cost_known, cost_micro_usd, cost_source) = match routed {
             Some(g) => {
                 ledger.spent_micro_usd += g.known_micro_usd;
-                if g.unknown_money > 0 { ledger.unknown_attempts += 1; }
+                if g.unknown_money > 0 {
+                    ledger.unknown_attempts += 1;
+                }
                 (g.unknown_money == 0, Some(g.known_micro_usd), "gateway ledger at the gateway's prices")
             }
             None => {
@@ -403,8 +418,11 @@ pub async fn run_case(case: &Case, rungs: &[Rung], cascade: bool, config: &Confi
                     }
                     None => ledger.unknown_attempts += 1,
                 }
-                (report.cost_micro_usd.is_some() && !agent.truncated, report.cost_micro_usd,
-                    "agent-reported, catalog list price")
+                (
+                    report.cost_micro_usd.is_some() && !agent.truncated,
+                    report.cost_micro_usd,
+                    "agent-reported, catalog list price",
+                )
             }
         };
         let agent_exit = match &agent.exit {
@@ -420,8 +438,13 @@ pub async fn run_case(case: &Case, rungs: &[Rung], cascade: bool, config: &Confi
         let mut results = Vec::new();
         let tampered = changed_protected(case, &worktree.path);
         if !tampered.is_empty() {
-            results.push(CheckResult { command: "protected files unchanged".into(), passed: false,
-                detail: format!("changed {}", tampered.join(", ")), output_tail: String::new(), duration_ms: 0 });
+            results.push(CheckResult {
+                command: "protected files unchanged".into(),
+                passed: false,
+                detail: format!("changed {}", tampered.join(", ")),
+                output_tail: String::new(),
+                duration_ms: 0,
+            });
         }
         for check in case.file.checks.iter().filter(|_| tampered.is_empty()) {
             let result = checks::run(check, &worktree.path, config.check_timeout, &[], std::future::pending()).await;
@@ -478,18 +501,28 @@ pub async fn run_case(case: &Case, rungs: &[Rung], cascade: bool, config: &Confi
 /// `PYGG_ATTEMPT_ID` set to its id; with a gateway store, the attempt is costed from that session's entries.
 /// The ladder runs to its end once started: the budget is checked between cases, so the gateway client's own
 /// (strict) limit is what bounds a single case.
-pub async fn run_case_engine(case: &Case, rungs: &[Rung], cascade: bool, agent: &str, config: &Config,
-    ledger: &mut Ledger) -> Result<CaseRecord, String> {
+pub async fn run_case_engine(
+    case: &Case, rungs: &[Rung], cascade: bool, agent: &str, config: &Config, ledger: &mut Ledger,
+) -> Result<CaseRecord, String> {
     use crate::tasks;
     use std::sync::{Arc, Mutex};
     let started = Instant::now();
     let label = format!("engine:{}", run_label(rungs, cascade));
     if let Some(reason) = ledger.stop_reason(config) {
-        return Ok(CaseRecord { case_id: case.file.id.clone(), category: case.file.category.clone(),
-            complexity: case.file.complexity.clone(), run: label, passed: false, passing_tier: None,
-            attempts: Vec::new(), total_ms: 0, stopped: Some(reason) });
+        return Ok(CaseRecord {
+            case_id: case.file.id.clone(),
+            category: case.file.category.clone(),
+            complexity: case.file.complexity.clone(),
+            run: label,
+            passed: false,
+            passing_tier: None,
+            attempts: Vec::new(),
+            total_ms: 0,
+            stopped: Some(reason),
+        });
     }
-    let slot = config.scratch.join(format!("{}-{}", case.file.id, label.replace([':', '>', '='], "_").replace('/', "-")));
+    let slot =
+        config.scratch.join(format!("{}-{}", case.file.id, label.replace([':', '>', '='], "_").replace('/', "-")));
     let repo = slot.join("repo");
     copy_dir(&case.fixture, &repo).map_err(|e| format!("copying fixture: {e}"))?;
     isolation::init_repository(&repo, &format!("fixture {}", case.file.id)).map_err(|e| e.to_string())?;
@@ -503,11 +536,25 @@ pub async fn run_case_engine(case: &Case, rungs: &[Rung], cascade: bool, agent: 
         tasks::add_check(&conn, &workspace.id, check)?;
     }
     let ladder = if cascade { rungs } else { &rungs[..1] };
-    let steps = ladder.iter().map(|r| tasks::Step { agent: agent.into(), model: Some(r.model.clone()), tier: r.tier,
-        billing: "unknown".into() }).collect();
-    let new = tasks::NewTask { workspace_id: workspace.id.clone(), title: Some(case.file.title.clone()),
-        prompt: case.file.prompt.clone(), strategy: "free_first".into(), steps, allow_shell: false,
-        timeout_secs: Some(config.agent_timeout.as_secs()), handoff: config.handoff.clone() };
+    let steps = ladder
+        .iter()
+        .map(|r| tasks::Step {
+            agent: agent.into(),
+            model: Some(r.model.clone()),
+            tier: r.tier,
+            billing: "unknown".into(),
+        })
+        .collect();
+    let new = tasks::NewTask {
+        workspace_id: workspace.id.clone(),
+        title: Some(case.file.title.clone()),
+        prompt: case.file.prompt.clone(),
+        strategy: "free_first".into(),
+        steps,
+        allow_shell: false,
+        timeout_secs: Some(config.agent_timeout.as_secs()),
+        handoff: config.handoff.clone(),
+    };
     let id = tasks::create_task(&conn, &new)?;
     let db = Arc::new(Mutex::new(conn));
     let runner = tasks::Runner::new(db.clone(), slot.join("worktrees"), tasks::agent_executor());
@@ -531,17 +578,26 @@ pub async fn run_case_engine(case: &Case, rungs: &[Rung], cascade: bool, agent: 
         };
         match (known, micro) {
             (true, Some(m)) => ledger.spent_micro_usd += m,
-            (false, Some(m)) => { ledger.spent_micro_usd += m; ledger.unknown_attempts += 1; }
+            (false, Some(m)) => {
+                ledger.spent_micro_usd += m;
+                ledger.unknown_attempts += 1;
+            }
             _ => ledger.unknown_attempts += 1,
         }
-        let tokens = Tokens { input: a.input_tokens.unwrap_or(0).max(0) as u64, output: a.output_tokens.unwrap_or(0).max(0) as u64,
-            ..Tokens::default() };
+        let tokens = Tokens {
+            input: a.input_tokens.unwrap_or(0).max(0) as u64,
+            output: a.output_tokens.unwrap_or(0).max(0) as u64,
+            ..Tokens::default()
+        };
         attempts.push(AttemptRecord {
             number: i + 1,
             tier: a.tier,
             model: a.agent_model.clone().or_else(|| ladder.get(a.step).map(|r| r.model.clone())).unwrap_or_default(),
             agent_exit: a.detail.clone().unwrap_or_default(),
-            agent_ms: match (a.started_at, a.finished_at) { (Some(s), Some(f)) => (f - s).max(0) as u64, _ => 0 },
+            agent_ms: match (a.started_at, a.finished_at) {
+                (Some(s), Some(f)) => (f - s).max(0) as u64,
+                _ => 0,
+            },
             passed: a.outcome == "passed",
             checks: a.checks.clone(),
             files_changed: a.files_changed.unwrap_or(0) as usize,
@@ -636,11 +692,18 @@ mod tests {
     fn setup(dir: &Path) -> (Vec<Case>, String) {
         let case_dir = dir.join("cases").join("sum-bug");
         fs::create_dir_all(case_dir.join("repo")).unwrap();
-        fs::write(case_dir.join("case.json"), r#"{"id":"sum-bug","title":"Fix sum","category":"bug_fix",
-            "complexity":"low","prompt":"Make sum add.","checks":["node test.js"]}"#).unwrap();
+        fs::write(
+            case_dir.join("case.json"),
+            r#"{"id":"sum-bug","title":"Fix sum","category":"bug_fix",
+            "complexity":"low","prompt":"Make sum add.","checks":["node test.js"]}"#,
+        )
+        .unwrap();
         fs::write(case_dir.join("repo/sum.js"), "module.exports = (a, b) => a - b;\n").unwrap();
-        fs::write(case_dir.join("repo/test.js"),
-            "const sum = require('./sum');\nif (sum(2, 3) !== 5) { console.error('expected 5'); process.exit(1); }\n").unwrap();
+        fs::write(
+            case_dir.join("repo/test.js"),
+            "const sum = require('./sum');\nif (sum(2, 3) !== 5) { console.error('expected 5'); process.exit(1); }\n",
+        )
+        .unwrap();
         let fixer = dir.join("fixer.js");
         fs::write(&fixer, "if (process.argv[2] === 'good') require('fs').writeFileSync('sum.js', \
             'module.exports = (a, b) => a + b;\\n');\n\
@@ -658,8 +721,16 @@ mod tests {
         }
         let dir = tempfile::tempdir().unwrap();
         let (cases, agent) = setup(dir.path());
-        let config = Config { agent, agent_timeout: Duration::from_secs(60), check_timeout: Duration::from_secs(60),
-            scratch: dir.path().join("scratch"), budget_micro_usd: None, gateway_db: None, allow_unknown: false, handoff: None };
+        let config = Config {
+            agent,
+            agent_timeout: Duration::from_secs(60),
+            check_timeout: Duration::from_secs(60),
+            scratch: dir.path().join("scratch"),
+            budget_micro_usd: None,
+            gateway_db: None,
+            allow_unknown: false,
+            handoff: None,
+        };
         let rungs = vec![Rung::parse("T0=bad").unwrap(), Rung::parse("T1=good").unwrap()];
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let mut ledger = Ledger::default();
@@ -680,8 +751,18 @@ mod tests {
         // The fake agent reports no usage, so cost stays unknown rather than $0.
         assert_eq!(single.attempts[0].cost_status, "unknown");
         let summary = summarize([&cascade, &single]);
-        assert_eq!(summary, Summary { cases: 2, passed: 1, attempts: 3, total_ms: summary.total_ms,
-            cost_micro_usd: None, agent_errors: 0, stopped: 0 });
+        assert_eq!(
+            summary,
+            Summary {
+                cases: 2,
+                passed: 1,
+                attempts: 3,
+                total_ms: summary.total_ms,
+                cost_micro_usd: None,
+                agent_errors: 0,
+                stopped: 0
+            }
+        );
     }
 
     #[test]
@@ -693,9 +774,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (cases, agent) = setup(dir.path());
         // Every attempt reports $0.50; the cap is $0.40, so the cascade stops after its first attempt.
-        let config = Config { agent: format!("{agent} 0.5"), agent_timeout: Duration::from_secs(60),
-            check_timeout: Duration::from_secs(60), scratch: dir.path().join("scratch"),
-            budget_micro_usd: Some(400_000), gateway_db: None, allow_unknown: false, handoff: None };
+        let config = Config {
+            agent: format!("{agent} 0.5"),
+            agent_timeout: Duration::from_secs(60),
+            check_timeout: Duration::from_secs(60),
+            scratch: dir.path().join("scratch"),
+            budget_micro_usd: Some(400_000),
+            gateway_db: None,
+            allow_unknown: false,
+            handoff: None,
+        };
         let rungs = vec![Rung::parse("T0=bad").unwrap(), Rung::parse("T1=good").unwrap()];
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let mut ledger = Ledger::default();
@@ -714,9 +802,12 @@ mod tests {
     fn reads_opencode_events() {
         let stdout = concat!(
             "not json\n",
-            r#"{"type":"step_start","part":{}}"#, "\n",
-            r#"{"type":"step_finish","part":{"tokens":{"input":10,"output":2,"reasoning":1,"cache":{"read":3,"write":4}},"cost":0.0025}}"#, "\n",
-            r#"{"type":"step_finish","part":{"tokens":{"input":5,"output":1,"reasoning":0,"cache":{"read":0,"write":0}},"cost":0.0005}}"#, "\n",
+            r#"{"type":"step_start","part":{}}"#,
+            "\n",
+            r#"{"type":"step_finish","part":{"tokens":{"input":10,"output":2,"reasoning":1,"cache":{"read":3,"write":4}},"cost":0.0025}}"#,
+            "\n",
+            r#"{"type":"step_finish","part":{"tokens":{"input":5,"output":1,"reasoning":0,"cache":{"read":0,"write":0}},"cost":0.0005}}"#,
+            "\n",
         );
         let report = read_agent_events(stdout);
         assert_eq!(report.cost_micro_usd, Some(3000));
@@ -724,7 +815,9 @@ mod tests {
         assert_eq!(report.tokens, Tokens { input: 15, output: 3, reasoning: 1, cache_read: 3, cache_write: 4 });
         assert_eq!(report.error, None);
 
-        let failed = read_agent_events(r#"{"type":"error","error":{"name":"APIError","data":{"message":"Model is unavailable."}}}"#);
+        let failed = read_agent_events(
+            r#"{"type":"error","error":{"name":"APIError","data":{"message":"Model is unavailable."}}}"#,
+        );
         assert_eq!(failed.cost_micro_usd, None);
         assert_eq!(failed.error.as_deref(), Some("APIError: Model is unavailable."));
     }
@@ -737,16 +830,30 @@ mod tests {
         }
         let dir = tempfile::tempdir().unwrap();
         setup(dir.path());
-        fs::write(dir.path().join("cases/sum-bug/case.json"), r#"{"id":"sum-bug","title":"Fix sum","category":"bug_fix",
-            "complexity":"low","prompt":"Make sum add.","checks":["node test.js"],"protected":["test.js"]}"#).unwrap();
+        fs::write(
+            dir.path().join("cases/sum-bug/case.json"),
+            r#"{"id":"sum-bug","title":"Fix sum","category":"bug_fix",
+            "complexity":"low","prompt":"Make sum add.","checks":["node test.js"],"protected":["test.js"]}"#,
+        )
+        .unwrap();
         let cases = load_cases(&dir.path().join("cases")).unwrap();
         // Empties the test instead of fixing the code: the check would pass.
         let cheat = dir.path().join("cheat.js");
         fs::write(&cheat, "require('fs').writeFileSync('test.js', '// nothing\\n');\n").unwrap();
-        let config = Config { agent: format!("node \"{}\"", cheat.display()), agent_timeout: Duration::from_secs(60),
-            check_timeout: Duration::from_secs(60), scratch: dir.path().join("scratch"), budget_micro_usd: None, gateway_db: None, allow_unknown: false, handoff: None };
+        let config = Config {
+            agent: format!("node \"{}\"", cheat.display()),
+            agent_timeout: Duration::from_secs(60),
+            check_timeout: Duration::from_secs(60),
+            scratch: dir.path().join("scratch"),
+            budget_micro_usd: None,
+            gateway_db: None,
+            allow_unknown: false,
+            handoff: None,
+        };
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        let record = rt.block_on(run_case(&cases[0], &[Rung::parse("T0=x").unwrap()], false, &config, &mut Ledger::default())).unwrap();
+        let record = rt
+            .block_on(run_case(&cases[0], &[Rung::parse("T0=x").unwrap()], false, &config, &mut Ledger::default()))
+            .unwrap();
         assert!(!record.passed);
         assert_eq!(record.attempts[0].checks.len(), 1);
         assert_eq!(record.attempts[0].checks[0].detail, "changed test.js");
@@ -757,12 +864,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("store.sqlite3");
         let conn = crate::db::open(&path).unwrap();
-        let insert = |id: &str, session: &str, model: &str, outcome: &str, cost: Option<i64>, status: &str, source: &str| {
-            conn.execute("INSERT INTO usage_events (id, provider, model, input_tokens, output_tokens, cache_tokens, \
+        let insert =
+            |id: &str, session: &str, model: &str, outcome: &str, cost: Option<i64>, status: &str, source: &str| {
+                conn.execute(
+                    "INSERT INTO usage_events (id, provider, model, input_tokens, output_tokens, cache_tokens, \
                 cache_write_tokens, cost_micro_usd, cost_status, source, created_at, session_key, outcome) \
                 VALUES (?1, 'anthropic', ?2, 1000, 50, 800, 100, ?3, ?4, ?5, 1, ?6, ?7)",
-                rusqlite::params![id, model, cost, status, source, session, outcome]).unwrap();
-        };
+                    rusqlite::params![id, model, cost, status, source, session, outcome],
+                )
+                .unwrap();
+            };
         insert("a", "s1", "claude-haiku-5-5", "ok", Some(120), "estimated", "price: user");
         insert("b", "s1", "claude-haiku-5-5", "ok", Some(80), "estimated", "price: user");
         insert("c", "s1", "qwen3.8-flash", "ok", None, "unknown", "subscription: counts against a quota, not money");
@@ -793,8 +904,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let case_dir = dir.path().join("c");
         fs::create_dir_all(case_dir.join("repo")).unwrap();
-        fs::write(case_dir.join("case.json"), r#"{"id":"c","title":"t","category":"x","complexity":"low",
-            "prompt":"p","checks":[]}"#).unwrap();
+        fs::write(
+            case_dir.join("case.json"),
+            r#"{"id":"c","title":"t","category":"x","complexity":"low",
+            "prompt":"p","checks":[]}"#,
+        )
+        .unwrap();
         assert!(load_cases(dir.path()).is_err());
     }
 }

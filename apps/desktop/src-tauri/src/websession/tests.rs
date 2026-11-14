@@ -7,10 +7,20 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn fast() -> Timing {
-    Timing { poll: Duration::from_millis(1), ready: Duration::from_millis(150), send: Duration::from_millis(30),
-        first_word: Duration::from_millis(200), first_word_per_100_tokens: Duration::from_millis(30),
-        first_word_cap: Duration::from_secs(1), reply: Duration::from_secs(2), stable: 2, stable_busy: 6,
-        queue: Duration::from_millis(100), gap: Duration::ZERO, backoff: Duration::ZERO }
+    Timing {
+        poll: Duration::from_millis(1),
+        ready: Duration::from_millis(150),
+        send: Duration::from_millis(30),
+        first_word: Duration::from_millis(200),
+        first_word_per_100_tokens: Duration::from_millis(30),
+        first_word_cap: Duration::from_secs(1),
+        reply: Duration::from_secs(2),
+        stable: 2,
+        stable_busy: 6,
+        queue: Duration::from_millis(100),
+        gap: Duration::ZERO,
+        backoff: Duration::ZERO,
+    }
 }
 
 fn muse() -> &'static Recipe {
@@ -37,7 +47,11 @@ impl FakePage {
 
     fn next(list: &Mutex<VecDeque<Value>>) -> Value {
         let mut list = list.lock().unwrap();
-        if list.len() > 1 { list.pop_front().unwrap() } else { list.front().cloned().unwrap_or(Value::Null) }
+        if list.len() > 1 {
+            list.pop_front().unwrap()
+        } else {
+            list.front().cloned().unwrap_or(Value::Null)
+        }
     }
 }
 
@@ -93,11 +107,16 @@ fn rt() -> tokio::runtime::Runtime {
 #[test]
 fn a_reply_streams_as_it_appears_and_ends_when_it_stops_changing() {
     rt().block_on(async {
-        let page = FakePage::new(vec![ready()], vec![read(2, "an old reply", false), read(3, "Hel", true),
-            read(3, "Hello", true), read(3, "Hello", false)]);
+        let page = FakePage::new(
+            vec![ready()],
+            vec![read(2, "an old reply", false), read(3, "Hel", true), read(3, "Hello", true), read(3, "Hello", false)],
+        );
         let mut pieces = Vec::new();
-        let reply = converse(page.as_ref(), muse(), "Say \"hello\" </script>", &fast(), &mut |p: &str| pieces.push(p.to_string()))
-            .await.unwrap();
+        let reply = converse(page.as_ref(), muse(), "Say \"hello\" </script>", &fast(), &mut |p: &str| {
+            pieces.push(p.to_string())
+        })
+        .await
+        .unwrap();
         assert_eq!(reply, Reply { text: "Hello".into(), denied: 0 });
         assert_eq!(pieces, ["Hel", "lo"]);
         // The prompt reached the page exactly, quoted as data, not as script.
@@ -109,8 +128,14 @@ fn a_reply_streams_as_it_appears_and_ends_when_it_stops_changing() {
 #[test]
 fn the_sites_requests_to_act_are_denied_and_counted() {
     rt().block_on(async {
-        let page = FakePage::new(vec![ready()], vec![read(0, "", false),
-            json!({ "count": 1, "text": "I can send that email", "approval": true }), read(1, "Done, without sending.", false)]);
+        let page = FakePage::new(
+            vec![ready()],
+            vec![
+                read(0, "", false),
+                json!({ "count": 1, "text": "I can send that email", "approval": true }),
+                read(1, "Done, without sending.", false),
+            ],
+        );
         let reply = converse(page.as_ref(), muse(), "hi", &fast(), &mut |_: &str| {}).await.unwrap();
         assert_eq!(reply.denied, 1);
         assert_eq!(page.denials.load(Ordering::SeqCst), 1);
@@ -126,7 +151,10 @@ fn a_check_on_the_page_stops_and_asks_for_the_user() {
         assert!(page.filled.lock().unwrap().is_none(), "nothing typed into a page showing a check");
 
         // A check that appears while the reply is being read stops it too.
-        let page = FakePage::new(vec![ready()], vec![read(0, "", false), json!({ "count": 1, "text": "x", "challenge": true })]);
+        let page = FakePage::new(
+            vec![ready()],
+            vec![read(0, "", false), json!({ "count": 1, "text": "x", "challenge": true })],
+        );
         let error = converse(page.as_ref(), muse(), "hi", &fast(), &mut |_: &str| {}).await.unwrap_err();
         assert_eq!(error.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(error.state(), Some(("needs_you", CHALLENGE)));
@@ -177,7 +205,10 @@ fn no_reply_or_a_usage_limit_is_an_error_not_an_answer() {
         let error = converse(page.as_ref(), muse(), "hi", &fast(), &mut |_: &str| {}).await.unwrap_err();
         assert_eq!(error, WebError::Timeout(NO_REPLY));
 
-        let page = FakePage::new(vec![ready()], vec![read(0, "", false), read(1, "You have reached your usage limit.", false)]);
+        let page = FakePage::new(
+            vec![ready()],
+            vec![read(0, "", false), read(1, "You have reached your usage limit.", false)],
+        );
         let error = converse(page.as_ref(), muse(), "hi", &fast(), &mut |_: &str| {}).await.unwrap_err();
         assert_eq!(error, WebError::Quota);
     });
@@ -201,14 +232,34 @@ fn the_first_word_wait_grows_with_the_prompt_and_is_capped() {
 fn a_page_that_thinks_past_the_first_word_wait_is_waited_for() {
     rt().block_on(async {
         // Each read takes 100 ms, so the third empty read is past the 200 ms first-word wait of a short prompt.
-        let slow = |reads: Vec<Value>| Arc::new(FakePage { states: Mutex::new(vec![ready()].into()), reads: Mutex::new(reads.into()),
-            read_delay: Duration::from_millis(100), ..FakePage::default() });
+        let slow = |reads: Vec<Value>| {
+            Arc::new(FakePage {
+                states: Mutex::new(vec![ready()].into()),
+                reads: Mutex::new(reads.into()),
+                read_delay: Duration::from_millis(100),
+                ..FakePage::default()
+            })
+        };
         // The page shows it is answering (its "thinking" state): that is its first word, and the reply comes.
-        let page = slow(vec![read(0, "", false), read(0, "", true), read(0, "", true), read(0, "", true), read(1, "Hello", false)]);
+        let page = slow(vec![
+            read(0, "", false),
+            read(0, "", true),
+            read(0, "", true),
+            read(0, "", true),
+            read(1, "Hello", false),
+        ]);
         let reply = converse(page.as_ref(), muse(), "hi", &fast(), &mut |_: &str| {}).await.unwrap();
         assert_eq!(reply.text, "Hello");
         // The same page showing nothing: a short prompt gives up, a long one (about 1,000 tokens: 300 ms more) waits.
-        let silent = || vec![read(0, "", false), read(0, "", false), read(0, "", false), read(0, "", false), read(1, "Hello", false)];
+        let silent = || {
+            vec![
+                read(0, "", false),
+                read(0, "", false),
+                read(0, "", false),
+                read(0, "", false),
+                read(1, "Hello", false),
+            ]
+        };
         let error = converse(slow(silent()).as_ref(), muse(), "hi", &fast(), &mut |_: &str| {}).await.unwrap_err();
         assert_eq!(error, WebError::Timeout(NO_REPLY));
         let long = "x".repeat(3000);
@@ -222,7 +273,8 @@ fn a_visitors_chat_is_not_taken_for_the_users_account() {
     rt().block_on(async {
         // ChatGPT, Perplexity and Grok chat with visitors: the prompt box is there, and so are their Log in buttons.
         let chatgpt = recipe("chatgpt-web").unwrap();
-        let page = FakePage::new(vec![json!({ "fresh": true, "ready": true, "hasInput": true, "signedOut": true })], vec![]);
+        let page =
+            FakePage::new(vec![json!({ "fresh": true, "ready": true, "hasInput": true, "signedOut": true })], vec![]);
         let error = converse(page.as_ref(), chatgpt, "hi", &fast(), &mut |_: &str| {}).await.unwrap_err();
         assert_eq!(error, WebError::NeedsYou { state: "signed_out", reason: SIGNED_OUT });
         assert!(page.filled.lock().unwrap().is_none(), "nothing typed into a visitor's chat");
@@ -247,8 +299,15 @@ fn without_a_busy_signal_a_reply_must_stay_still_longer() {
     rt().block_on(async {
         // A pause in the middle of an answer: with a "stop" button that is gone, two still reads end it (Muse); a site
         // without one (DeepSeek) waits for `stable_busy` still reads, and gets the rest.
-        let reads = || vec![read(0, "", false), read(1, "Hel", false), read(1, "Hel", false), read(1, "Hel", false),
-            read(1, "Hello", false)];
+        let reads = || {
+            vec![
+                read(0, "", false),
+                read(1, "Hel", false),
+                read(1, "Hel", false),
+                read(1, "Hel", false),
+                read(1, "Hello", false),
+            ]
+        };
         let page = FakePage::new(vec![ready()], reads());
         assert_eq!(converse(page.as_ref(), muse(), "hi", &fast(), &mut |_: &str| {}).await.unwrap().text, "Hel");
         let page = FakePage::new(vec![ready()], reads());
@@ -262,7 +321,11 @@ fn every_web_preset_has_a_recipe_and_every_recipe_a_preset() {
     for r in RECIPES {
         let preset = crate::gateway::presets::find(r.preset).unwrap_or_else(|| panic!("{} has no preset", r.preset));
         assert!(preset.web && preset.web_acts == r.acts, "{}", r.preset);
-        assert!(!r.models.is_empty() && host_allowed(r, r.new_chat_url) && host_allowed(r, &format!("{}/", r.site)), "{}", r.preset);
+        assert!(
+            !r.models.is_empty() && host_allowed(r, r.new_chat_url) && host_allowed(r, &format!("{}/", r.site)),
+            "{}",
+            r.preset
+        );
         // Only Muse's agent asks for approvals, and only a site with approvals needs a deny button.
         assert_eq!(r.approval.is_some(), r.acts, "{}", r.preset);
     }
@@ -271,16 +334,44 @@ fn every_web_preset_has_a_recipe_and_every_recipe_a_preset() {
 #[test]
 fn each_site_reaches_its_own_sign_in_and_nothing_else() {
     let cases: &[(&str, &[&str], &[&str])] = &[
-        ("chatgpt-web", &["https://chatgpt.com/", "https://auth.openai.com/log-in", "https://accounts.google.com/o/oauth2/auth?x=1",
-            "https://appleid.apple.com/auth/authorize", "https://login.live.com/oauth20_authorize.srf",
-            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"],
-            &["https://chat.openai.com.evil.example/", "https://grok.com/", "https://muse.ai/"]),
-        ("perplexity-web", &["https://www.perplexity.ai/", "https://perplexity.ai/api/auth/signin", "https://accounts.google.com/x",
-            "https://appleid.apple.com/x"], &["https://chatgpt.com/", "https://evilperplexity.ai/"]),
-        ("deepseek-web", &["https://chat.deepseek.com/sign_in", "https://accounts.google.com/x", "https://appleid.apple.com/x"],
-            &["https://chatgpt.com/", "https://deepseek.com.evil.example/"]),
-        ("grok-web", &["https://grok.com/sign-in", "https://accounts.x.ai/sign-in", "https://x.com/i/oauth2/authorize",
-            "https://api.twitter.com/oauth/authorize", "https://accounts.google.com/x"], &["https://chatgpt.com/", "http://grok.com/"]),
+        (
+            "chatgpt-web",
+            &[
+                "https://chatgpt.com/",
+                "https://auth.openai.com/log-in",
+                "https://accounts.google.com/o/oauth2/auth?x=1",
+                "https://appleid.apple.com/auth/authorize",
+                "https://login.live.com/oauth20_authorize.srf",
+                "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+            ],
+            &["https://chat.openai.com.evil.example/", "https://grok.com/", "https://muse.ai/"],
+        ),
+        (
+            "perplexity-web",
+            &[
+                "https://www.perplexity.ai/",
+                "https://perplexity.ai/api/auth/signin",
+                "https://accounts.google.com/x",
+                "https://appleid.apple.com/x",
+            ],
+            &["https://chatgpt.com/", "https://evilperplexity.ai/"],
+        ),
+        (
+            "deepseek-web",
+            &["https://chat.deepseek.com/sign_in", "https://accounts.google.com/x", "https://appleid.apple.com/x"],
+            &["https://chatgpt.com/", "https://deepseek.com.evil.example/"],
+        ),
+        (
+            "grok-web",
+            &[
+                "https://grok.com/sign-in",
+                "https://accounts.x.ai/sign-in",
+                "https://x.com/i/oauth2/authorize",
+                "https://api.twitter.com/oauth/authorize",
+                "https://accounts.google.com/x",
+            ],
+            &["https://chatgpt.com/", "http://grok.com/"],
+        ),
     ];
     for (preset, allowed, blocked) in cases {
         let r = recipe(preset).unwrap();
@@ -302,8 +393,12 @@ fn each_site_reaches_its_own_sign_in_and_nothing_else() {
 #[test]
 fn every_new_web_preset_starts_off_with_its_one_model_and_no_tools() {
     let conn = crate::db::open_in_memory().unwrap();
-    for (preset, id, model) in [("chatgpt-web", "chatgpt", "chatgpt"), ("perplexity-web", "perplexity", "perplexity"),
-        ("deepseek-web", "deepseek", "deepseek"), ("grok-web", "grok", "grok")] {
+    for (preset, id, model) in [
+        ("chatgpt-web", "chatgpt", "chatgpt"),
+        ("perplexity-web", "perplexity", "perplexity"),
+        ("deepseek-web", "deepseek", "deepseek"),
+        ("grok-web", "grok", "grok"),
+    ] {
         let p = store::add_web_provider(&conn, preset, "", WARNING_VERSION).unwrap();
         assert_eq!((p.id.as_str(), p.enabled, p.default_billing.as_str()), (id, false, "free"));
         let models = store::list_models(&conn, Some(&p.id)).unwrap();
@@ -320,19 +415,27 @@ fn tools_in_any_api_shape_are_found() {
     assert!(uses_tools(&json!({ "tool_choice": "required", "messages": [] })));
     assert!(uses_tools(&json!({ "messages": [{ "role": "assistant", "tool_calls": [{ "id": "1" }] }] })));
     assert!(uses_tools(&json!({ "messages": [{ "role": "tool", "content": "42" }] })));
-    assert!(uses_tools(&json!({ "messages": [{ "role": "user", "content": [{ "type": "tool_result", "content": "x" }] }] })));
+    assert!(uses_tools(
+        &json!({ "messages": [{ "role": "user", "content": [{ "type": "tool_result", "content": "x" }] }] })
+    ));
     assert!(uses_tools(&json!({ "input": [{ "type": "function_call_output", "output": "x" }] })));
-    assert!(!uses_tools(&json!({ "tools": [], "tool_choice": "none", "messages": [{ "role": "user", "content": "hi" }] })));
+    assert!(!uses_tools(
+        &json!({ "tools": [], "tool_choice": "none", "messages": [{ "role": "user", "content": "hi" }] })
+    ));
 }
 
 #[test]
 fn a_conversation_is_flattened_into_one_prompt() {
     assert_eq!(flatten(&json!({ "messages": [{ "role": "user", "content": "hi" }] })).unwrap(), "hi");
     let prompt = flatten(&json!({ "messages": [{ "role": "system", "content": "Be brief." },
-        { "role": "user", "content": [{ "type": "text", "text": "2+2?" }] }] })).unwrap();
+        { "role": "user", "content": [{ "type": "text", "text": "2+2?" }] }] }))
+    .unwrap();
     assert!(prompt.starts_with("[System]\nBe brief.\n\n[User]\n2+2?\n\n[Instruction]"), "{prompt}");
-    assert!(flatten(&json!({ "messages": [{ "role": "user", "content": [{ "type": "image_url", "image_url": { "url": "x" } }] }] }))
-        .unwrap_err().contains("text only"));
+    assert!(flatten(
+        &json!({ "messages": [{ "role": "user", "content": [{ "type": "image_url", "image_url": { "url": "x" } }] }] })
+    )
+    .unwrap_err()
+    .contains("text only"));
     assert!(flatten(&json!({ "messages": [] })).is_err());
 }
 
@@ -342,20 +445,35 @@ fn the_window_goes_only_to_the_sites_hosts() {
     assert!(host_allowed(r, "https://muse.ai/thread/new"));
     assert!(host_allowed(r, "https://www.facebook.com/login"));
     assert!(host_allowed(r, "https://auth.meta.com/x?y=1"));
-    assert!(host_allowed(r, "https://www.instagram.com/aymh/redirect-cycle/?t=6"), "Meta's sign-in passes through Instagram");
+    assert!(
+        host_allowed(r, "https://www.instagram.com/aymh/redirect-cycle/?t=6"),
+        "Meta's sign-in passes through Instagram"
+    );
     assert!(!host_allowed(r, "http://muse.ai/"), "HTTPS only");
     assert!(!host_allowed(r, "https://muse.ai.evil.com/"));
     // Google's country sign-in hosts, for recipes that sign in with Google, and nothing else of that shape.
     let chatgpt = recipe("chatgpt-web").unwrap();
-    for ok in ["https://accounts.google.com.vn/accounts/SetSID", "https://accounts.google.co.jp/x", "https://accounts.google.de/x"] {
+    for ok in [
+        "https://accounts.google.com.vn/accounts/SetSID",
+        "https://accounts.google.co.jp/x",
+        "https://accounts.google.de/x",
+    ] {
         assert!(host_allowed(chatgpt, ok), "{ok}");
     }
-    for no in ["https://accounts.google.evil.com/", "https://accounts.google.com.vn.evil.com/", "https://www.google.com.vn/",
-        "https://accounts.google.c0m/", "https://accounts.google.com.vnn/"] {
+    for no in [
+        "https://accounts.google.evil.com/",
+        "https://accounts.google.com.vn.evil.com/",
+        "https://www.google.com.vn/",
+        "https://accounts.google.c0m/",
+        "https://accounts.google.com.vnn/",
+    ] {
         assert!(!host_allowed(chatgpt, no), "{no}");
     }
     assert!(!host_allowed(r, "https://accounts.google.com.vn/accounts/SetSID"), "Muse does not sign in with Google");
-    assert!(host_allowed(recipe("grok-web").unwrap(), "https://auth.grokusercontent.com/set-cookie"), "Grok's sign-in cookie hop");
+    assert!(
+        host_allowed(recipe("grok-web").unwrap(), "https://auth.grokusercontent.com/set-cookie"),
+        "Grok's sign-in cookie hop"
+    );
     assert!(!host_allowed(r, "https://evilmuse.ai/"));
     assert!(!host_allowed(r, "https://muse.ai@evil.com/"));
     assert!(!host_allowed(r, "https://muse.ai:8443/"));
@@ -365,11 +483,21 @@ fn the_window_goes_only_to_the_sites_hosts() {
 #[test]
 fn no_script_reads_cookies_storage_or_the_network() {
     for r in RECIPES {
-        let scripts = [mark_script(), state_script(r), fill_script(r, "x"), send_script(r), read_script(r), deny_script(r)];
+        let scripts =
+            [mark_script(), state_script(r), fill_script(r, "x"), send_script(r), read_script(r), deny_script(r)];
         for script in scripts {
             let lower = script.to_lowercase();
-            for forbidden in ["cookie", "localstorage", "sessionstorage", "indexeddb", "fetch(", "xmlhttprequest", "websocket",
-                "credentials", "password"] {
+            for forbidden in [
+                "cookie",
+                "localstorage",
+                "sessionstorage",
+                "indexeddb",
+                "fetch(",
+                "xmlhttprequest",
+                "websocket",
+                "credentials",
+                "password",
+            ] {
                 assert!(!lower.contains(forbidden), "{} script uses {forbidden}: {script}", r.preset);
             }
         }
@@ -379,8 +507,12 @@ fn no_script_reads_cookies_storage_or_the_network() {
 #[test]
 fn errors_carry_pyggs_words_never_the_pages() {
     // Every state reason the store can be given comes from these constants.
-    let errors = [WebError::NeedsYou { state: "needs_you", reason: CHALLENGE }, WebError::NeedsYou { state: "signed_out", reason: SIGNED_OUT },
-        WebError::PageChanged(NO_PROMPT_BOX), WebError::PageChanged(NO_SEND_BUTTON)];
+    let errors = [
+        WebError::NeedsYou { state: "needs_you", reason: CHALLENGE },
+        WebError::NeedsYou { state: "signed_out", reason: SIGNED_OUT },
+        WebError::PageChanged(NO_PROMPT_BOX),
+        WebError::PageChanged(NO_SEND_BUTTON),
+    ];
     for e in errors {
         let (state, reason) = e.state().unwrap();
         assert!(STATES.contains(&state));
@@ -423,8 +555,21 @@ fn a_web_session_needs_the_warning_and_starts_off_free_and_without_tools() {
     let conn = crate::db::open_in_memory().unwrap();
     assert!(store::add_web_provider(&conn, "muse-web", "Muse", WARNING_VERSION - 1).is_err());
     assert!(store::add_web_provider(&conn, "openai", "x", WARNING_VERSION).is_err());
-    assert!(store::add_provider(&conn, &store::NewProvider { kind: "muse-web", label: "Muse", endpoint: "https://muse.ai",
-        credential_ref: None, default_billing: "free", wire: "openai" }).is_err(), "no way around the warning");
+    assert!(
+        store::add_provider(
+            &conn,
+            &store::NewProvider {
+                kind: "muse-web",
+                label: "Muse",
+                endpoint: "https://muse.ai",
+                credential_ref: None,
+                default_billing: "free",
+                wire: "openai"
+            }
+        )
+        .is_err(),
+        "no way around the warning"
+    );
 
     let (conn, muse) = web_store();
     assert!(!muse.enabled, "off until the user signs in and turns it on");
@@ -435,7 +580,10 @@ fn a_web_session_needs_the_warning_and_starts_off_free_and_without_tools() {
     assert!(profile_dir(Path::new("x"), &profile).is_some());
     let models = store::list_models(&conn, Some(&muse.id)).unwrap();
     assert_eq!(models.len(), 1);
-    assert_eq!((models[0].capabilities.supports_tools, models[0].capabilities.supports_vision), (Some(false), Some(false)));
+    assert_eq!(
+        (models[0].capabilities.supports_tools, models[0].capabilities.supports_vision),
+        (Some(false), Some(false))
+    );
     assert_eq!(models[0].capabilities.tier, None, "no tier, so no auto either");
 
     // A second connection never shares the first one's folder.
@@ -454,7 +602,9 @@ fn a_web_session_needs_the_warning_and_starts_off_free_and_without_tools() {
 
     // The pool sends to the account used least today: what reached the site, the web guard's reservations. A refusal
     // Pygg made itself never got one.
-    let sent = |p: &str| { store::web_guard_reserve(&conn, p, crate::db::now_ms(), 1, 0).unwrap(); };
+    let sent = |p: &str| {
+        store::web_guard_reserve(&conn, p, crate::db::now_ms(), 1, 0).unwrap();
+    };
     let order = || store::resolve(&conn, "muses/muse").unwrap().into_iter().map(|(p, _)| p.id).collect::<Vec<_>>();
     assert_eq!(order(), vec![muse.id.clone(), other.id.clone()], "a tie keeps the pool's order");
     sent(&muse.id);
@@ -485,13 +635,20 @@ fn signing_in_clears_the_hold_a_signed_out_session_left() {
 #[test]
 fn diagnostics_never_name_a_profile_folder() {
     let (conn, muse) = web_store();
-    let context = crate::diagnostics::Context { made_by: "app", gateway_state: "running".into(), gateway_port: 8741,
-        gateway_error: None, log_lines: vec![] };
+    let context = crate::diagnostics::Context {
+        made_by: "app",
+        gateway_state: "running".into(),
+        gateway_port: 8741,
+        gateway_error: None,
+        log_lines: vec![],
+    };
     let files = crate::diagnostics::files(&conn, &context, 0).unwrap();
     let profile = muse.web_profile.unwrap();
     assert!(files.iter().all(|(_, text)| !text.contains(&profile)));
     // Nor does the connection the interface sees.
-    assert!(!serde_json::to_string(&store::get_provider(&conn, &muse.id).unwrap().unwrap()).unwrap().contains(&profile));
+    assert!(!serde_json::to_string(&store::get_provider(&conn, &muse.id).unwrap().unwrap())
+        .unwrap()
+        .contains(&profile));
 }
 
 // ---------- The endpoint and the gateway ----------
@@ -539,7 +696,8 @@ async fn rig(page: Arc<FakePage>) -> Rig {
     let (conn, muse) = web_store();
     store::update_provider(&conn, &muse.id, Some(true), None, None).unwrap();
     let db = Arc::new(Mutex::new(conn));
-    let windows = Arc::new(FakeWindows { page: page.clone(), forgotten: Mutex::default(), signed_in: Mutex::default() });
+    let windows =
+        Arc::new(FakeWindows { page: page.clone(), forgotten: Mutex::default(), signed_in: Mutex::default() });
     let service = Arc::new(Service::new(db.clone(), windows.clone(), "web-token".into(), fast()));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let link = Link { base: format!("http://{}", listener.local_addr().unwrap()), token: "web-token".into() };
@@ -550,8 +708,13 @@ async fn rig(page: Arc<FakePage>) -> Rig {
 
 impl Rig {
     async fn post(&self, token: &str, body: Value) -> reqwest::Response {
-        self.http.post(format!("{}/chat/completions", self.link.endpoint(&self.muse.id))).bearer_auth(token).json(&body)
-            .send().await.unwrap()
+        self.http
+            .post(format!("{}/chat/completions", self.link.endpoint(&self.muse.id)))
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
     }
 
     fn muse(&self) -> Provider {
@@ -590,14 +753,16 @@ fn the_web_guard_refuses_a_pasted_file_and_rests_after_trouble() {
         let rig = rig(hello_page()).await;
         // A prompt no person would type into a chat box never reaches the site.
         let long = "x".repeat(guard::MAX_PROMPT_CHARS + 1);
-        let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": long }] })).await;
+        let response =
+            rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": long }] })).await;
         assert_eq!(response.status(), 413);
         let body: Value = response.json().await.unwrap();
         assert_eq!(body["error"]["code"], "prompt_too_long");
         assert_eq!(rig.page.navigations.load(Ordering::SeqCst), 0, "nothing reached the site");
 
         // A clean reply is kept with its weight; the account then rests.
-        let ok = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        let ok =
+            rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
         assert_eq!(ok.status(), 200);
         let now = crate::db::now_ms();
         let account = store::web_guard(&rig.db.lock().unwrap(), &rig.muse.id, now).unwrap();
@@ -610,7 +775,8 @@ fn the_web_guard_refuses_a_pasted_file_and_rests_after_trouble() {
             store::web_guard_trouble(&db, &rig.muse.id, &guard::Trouble::new(NO_REPLY, 1), now, 60_000, now).unwrap();
         }
         let before = rig.page.navigations.load(Ordering::SeqCst);
-        let refused = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        let refused =
+            rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
         assert_eq!(refused.status(), 429);
         assert!(refused.headers().get("retry-after").is_some());
         let body: Value = refused.json().await.unwrap();
@@ -619,7 +785,8 @@ fn the_web_guard_refuses_a_pasted_file_and_rests_after_trouble() {
 
         // The user lifts it; the next question goes to the page (this fake page has no second reply scripted).
         store::web_guard_resume(&rig.db.lock().unwrap(), &rig.muse.id).unwrap();
-        let after = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        let after =
+            rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
         assert_ne!(after.status(), 429);
         assert!(rig.page.navigations.load(Ordering::SeqCst) > before, "the page was driven again");
     });
@@ -629,8 +796,13 @@ fn the_web_guard_refuses_a_pasted_file_and_rests_after_trouble() {
 fn the_endpoint_streams_the_reply() {
     rt().block_on(async {
         let rig = rig(hello_page()).await;
-        let response = rig.post("web-token", json!({ "model": "muse", "stream": true,
-            "messages": [{ "role": "user", "content": "hi" }] })).await;
+        let response = rig
+            .post(
+                "web-token",
+                json!({ "model": "muse", "stream": true,
+            "messages": [{ "role": "user", "content": "hi" }] }),
+            )
+            .await;
         assert_eq!(response.status(), 200);
         let text = response.text().await.unwrap();
         assert!(text.contains("\"content\":\"Hi there\""), "{text}");
@@ -641,9 +813,12 @@ fn the_endpoint_streams_the_reply() {
 #[test]
 fn one_request_at_a_time_per_connection() {
     rt().block_on(async {
-        let page = Arc::new(FakePage { states: Mutex::new(vec![ready()].into()),
+        let page = Arc::new(FakePage {
+            states: Mutex::new(vec![ready()].into()),
             reads: Mutex::new(vec![read(0, "", false), read(1, "slow", false)].into()),
-            read_delay: Duration::from_millis(60), ..FakePage::default() });
+            read_delay: Duration::from_millis(60),
+            ..FakePage::default()
+        });
         let rig = rig(page).await;
         let body = json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] });
         let (a, b) = tokio::join!(rig.post("web-token", body.clone()), rig.post("web-token", body));
@@ -659,10 +834,14 @@ fn one_request_at_a_time_per_connection() {
 fn a_signed_out_session_is_recorded_in_pyggs_words() {
     rt().block_on(async {
         let rig = rig(FakePage::new(vec![json!({ "fresh": true, "signIn": true })], vec![])).await;
-        let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        let response =
+            rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
         assert_eq!(response.status(), 401);
         let muse = rig.muse();
-        assert_eq!((muse.web_state.as_deref(), muse.web_state_reason.as_deref()), (Some("signed_out"), Some(SIGNED_OUT)));
+        assert_eq!(
+            (muse.web_state.as_deref(), muse.web_state_reason.as_deref()),
+            (Some("signed_out"), Some(SIGNED_OUT))
+        );
     });
 }
 
@@ -680,7 +859,13 @@ async fn gateway_rig(page: Arc<FakePage>, with_web: bool) -> (Rig, String, Share
 
 async fn gateway_post(target: &str, body: Value) -> reqwest::Response {
     let (base, token) = target.split_once('|').unwrap();
-    reqwest::Client::new().post(format!("{base}/v1/chat/completions")).bearer_auth(token).json(&body).send().await.unwrap()
+    reqwest::Client::new()
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .await
+        .unwrap()
 }
 
 #[test]
@@ -688,28 +873,41 @@ fn a_free_web_session_costs_nothing_even_when_the_request_fails() {
     use crate::gateway::pricing::Cost;
     let failed = || Cost::Unknown { source: "HTTP 504: the provider may have run the request".into() };
     match crate::gateway::quota_not_money(true, "free", failed()) {
-        Cost::Estimated { micro_usd: 0, source } => assert!(source.starts_with("web session") && source.contains("504"), "{source}"),
+        Cost::Estimated { micro_usd: 0, source } => {
+            assert!(source.starts_with("web session") && source.contains("504"), "{source}")
+        }
         other => panic!("{other:?}"),
     }
     // A web session set to Subscription keeps saying quota, and a paid connection's unknown cost stays unknown.
-    assert!(matches!(crate::gateway::quota_not_money(true, "subscription", failed()), Cost::Unknown { ref source } if source.starts_with("subscription")));
-    assert!(matches!(crate::gateway::quota_not_money(false, "paid", failed()), Cost::Unknown { ref source } if source.starts_with("HTTP 504")));
+    assert!(
+        matches!(crate::gateway::quota_not_money(true, "subscription", failed()), Cost::Unknown { ref source } if source.starts_with("subscription"))
+    );
+    assert!(
+        matches!(crate::gateway::quota_not_money(false, "paid", failed()), Cost::Unknown { ref source } if source.starts_with("HTTP 504"))
+    );
 }
 
 #[test]
 fn the_gateway_reaches_a_named_web_model_and_records_it_at_no_cost() {
     rt().block_on(async {
         let (web, gateway, shared) = gateway_rig(hello_page(), true).await;
-        let response = gateway_post(&gateway, json!({ "model": "muse/muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        let response =
+            gateway_post(&gateway, json!({ "model": "muse/muse", "messages": [{ "role": "user", "content": "hi" }] }))
+                .await;
         assert_eq!(response.status(), 200);
         let body: Value = response.json().await.unwrap();
         assert_eq!(body["choices"][0]["message"]["content"], "Hi there");
         let event = shared.with_db(|db| store::usage_summary(db, 0, 10)).unwrap().recent.remove(0);
         assert_eq!((event.provider.as_str(), event.model.as_str()), ("muse", "muse"));
-        assert_eq!((event.cost_status.as_str(), event.cost_micro_usd), ("estimated", Some(0)), "$0 a request on the user's plan");
+        assert_eq!(
+            (event.cost_status.as_str(), event.cost_micro_usd),
+            ("estimated", Some(0)),
+            "$0 a request on the user's plan"
+        );
         assert!(event.cost_source.starts_with("web session"), "{}", event.cost_source);
         // The token that reaches the endpoint is never written anywhere.
-        let ledger = serde_json::to_string(&shared.with_db(|db| store::usage_summary(db, 0, 10)).unwrap().recent).unwrap();
+        let ledger =
+            serde_json::to_string(&shared.with_db(|db| store::usage_summary(db, 0, 10)).unwrap().recent).unwrap();
         assert!(!ledger.contains(&web.link.token));
     });
 }
@@ -721,7 +919,9 @@ fn auto_never_picks_a_web_session_and_tools_never_reach_one() {
         // Even with a tier set by the user, so only the web-session rule keeps it out.
         web.db.lock().unwrap().execute("UPDATE models SET tier = 1, tier_source = 'user'", []).unwrap();
         for alias in ["auto", "auto/cheap"] {
-            let response = gateway_post(&gateway, json!({ "model": alias, "messages": [{ "role": "user", "content": "hi" }] })).await;
+            let response =
+                gateway_post(&gateway, json!({ "model": alias, "messages": [{ "role": "user", "content": "hi" }] }))
+                    .await;
             assert_eq!(response.status(), 422, "{alias}");
             assert!(response.text().await.unwrap().contains(NOT_FOR_AUTO));
         }
@@ -738,7 +938,9 @@ fn auto_never_picks_a_web_session_and_tools_never_reach_one() {
 fn without_the_app_a_web_session_is_skipped_with_the_reason() {
     rt().block_on(async {
         let (web, gateway, _shared) = gateway_rig(hello_page(), false).await;
-        let response = gateway_post(&gateway, json!({ "model": "muse/muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        let response =
+            gateway_post(&gateway, json!({ "model": "muse/muse", "messages": [{ "role": "user", "content": "hi" }] }))
+                .await;
         assert!(!response.status().is_success());
         assert!(response.text().await.unwrap().contains(APP_ONLY));
         assert_eq!(web.page.navigations.load(Ordering::SeqCst), 0);
@@ -769,7 +971,8 @@ fn the_daily_limit_refuses_before_the_site_is_touched() {
             store::set_web_daily_limit(&conn, &rig.muse.id, Some(1)).unwrap();
             store::web_guard_reserve(&conn, &rig.muse.id, crate::db::now_ms(), 1, 0).unwrap();
         }
-        let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        let response =
+            rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
         assert_eq!(response.status(), 429);
         assert!(response.headers().get("retry-after").is_some(), "says when the limit resets");
         let body: Value = response.json().await.unwrap();
@@ -795,9 +998,14 @@ fn a_suspension_notice_during_the_reply_turns_the_connection_off_and_marks_the_p
     rt().block_on(async {
         let restricted = json!({ "count": 0, "text": "", "busy": false, "restricted": true });
         let rig = rig(FakePage::new(vec![ready()], vec![read(0, "", false), restricted])).await;
-        let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        let response =
+            rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
         assert_eq!(response.status(), 401);
-        assert_eq!(response.headers().get(SENT_HEADER).map(|v| v.to_str().unwrap()), Some("1"), "the site had the prompt");
+        assert_eq!(
+            response.headers().get(SENT_HEADER).map(|v| v.to_str().unwrap()),
+            Some("1"),
+            "the site had the prompt"
+        );
         let muse = rig.muse();
         assert!(!muse.enabled, "a suspended account gets nothing more");
         assert_eq!(muse.web_state_reason.as_deref(), Some(RESTRICTED));
@@ -807,7 +1015,8 @@ fn a_suspension_notice_during_the_reply_turns_the_connection_off_and_marks_the_p
         assert!(store::web_guard(&rig.db.lock().unwrap(), &rig.muse.id, now).unwrap().backoff_reason.is_some());
         // Turned off, it is not driven again, even by a caller that has its token.
         let before = rig.page.navigations.load(Ordering::SeqCst);
-        let again = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        let again =
+            rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
         assert_eq!(again.status(), 400);
         assert_eq!(rig.page.navigations.load(Ordering::SeqCst), before);
     });
@@ -816,10 +1025,13 @@ fn a_suspension_notice_during_the_reply_turns_the_connection_off_and_marks_the_p
 #[test]
 fn a_notice_the_user_quoted_is_not_taken_for_the_sites() {
     rt().block_on(async {
-        let quoted = json!({ "count": 1, "text": "It means the account is suspended.", "busy": false, "restricted": true });
+        let quoted =
+            json!({ "count": 1, "text": "It means the account is suspended.", "busy": false, "restricted": true });
         let rig = rig(FakePage::new(vec![ready()], vec![read(0, "", false), quoted])).await;
         let prompt = "What does 'account is suspended' mean?";
-        let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": prompt }] })).await;
+        let response = rig
+            .post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": prompt }] }))
+            .await;
         assert_eq!(response.status(), 200);
         assert!(rig.muse().enabled);
     });
@@ -830,7 +1042,8 @@ fn a_failure_before_send_does_not_mark_the_prompt_sent() {
     rt().block_on(async {
         let signed_out = json!({ "fresh": true, "ready": false, "hasInput": true, "signedOut": true });
         let rig = rig(FakePage::new(vec![signed_out], vec![read(0, "", false)])).await;
-        let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        let response =
+            rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
         assert_eq!(response.status(), 401);
         assert!(response.headers().get(SENT_HEADER).is_none(), "another account may still take it");
     });
@@ -872,7 +1085,9 @@ fn a_prompt_that_reached_one_site_is_not_sent_to_another_web_session() {
                 store::set_pool(&conn, id, Some("muses")).unwrap();
             }
         }
-        let response = gateway_post(&gateway, json!({ "model": "muses/muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        let response =
+            gateway_post(&gateway, json!({ "model": "muses/muse", "messages": [{ "role": "user", "content": "hi" }] }))
+                .await;
         assert!(!response.status().is_success());
         assert_eq!(response.status(), 429);
         assert_eq!(web.page.navigations.load(Ordering::SeqCst), 1, "one site saw the prompt, the other nothing");
@@ -888,7 +1103,8 @@ fn a_site_asking_to_slow_down_is_an_error_and_backs_the_account_off() {
     rt().block_on(async {
         let busy = read(1, "The server is busy. Please try again later.", false);
         let rig = rig(FakePage::new(vec![ready()], vec![read(0, "", false), busy])).await;
-        let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        let response =
+            rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
         assert_eq!(response.status(), 429);
         let body: Value = response.json().await.unwrap();
         assert_eq!(body["error"]["code"], "site_slow_down");
@@ -904,7 +1120,9 @@ fn a_slow_down_the_user_asked_about_is_an_answer() {
     rt().block_on(async {
         let answer = read(1, "It means the server is busy.", false);
         let page = FakePage::new(vec![ready()], vec![read(0, "", false), answer]);
-        let reply = converse(page.as_ref(), muse(), "What does 'server is busy' mean?", &fast(), &mut |_: &str| {}).await.unwrap();
+        let reply = converse(page.as_ref(), muse(), "What does 'server is busy' mean?", &fast(), &mut |_: &str| {})
+            .await
+            .unwrap();
         assert_eq!(reply.text, "It means the server is busy.");
     });
 }
@@ -913,9 +1131,15 @@ fn a_slow_down_the_user_asked_about_is_an_answer() {
 fn deepseek_takes_shorter_prompts_and_a_lower_daily_limit() {
     rt().block_on(async {
         let rig = rig(hello_page()).await;
-        rig.db.lock().unwrap().execute("UPDATE providers SET kind = 'deepseek-web' WHERE id = ?1", [&rig.muse.id]).unwrap();
+        rig.db
+            .lock()
+            .unwrap()
+            .execute("UPDATE providers SET kind = 'deepseek-web' WHERE id = ?1", [&rig.muse.id])
+            .unwrap();
         let prompt = "x".repeat(guard::DEEPSEEK_LIMITS.max_prompt_chars + 1);
-        let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": prompt }] })).await;
+        let response = rig
+            .post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": prompt }] }))
+            .await;
         assert_eq!(response.status(), 413);
         let body: Value = response.json().await.unwrap();
         assert!(body["error"]["message"].as_str().unwrap().contains("4000"), "{body}");
@@ -928,12 +1152,15 @@ fn deepseek_takes_shorter_prompts_and_a_lower_daily_limit() {
             // A limit set higher before the ceiling existed is held under it.
             conn.execute("UPDATE providers SET web_daily_limit = 1000 WHERE id = ?1", [&rig.muse.id]).unwrap();
             for i in 0..30 {
-                store::web_guard_reserve(&conn, &rig.muse.id, crate::db::now_ms() - 3 * guard::HOUR_MS + i, 1, 0).unwrap();
+                store::web_guard_reserve(&conn, &rig.muse.id, crate::db::now_ms() - 3 * guard::HOUR_MS + i, 1, 0)
+                    .unwrap();
             }
             store::get_provider(&conn, &rig.muse.id).unwrap().unwrap()
         };
         if crate::db::now_ms().rem_euclid(guard::DAY_MS) > 3 * guard::HOUR_MS {
-            let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+            let response = rig
+                .post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] }))
+                .await;
             assert_eq!(response.status(), 429);
             let body: Value = response.json().await.unwrap();
             assert_eq!(body["error"]["code"], "daily_limit");
@@ -1056,7 +1283,8 @@ async fn guard_rig(preset: &str, site: Arc<Site>) -> (String, String, Arc<Mutex<
 /// One request as an agent sends it: status, Retry-After, time taken and Pygg's error code.
 async fn guard_post(target: &str, model: &str, prompt: String) -> (u16, Option<u64>, u128, String) {
     let started = std::time::Instant::now();
-    let response = gateway_post(target, json!({ "model": model, "messages": [{ "role": "user", "content": prompt }] })).await;
+    let response =
+        gateway_post(target, json!({ "model": model, "messages": [{ "role": "user", "content": prompt }] })).await;
     let status = response.status().as_u16();
     let retry = response.headers().get("retry-after").and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok());
     let body: Value = response.json().await.unwrap_or(Value::Null);
@@ -1064,19 +1292,25 @@ async fn guard_post(target: &str, model: &str, prompt: String) -> (u16, Option<u
     (status, retry, started.elapsed().as_millis(), code)
 }
 
-fn guard_report(site: &str, phase: &str, sent: usize, reached: &Site, results: &[(u16, Option<u64>, u128, String)], extra: Value) {
+fn guard_report(
+    site: &str, phase: &str, sent: usize, reached: &Site, results: &[(u16, Option<u64>, u128, String)], extra: Value,
+) {
     let mut statuses: std::collections::BTreeMap<String, usize> = Default::default();
     for (status, _, _, code) in results {
-        *statuses.entry(if code.is_empty() { status.to_string() } else { format!("{status} {code}") }).or_default() += 1;
+        *statuses.entry(if code.is_empty() { status.to_string() } else { format!("{status} {code}") }).or_default() +=
+            1;
     }
     let retry: Vec<u64> = results.iter().filter_map(|r| r.1).collect();
     let typed = reached.typed.lock().unwrap().clone();
     let gaps: Vec<i64> = typed.windows(2).map(|w| w[1].0 - w[0].0).collect();
-    println!("GUARD {}", json!({ "kind": "end_to_end", "site": site, "phase": phase, "requests": sent,
+    println!(
+        "GUARD {}",
+        json!({ "kind": "end_to_end", "site": site, "phase": phase, "requests": sent,
         "reached_site": typed.len(), "prompt_chars_reached": typed.iter().map(|t| t.1).collect::<Vec<_>>(),
         "min_gap_between_prompts_ms": gaps.iter().min(), "client_statuses": statuses,
         "retry_after_s": { "min": retry.iter().min(), "max": retry.iter().max() },
-        "slowest_answer_ms": results.iter().map(|r| r.2).max(), "extra": extra }));
+        "slowest_answer_ms": results.iter().map(|r| r.2).max(), "extra": extra })
+    );
 }
 
 #[test]
@@ -1113,8 +1347,14 @@ fn guard_bench_end_to_end() {
             for chars in [8_000, 16_000, 24_000, 8_000, 16_000, 24_000, cap - 100, cap - 100, cap - 100, cap - 100] {
                 results.push(guard_post(&target, &model, "x".repeat(chars)).await);
             }
-            guard_report(preset, "10 long prompts (8k-24k chars, then just under the cap)", 10, &site, &results,
-                json!({ "max_prompt_chars": cap }));
+            guard_report(
+                preset,
+                "10 long prompts (8k-24k chars, then just under the cap)",
+                10,
+                &site,
+                &results,
+                json!({ "max_prompt_chars": cap }),
+            );
 
             // 3. The site's own warning: the second prompt gets a usage-limit notice; 20 more questions follow.
             let site = Site::new(Some(2));
@@ -1125,16 +1365,25 @@ fn guard_bench_end_to_end() {
             }
             let account = store::web_guard(&db.lock().unwrap(), &provider.id, crate::db::now_ms()).unwrap();
             let backoff_s = account.backoff_until.map(|u| (u - crate::db::now_ms()) / 1000);
-            guard_report(preset, "usage-limit notice on prompt 2, then 20 more questions", 22, &site, &results,
-                json!({ "backoff_left_s": backoff_s, "backoff_reason": account.backoff_reason }));
+            guard_report(
+                preset,
+                "usage-limit notice on prompt 2, then 20 more questions",
+                22,
+                &site,
+                &results,
+                json!({ "backoff_left_s": backoff_s, "backoff_reason": account.backoff_reason }),
+            );
 
             // 4. No switch: a daily limit set far above the site's ceiling is held under it.
             let limits = guard::limits(preset);
-            println!("GUARD {}", json!({ "kind": "ceiling", "site": preset, "daily_limit_set": 1000,
+            println!(
+                "GUARD {}",
+                json!({ "kind": "ceiling", "site": preset, "daily_limit_set": 1000,
                 "daily_limit_in_force": limits.daily_limit(1000), "max_prompt_chars": limits.max_prompt_chars,
                 "hour_units": limits.hour_units, "hour_requests": limits.hour_requests,
                 "burst": format!("{} per {} min", limits.burst_requests, limits.burst_window_ms / 60_000),
-                "rest_base_s": limits.rest_base(Timing::default().gap.as_millis() as i64) / 1000 }));
+                "rest_base_s": limits.rest_base(Timing::default().gap.as_millis() as i64) / 1000 })
+            );
         }
     });
 }
@@ -1142,7 +1391,9 @@ fn guard_bench_end_to_end() {
 /// The guard's own decisions on a virtual clock, with the bookkeeping the web service does around them (the weight
 /// kept when a request goes, the rest after its reply, the day's request count): what an agent that asks again
 /// `every_ms` after each answer or refusal gets through in `hours`.
-fn guard_simulate(preset: &str, prompt_chars: &[usize], reply_chars: usize, reply_ms: i64, every_ms: i64, hours: i64) -> Value {
+fn guard_simulate(
+    preset: &str, prompt_chars: &[usize], reply_chars: usize, reply_ms: i64, every_ms: i64, hours: i64,
+) -> Value {
     let limits = guard::limits(preset);
     let daily = limits.daily_limit(DEFAULT_DAILY_LIMIT);
     let base = limits.rest_base(Timing::default().gap.as_millis() as i64);
@@ -1179,17 +1430,31 @@ fn guard_simulate(preset: &str, prompt_chars: &[usize], reply_chars: usize, repl
             }
             guard::Verdict::Refuse { why, .. } => {
                 let label = match why {
-                    guard::WHY_HOUR => "hour's share", guard::WHY_BURST => "10-minute burst", guard::WHY_DAY => "day's units",
-                    guard::WHY_REST => "resting after a reply", _ => "back-off",
+                    guard::WHY_HOUR => "hour's share",
+                    guard::WHY_BURST => "10-minute burst",
+                    guard::WHY_DAY => "day's units",
+                    guard::WHY_REST => "resting after a reply",
+                    _ => "back-off",
                 };
                 *refused.entry(label).or_default() += 1;
                 now += every_ms;
             }
         }
     }
-    let window = |ms: i64| sends.iter().map(|(t, _, _)| sends.iter().filter(|(u, _, _)| *u >= *t && *u < t + ms).count()).max().unwrap_or(0);
-    let units_hour = sends.iter().map(|(t, _, _)| sends.iter().filter(|(u, _, _)| *u >= *t && *u < t + guard::HOUR_MS)
-        .map(|(_, w, _)| *w).sum::<u32>()).max().unwrap_or(0);
+    let window = |ms: i64| {
+        sends
+            .iter()
+            .map(|(t, _, _)| sends.iter().filter(|(u, _, _)| *u >= *t && *u < t + ms).count())
+            .max()
+            .unwrap_or(0)
+    };
+    let units_hour = sends
+        .iter()
+        .map(|(t, _, _)| {
+            sends.iter().filter(|(u, _, _)| *u >= *t && *u < t + guard::HOUR_MS).map(|(_, w, _)| *w).sum::<u32>()
+        })
+        .max()
+        .unwrap_or(0);
     let gaps: Vec<i64> = sends.windows(2).map(|w| w[1].0 - w[0].0).collect();
     let first_15: Vec<&(i64, u32, usize)> = sends.iter().filter(|(t, _, _)| *t < start + 15 * 60_000).collect();
     json!({ "kind": "simulation", "site": preset, "prompt_chars": prompt_chars, "reply_chars": reply_chars,

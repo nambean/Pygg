@@ -42,7 +42,11 @@ pub fn routes() -> Router<Shared> {
 const MAX_WAIT_SECS: u64 = 600;
 
 fn error(status: StatusCode, message: impl AsRef<str>) -> Response {
-    openai_error(status, if status == StatusCode::NOT_FOUND { "not_found_error" } else { "invalid_request_error" }, message.as_ref())
+    openai_error(
+        status,
+        if status == StatusCode::NOT_FOUND { "not_found_error" } else { "invalid_request_error" },
+        message.as_ref(),
+    )
 }
 
 fn failure(message: String) -> Response {
@@ -54,19 +58,30 @@ fn failure(message: String) -> Response {
 fn permitted(shared: &Shared, headers: &HeaderMap) -> Result<(Client, tasks::Runner), Response> {
     let client = authenticate(shared, headers).map_err(|r| r.openai())?;
     if !client.may_run_tasks {
-        return Err(openai_error(StatusCode::FORBIDDEN, "permission_error", &format!(
-            "Client \"{}\" may not start tasks. Allow it in Pygg → Clients → Limits… → Smart tasks.", client.name)));
+        return Err(openai_error(
+            StatusCode::FORBIDDEN,
+            "permission_error",
+            &format!(
+                "Client \"{}\" may not start tasks. Allow it in Pygg → Clients → Limits… → Smart tasks.",
+                client.name
+            ),
+        ));
     }
-    let runner = shared.tasks.clone().ok_or_else(|| openai_error(StatusCode::SERVICE_UNAVAILABLE, "unavailable",
-        "Smart tasks run in the Pygg app; this gateway (`gateway serve`) does not run them. Open the app instead."))?;
+    let runner =
+        shared.tasks.clone().ok_or_else(|| {
+            openai_error(StatusCode::SERVICE_UNAVAILABLE, "unavailable",
+        "Smart tasks run in the Pygg app; this gateway (`gateway serve`) does not run them. Open the app instead.")
+        })?;
     Ok((client, runner))
 }
 
 /// Runs store and Git work off the async threads: keeping a result or resolving a repository runs git.
-async fn blocking<T: Send + 'static>(shared: &Shared, f: impl FnOnce(&rusqlite::Connection) -> tasks::Result<T> + Send + 'static)
-    -> Result<T, Response> {
+async fn blocking<T: Send + 'static>(
+    shared: &Shared, f: impl FnOnce(&rusqlite::Connection) -> tasks::Result<T> + Send + 'static,
+) -> Result<T, Response> {
     let shared = shared.clone();
-    tokio::task::spawn_blocking(move || shared.with_db(f)).await
+    tokio::task::spawn_blocking(move || shared.with_db(f))
+        .await
         .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "The task engine failed"))?
         .map_err(failure)
 }
@@ -78,11 +93,15 @@ async fn agents(State(shared): State<Shared>, headers: HeaderMap) -> Response {
     let installed = tasks::installed_agents();
     Json(json!({ "agents": crate::agents::AGENTS.iter().map(|a| json!({
         "id": a.id, "name": a.name, "installed": installed.contains(&a.id), "signIn": a.sign_in,
-    })).collect::<Vec<_>>() })).into_response()
+    })).collect::<Vec<_>>() }))
+    .into_response()
 }
 
 async fn list(State(shared): State<Shared>, headers: HeaderMap) -> Response {
-    let (client, _) = match permitted(&shared, &headers) { Ok(p) => p, Err(r) => return r };
+    let (client, _) = match permitted(&shared, &headers) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
     match blocking(&shared, move |db| tasks::list_tasks_for(db, &client.id)).await {
         Ok(list) => Json(json!({ "tasks": list })).into_response(),
         Err(r) => r,
@@ -124,7 +143,10 @@ struct StartTask {
 }
 
 async fn start(State(shared): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
-    let (client, runner) = match permitted(&shared, &headers) { Ok(p) => p, Err(r) => return r };
+    let (client, runner) = match permitted(&shared, &headers) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
     let request: StartTask = match serde_json::from_slice(&body) {
         Ok(r) => r,
         Err(e) => return error(StatusCode::BAD_REQUEST, format!("The request body is not a task: {e}")),
@@ -134,25 +156,41 @@ async fn start(State(shared): State<Shared>, headers: HeaderMap, body: Bytes) ->
     }
     let strategy = request.strategy.clone().unwrap_or_else(|| "free_first".into());
     let steps: Vec<Step> = match request.steps {
-        Some(steps) if !steps.is_empty() => steps.into_iter().map(|s| Step {
-            tier: s.tier.unwrap_or_else(|| tasks::tier_guess(&s.agent)), agent: s.agent, model: s.model,
-            // A paid step waits for the user's approval in the app.
-            billing: s.billing.unwrap_or_else(|| "unknown".into()),
-        }).collect(),
+        Some(steps) if !steps.is_empty() => steps
+            .into_iter()
+            .map(|s| Step {
+                tier: s.tier.unwrap_or_else(|| tasks::tier_guess(&s.agent)),
+                agent: s.agent,
+                model: s.model,
+                // A paid step waits for the user's approval in the app.
+                billing: s.billing.unwrap_or_else(|| "unknown".into()),
+            })
+            .collect(),
         _ => tasks::default_steps(&strategy, &tasks::installed_agents()),
     };
     if steps.is_empty() {
-        return error(StatusCode::BAD_REQUEST,
-            "No agent is installed on this computer. Install Claude Code, Codex CLI, Gemini CLI or OpenCode.");
+        return error(
+            StatusCode::BAD_REQUEST,
+            "No agent is installed on this computer. Install Claude Code, Codex CLI, Gemini CLI or OpenCode.",
+        );
     }
     let client_id = client.id.clone();
     let created = blocking(&shared, move |db| {
         let workspace = tasks::workspace_for_folder(db, &request.workspace)?;
-        let new = NewTask { workspace_id: workspace.id, title: request.title, prompt: request.prompt, strategy, steps,
-            allow_shell: request.allow_shell, timeout_secs: request.timeout_secs, handoff: request.handoff };
+        let new = NewTask {
+            workspace_id: workspace.id,
+            title: request.title,
+            prompt: request.prompt,
+            strategy,
+            steps,
+            allow_shell: request.allow_shell,
+            timeout_secs: request.timeout_secs,
+            handoff: request.handoff,
+        };
         let id = tasks::create_task_for(db, &new, Some(&client_id))?;
         tasks::task_detail_for(db, &id, Some(&client_id))
-    }).await;
+    })
+    .await;
     match created {
         Ok(detail) => {
             runner.start(&detail.summary.id);
@@ -163,12 +201,20 @@ async fn start(State(shared): State<Shared>, headers: HeaderMap, body: Bytes) ->
 }
 
 fn wait_of(uri: &Uri) -> u64 {
-    uri.query().unwrap_or("").split('&').find_map(|pair| pair.strip_prefix("wait="))
-        .and_then(|v| v.parse::<u64>().ok()).unwrap_or(0).min(MAX_WAIT_SECS)
+    uri.query()
+        .unwrap_or("")
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("wait="))
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0)
+        .min(MAX_WAIT_SECS)
 }
 
 async fn status(State(shared): State<Shared>, headers: HeaderMap, Path(id): Path<String>, uri: Uri) -> Response {
-    let (client, _) = match permitted(&shared, &headers) { Ok(p) => p, Err(r) => return r };
+    let (client, _) = match permitted(&shared, &headers) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
     let deadline = tokio::time::Instant::now() + Duration::from_secs(wait_of(&uri));
     loop {
         let (id2, client_id) = (id.clone(), client.id.clone());
@@ -184,15 +230,26 @@ async fn status(State(shared): State<Shared>, headers: HeaderMap, Path(id): Path
 }
 
 async fn diff(State(shared): State<Shared>, headers: HeaderMap, Path(id): Path<String>) -> Response {
-    let (client, _) = match permitted(&shared, &headers) { Ok(p) => p, Err(r) => return r };
-    match blocking(&shared, move |db| { tasks::check_owner(db, &id, &client.id)?; tasks::result_diff(db, &id) }).await {
+    let (client, _) = match permitted(&shared, &headers) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    match blocking(&shared, move |db| {
+        tasks::check_owner(db, &id, &client.id)?;
+        tasks::result_diff(db, &id)
+    })
+    .await
+    {
         Ok(diff) => Json(json!({ "diff": diff })).into_response(),
         Err(r) => r,
     }
 }
 
 async fn stop(State(shared): State<Shared>, headers: HeaderMap, Path(id): Path<String>) -> Response {
-    let (client, runner) = match permitted(&shared, &headers) { Ok(p) => p, Err(r) => return r };
+    let (client, runner) = match permitted(&shared, &headers) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
     let id2 = id.clone();
     if let Err(r) = blocking(&shared, move |db| tasks::check_owner(db, &id2, &client.id)).await {
         return r;
@@ -210,19 +267,40 @@ struct KeepBody {
 }
 
 async fn keep(State(shared): State<Shared>, headers: HeaderMap, Path(id): Path<String>, body: Bytes) -> Response {
-    let (client, _) = match permitted(&shared, &headers) { Ok(p) => p, Err(r) => return r };
-    let body: KeepBody = if body.is_empty() { KeepBody::default() } else {
-        match serde_json::from_slice(&body) { Ok(b) => b, Err(e) => return error(StatusCode::BAD_REQUEST, e.to_string()) }
+    let (client, _) = match permitted(&shared, &headers) {
+        Ok(p) => p,
+        Err(r) => return r,
     };
-    match blocking(&shared, move |db| { tasks::check_owner(db, &id, &client.id)?; tasks::keep(db, &id, body.title.as_deref()) }).await {
+    let body: KeepBody = if body.is_empty() {
+        KeepBody::default()
+    } else {
+        match serde_json::from_slice(&body) {
+            Ok(b) => b,
+            Err(e) => return error(StatusCode::BAD_REQUEST, e.to_string()),
+        }
+    };
+    match blocking(&shared, move |db| {
+        tasks::check_owner(db, &id, &client.id)?;
+        tasks::keep(db, &id, body.title.as_deref())
+    })
+    .await
+    {
         Ok(branch) => Json(json!({ "branch": branch })).into_response(),
         Err(r) => r,
     }
 }
 
 async fn discard(State(shared): State<Shared>, headers: HeaderMap, Path(id): Path<String>) -> Response {
-    let (client, _) = match permitted(&shared, &headers) { Ok(p) => p, Err(r) => return r };
-    match blocking(&shared, move |db| { tasks::check_owner(db, &id, &client.id)?; tasks::discard(db, &id) }).await {
+    let (client, _) = match permitted(&shared, &headers) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    match blocking(&shared, move |db| {
+        tasks::check_owner(db, &id, &client.id)?;
+        tasks::discard(db, &id)
+    })
+    .await
+    {
         Ok(()) => Json(json!({ "discarded": true })).into_response(),
         Err(r) => r,
     }
@@ -242,19 +320,34 @@ mod tests {
 
     /// An agent that writes `fixed.txt` in its worktree.
     fn writer() -> Executor {
-        Arc::new(|request: ExecRequest, worktrees: PathBuf, _cancel: Cancel| -> BoxFuture<'static, tasks::Result<TaskRun>> {
-            Box::pin(async move {
-                let id = uuid::Uuid::new_v4().simple().to_string();
-                std::fs::create_dir_all(&worktrees).unwrap();
-                let wt = isolation::create(&request.workspace, &request.base, &worktrees.join(&id[..12])).map_err(|e| e.to_string())?;
-                std::fs::write(wt.path.join("fixed.txt"), "fixed\n").unwrap();
-                let stat = isolation::changes(&wt).unwrap();
-                Ok(TaskRun { id, agent: request.agent, model: request.model, workspace: request.workspace.to_string_lossy().into_owned(),
-                    worktree: wt.path.to_string_lossy().into_owned(), base: wt.base, outcome: "ok".into(), exit: "exit 0".into(),
-                    duration_ms: 1, files_changed: stat.files, insertions: stat.insertions, deletions: stat.deletions,
-                    usage: AgentUsage::default(), log_tail: String::new() })
-            })
-        })
+        Arc::new(
+            |request: ExecRequest, worktrees: PathBuf, _cancel: Cancel| -> BoxFuture<'static, tasks::Result<TaskRun>> {
+                Box::pin(async move {
+                    let id = uuid::Uuid::new_v4().simple().to_string();
+                    std::fs::create_dir_all(&worktrees).unwrap();
+                    let wt = isolation::create(&request.workspace, &request.base, &worktrees.join(&id[..12]))
+                        .map_err(|e| e.to_string())?;
+                    std::fs::write(wt.path.join("fixed.txt"), "fixed\n").unwrap();
+                    let stat = isolation::changes(&wt).unwrap();
+                    Ok(TaskRun {
+                        id,
+                        agent: request.agent,
+                        model: request.model,
+                        workspace: request.workspace.to_string_lossy().into_owned(),
+                        worktree: wt.path.to_string_lossy().into_owned(),
+                        base: wt.base,
+                        outcome: "ok".into(),
+                        exit: "exit 0".into(),
+                        duration_ms: 1,
+                        files_changed: stat.files,
+                        insertions: stat.insertions,
+                        deletions: stat.deletions,
+                        usage: AgentUsage::default(),
+                        log_tail: String::new(),
+                    })
+                })
+            },
+        )
     }
 
     struct Api {
@@ -276,10 +369,22 @@ mod tests {
         let (client, token) = store::create_client(&conn, "Claude Code", None).unwrap();
         let db = Arc::new(Mutex::new(conn));
         let shared = Shared::new(db.clone(), Arc::new(crate::gateway::OsSecrets));
-        let shared = if with_runner { shared.with_tasks(Runner::new(db, dir.path().join("worktrees"), writer())) } else { shared };
+        let shared = if with_runner {
+            shared.with_tasks(Runner::new(db, dir.path().join("worktrees"), writer()))
+        } else {
+            shared
+        };
         let server = crate::gateway::start(shared.clone(), 0).await.unwrap();
-        Api { base: format!("http://{}", server.addr), _dir: dir, shared, repo, token, client: client.id, http: reqwest::Client::new(),
-            _server: server }
+        Api {
+            base: format!("http://{}", server.addr),
+            _dir: dir,
+            shared,
+            repo,
+            token,
+            client: client.id,
+            http: reqwest::Client::new(),
+            _server: server,
+        }
     }
 
     impl Api {
@@ -302,18 +407,33 @@ mod tests {
     #[tokio::test]
     async fn a_client_starts_a_task_in_its_folder_and_sees_only_its_own() {
         let api = api(true).await;
-        let (status, body) = api.send(reqwest::Method::POST, "/pygg/v1/tasks", Some(api.start_body(json!([{"agent": "codex"}]))), &api.token).await;
+        let (status, body) = api
+            .send(
+                reqwest::Method::POST,
+                "/pygg/v1/tasks",
+                Some(api.start_body(json!([{"agent": "codex"}]))),
+                &api.token,
+            )
+            .await;
         assert_eq!(status, 403, "a client may not start tasks until the user allows it: {body}");
         assert!(body["error"]["message"].as_str().unwrap().contains("Limits"));
 
         api.allow();
-        let (status, body) = api.send(reqwest::Method::POST, "/pygg/v1/tasks", Some(api.start_body(json!([{"agent": "codex"}]))), &api.token).await;
+        let (status, body) = api
+            .send(
+                reqwest::Method::POST,
+                "/pygg/v1/tasks",
+                Some(api.start_body(json!([{"agent": "codex"}]))),
+                &api.token,
+            )
+            .await;
         assert_eq!(status, 201, "{body}");
         let id = body["id"].as_str().unwrap().to_string();
         assert_eq!(body["source"], "Claude Code");
         assert_eq!(body["policy"]["steps"][0]["tier"], 3, "a tier is guessed when none is given");
 
-        let (status, task) = api.send(reqwest::Method::GET, &format!("/pygg/v1/tasks/{id}?wait=30"), None, &api.token).await;
+        let (status, task) =
+            api.send(reqwest::Method::GET, &format!("/pygg/v1/tasks/{id}?wait=30"), None, &api.token).await;
         assert_eq!(status, 200);
         assert_eq!(task["state"], "needs_review", "no approved check, so the result waits for review: {task}");
         let workspace = api.shared.with_db(tasks::list_workspaces).unwrap();
@@ -324,14 +444,22 @@ mod tests {
         api.shared.with_db(|db| store::set_client_may_run_tasks(db, &other.id, true)).unwrap();
         let (status, _) = api.send(reqwest::Method::GET, &format!("/pygg/v1/tasks/{id}"), None, &other_token).await;
         assert_eq!(status, 404, "another client does not see it");
-        let (status, _) = api.send(reqwest::Method::POST, &format!("/pygg/v1/tasks/{id}/keep"), None, &other_token).await;
+        let (status, _) =
+            api.send(reqwest::Method::POST, &format!("/pygg/v1/tasks/{id}/keep"), None, &other_token).await;
         assert_eq!(status, 404);
         let (_, list) = api.send(reqwest::Method::GET, "/pygg/v1/tasks", None, &other_token).await;
         assert_eq!(list["tasks"].as_array().unwrap().len(), 0);
 
         let (_, diff) = api.send(reqwest::Method::GET, &format!("/pygg/v1/tasks/{id}/diff"), None, &api.token).await;
         assert!(diff["diff"].as_str().unwrap().contains("+fixed"));
-        let (status, kept) = api.send(reqwest::Method::POST, &format!("/pygg/v1/tasks/{id}/keep"), Some(json!({"title": "Add fixed"})), &api.token).await;
+        let (status, kept) = api
+            .send(
+                reqwest::Method::POST,
+                &format!("/pygg/v1/tasks/{id}/keep"),
+                Some(json!({"title": "Add fixed"})),
+                &api.token,
+            )
+            .await;
         assert_eq!(status, 200, "{kept}");
         assert!(kept["branch"].as_str().unwrap().starts_with("str/add-fixed-"));
         let (_, task) = api.send(reqwest::Method::GET, &format!("/pygg/v1/tasks/{id}"), None, &api.token).await;
@@ -342,12 +470,19 @@ mod tests {
     async fn a_paid_step_waits_for_the_user_and_the_client_can_only_stop_it() {
         let api = api(true).await;
         api.allow();
-        let (_, body) = api.send(reqwest::Method::POST, "/pygg/v1/tasks",
-            Some(api.start_body(json!([{"agent": "claude-code", "billing": "paid"}]))), &api.token).await;
+        let (_, body) = api
+            .send(
+                reqwest::Method::POST,
+                "/pygg/v1/tasks",
+                Some(api.start_body(json!([{"agent": "claude-code", "billing": "paid"}]))),
+                &api.token,
+            )
+            .await;
         let id = body["id"].as_str().unwrap().to_string();
         let (_, task) = api.send(reqwest::Method::GET, &format!("/pygg/v1/tasks/{id}?wait=10"), None, &api.token).await;
         assert_eq!(task["state"], "waiting_approval", "{task}");
-        let (status, _) = api.send(reqwest::Method::POST, &format!("/pygg/v1/tasks/{id}/approve"), None, &api.token).await;
+        let (status, _) =
+            api.send(reqwest::Method::POST, &format!("/pygg/v1/tasks/{id}/approve"), None, &api.token).await;
         assert!(status == 404 || status == 405, "there is no approval through the API");
         let (status, _) = api.send(reqwest::Method::POST, &format!("/pygg/v1/tasks/{id}/stop"), None, &api.token).await;
         assert_eq!(status, 200);
@@ -359,18 +494,32 @@ mod tests {
     async fn a_gateway_without_the_app_does_not_run_tasks() {
         let api = api(false).await;
         api.allow();
-        let (status, body) = api.send(reqwest::Method::POST, "/pygg/v1/tasks", Some(api.start_body(json!([{"agent": "codex"}]))), &api.token).await;
+        let (status, body) = api
+            .send(
+                reqwest::Method::POST,
+                "/pygg/v1/tasks",
+                Some(api.start_body(json!([{"agent": "codex"}]))),
+                &api.token,
+            )
+            .await;
         assert_eq!(status, 503, "{body}");
-        let (status, _) = api.send(reqwest::Method::POST, "/pygg/v1/tasks", Some(api.start_body(json!([]))), "str-not-a-token").await;
+        let (status, _) =
+            api.send(reqwest::Method::POST, "/pygg/v1/tasks", Some(api.start_body(json!([]))), "str-not-a-token").await;
         assert_eq!(status, 401);
     }
 
     #[test]
     fn default_steps_follow_the_strategy_and_what_is_installed() {
-        let agents: Vec<String> = tasks::default_steps("free_first", &["codex", "opencode", "claude-code"]).into_iter().map(|s| s.agent).collect();
+        let agents: Vec<String> = tasks::default_steps("free_first", &["codex", "opencode", "claude-code"])
+            .into_iter()
+            .map(|s| s.agent)
+            .collect();
         assert_eq!(agents, ["opencode", "codex", "claude-code"]);
         let quality = tasks::default_steps("quality", &["opencode", "claude-code"]);
-        assert_eq!((quality[0].agent.as_str(), quality[0].tier, quality[0].billing.as_str()), ("claude-code", 3, "unknown"));
+        assert_eq!(
+            (quality[0].agent.as_str(), quality[0].tier, quality[0].billing.as_str()),
+            ("claude-code", 3, "unknown")
+        );
         assert!(tasks::default_steps("balanced", &[]).is_empty());
     }
 }

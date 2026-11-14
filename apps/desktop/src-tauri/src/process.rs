@@ -67,11 +67,24 @@ impl Outcome {
 /// its requests as part of the host's session and organization, and Anthropic refused an API key that had credit
 /// with "credit balance is too low" (found by the P0 benchmark, 2026-11-12). Settings a user gives Claude Code
 /// (`CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CONFIG_DIR` and the like) are kept.
-pub const HOST_SESSION_VARS: &[&str] = &["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID",
-    "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_HOST_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
-    "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH", "CLAUDE_CODE_ORGANIZATION_UUID", "CLAUDE_CODE_ACCOUNT_UUID",
-    "CLAUDE_CODE_USER_EMAIL", "CLAUDE_CODE_OAUTH_SCOPES", "CLAUDE_CODE_EXECPATH", "CLAUDE_CODE_DESKTOP_APP_VERSION",
-    "CLAUDE_AGENT_SDK_VERSION", "CLAUDE_PID"];
+pub const HOST_SESSION_VARS: &[&str] = &[
+    "CLAUDECODE",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_HOST_SESSION_ID",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH",
+    "CLAUDE_CODE_ORGANIZATION_UUID",
+    "CLAUDE_CODE_ACCOUNT_UUID",
+    "CLAUDE_CODE_USER_EMAIL",
+    "CLAUDE_CODE_OAUTH_SCOPES",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_DESKTOP_APP_VERSION",
+    "CLAUDE_AGENT_SDK_VERSION",
+    "CLAUDE_PID",
+];
 
 /// Runs `spec` until it exits, its time limit passes, or `cancel` resolves.
 pub async fn run(spec: &Spec, cancel: impl std::future::Future<Output = ()>) -> Outcome {

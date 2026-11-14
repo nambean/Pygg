@@ -57,16 +57,32 @@ pub struct Limits {
     pub note: Option<&'static str>,
 }
 
-pub const DEFAULT_LIMITS: Limits = Limits { max_prompt_chars: MAX_PROMPT_CHARS, hour_units: HOUR_UNITS,
-    hour_requests: HOUR_REQUESTS, burst_requests: BURST_REQUESTS, burst_window_ms: BURST_WINDOW_MS,
-    max_daily_limit: MAX_DAILY_LIMIT, rest_base_ms: REST_BASE_MS, note: None };
+pub const DEFAULT_LIMITS: Limits = Limits {
+    max_prompt_chars: MAX_PROMPT_CHARS,
+    hour_units: HOUR_UNITS,
+    hour_requests: HOUR_REQUESTS,
+    burst_requests: BURST_REQUESTS,
+    burst_window_ms: BURST_WINDOW_MS,
+    max_daily_limit: MAX_DAILY_LIMIT,
+    rest_base_ms: REST_BASE_MS,
+    note: None,
+};
 
 /// DeepSeek suspended the owner's account after 24 prompts of 2,000 to 6,000 tokens in 15 minutes. Here a prompt is at
 /// most 4,000 characters (about 1,000 tokens), an hour holds 8 units and 6 requests, 10 minutes 3 requests, a day at
 /// most 30 requests, and the rest after a reply starts at 30 s.
-pub const DEEPSEEK_LIMITS: Limits = Limits { max_prompt_chars: 4_000, hour_units: 8, hour_requests: 6, burst_requests: 3,
-    burst_window_ms: BURST_WINDOW_MS, max_daily_limit: 30, rest_base_ms: 30_000,
-    note: Some("DeepSeek suspended an account for Pygg's pace on 2026-11-13, so its limits are lower than other sites'.") };
+pub const DEEPSEEK_LIMITS: Limits = Limits {
+    max_prompt_chars: 4_000,
+    hour_units: 8,
+    hour_requests: 6,
+    burst_requests: 3,
+    burst_window_ms: BURST_WINDOW_MS,
+    max_daily_limit: 30,
+    rest_base_ms: 30_000,
+    note: Some(
+        "DeepSeek suspended an account for Pygg's pace on 2026-11-13, so its limits are lower than other sites'.",
+    ),
+};
 
 /// The limits for a web-session preset (`deepseek-web`, `muse-web`, ...).
 pub fn limits(preset: &str) -> Limits {
@@ -84,7 +100,11 @@ impl Limits {
 
     /// The base of the rest after a reply, from the service's pace `gap_ms` (zero only in tests).
     pub fn rest_base(&self, gap_ms: i64) -> i64 {
-        if gap_ms == 0 { 0 } else { gap_ms.max(self.rest_base_ms) }
+        if gap_ms == 0 {
+            0
+        } else {
+            gap_ms.max(self.rest_base_ms)
+        }
     }
 }
 
@@ -119,7 +139,8 @@ pub fn rest_ms(base_ms: i64, weight: u32, reply_chars: usize) -> i64 {
     if base_ms == 0 {
         return 0; // tests
     }
-    (base_ms + i64::from(weight.saturating_sub(1)) * REST_PER_UNIT_MS + reply_chars as i64 * READ_MS_PER_CHAR).min(REST_CAP_MS)
+    (base_ms + i64::from(weight.saturating_sub(1)) * REST_PER_UNIT_MS + reply_chars as i64 * READ_MS_PER_CHAR)
+        .min(REST_CAP_MS)
 }
 
 /// How long an account rests after its `strikes`-th sign of trouble in a row, from `base_ms` (`BACKOFF_BASE_MS`).
@@ -172,11 +193,14 @@ pub const WHY_BACKOFF: &str = "Not sent: the site showed a sign of trouble on th
 pub const WHY_HOUR: &str = "Not sent: this account has had its hour's share (units by prompt size, and requests; Providers shows this site's numbers). Pygg keeps a web session at a person's pace.";
 pub const WHY_BURST: &str = "Not sent: this account has had its share of the last 10 minutes. A person asks, reads and thinks between questions; Pygg does not send bursts.";
 pub const WHY_DAY: &str = "Not sent: this account has had its day's share of long prompts (twice its daily request limit in units, a unit for each 2,000 characters). It resets at 00:00 UTC.";
-pub const WHY_REST: &str = "Not sent yet: this account is resting after its last reply, as long as a person would take to read it.";
+pub const WHY_REST: &str =
+    "Not sent yet: this account is resting after its last reply, as long as a person would take to read it.";
 
 /// The earliest moment, after `now`, by which enough of the requests sent after `since` have aged out of a window of
 /// `window_ms` to leave `free_units` units and `free_requests` requests (starting from what is free now).
-fn aged_out(account: &Account, now: i64, window_ms: i64, mut free_units: u32, mut free_requests: u32, weight: u32) -> i64 {
+fn aged_out(
+    account: &Account, now: i64, window_ms: i64, mut free_units: u32, mut free_requests: u32, weight: u32,
+) -> i64 {
     for (sent, w) in account.sent.iter().filter(|(sent, _)| *sent > now - window_ms) {
         free_units += w;
         free_requests += 1;
@@ -195,13 +219,26 @@ pub fn decide(account: &Account, weight: u32, now: i64, daily_limit: u32, limits
     }
     let (units, requests) = account.hour(now);
     if units + weight > limits.hour_units || requests + 1 > limits.hour_requests {
-        let at = aged_out(account, now, HOUR_MS, limits.hour_units.saturating_sub(units),
-            limits.hour_requests.saturating_sub(requests), weight);
+        let at = aged_out(
+            account,
+            now,
+            HOUR_MS,
+            limits.hour_units.saturating_sub(units),
+            limits.hour_requests.saturating_sub(requests),
+            weight,
+        );
         return Verdict::Refuse { retry_after_ms: (at - now).max(1_000), why: WHY_HOUR };
     }
     let recent = account.burst(now, limits.burst_window_ms);
     if recent + 1 > limits.burst_requests {
-        let at = aged_out(account, now, limits.burst_window_ms, u32::MAX / 2, limits.burst_requests.saturating_sub(recent), 0);
+        let at = aged_out(
+            account,
+            now,
+            limits.burst_window_ms,
+            u32::MAX / 2,
+            limits.burst_requests.saturating_sub(recent),
+            0,
+        );
         return Verdict::Refuse { retry_after_ms: (at - now).max(1_000), why: WHY_BURST };
     }
     if account.today(now) + weight > daily_limit.saturating_mul(DAY_UNITS_PER_REQUEST) {
@@ -267,30 +304,47 @@ mod tests {
         let account = Account { next_at: Some(NOW + 5_000), ..Default::default() };
         assert_eq!(decide(&account, 1, NOW, 50, &DEFAULT_LIMITS), Verdict::Go { wait_ms: 5_000 });
         let resting = Account { next_at: Some(NOW + 90_000), ..Default::default() };
-        assert_eq!(decide(&resting, 1, NOW, 50, &DEFAULT_LIMITS), Verdict::Refuse { retry_after_ms: 90_000, why: WHY_REST });
+        assert_eq!(
+            decide(&resting, 1, NOW, 50, &DEFAULT_LIMITS),
+            Verdict::Refuse { retry_after_ms: 90_000, why: WHY_REST }
+        );
 
         // Fifteen questions in the hour: the sixteenth waits until the oldest is an hour old.
-        let busy = Account { sent: (0..15).map(|i| (NOW - 50 * 60_000 + i * 60_000, 1)).collect(), ..Default::default() };
-        assert_eq!(decide(&busy, 1, NOW, 50, &DEFAULT_LIMITS), Verdict::Refuse { retry_after_ms: 10 * 60_000, why: WHY_HOUR });
+        let busy =
+            Account { sent: (0..15).map(|i| (NOW - 50 * 60_000 + i * 60_000, 1)).collect(), ..Default::default() };
+        assert_eq!(
+            decide(&busy, 1, NOW, 50, &DEFAULT_LIMITS),
+            Verdict::Refuse { retry_after_ms: 10 * 60_000, why: WHY_HOUR }
+        );
     }
 
     #[test]
     fn trouble_backs_off_and_the_day_has_a_share() {
         let troubled = Account { backoff_until: Some(NOW + 300_000), ..Default::default() };
-        assert_eq!(decide(&troubled, 1, NOW, 50, &DEFAULT_LIMITS), Verdict::Refuse { retry_after_ms: 300_000, why: WHY_BACKOFF });
+        assert_eq!(
+            decide(&troubled, 1, NOW, 50, &DEFAULT_LIMITS),
+            Verdict::Refuse { retry_after_ms: 300_000, why: WHY_BACKOFF }
+        );
 
         let day_start = NOW - NOW.rem_euclid(DAY_MS);
         // 96 units today, spread over earlier hours: a 5-unit prompt passes the day's 100.
         let full = Account { sent: (0..16).map(|i| (day_start + i * 1_000, 6)).collect(), ..Default::default() };
-        assert!(matches!(decide(&full, 5, NOW.max(day_start + 2 * HOUR_MS), 50, &DEFAULT_LIMITS), Verdict::Refuse { why: WHY_DAY, .. }));
+        assert!(matches!(
+            decide(&full, 5, NOW.max(day_start + 2 * HOUR_MS), 50, &DEFAULT_LIMITS),
+            Verdict::Refuse { why: WHY_DAY, .. }
+        ));
         assert!(matches!(decide(&full, 4, NOW.max(day_start + 2 * HOUR_MS), 50, &DEFAULT_LIMITS), Verdict::Go { .. }));
     }
 
     #[test]
     fn short_questions_do_not_go_in_bursts() {
         // Five quick questions in the last ten minutes: the sixth waits until the oldest is ten minutes old.
-        let quick = Account { sent: (0..5).map(|i| (NOW - 8 * 60_000 + i * 60_000, 1)).collect(), ..Default::default() };
-        assert_eq!(decide(&quick, 1, NOW, 50, &DEFAULT_LIMITS), Verdict::Refuse { retry_after_ms: 2 * 60_000, why: WHY_BURST });
+        let quick =
+            Account { sent: (0..5).map(|i| (NOW - 8 * 60_000 + i * 60_000, 1)).collect(), ..Default::default() };
+        assert_eq!(
+            decide(&quick, 1, NOW, 50, &DEFAULT_LIMITS),
+            Verdict::Refuse { retry_after_ms: 2 * 60_000, why: WHY_BURST }
+        );
         let four = Account { sent: quick.sent[1..].to_vec(), ..Default::default() };
         assert_eq!(decide(&four, 1, NOW, 50, &DEFAULT_LIMITS), Verdict::Go { wait_ms: 0 });
         // DeepSeek takes three in ten minutes.
@@ -304,10 +358,19 @@ mod tests {
         assert_eq!(d, DEEPSEEK_LIMITS);
         for preset in super::super::RECIPES.iter().map(|r| r.preset) {
             let l = limits(preset);
-            assert!(d.max_prompt_chars <= l.max_prompt_chars && d.hour_units <= l.hour_units
-                && d.hour_requests <= l.hour_requests && d.burst_requests <= l.burst_requests
-                && d.max_daily_limit <= l.max_daily_limit && d.rest_base_ms >= l.rest_base_ms, "{preset}");
-            assert!(l.max_prompt_chars <= MAX_PROMPT_CHARS && l.max_daily_limit <= MAX_DAILY_LIMIT, "no site above the default");
+            assert!(
+                d.max_prompt_chars <= l.max_prompt_chars
+                    && d.hour_units <= l.hour_units
+                    && d.hour_requests <= l.hour_requests
+                    && d.burst_requests <= l.burst_requests
+                    && d.max_daily_limit <= l.max_daily_limit
+                    && d.rest_base_ms >= l.rest_base_ms,
+                "{preset}"
+            );
+            assert!(
+                l.max_prompt_chars <= MAX_PROMPT_CHARS && l.max_daily_limit <= MAX_DAILY_LIMIT,
+                "no site above the default"
+            );
         }
         // The benchmark's prompts (8,000 to 24,000 characters) are over DeepSeek's limit before anything is weighed.
         assert!(8_000 > d.max_prompt_chars);

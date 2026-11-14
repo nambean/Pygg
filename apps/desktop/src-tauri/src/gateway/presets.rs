@@ -57,15 +57,33 @@ pub struct Preset {
     pub web_acts: bool,
 }
 
-const fn preset(id: &'static str, name: &'static str, endpoint: Option<&'static str>, needs_key: bool,
-    default_billing: &'static str, wire: &'static str) -> Preset {
+const fn preset(
+    id: &'static str, name: &'static str, endpoint: Option<&'static str>, needs_key: bool,
+    default_billing: &'static str, wire: &'static str,
+) -> Preset {
     let offer = match (endpoint, default_billing.as_bytes()) {
         (None, _) => "custom",
         (_, b"local") => "local",
         _ => "paid",
     };
-    Preset { id, name, endpoint, needs_key, default_billing, wire, strip_model_prefix: None, accepts_cache_control: false,
-        family: None, offer, offer_note: None, free_models: false, takes_reasoning: false, serves_responses: false, web: false, web_acts: false }
+    Preset {
+        id,
+        name,
+        endpoint,
+        needs_key,
+        default_billing,
+        wire,
+        strip_model_prefix: None,
+        accepts_cache_control: false,
+        family: None,
+        offer,
+        offer_note: None,
+        free_models: false,
+        takes_reasoning: false,
+        serves_responses: false,
+        web: false,
+        web_acts: false,
+    }
 }
 
 /// A free tier made of $0 models next to paid ones: the connection starts as free, and only those models are on.
@@ -84,7 +102,12 @@ const fn credits(p: Preset, note: &'static str) -> Preset {
 /// A site with no API, used through a Pygg window the user signs in to (ADR-035). Billed as the user's plan with the
 /// site, so the cost is unknown, never $0; `note` names an official API where the provider has one.
 const fn web(id: &'static str, name: &'static str, site: &'static str, note: &'static str) -> Preset {
-    Preset { offer: "web", offer_note: Some(note), web: true, ..preset(id, name, Some(site), false, "subscription", "openai") }
+    Preset {
+        offer: "web",
+        offer_note: Some(note),
+        web: true,
+        ..preset(id, name, Some(site), false, "subscription", "openai")
+    }
 }
 
 /// Whether a connection of this kind is a web session (ADR-035).
@@ -101,40 +124,167 @@ pub fn quota_family(kind: &str) -> &str {
 /// docs/PROVIDERS.md. An Anthropic-format endpoint is given as the base an Anthropic SDK takes plus `/v1`,
 /// since the gateway appends `/messages`.
 pub const PRESETS: &[Preset] = &[
-    free(Preset { strip_model_prefix: Some("models/"),
-        ..preset("gemini", "Google Gemini", Some("https://generativelanguage.googleapis.com/v1beta/openai"), true, "unknown", "openai") }, "Free tier in Google AI Studio"),
+    free(
+        Preset {
+            strip_model_prefix: Some("models/"),
+            ..preset(
+                "gemini",
+                "Google Gemini",
+                Some("https://generativelanguage.googleapis.com/v1beta/openai"),
+                true,
+                "unknown",
+                "openai",
+            )
+        },
+        "Free tier in Google AI Studio",
+    ),
     preset("anthropic", "Anthropic", Some("https://api.anthropic.com/v1"), true, "paid", "anthropic"),
-    free_models(Preset { accepts_cache_control: true,
-        ..preset("openrouter", "OpenRouter", Some("https://openrouter.ai/api/v1"), true, "paid", "openai") }, "Free models (:free)"),
-    Preset { serves_responses: true, ..preset("openai", "OpenAI", Some("https://api.openai.com/v1"), true, "paid", "openai") },
+    free_models(
+        Preset {
+            accepts_cache_control: true,
+            ..preset("openrouter", "OpenRouter", Some("https://openrouter.ai/api/v1"), true, "paid", "openai")
+        },
+        "Free models (:free)",
+    ),
+    Preset {
+        serves_responses: true,
+        ..preset("openai", "OpenAI", Some("https://api.openai.com/v1"), true, "paid", "openai")
+    },
     free(preset("groq", "Groq", Some("https://api.groq.com/openai/v1"), true, "unknown", "openai"), "Free plan"),
-    credits(Preset { family: Some("deepseek"), takes_reasoning: true, ..preset("deepseek", "DeepSeek", Some("https://api.deepseek.com"), true, "paid", "openai") }, "Granted balance"),
-    credits(Preset { family: Some("deepseek"),
-        ..preset("deepseek-anthropic", "DeepSeek (Anthropic API)", Some("https://api.deepseek.com/anthropic/v1"), true, "paid", "anthropic") }, "Granted balance"),
+    credits(
+        Preset {
+            family: Some("deepseek"),
+            takes_reasoning: true,
+            ..preset("deepseek", "DeepSeek", Some("https://api.deepseek.com"), true, "paid", "openai")
+        },
+        "Granted balance",
+    ),
+    credits(
+        Preset {
+            family: Some("deepseek"),
+            ..preset(
+                "deepseek-anthropic",
+                "DeepSeek (Anthropic API)",
+                Some("https://api.deepseek.com/anthropic/v1"),
+                true,
+                "paid",
+                "anthropic",
+            )
+        },
+        "Granted balance",
+    ),
     // Alibaba Cloud Model Studio's OpenAI-compatible mode (international). Plans with their own endpoint, such
     // as a token plan, set it when connecting.
-    Preset { takes_reasoning: true,
-        ..preset("qwen", "Qwen (Alibaba Model Studio)", Some("https://dashscope-intl.aliyuncs.com/compatible-mode/v1"), true, "unknown", "openai") },
-    free(preset("mistral", "Mistral", Some("https://api.mistral.ai/v1"), true, "unknown", "openai"), "Free mode, lowest limits"),
-    credits(preset("cerebras", "Cerebras", Some("https://api.cerebras.ai/v1"), true, "paid", "openai"), "$5 trial credit, card needed"),
+    Preset {
+        takes_reasoning: true,
+        ..preset(
+            "qwen",
+            "Qwen (Alibaba Model Studio)",
+            Some("https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
+            true,
+            "unknown",
+            "openai",
+        )
+    },
+    free(
+        preset("mistral", "Mistral", Some("https://api.mistral.ai/v1"), true, "unknown", "openai"),
+        "Free mode, lowest limits",
+    ),
+    credits(
+        preset("cerebras", "Cerebras", Some("https://api.cerebras.ai/v1"), true, "paid", "openai"),
+        "$5 trial credit, card needed",
+    ),
     preset("together", "Together AI", Some("https://api.together.ai/v1"), true, "paid", "openai"),
-    credits(preset("fireworks", "Fireworks AI", Some("https://api.fireworks.ai/inference/v1"), true, "paid", "openai"), "Small starting credit"),
+    credits(
+        preset("fireworks", "Fireworks AI", Some("https://api.fireworks.ai/inference/v1"), true, "paid", "openai"),
+        "Small starting credit",
+    ),
     preset("xai", "xAI (Grok)", Some("https://api.x.ai/v1"), true, "paid", "openai"),
-    free(preset("nvidia", "NVIDIA (build.nvidia.com)", Some("https://integrate.api.nvidia.com/v1"), true, "unknown", "openai"), "Developer Program access"),
-    free(preset("sambanova", "SambaNova Cloud", Some("https://api.sambanova.ai/v1"), true, "unknown", "openai"), "Free tier without a card"),
-    credits(preset("huggingface", "Hugging Face (Inference Providers)", Some("https://router.huggingface.co/v1"), true, "paid", "openai"), "Monthly credit with PRO"),
+    free(
+        preset(
+            "nvidia",
+            "NVIDIA (build.nvidia.com)",
+            Some("https://integrate.api.nvidia.com/v1"),
+            true,
+            "unknown",
+            "openai",
+        ),
+        "Developer Program access",
+    ),
+    free(
+        preset("sambanova", "SambaNova Cloud", Some("https://api.sambanova.ai/v1"), true, "unknown", "openai"),
+        "Free tier without a card",
+    ),
+    credits(
+        preset(
+            "huggingface",
+            "Hugging Face (Inference Providers)",
+            Some("https://router.huggingface.co/v1"),
+            true,
+            "paid",
+            "openai",
+        ),
+        "Monthly credit with PRO",
+    ),
     preset("deepinfra", "DeepInfra", Some("https://api.deepinfra.com/v1/openai"), true, "paid", "openai"),
     preset("siliconflow", "SiliconFlow", Some("https://api.siliconflow.com/v1"), true, "unknown", "openai"),
-    Preset { family: Some("moonshot"), takes_reasoning: true, ..preset("moonshot", "Kimi (Moonshot)", Some("https://api.moonshot.ai/v1"), true, "paid", "openai") },
-    Preset { family: Some("moonshot"),
-        ..preset("moonshot-anthropic", "Kimi (Anthropic API)", Some("https://api.moonshot.ai/anthropic/v1"), true, "paid", "anthropic") },
-    free_models(Preset { family: Some("zai"), takes_reasoning: true, ..preset("zai", "Z.AI (GLM)", Some("https://api.z.ai/api/paas/v4"), true, "unknown", "openai") }, "Some free Flash models"),
-    free_models(Preset { family: Some("zai"),
-        ..preset("zai-anthropic", "Z.AI (Anthropic API)", Some("https://api.z.ai/api/anthropic/v1"), true, "unknown", "anthropic") }, "Some free Flash models"),
-    free(preset("cohere", "Cohere", Some("https://api.cohere.ai/compatibility/v1"), true, "unknown", "openai"), "Trial key, 1,000 calls a month"),
-    Preset { family: Some("minimax"), ..preset("minimax", "MiniMax", Some("https://api.minimax.io/v1"), true, "paid", "openai") },
-    Preset { family: Some("minimax"),
-        ..preset("minimax-anthropic", "MiniMax (Anthropic API)", Some("https://api.minimax.io/anthropic/v1"), true, "paid", "anthropic") },
+    Preset {
+        family: Some("moonshot"),
+        takes_reasoning: true,
+        ..preset("moonshot", "Kimi (Moonshot)", Some("https://api.moonshot.ai/v1"), true, "paid", "openai")
+    },
+    Preset {
+        family: Some("moonshot"),
+        ..preset(
+            "moonshot-anthropic",
+            "Kimi (Anthropic API)",
+            Some("https://api.moonshot.ai/anthropic/v1"),
+            true,
+            "paid",
+            "anthropic",
+        )
+    },
+    free_models(
+        Preset {
+            family: Some("zai"),
+            takes_reasoning: true,
+            ..preset("zai", "Z.AI (GLM)", Some("https://api.z.ai/api/paas/v4"), true, "unknown", "openai")
+        },
+        "Some free Flash models",
+    ),
+    free_models(
+        Preset {
+            family: Some("zai"),
+            ..preset(
+                "zai-anthropic",
+                "Z.AI (Anthropic API)",
+                Some("https://api.z.ai/api/anthropic/v1"),
+                true,
+                "unknown",
+                "anthropic",
+            )
+        },
+        "Some free Flash models",
+    ),
+    free(
+        preset("cohere", "Cohere", Some("https://api.cohere.ai/compatibility/v1"), true, "unknown", "openai"),
+        "Trial key, 1,000 calls a month",
+    ),
+    Preset {
+        family: Some("minimax"),
+        ..preset("minimax", "MiniMax", Some("https://api.minimax.io/v1"), true, "paid", "openai")
+    },
+    Preset {
+        family: Some("minimax"),
+        ..preset(
+            "minimax-anthropic",
+            "MiniMax (Anthropic API)",
+            Some("https://api.minimax.io/anthropic/v1"),
+            true,
+            "paid",
+            "anthropic",
+        )
+    },
     // Meta's API for its Muse models (dev.meta.ai/docs, checked 2026-11-12): OpenAI and Anthropic formats, pay as you go.
     preset("meta", "Meta (Muse API)", Some("https://api.meta.ai/v1"), true, "paid", "openai"),
     preset("nebius", "Nebius Token Factory", Some("https://api.tokenfactory.nebius.com/v1"), true, "paid", "openai"),
@@ -142,16 +292,41 @@ pub const PRESETS: &[Preset] = &[
     preset("lmstudio", "LM Studio", Some("http://localhost:1234/v1"), false, "local", "openai"),
     preset("llamacpp", "llama.cpp server", Some("http://127.0.0.1:9931/v1"), false, "local", "openai"),
     preset("vllm", "vLLM", Some("http://localhost:8000/v1"), false, "local", "openai"),
-    preset("docker-model-runner", "Docker Model Runner", Some("http://localhost:12434/engines/v1"), false, "local", "openai"),
+    preset(
+        "docker-model-runner",
+        "Docker Model Runner",
+        Some("http://localhost:12434/engines/v1"),
+        false,
+        "local",
+        "openai",
+    ),
     preset("jan", "Jan", Some("http://127.0.0.1:1337/v1"), false, "local", "openai"),
     preset("custom", "Custom (OpenAI-compatible)", None, false, "unknown", "openai"),
     preset("custom-anthropic", "Custom (Anthropic-compatible)", None, false, "unknown", "anthropic"),
     // Meta's personal agent app; its models also have an API (the `meta` preset above), the agent itself has none.
-    Preset { web_acts: true, ..web("muse-web", "Muse (muse.ai)", "https://muse.ai", "The Muse models also have an API: Meta (Muse API)") },
+    Preset {
+        web_acts: true,
+        ..web("muse-web", "Muse (muse.ai)", "https://muse.ai", "The Muse models also have an API: Meta (Muse API)")
+    },
     web("chatgpt-web", "ChatGPT (chatgpt.com)", "https://chatgpt.com", "OpenAI's models also have an API: OpenAI"),
-    web("perplexity-web", "Perplexity (perplexity.ai)", "https://www.perplexity.ai", "Answers with web search; its Sonar API is paid"),
-    web("deepseek-web", "DeepSeek (chat.deepseek.com)", "https://chat.deepseek.com", "DeepSeek's models also have an API: DeepSeek"),
-    web("grok-web", "Grok (grok.com)", "https://grok.com", "Behind Cloudflare checks; xAI's models also have an API: xAI (Grok)"),
+    web(
+        "perplexity-web",
+        "Perplexity (perplexity.ai)",
+        "https://www.perplexity.ai",
+        "Answers with web search; its Sonar API is paid",
+    ),
+    web(
+        "deepseek-web",
+        "DeepSeek (chat.deepseek.com)",
+        "https://chat.deepseek.com",
+        "DeepSeek's models also have an API: DeepSeek",
+    ),
+    web(
+        "grok-web",
+        "Grok (grok.com)",
+        "https://grok.com",
+        "Behind Cloudflare checks; xAI's models also have an API: xAI (Grok)",
+    ),
 ];
 
 pub fn find(id: &str) -> Option<&'static Preset> {

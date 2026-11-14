@@ -21,7 +21,8 @@ pub const URL: &str = "https://models.dev/api.json";
 pub const SOURCE: &str = "models.dev";
 /// The tier source for a tier from the list price band.
 pub const TIER_SOURCE: &str = "price-band:v1";
-pub const TIER_NOTE: &str = "from its list price: Pygg's rule puts output under $1 per million tokens at T1, under $5 at \
+pub const TIER_NOTE: &str =
+    "from its list price: Pygg's rule puts output under $1 per million tokens at T1, under $5 at \
     T2, under $20 at T3, and above that at T4";
 const MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -29,9 +30,17 @@ const MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const LOCAL: &[&str] = &["ollama", "lmstudio", "llamacpp", "vllm", "docker-model-runner", "jan"];
 
 /// Pygg's connection kinds whose catalog provider id differs from the kind, or that have no endpoint in it.
-const KINDS: &[(&str, &str)] = &[("gemini", "google"), ("together", "togetherai"), ("fireworks", "fireworks-ai"),
-    ("moonshot", "moonshotai"), ("moonshot-anthropic", "moonshotai"), ("qwen", "alibaba"), ("zai-anthropic", "zai"),
-    ("minimax-anthropic", "minimax"), ("deepseek-anthropic", "deepseek")];
+const KINDS: &[(&str, &str)] = &[
+    ("gemini", "google"),
+    ("together", "togetherai"),
+    ("fireworks", "fireworks-ai"),
+    ("moonshot", "moonshotai"),
+    ("moonshot-anthropic", "moonshotai"),
+    ("qwen", "alibaba"),
+    ("zai-anthropic", "zai"),
+    ("minimax-anthropic", "minimax"),
+    ("deepseek-anthropic", "deepseek"),
+];
 
 /// The cached catalog for a store: `<store's folder>/reference/models.dev.json`.
 pub fn cache_path(store: &Path) -> PathBuf {
@@ -42,19 +51,24 @@ pub fn cache_path(store: &Path) -> PathBuf {
 pub fn load(path: &Path) -> Option<(Value, bool)> {
     let text = std::fs::read_to_string(path).ok()?;
     let catalog = serde_json::from_str::<Value>(&text).ok().filter(Value::is_object)?;
-    let stale = std::fs::metadata(path).and_then(|m| m.modified()).ok()
-        .and_then(|t| t.elapsed().ok()).is_none_or(|age| age > MAX_AGE);
+    let stale = std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_none_or(|age| age > MAX_AGE);
     Some((catalog, stale))
 }
 
 /// Fetches the catalog and keeps it next to the store.
 pub async fn fetch(http: &reqwest::Client, path: &Path) -> std::result::Result<Value, String> {
-    let response = http.get(URL).timeout(Duration::from_secs(60)).send().await.map_err(|e| format!("models.dev: {e}"))?;
+    let response =
+        http.get(URL).timeout(Duration::from_secs(60)).send().await.map_err(|e| format!("models.dev: {e}"))?;
     if !response.status().is_success() {
         return Err(format!("models.dev answered HTTP {}", response.status().as_u16()));
     }
     let text = response.text().await.map_err(|e| format!("models.dev: {e}"))?;
-    let catalog: Value = serde_json::from_str(&text).map_err(|e| format!("models.dev sent something that is not its catalog: {e}"))?;
+    let catalog: Value =
+        serde_json::from_str(&text).map_err(|e| format!("models.dev sent something that is not its catalog: {e}"))?;
     if !catalog.is_object() {
         return Err("models.dev sent something that is not its catalog".into());
     }
@@ -105,9 +119,14 @@ fn micro(usd: &Value) -> Option<u64> {
 /// What the catalog says about one model, as a price and facts.
 fn price_of(entry: &Value, now: i64) -> Option<Price> {
     let cost = &entry["cost"];
-    Some(Price { input_micro_per_mtok: micro(&cost["input"])?, output_micro_per_mtok: micro(&cost["output"])?,
-        cached_input_micro_per_mtok: micro(&cost["cache_read"]), cache_write_micro_per_mtok: micro(&cost["cache_write"]),
-        source: format!("{SOURCE} list price"), observed_at: now })
+    Some(Price {
+        input_micro_per_mtok: micro(&cost["input"])?,
+        output_micro_per_mtok: micro(&cost["output"])?,
+        cached_input_micro_per_mtok: micro(&cost["cache_read"]),
+        cache_write_micro_per_mtok: micro(&cost["cache_write"]),
+        source: format!("{SOURCE} list price"),
+        observed_at: now,
+    })
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -144,27 +163,40 @@ pub fn apply(conn: &Connection, catalog: &Value) -> Result<Applied> {
                 // A model that answers in text; a $0 image or speech model is priced per item, not per token.
                 let text = entry["modalities"]["output"].as_array().is_none_or(|o| o.iter().any(|v| v == "text"))
                     && entry["type"].as_str().is_none_or(|t| t == "text" || t == "chat");
-                if text && price_of(entry, now).is_some_and(|p| p.input_micro_per_mtok == 0 && p.output_micro_per_mtok == 0) {
+                if text
+                    && price_of(entry, now).is_some_and(|p| p.input_micro_per_mtok == 0 && p.output_micro_per_mtok == 0)
+                {
                     applied.added += conn.execute("INSERT OR IGNORE INTO models (id, provider_id, model_id, observed_at) VALUES (?1, ?2, ?3, ?4)",
                         params![format!("{}/{id}", provider.id), provider.id, id, now]).map_err(|e| e.to_string())?;
                 }
             }
         }
-        let mut statement = conn.prepare("SELECT model_id FROM models WHERE provider_id = ?1").map_err(|e| e.to_string())?;
-        let ids: Vec<String> = statement.query_map([&provider.id], |r| r.get(0)).map_err(|e| e.to_string())?
-            .collect::<rusqlite::Result<_>>().map_err(|e| e.to_string())?;
+        let mut statement =
+            conn.prepare("SELECT model_id FROM models WHERE provider_id = ?1").map_err(|e| e.to_string())?;
+        let ids: Vec<String> = statement
+            .query_map([&provider.id], |r| r.get(0))
+            .map_err(|e| e.to_string())?
+            .collect::<rusqlite::Result<_>>()
+            .map_err(|e| e.to_string())?;
         for id in ids {
             let Some(entry) = models.get(&id) else { continue };
             applied.matched += 1;
             // A model that makes audio, video or images (Google's Lyria, its TTS and image models) is priced per item,
             // not per token, and answers a coding agent with an error: the P0 benchmark saw `auto/cheap` send OpenCode's
             // title requests to Lyria at "$0". Pygg turns it off, saying why; the user's own switch stays theirs.
-            let makes_media = entry["modalities"]["output"].as_array()
+            let makes_media = entry["modalities"]["output"]
+                .as_array()
                 .is_some_and(|o| o.iter().any(|v| v == "audio" || v == "video" || v == "image"));
             if makes_media {
-                applied.media_off += conn.execute(&format!("UPDATE models SET enabled = 0, enabled_source = '{MEDIA_OFF}' \
-                    WHERE provider_id = ?1 AND model_id = ?2 AND enabled = 1 AND enabled_source IS NULL"),
-                    params![provider.id, id]).map_err(|e| e.to_string())?;
+                applied.media_off += conn
+                    .execute(
+                        &format!(
+                            "UPDATE models SET enabled = 0, enabled_source = '{MEDIA_OFF}' \
+                    WHERE provider_id = ?1 AND model_id = ?2 AND enabled = 1 AND enabled_source IS NULL"
+                        ),
+                        params![provider.id, id],
+                    )
+                    .map_err(|e| e.to_string())?;
             }
             let vision = entry["modalities"]["input"].as_array().map(|m| m.iter().any(|v| v == "image"));
             let changed = conn.execute(
@@ -212,16 +244,28 @@ pub fn price_band(price: &Price) -> Option<&'static str> {
 
 /// Gives models that no one, and not the naming table, has tiered a tier from their price band.
 pub fn fill_price_band_tiers(conn: &Connection) -> Result<usize> {
-    let mut statement = conn.prepare("SELECT provider_id, model_id, price_json FROM models \
-        WHERE tier IS NULL AND tier_source IS NULL AND price_json IS NOT NULL").map_err(|e| e.to_string())?;
-    let rows: Vec<(String, String, String)> = statement.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
-        .map_err(|e| e.to_string())?.collect::<rusqlite::Result<_>>().map_err(|e| e.to_string())?;
+    let mut statement = conn
+        .prepare(
+            "SELECT provider_id, model_id, price_json FROM models \
+        WHERE tier IS NULL AND tier_source IS NULL AND price_json IS NOT NULL",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows: Vec<(String, String, String)> = statement
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .map_err(|e| e.to_string())?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(|e| e.to_string())?;
     let mut filled = 0;
     for (provider, model, json) in rows {
         let Some(tier) = serde_json::from_str::<Price>(&json).ok().as_ref().and_then(price_band) else { continue };
         let Some(n) = store::TIERS.iter().position(|t| *t == tier) else { continue };
-        filled += conn.execute("UPDATE models SET tier = ?3, tier_source = ?4 WHERE provider_id = ?1 AND model_id = ?2 \
-            AND tier IS NULL AND tier_source IS NULL", params![provider, model, n as i64, TIER_SOURCE]).map_err(|e| e.to_string())?;
+        filled += conn
+            .execute(
+                "UPDATE models SET tier = ?3, tier_source = ?4 WHERE provider_id = ?1 AND model_id = ?2 \
+            AND tier IS NULL AND tier_source IS NULL",
+                params![provider, model, n as i64, TIER_SOURCE],
+            )
+            .map_err(|e| e.to_string())?;
     }
     Ok(filled)
 }
@@ -229,7 +273,10 @@ pub fn fill_price_band_tiers(conn: &Connection) -> Result<usize> {
 /// When the catalog was last applied (setting `reference.applied_at`), for the Connections screen.
 pub fn applied_at(conn: &Connection) -> Option<i64> {
     conn.query_row("SELECT value FROM settings WHERE key = 'reference.applied_at'", [], |r| r.get::<_, String>(0))
-        .optional().ok().flatten().and_then(|v| v.parse().ok())
+        .optional()
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse().ok())
 }
 
 pub fn mark_applied(conn: &Connection) {
@@ -261,8 +308,11 @@ mod tests {
     }
 
     fn add(conn: &Connection, kind: &str, endpoint: &str, models: &[&str]) -> String {
-        let p = store::add_provider(conn, &NewProvider { kind, label: kind, endpoint, credential_ref: None,
-            default_billing: "paid", wire: "openai" }).unwrap();
+        let p = store::add_provider(
+            conn,
+            &NewProvider { kind, label: kind, endpoint, credential_ref: None, default_billing: "paid", wire: "openai" },
+        )
+        .unwrap();
         for m in models {
             store::add_model(conn, &p.id, m).unwrap();
         }
@@ -276,25 +326,56 @@ mod tests {
     #[test]
     fn the_catalog_fills_what_is_unknown_and_names_itself() {
         let conn = crate::db::open_in_memory().unwrap();
-        let claude = add(&conn, "anthropic", "https://api.anthropic.com/v1", &["claude-sonnet-5-5", "claude-haiku-5-5", "claude-unknown"]);
+        let claude = add(
+            &conn,
+            "anthropic",
+            "https://api.anthropic.com/v1",
+            &["claude-sonnet-5-5", "claude-haiku-5-5", "claude-unknown"],
+        );
         // The provider's own list said the context; the catalog fills only the gaps.
-        store::import_listed(&conn, &claude, &[Listed { id: "claude-haiku-5-5".into(), context_tokens: Some(150_000), ..Listed::default() }],
-            Some("provider: anthropic /models")).unwrap();
+        store::import_listed(
+            &conn,
+            &claude,
+            &[Listed { id: "claude-haiku-5-5".into(), context_tokens: Some(150_000), ..Listed::default() }],
+            Some("provider: anthropic /models"),
+        )
+        .unwrap();
         let applied = apply(&conn, &catalog()).unwrap();
         assert_eq!((applied.matched, applied.filled), (2, 2));
         let sonnet = model(&conn, &claude, "claude-sonnet-5-5");
-        assert_eq!((sonnet.capabilities.context_tokens, sonnet.capabilities.max_output_tokens, sonnet.capabilities.supports_tools,
-            sonnet.capabilities.supports_vision), (Some(1_000_000), Some(128_000), Some(true), Some(true)));
+        assert_eq!(
+            (
+                sonnet.capabilities.context_tokens,
+                sonnet.capabilities.max_output_tokens,
+                sonnet.capabilities.supports_tools,
+                sonnet.capabilities.supports_vision
+            ),
+            (Some(1_000_000), Some(128_000), Some(true), Some(true))
+        );
         let price = sonnet.price.unwrap();
-        assert_eq!((price.input_micro_per_mtok, price.output_micro_per_mtok, price.cached_input_micro_per_mtok,
-            price.source.as_str()), (2_000_000, 10_000_000, Some(200_000), "models.dev list price"));
+        assert_eq!(
+            (
+                price.input_micro_per_mtok,
+                price.output_micro_per_mtok,
+                price.cached_input_micro_per_mtok,
+                price.source.as_str()
+            ),
+            (2_000_000, 10_000_000, Some(200_000), "models.dev list price")
+        );
         let haiku = model(&conn, &claude, "claude-haiku-5-5");
         assert_eq!(haiku.capabilities.context_tokens, Some(150_000), "the provider's own figure stays");
         assert_eq!(haiku.capabilities.max_output_tokens, Some(64_000));
         let source = haiku.capabilities.source.unwrap();
-        assert!(source.starts_with("provider: anthropic /models; tools: curated:v1") && source.ends_with("; gaps: models.dev"), "{source}");
+        assert!(
+            source.starts_with("provider: anthropic /models; tools: curated:v1")
+                && source.ends_with("; gaps: models.dev"),
+            "{source}"
+        );
         // Tiers: the naming table still decides Claude's.
-        assert_eq!((sonnet.capabilities.tier.as_deref(), sonnet.capabilities.tier_source.as_deref()), (Some("T3"), Some(store::CURATED)));
+        assert_eq!(
+            (sonnet.capabilities.tier.as_deref(), sonnet.capabilities.tier_source.as_deref()),
+            (Some("T3"), Some(store::CURATED))
+        );
         assert_eq!(model(&conn, &claude, "claude-unknown").price, None, "not in the catalog: still unknown");
         // Applying again changes nothing.
         assert_eq!(apply(&conn, &catalog()).unwrap().filled, 0);
@@ -307,7 +388,11 @@ mod tests {
         let intl = add(&conn, "qwen", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", &["qwen3.7-plus"]);
         let local = add(&conn, "lmstudio", "http://127.0.0.1:1234/v1", &["qwen3:8b"]);
         apply(&conn, &catalog()).unwrap();
-        assert_eq!(model(&conn, &plan, "qwen3.7-plus").capabilities.supports_tools, Some(true), "the token plan's own entry");
+        assert_eq!(
+            model(&conn, &plan, "qwen3.7-plus").capabilities.supports_tools,
+            Some(true),
+            "the token plan's own entry"
+        );
         assert_eq!(model(&conn, &intl, "qwen3.7-plus").capabilities.supports_tools, Some(false));
         assert_eq!(model(&conn, &local, "qwen3:8b").capabilities.source, None);
     }
@@ -316,39 +401,83 @@ mod tests {
     fn the_users_facts_and_price_are_never_replaced_and_a_price_band_gives_a_tier() {
         let conn = crate::db::open_in_memory().unwrap();
         let zai = add(&conn, "zai", "https://api.z.ai/api/paas/v4", &["glm-5.3", "glm-5.2", "glm-image"]);
-        store::set_capabilities(&conn, &zai, "glm-5.3", &Capabilities { supports_tools: Some(false), ..Capabilities::default() }).unwrap();
-        let mine = Price { input_micro_per_mtok: 7, output_micro_per_mtok: 8, source: "user".into(), ..Price::default() };
+        store::set_capabilities(
+            &conn,
+            &zai,
+            "glm-5.3",
+            &Capabilities { supports_tools: Some(false), ..Capabilities::default() },
+        )
+        .unwrap();
+        let mine =
+            Price { input_micro_per_mtok: 7, output_micro_per_mtok: 8, source: "user".into(), ..Price::default() };
         store::update_model(&conn, &zai, "glm-5.3", None, None, Some(Some(mine.clone()))).unwrap();
         apply(&conn, &catalog()).unwrap();
         let glm = model(&conn, &zai, "glm-5.3");
-        assert_eq!((glm.capabilities.supports_tools, glm.capabilities.context_tokens), (Some(false), None), "the user's facts stand");
+        assert_eq!(
+            (glm.capabilities.supports_tools, glm.capabilities.context_tokens),
+            (Some(false), None),
+            "the user's facts stand"
+        );
         assert_eq!(glm.price.as_ref().map(|p| p.output_micro_per_mtok), Some(8), "and the user's price");
         assert_eq!(glm.capabilities.tier, None, "the user's tier, cleared, stays cleared");
         // An unknown price is filled, and its band gives a tier: output $3.20 per million is T2.
         let other = model(&conn, &zai, "glm-5.2");
         assert_eq!(other.price.as_ref().map(|p| p.output_micro_per_mtok), Some(3_200_000));
-        assert_eq!((other.capabilities.tier.as_deref(), other.capabilities.tier_source.as_deref()), (Some("T2"), Some(TIER_SOURCE)));
+        assert_eq!(
+            (other.capabilities.tier.as_deref(), other.capabilities.tier_source.as_deref()),
+            (Some("T2"), Some(TIER_SOURCE))
+        );
         assert_eq!(other.capabilities.tier_note.as_deref(), Some(TIER_NOTE));
         let image = model(&conn, &zai, "glm-image");
-        assert_eq!((image.capabilities.supports_tools, image.capabilities.tier.as_deref()), (Some(false), None), "a $0 price gives no tier");
+        assert_eq!(
+            (image.capabilities.supports_tools, image.capabilities.tier.as_deref()),
+            (Some(false), None),
+            "a $0 price gives no tier"
+        );
     }
 
     #[test]
     fn a_connection_kept_for_free_models_gets_the_free_ones_its_list_leaves_out_and_only_those_on() {
         let conn = crate::db::open_in_memory().unwrap();
-        let p = store::add_provider(&conn, &NewProvider { kind: "zai", label: "Z.AI", endpoint: "https://api.z.ai/api/paas/v4",
-            credential_ref: None, default_billing: "free", wire: "openai" }).unwrap();
+        let p = store::add_provider(
+            &conn,
+            &NewProvider {
+                kind: "zai",
+                label: "Z.AI",
+                endpoint: "https://api.z.ai/api/paas/v4",
+                credential_ref: None,
+                default_billing: "free",
+                wire: "openai",
+            },
+        )
+        .unwrap();
         store::add_model(&conn, &p.id, "glm-5.3").unwrap();
         let applied = apply(&conn, &catalog()).unwrap();
         assert_eq!(applied.added, 1, "glm-4.7-flash; not glm-image, priced per image");
         let flash = model(&conn, &p.id, "glm-4.7-flash");
-        assert_eq!((flash.enabled, flash.billing.as_str(), flash.capabilities.supports_tools), (true, "free", Some(true)));
+        assert_eq!(
+            (flash.enabled, flash.billing.as_str(), flash.capabilities.supports_tools),
+            (true, "free", Some(true))
+        );
         let paid = model(&conn, &p.id, "glm-5.3");
-        assert_eq!((paid.enabled, paid.billing.as_str(), paid.enabled_source.as_deref()), (false, "paid", Some(store::OFF_ON_FREE_CONNECTION)));
+        assert_eq!(
+            (paid.enabled, paid.billing.as_str(), paid.enabled_source.as_deref()),
+            (false, "paid", Some(store::OFF_ON_FREE_CONNECTION))
+        );
         assert_eq!(apply(&conn, &catalog()).unwrap().added, 0);
         // OpenRouter's own list is complete: nothing is added to it.
-        let or = store::add_provider(&conn, &NewProvider { kind: "openrouter", label: "OR", endpoint: "https://openrouter.ai/api/v1",
-            credential_ref: None, default_billing: "free", wire: "openai" }).unwrap();
+        let or = store::add_provider(
+            &conn,
+            &NewProvider {
+                kind: "openrouter",
+                label: "OR",
+                endpoint: "https://openrouter.ai/api/v1",
+                credential_ref: None,
+                default_billing: "free",
+                wire: "openai",
+            },
+        )
+        .unwrap();
         let catalog = json!({"openrouter": {"models": {"x/y:free": {"cost": {"input": 0, "output": 0}}}}});
         assert_eq!(apply(&conn, &catalog).unwrap().added, 0);
         assert!(store::list_models(&conn, Some(&or.id)).unwrap().is_empty());
@@ -374,7 +503,9 @@ mod tests {
     #[test]
     fn price_bands() {
         let p = |o: u64| Price { output_micro_per_mtok: o, ..Price::default() };
-        assert_eq!([p(0), p(500_000), p(1_000_000), p(10_000_000), p(25_000_000)].iter().map(price_band).collect::<Vec<_>>(),
-            [None, Some("T1"), Some("T2"), Some("T3"), Some("T4")]);
+        assert_eq!(
+            [p(0), p(500_000), p(1_000_000), p(10_000_000), p(25_000_000)].iter().map(price_band).collect::<Vec<_>>(),
+            [None, Some("T1"), Some("T2"), Some("T3"), Some("T4")]
+        );
     }
 }

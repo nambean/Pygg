@@ -39,7 +39,8 @@ fn fail(message: impl std::fmt::Display) -> ! {
 }
 
 fn default_db() -> PathBuf {
-    super::default_store().unwrap_or_else(|| fail("cannot find Pygg's data folder; pass --db PATH or set PYGG_DATA_DIR"))
+    super::default_store()
+        .unwrap_or_else(|| fail("cannot find Pygg's data folder; pass --db PATH or set PYGG_DATA_DIR"))
 }
 
 /// Runs `gateway` with its arguments (without the program's name): from `gateway.exe` and from `pygg-cli gateway`.
@@ -117,7 +118,8 @@ pub async fn run(mut args: Vec<String>) {
 
     match command.as_str() {
         "serve" => {
-            let port = one("port").map(|p| p.parse().unwrap_or_else(|_| fail("bad port"))).unwrap_or(gateway::DEFAULT_PORT);
+            let port =
+                one("port").map(|p| p.parse().unwrap_or_else(|_| fail("bad port"))).unwrap_or(gateway::DEFAULT_PORT);
             let owner = shared.clone();
             let server = gateway::start(shared, port).await.unwrap_or_else(|e| match e.kind() {
                 std::io::ErrorKind::ResourceBusy => fail(e.to_string()),
@@ -129,16 +131,23 @@ pub async fn run(mut args: Vec<String>) {
             // Requests still running are let finish, so they are settled with their real cost rather than
             // recorded as interrupted (review LC-02). A second Ctrl+C stops at once.
             if owner.owns_store() {
-                eprintln!("Finishing the requests in flight; press Ctrl+C again to stop now (they are then recorded \
-                    as interrupted, with an unknown cost).");
-                let drained = async { while owner.owns_store() { tokio::time::sleep(Duration::from_millis(100)).await; } };
+                eprintln!(
+                    "Finishing the requests in flight; press Ctrl+C again to stop now (they are then recorded \
+                    as interrupted, with an unknown cost)."
+                );
+                let drained = async {
+                    while owner.owns_store() {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+                };
                 tokio::select! { _ = drained => {}, _ = tokio::signal::ctrl_c() => {} }
             }
         }
         "add-connection" => {
             let preset = presets::find(&one("preset").unwrap_or_else(|| fail("--preset is required")))
                 .unwrap_or_else(|| fail("unknown preset"));
-            let endpoint = one("endpoint").or(preset.endpoint.map(String::from)).unwrap_or_else(|| fail("--endpoint is required"));
+            let endpoint =
+                one("endpoint").or(preset.endpoint.map(String::from)).unwrap_or_else(|| fail("--endpoint is required"));
             let label = one("label").unwrap_or_else(|| preset.name.to_string());
             let billing = one("billing").unwrap_or_else(|| preset.default_billing.to_string());
             let reference = one("key-env").map(|var| {
@@ -147,9 +156,21 @@ pub async fn run(mut args: Vec<String>) {
                 vault::store(&reference, key.trim()).unwrap_or_else(|e| fail(e));
                 reference
             });
-            let provider = shared.with_db(|db| store::add_provider(db, &store::NewProvider {
-                kind: preset.id, label: &label, endpoint: &endpoint, credential_ref: reference.as_deref(), default_billing: &billing, wire: preset.wire,
-            })).unwrap_or_else(|e| fail(e));
+            let provider = shared
+                .with_db(|db| {
+                    store::add_provider(
+                        db,
+                        &store::NewProvider {
+                            kind: preset.id,
+                            label: &label,
+                            endpoint: &endpoint,
+                            credential_ref: reference.as_deref(),
+                            default_billing: &billing,
+                            wire: preset.wire,
+                        },
+                    )
+                })
+                .unwrap_or_else(|e| fail(e));
             println!("Added connection {} ({})", provider.id, provider.endpoint);
         }
         "remove-connection" => {
@@ -189,15 +210,23 @@ pub async fn run(mut args: Vec<String>) {
         }
         "refresh-models" => {
             let id = one("id").unwrap_or_else(|| fail("--id is required"));
-            let provider = shared.with_db(|db| store::get_provider(db, &id)).unwrap_or_else(|e| fail(e))
+            let provider = shared
+                .with_db(|db| store::get_provider(db, &id))
+                .unwrap_or_else(|e| fail(e))
                 .unwrap_or_else(|| fail("no such connection"));
             let ids = catalog::fetch_models(&shared, &provider).await.unwrap_or_else(|e| fail(e));
             let source = catalog::list_source(&provider);
-            let added = shared.with_db(|db| store::import_listed(db, &id, &ids, Some(&source))).unwrap_or_else(|e| fail(e));
+            let added =
+                shared.with_db(|db| store::import_listed(db, &id, &ids, Some(&source))).unwrap_or_else(|e| fail(e));
             println!("{} listed {} models, {added} new", provider.label, ids.len());
-            if let Some(catalog) = gateway::reference::current(&shared.http, &gateway::reference::cache_path(&db_path)).await {
+            if let Some(catalog) =
+                gateway::reference::current(&shared.http, &gateway::reference::cache_path(&db_path)).await
+            {
                 let applied = shared.with_db(|db| gateway::reference::apply(db, &catalog)).unwrap_or_else(|e| fail(e));
-                println!("models.dev described {}; filled {}; tiered by price {}; added {} free; {} media models off", applied.matched, applied.filled, applied.tiered, applied.added, applied.media_off);
+                println!(
+                    "models.dev described {}; filled {}; tiered by price {}; added {} free; {} media models off",
+                    applied.matched, applied.filled, applied.tiered, applied.added, applied.media_off
+                );
             }
         }
         "lookup" => {
@@ -206,11 +235,16 @@ pub async fn run(mut args: Vec<String>) {
             let catalog = if one("refresh").as_deref() == Some("yes") {
                 gateway::reference::fetch(&shared.http, &path).await.unwrap_or_else(|e| fail(e))
             } else {
-                gateway::reference::current(&shared.http, &path).await.unwrap_or_else(|| fail("no reference catalog: models.dev could not be reached"))
+                gateway::reference::current(&shared.http, &path)
+                    .await
+                    .unwrap_or_else(|| fail("no reference catalog: models.dev could not be reached"))
             };
             let applied = shared.with_db(|db| gateway::reference::apply(db, &catalog)).unwrap_or_else(|e| fail(e));
             shared.with_db(gateway::reference::mark_applied);
-            println!("models.dev described {} models; filled {}; tiered by price {}; added {} free; {} media models off", applied.matched, applied.filled, applied.tiered, applied.added, applied.media_off);
+            println!(
+                "models.dev described {} models; filled {}; tiered by price {}; added {} free; {} media models off",
+                applied.matched, applied.filled, applied.tiered, applied.added, applied.media_off
+            );
         }
         "test-model" => {
             // One short request through the gateway's routing and ledger (Test Model); a paid model costs a little.
@@ -220,101 +254,199 @@ pub async fn run(mut args: Vec<String>) {
             let server = gateway::start(shared.clone(), 0).await.unwrap_or_else(|e| fail(e.to_string()));
             let result = gateway::model_test::run(&shared, provider, model_id).await.unwrap_or_else(|e| fail(e));
             server.stop().await;
-            println!("{} in {} ms via {}: {} ({} in, {} out)", if result.ok { "answered" } else { "failed" }, result.latency_ms,
-                result.route, result.text.trim(), result.input_tokens.unwrap_or(0), result.output_tokens.unwrap_or(0));
+            println!(
+                "{} in {} ms via {}: {} ({} in, {} out)",
+                if result.ok { "answered" } else { "failed" },
+                result.latency_ms,
+                result.route,
+                result.text.trim(),
+                result.input_tokens.unwrap_or(0),
+                result.output_tokens.unwrap_or(0)
+            );
         }
         "create-client" => {
             let name = one("name").unwrap_or_else(|| fail("--name is required"));
-            let limit = one("monthly-usd").map(|v| (v.parse::<f64>().unwrap_or_else(|_| fail("bad amount")) * 1e6).round() as u64);
-            let (client, token) = shared.with_db(|db| store::create_client(db, &name, limit)).unwrap_or_else(|e| fail(e));
+            let limit = one("monthly-usd")
+                .map(|v| (v.parse::<f64>().unwrap_or_else(|_| fail("bad amount")) * 1e6).round() as u64);
+            let (client, token) =
+                shared.with_db(|db| store::create_client(db, &name, limit)).unwrap_or_else(|e| fail(e));
             println!("Client {} created. Token (shown once):\n{token}", client.name);
         }
         "combo" => {
             let name = one("name").unwrap_or_else(|| fail("--name is required"));
-            let members: Vec<store::Target> = flags.get("member").cloned().unwrap_or_default().iter().map(|m| {
-                let (provider_id, model_id) = m.split_once('/').unwrap_or_else(|| fail(format!("{m}: use CONNECTION/MODEL")));
-                store::Target { provider_id: provider_id.into(), model_id: model_id.into() }
-            }).collect();
-            let existing = shared.with_db(store::list_combos).unwrap_or_else(|e| fail(e)).into_iter().find(|c| c.name == name);
-            let combo = shared.with_db(|db| store::save_combo(db, existing.as_ref().map(|c| c.id.as_str()), &name, &members))
+            let members: Vec<store::Target> = flags
+                .get("member")
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .map(|m| {
+                    let (provider_id, model_id) =
+                        m.split_once('/').unwrap_or_else(|| fail(format!("{m}: use CONNECTION/MODEL")));
+                    store::Target { provider_id: provider_id.into(), model_id: model_id.into() }
+                })
+                .collect();
+            let existing =
+                shared.with_db(store::list_combos).unwrap_or_else(|e| fail(e)).into_iter().find(|c| c.name == name);
+            let combo = shared
+                .with_db(|db| store::save_combo(db, existing.as_ref().map(|c| c.id.as_str()), &name, &members))
                 .unwrap_or_else(|e| fail(e));
-            println!("Combo {} → {}", combo.name,
-                combo.members.iter().map(|m| format!("{}/{}", m.provider_id, m.model_id)).collect::<Vec<_>>().join(" → "));
+            println!(
+                "Combo {} → {}",
+                combo.name,
+                combo
+                    .members
+                    .iter()
+                    .map(|m| format!("{}/{}", m.provider_id, m.model_id))
+                    .collect::<Vec<_>>()
+                    .join(" → ")
+            );
         }
         "model" => {
             // The user's statement about a model, for auto routing and pricing (ROADMAP P0-5).
             let target = one("model").unwrap_or_else(|| fail("--model is required"));
             let (provider, model) = target.split_once('/').unwrap_or_else(|| fail("use --model CONNECTION/MODEL"));
-            let yes = |name: &str| one(name).map(|v| match v.as_str() {
-                "yes" => true, "no" => false, _ => fail(format!("--{name} takes yes or no")) });
-            let count = |name: &str| one(name).map(|v| v.parse::<u64>().unwrap_or_else(|_| fail(format!("bad --{name}"))));
-            let usd = |name: &str| one(name).map(|v| (v.parse::<f64>().unwrap_or_else(|_| fail(format!("bad --{name}"))) * 1e6).round() as u64);
-            shared.with_db(|db| -> store::Result<()> {
-                let _ = store::add_model(db, provider, model);
-                let current = store::list_models(db, Some(provider))?.into_iter().find(|m| m.model_id == model)
-                    .ok_or("model not found")?;
-                let caps = current.capabilities;
-                store::set_capabilities(db, provider, model, &store::Capabilities {
-                    tier: one("tier").or(caps.tier), context_tokens: count("context").or(caps.context_tokens),
-                    max_output_tokens: count("max-output").or(caps.max_output_tokens),
-                    supports_tools: yes("tools").or(caps.supports_tools), supports_vision: yes("vision").or(caps.supports_vision),
-                    ..store::Capabilities::default() })?;
-                if let (Some(input), Some(output)) = (usd("price-in"), usd("price-out")) {
-                    store::update_model(db, provider, model, None, None, Some(Some(gateway::pricing::Price {
-                        input_micro_per_mtok: input, output_micro_per_mtok: output, cached_input_micro_per_mtok: usd("price-cached"),
-                        cache_write_micro_per_mtok: usd("price-cache-write"), source: one("price-source").unwrap_or_else(|| "user".into()),
-                        observed_at: db::now_ms() })))?;
-                }
-                if let Some(billing) = one("billing") {
-                    store::update_model(db, provider, model, None, Some(&billing), None)?;
-                }
-                Ok(())
-            }).unwrap_or_else(|e| fail(e));
+            let yes = |name: &str| {
+                one(name).map(|v| match v.as_str() {
+                    "yes" => true,
+                    "no" => false,
+                    _ => fail(format!("--{name} takes yes or no")),
+                })
+            };
+            let count =
+                |name: &str| one(name).map(|v| v.parse::<u64>().unwrap_or_else(|_| fail(format!("bad --{name}"))));
+            let usd = |name: &str| {
+                one(name)
+                    .map(|v| (v.parse::<f64>().unwrap_or_else(|_| fail(format!("bad --{name}"))) * 1e6).round() as u64)
+            };
+            shared
+                .with_db(|db| -> store::Result<()> {
+                    let _ = store::add_model(db, provider, model);
+                    let current = store::list_models(db, Some(provider))?
+                        .into_iter()
+                        .find(|m| m.model_id == model)
+                        .ok_or("model not found")?;
+                    let caps = current.capabilities;
+                    store::set_capabilities(
+                        db,
+                        provider,
+                        model,
+                        &store::Capabilities {
+                            tier: one("tier").or(caps.tier),
+                            context_tokens: count("context").or(caps.context_tokens),
+                            max_output_tokens: count("max-output").or(caps.max_output_tokens),
+                            supports_tools: yes("tools").or(caps.supports_tools),
+                            supports_vision: yes("vision").or(caps.supports_vision),
+                            ..store::Capabilities::default()
+                        },
+                    )?;
+                    if let (Some(input), Some(output)) = (usd("price-in"), usd("price-out")) {
+                        store::update_model(
+                            db,
+                            provider,
+                            model,
+                            None,
+                            None,
+                            Some(Some(gateway::pricing::Price {
+                                input_micro_per_mtok: input,
+                                output_micro_per_mtok: output,
+                                cached_input_micro_per_mtok: usd("price-cached"),
+                                cache_write_micro_per_mtok: usd("price-cache-write"),
+                                source: one("price-source").unwrap_or_else(|| "user".into()),
+                                observed_at: db::now_ms(),
+                            })),
+                        )?;
+                    }
+                    if let Some(billing) = one("billing") {
+                        store::update_model(db, provider, model, None, Some(&billing), None)?;
+                    }
+                    Ok(())
+                })
+                .unwrap_or_else(|e| fail(e));
             println!("Updated {target}");
         }
         "terms" => {
             let id = one("id").unwrap_or_else(|| fail("--id is required"));
             let terms = one("terms").unwrap_or_else(|| fail("--terms is required"));
-            shared.with_db(|db| store::set_provider_terms(db, &id, &terms, one("source").as_deref())).unwrap_or_else(|e| fail(e));
+            shared
+                .with_db(|db| store::set_provider_terms(db, &id, &terms, one("source").as_deref()))
+                .unwrap_or_else(|e| fail(e));
             println!("Recorded {id}: {terms}");
         }
         "client" => {
             let name = one("name").unwrap_or_else(|| fail("--name is required"));
-            let client = shared.with_db(store::list_clients).unwrap_or_else(|e| fail(e)).into_iter()
-                .find(|c| c.name == name && c.revoked_at.is_none()).unwrap_or_else(|| fail("no such client"));
-            shared.with_db(|db| -> store::Result<()> {
-                if let Some(tier) = one("auto-min-tier") { store::set_client_auto_min_tier(db, &client.id, &tier)?; }
-                if let Some(n) = one("paid-retries") {
-                    store::set_client_paid_retries(db, &client.id, n.parse().map_err(|_| "bad --paid-retries".to_string())?)?;
-                }
-                if let Some(tasks) = one("tasks") { store::set_client_may_run_tasks(db, &client.id, tasks == "yes")?; }
-                if let Some(only) = one("no-training") { store::set_client_require_no_training(db, &client.id, only == "yes")?; }
-                if let Some(strict) = one("strict") { store::set_client_strict_budget(db, &client.id, strict == "yes")?; }
-                if let Some(usd) = one("monthly-usd") {
-                    let limit = usd.parse::<f64>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or("bad --monthly-usd")?;
-                    store::set_client_budget(db, &client.id, (limit > 0.0).then(|| (limit * 1e6).round() as u64))?;
-                }
-                Ok(())
-            }).unwrap_or_else(|e| fail(e));
+            let client = shared
+                .with_db(store::list_clients)
+                .unwrap_or_else(|e| fail(e))
+                .into_iter()
+                .find(|c| c.name == name && c.revoked_at.is_none())
+                .unwrap_or_else(|| fail("no such client"));
+            shared
+                .with_db(|db| -> store::Result<()> {
+                    if let Some(tier) = one("auto-min-tier") {
+                        store::set_client_auto_min_tier(db, &client.id, &tier)?;
+                    }
+                    if let Some(n) = one("paid-retries") {
+                        store::set_client_paid_retries(
+                            db,
+                            &client.id,
+                            n.parse().map_err(|_| "bad --paid-retries".to_string())?,
+                        )?;
+                    }
+                    if let Some(tasks) = one("tasks") {
+                        store::set_client_may_run_tasks(db, &client.id, tasks == "yes")?;
+                    }
+                    if let Some(only) = one("no-training") {
+                        store::set_client_require_no_training(db, &client.id, only == "yes")?;
+                    }
+                    if let Some(strict) = one("strict") {
+                        store::set_client_strict_budget(db, &client.id, strict == "yes")?;
+                    }
+                    if let Some(usd) = one("monthly-usd") {
+                        let limit = usd
+                            .parse::<f64>()
+                            .ok()
+                            .filter(|v| v.is_finite() && *v >= 0.0)
+                            .ok_or("bad --monthly-usd")?;
+                        store::set_client_budget(db, &client.id, (limit > 0.0).then(|| (limit * 1e6).round() as u64))?;
+                    }
+                    Ok(())
+                })
+                .unwrap_or_else(|e| fail(e));
             println!("Updated client {name}");
         }
         "auto" => {
             // What an auto alias would choose; sends nothing.
             let alias = one("alias").unwrap_or_else(|| "auto".into());
-            let strategy = gateway::auto::strategy(&alias).unwrap_or_else(|| fail("not an auto alias")).unwrap_or_else(|e| fail(e));
+            let strategy = gateway::auto::strategy(&alias)
+                .unwrap_or_else(|| fail("not an auto alias"))
+                .unwrap_or_else(|e| fail(e));
             let clients = shared.with_db(store::list_clients).unwrap_or_else(|e| fail(e));
             let client = match one("client") {
                 Some(name) => clients.into_iter().find(|c| c.name == name).unwrap_or_else(|| fail("no such client")),
                 None => clients.into_iter().next().unwrap_or_else(|| fail("create a client first")),
             };
-            let needs = gateway::auto::Needs { surface_anthropic: one("anthropic").as_deref() == Some("yes"),
-                tools: one("tools").as_deref() == Some("yes"), vision: one("vision").as_deref() == Some("yes"),
+            let needs = gateway::auto::Needs {
+                surface_anthropic: one("anthropic").as_deref() == Some("yes"),
+                tools: one("tools").as_deref() == Some("yes"),
+                vision: one("vision").as_deref() == Some("yes"),
                 input_tokens: one("prompt").and_then(|v| v.parse().ok()).unwrap_or(1000),
-                max_tokens: one("max-tokens").and_then(|v| v.parse().ok()), thinking: one("thinking"), effort: one("effort") };
-            let plan = shared.with_db(|db| gateway::auto::plan(db, &client, &alias, strategy, &needs)).unwrap_or_else(|e| fail(e));
+                max_tokens: one("max-tokens").and_then(|v| v.parse().ok()),
+                thinking: one("thinking"),
+                effort: one("effort"),
+            };
+            let plan = shared
+                .with_db(|db| gateway::auto::plan(db, &client, &alias, strategy, &needs))
+                .unwrap_or_else(|e| fail(e));
             for (i, r) in plan.ranked.iter().enumerate() {
                 let tried = plan.route.iter().any(|x| x.provider_id == r.provider_id && x.model_id == r.model_id);
-                println!("{:>2}. {}/{}  {}{}", i + 1, r.provider_id, r.model_id, r.reason, if tried { "  [route]" } else { "" });
+                println!(
+                    "{:>2}. {}/{}  {}{}",
+                    i + 1,
+                    r.provider_id,
+                    r.model_id,
+                    r.reason,
+                    if tried { "  [route]" } else { "" }
+                );
             }
             println!("{} excluded", plan.excluded.len());
             for e in plan.excluded.iter().take(one("show").and_then(|v| v.parse().ok()).unwrap_or(10)) {
@@ -327,24 +459,49 @@ pub async fn run(mut args: Vec<String>) {
                 println!("{:<20} {:<12} {:<9} {models:>4} models  {}", p.id, p.kind, p.default_billing, p.endpoint);
             }
             for c in shared.with_db(store::list_combos).unwrap_or_else(|e| fail(e)) {
-                println!("combo {:<14} {}", c.name,
-                    c.members.iter().map(|m| format!("{}/{}", m.provider_id, m.model_id)).collect::<Vec<_>>().join(" → "));
+                println!(
+                    "combo {:<14} {}",
+                    c.name,
+                    c.members
+                        .iter()
+                        .map(|m| format!("{}/{}", m.provider_id, m.model_id))
+                        .collect::<Vec<_>>()
+                        .join(" → ")
+                );
             }
             for c in shared.with_db(store::list_clients).unwrap_or_else(|e| fail(e)) {
-                println!("client {:<13} {}…{}", c.name, c.token_prefix, if c.revoked_at.is_some() { " (revoked)" } else { "" });
+                println!(
+                    "client {:<13} {}…{}",
+                    c.name,
+                    c.token_prefix,
+                    if c.revoked_at.is_some() { " (revoked)" } else { "" }
+                );
             }
         }
         "usage" => {
             let summary = shared.with_db(|db| store::usage_summary(db, 0, 50)).unwrap_or_else(|e| fail(e));
             let money = |m: u64| format!("${:.6}", m as f64 / 1e6);
-            println!("{} requests, {} failed, {} fell back, known cost {}, {} with unknown cost",
-                summary.total.requests, summary.total.failed, summary.total.fallbacks, money(summary.total.known_micro_usd), summary.total.unknown_requests);
+            println!(
+                "{} requests, {} failed, {} fell back, known cost {}, {} with unknown cost",
+                summary.total.requests,
+                summary.total.failed,
+                summary.total.fallbacks,
+                money(summary.total.known_micro_usd),
+                summary.total.unknown_requests
+            );
             for e in summary.recent {
-                println!("{:<22} {:<10} {:>6}/{:<6} {:<10} {:<10} {} [{} session={}]", format!("{}/{}", e.provider, e.model), e.outcome,
+                println!(
+                    "{:<22} {:<10} {:>6}/{:<6} {:<10} {:<10} {} [{} session={}]",
+                    format!("{}/{}", e.provider, e.model),
+                    e.outcome,
                     e.input_tokens.map(|v| v.to_string()).unwrap_or("-".into()),
                     e.output_tokens.map(|v| v.to_string()).unwrap_or("-".into()),
-                    e.cost_micro_usd.map(money).unwrap_or("unknown".into()), e.cost_status, e.cost_source,
-                    e.route_mode.as_deref().unwrap_or("-"), e.session_key.as_deref().unwrap_or("-"));
+                    e.cost_micro_usd.map(money).unwrap_or("unknown".into()),
+                    e.cost_status,
+                    e.cost_source,
+                    e.route_mode.as_deref().unwrap_or("-"),
+                    e.session_key.as_deref().unwrap_or("-")
+                );
             }
         }
         other => fail(format!("unknown command {other}")),

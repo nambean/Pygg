@@ -55,7 +55,8 @@ pub const STATES: [&str; 4] = ["signed_in", "signed_out", "needs_you", "page_cha
 pub const NOT_SIGNED_IN: &str = "Not signed in yet. Open the sign-in window and sign in on the site.";
 pub const SIGNED_OUT: &str = "Signed out. Open the sign-in window and sign in again.";
 /// The page Pygg was about to type into is not the site's own (ADR-035, 2026-11-13): it stops before sending anything.
-pub const OFF_SITE: &str = "The window is not on the site's own page, so Pygg sent nothing. Open the window and go back to the site.";
+pub const OFF_SITE: &str =
+    "The window is not on the site's own page, so Pygg sent nothing. Open the window and go back to the site.";
 /// Requests a web session sends to its site per UTC day unless the user sets another limit: a person's pace, not a
 /// script's. Bursts of automated requests are what get accounts of tools like 9router flagged (owner, 2026-11-13).
 pub const DEFAULT_DAILY_LIMIT: u32 = 50;
@@ -66,14 +67,25 @@ pub const PACE_SECS: u64 = 10;
 /// after a stream of long prompts). Pygg turns the connection off when it records this (`store::set_web_state`).
 pub const RESTRICTED: &str = "The site says this account is suspended or restricted. Pygg turned this connection off and sends it nothing. Open the window to read the site's notice; turn the connection back on only after the site lifts it.";
 /// Words of such a notice, in lower case. Several sites' wording; a page that shows none of them is not taken for one.
-const RESTRICTION_HINTS: &[&str] = &["account has been suspended", "account is suspended", "account has been banned",
-    "account is banned", "account has been restricted", "account is restricted", "account has been disabled",
-    "account is disabled", "violation of user policies", "violated our usage policies", "account has been deactivated"];
+const RESTRICTION_HINTS: &[&str] = &[
+    "account has been suspended",
+    "account is suspended",
+    "account has been banned",
+    "account is banned",
+    "account has been restricted",
+    "account is restricted",
+    "account has been disabled",
+    "account is disabled",
+    "violation of user policies",
+    "violated our usage policies",
+    "account has been deactivated",
+];
 pub const CHALLENGE: &str = "The site is showing a check (a CAPTCHA, a bot check or a sign-in challenge). Open the window and deal with it yourself; Pygg does not answer such checks.";
 pub const SIGNED_IN: &str = "Signed in.";
 pub const CHECK_BUSY: &str = "Not checked: a request is using this session now.";
 pub const CHECK_RESTING: &str = "Not checked: this account is resting after its last request or check, and a check loads the site's page as a request does.";
-pub const CHECK_BACKED_OFF: &str = "Not checked: the site showed a sign of trouble on this account, so Pygg leaves it alone for a while.";
+pub const CHECK_BACKED_OFF: &str =
+    "Not checked: the site showed a sign of trouble on this account, so Pygg leaves it alone for a while.";
 pub const CONNECTION_OFF: &str = "this connection is turned off.";
 pub const GUARD_UNREADABLE: &str = "Not sent: Pygg could not read or keep its record of this account's pace, so it sends nothing to the site until it can.";
 
@@ -135,15 +147,34 @@ pub struct Recipe {
 }
 
 /// A check the site runs on the browser: a CAPTCHA, Cloudflare's "Just a moment" page or Turnstile, or a bot check.
-const CHALLENGE_SELECTORS: &str = "iframe[src*=\"captcha\" i], iframe[src*=\"challenges.cloudflare.com\"], iframe[title*=\"challenge\" i], \
+const CHALLENGE_SELECTORS: &str =
+    "iframe[src*=\"captcha\" i], iframe[src*=\"challenges.cloudflare.com\"], iframe[title*=\"challenge\" i], \
     [id*=\"captcha\" i], #challenge-form, #challenge-stage, .cf-turnstile";
-const CHALLENGE_HINTS: &[&str] = &["verify you're human", "verify you are human", "verifying you are human", "are you a robot",
-    "security check", "checking your browser", "performing security verification", "unusual activity", "suspicious activity"];
-const QUOTA_HINTS: &[&str] = &["out of credits", "usage limit", "limit reached", "token limit", "reached your limit", "rate limit"];
+const CHALLENGE_HINTS: &[&str] = &[
+    "verify you're human",
+    "verify you are human",
+    "verifying you are human",
+    "are you a robot",
+    "security check",
+    "checking your browser",
+    "performing security verification",
+    "unusual activity",
+    "suspicious activity",
+];
+const QUOTA_HINTS: &[&str] =
+    &["out of credits", "usage limit", "limit reached", "token limit", "reached your limit", "rate limit"];
 /// Words of a short finished "reply" that is the site asking to slow down, in lower case (any site). DeepSeek answers a
 /// busy server with "The server is busy. Please try again later."; others say "too many requests" or "too quickly".
-pub const SLOW_DOWN_HINTS: &[&str] = &["too many requests", "too many messages", "sending messages too quickly",
-    "too quickly", "slow down", "server is busy", "please try again later", "try again in a few minutes"];
+pub const SLOW_DOWN_HINTS: &[&str] = &[
+    "too many requests",
+    "too many messages",
+    "sending messages too quickly",
+    "too quickly",
+    "slow down",
+    "server is busy",
+    "please try again later",
+    "try again in a few minutes",
+];
 /// Google's sign-in, which several sites offer. Google may refuse to sign in inside an embedded window ("This browser
 /// or app may not be secure"); Pygg does not hide what the window is, so the site's own email sign-in is then the way.
 const GOOGLE: [&str; 2] = ["google.com", "youtube.com"];
@@ -159,7 +190,16 @@ pub const RECIPES: &[Recipe] = &[
         new_chat_url: "https://muse.ai/thread/new",
         // Meta's sign-in checks for an existing account by passing through each of its sites in turn ("aymh" redirect
         // cycle: facebook.com, then instagram.com); blocking one of them aborts the sign-in and leaves the window blank.
-        hosts: &["muse.ai", "meta.com", "meta.ai", "facebook.com", "instagram.com", "threads.com", "threads.net", "messenger.com"],
+        hosts: &[
+            "muse.ai",
+            "meta.com",
+            "meta.ai",
+            "facebook.com",
+            "instagram.com",
+            "threads.com",
+            "threads.net",
+            "messenger.com",
+        ],
         models: &["muse"],
         input: "textarea",
         send_pattern: "send",
@@ -182,7 +222,16 @@ pub const RECIPES: &[Recipe] = &[
         preset: "chatgpt-web",
         site: "https://chatgpt.com",
         new_chat_url: "https://chatgpt.com/",
-        hosts: &["chatgpt.com", "openai.com", GOOGLE[0], GOOGLE[1], "apple.com", "live.com", "microsoftonline.com", "microsoft.com"],
+        hosts: &[
+            "chatgpt.com",
+            "openai.com",
+            GOOGLE[0],
+            GOOGLE[1],
+            "apple.com",
+            "live.com",
+            "microsoftonline.com",
+            "microsoft.com",
+        ],
         models: &["chatgpt"],
         // Signed in (2026-11-13, live): a ProseMirror `div[contenteditable]` with no id; signed out, `#prompt-textarea`.
         input: "#prompt-textarea, div.ProseMirror[contenteditable=\"true\"], textarea[name=\"prompt\"]",
@@ -320,11 +369,22 @@ pub fn uses_tools(body: &Value) -> bool {
     if body["tool_choice"].is_object() || matches!(body["tool_choice"].as_str(), Some("required" | "any" | "tool")) {
         return true;
     }
-    const TOOL_ITEMS: [&str; 6] = ["tool_use", "tool_result", "function_call", "function_call_output", "custom_tool_call", "custom_tool_call_output"];
+    const TOOL_ITEMS: [&str; 6] = [
+        "tool_use",
+        "tool_result",
+        "function_call",
+        "function_call_output",
+        "custom_tool_call",
+        "custom_tool_call_output",
+    ];
     let item_uses_tools = |item: &Value| {
-        item["role"] == "tool" || item["role"] == "function" || item["tool_calls"].as_array().is_some_and(|c| !c.is_empty())
+        item["role"] == "tool"
+            || item["role"] == "function"
+            || item["tool_calls"].as_array().is_some_and(|c| !c.is_empty())
             || item["type"].as_str().is_some_and(|t| TOOL_ITEMS.contains(&t))
-            || item["content"].as_array().is_some_and(|parts| parts.iter().any(|p| p["type"].as_str().is_some_and(|t| TOOL_ITEMS.contains(&t))))
+            || item["content"]
+                .as_array()
+                .is_some_and(|parts| parts.iter().any(|p| p["type"].as_str().is_some_and(|t| TOOL_ITEMS.contains(&t))))
     };
     let lists = [&body["messages"], &body["input"]];
     lists.iter().any(|list| list.as_array().is_some_and(|items| items.iter().any(item_uses_tools)))
@@ -338,9 +398,12 @@ fn text_of(content: &Value) -> Result<String, String> {
             let mut out = Vec::new();
             for part in parts {
                 match part["type"].as_str() {
-                    Some("text" | "input_text" | "output_text") => out.extend(part["text"].as_str().map(str::to_string)),
-                    Some("image_url" | "input_image" | "image" | "file" | "input_file" | "input_audio") =>
-                        return Err("A web session takes text only; this request has an image or a file".into()),
+                    Some("text" | "input_text" | "output_text") => {
+                        out.extend(part["text"].as_str().map(str::to_string))
+                    }
+                    Some("image_url" | "input_image" | "image" | "file" | "input_file" | "input_audio") => {
+                        return Err("A web session takes text only; this request has an image or a file".into())
+                    }
                     _ => {}
                 }
             }
@@ -366,12 +429,23 @@ pub fn flatten(body: &Value) -> Result<String, String> {
         [] => Err("The request has no text to send".into()),
         [("user", text)] => Ok(text.clone()),
         _ => {
-            let mut blocks: Vec<String> = turns.iter().map(|(role, text)| {
-                let label = match *role { "system" | "developer" => "System", "assistant" => "Assistant", "user" => "User", other => other };
-                format!("[{label}]\n{text}")
-            }).collect();
-            blocks.push("[Instruction]\nContinue the conversation above and reply as the Assistant to the last User message. \
-                Output only the reply.".into());
+            let mut blocks: Vec<String> = turns
+                .iter()
+                .map(|(role, text)| {
+                    let label = match *role {
+                        "system" | "developer" => "System",
+                        "assistant" => "Assistant",
+                        "user" => "User",
+                        other => other,
+                    };
+                    format!("[{label}]\n{text}")
+                })
+                .collect();
+            blocks.push(
+                "[Instruction]\nContinue the conversation above and reply as the Assistant to the last User message. \
+                Output only the reply."
+                    .into(),
+            );
             Ok(blocks.join("\n\n"))
         }
     }
@@ -409,10 +483,15 @@ pub fn mark_script() -> String {
 pub fn state_script(r: &Recipe) -> String {
     let ready_attr = match r.ready_attr {
         Some((selector, attr, value)) => format!(
-            "(() => {{ const e = document.querySelector({}); return !e || e.getAttribute({}) === {}; }})()", q(selector), q(attr), q(value)),
+            "(() => {{ const e = document.querySelector({}); return !e || e.getAttribute({}) === {}; }})()",
+            q(selector),
+            q(attr),
+            q(value)
+        ),
         None => "true".into(),
     };
-    format!(r#"(() => {{
+    format!(
+        r#"(() => {{
   const body = document.body ? document.body.innerText.slice(0, 4000).toLowerCase() : '';
   const input = document.querySelector({input});
   const signIn = !input && {sign_in}.some(h => body.includes(h));
@@ -423,8 +502,14 @@ pub fn state_script(r: &Recipe) -> String {
   return {{ fresh: !window.__pyggOld, ready: document.readyState === 'complete' && !!input && {ready_attr},
            hasInput: !!input, signIn, signedOut, challenge, restricted }};
 }})()"#,
-        input = q(r.input), sign_in = json!(r.sign_in_hints), signed_out = json!(r.signed_out_buttons), challenge = q(r.challenge_selectors),
-        challenge_hints = json!(r.challenge_hints), ready_attr = ready_attr, restricted = json!(RESTRICTION_HINTS))
+        input = q(r.input),
+        sign_in = json!(r.sign_in_hints),
+        signed_out = json!(r.signed_out_buttons),
+        challenge = q(r.challenge_selectors),
+        challenge_hints = json!(r.challenge_hints),
+        ready_attr = ready_attr,
+        restricted = json!(RESTRICTION_HINTS)
+    )
 }
 
 /// The host of the site's own page (`chatgpt.com`, `perplexity.ai`), without `www.`: where Pygg may type.
@@ -437,13 +522,17 @@ pub fn site_host(r: &Recipe) -> &'static str {
 /// The JavaScript test that the page is the site's own: its host or a subdomain of it, over https. Sign-in hosts
 /// (Google, Meta, X) do not count, so a prompt is never typed into them, or into anything a redirect led to.
 fn on_site(r: &Recipe) -> String {
-    format!("(location.protocol === 'https:' && (location.hostname === {h} || location.hostname.endsWith('.' + {h})))", h = q(site_host(r)))
+    format!(
+        "(location.protocol === 'https:' && (location.hostname === {h} || location.hostname.endsWith('.' + {h})))",
+        h = q(site_host(r))
+    )
 }
 
 /// Puts the prompt in the box the way typing would, so the site's own code sees it. Off the site's own page it types
 /// nothing and says so.
 pub fn fill_script(r: &Recipe, text: &str) -> String {
-    format!(r#"(() => {{
+    format!(
+        r#"(() => {{
   if (!{on_site}) return {{ ok: false, offSite: true }};
   const box = document.querySelector({input});
   if (!box) return {{ ok: false }};
@@ -457,13 +546,18 @@ pub fn fill_script(r: &Recipe, text: &str) -> String {
     document.execCommand('insertText', false, {text});
   }}
   return {{ ok: true }};
-}})()"#, input = q(r.input), text = q(text), on_site = on_site(r))
+}})()"#,
+        input = q(r.input),
+        text = q(text),
+        on_site = on_site(r)
+    )
 }
 
 /// Clicks the visible Send button: `clicked`, `disabled` or `missing`. Where the recipe says Enter sends and there is
 /// no such button, presses Enter in the prompt box instead: `entered`.
 pub fn send_script(r: &Recipe) -> String {
-    format!(r#"(() => {{
+    format!(
+        r#"(() => {{
   if (!{on_site}) return 'offsite';
   const re = new RegExp({pattern}, 'i');
   const button = [...document.querySelectorAll('button,[role=button]')].filter(b => b.offsetParent !== null)
@@ -480,12 +574,18 @@ pub fn send_script(r: &Recipe) -> String {
     box.dispatchEvent(new KeyboardEvent(type, {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }}));
   }}
   return 'entered';
-}})()"#, pattern = q(r.send_pattern), enter = r.enter_sends, input = q(r.input), on_site = on_site(r))
+}})()"#,
+        pattern = q(r.send_pattern),
+        enter = r.enter_sends,
+        input = q(r.input),
+        on_site = on_site(r)
+    )
 }
 
 /// The conversation as it stands: how many replies, the last one's text, and the signals around it.
 pub fn read_script(r: &Recipe) -> String {
-    format!(r#"(() => {{
+    format!(
+        r#"(() => {{
   const replies = [...document.querySelectorAll({reply})];
   const last = replies.length ? (replies[replies.length - 1].innerText || '').trim() : '';
   const body = document.body ? document.body.innerText.slice(0, 4000).toLowerCase() : '';
@@ -494,15 +594,21 @@ pub fn read_script(r: &Recipe) -> String {
   return {{ count: replies.length, text: last, busy: {busy},
            approval: {approval}, challenge: !!document.querySelector({challenge}) || {challenge_hints}.some(h => body.includes(h)),
            restricted: {restricted}.some(h => body.includes(h) && !said.includes(h)) }};
-}})()"#, reply = q(r.reply), restricted = json!(RESTRICTION_HINTS), busy = r.busy.map(|b| format!("!!document.querySelector({})", q(b))).unwrap_or_else(|| "false".into()),
+}})()"#,
+        reply = q(r.reply),
+        restricted = json!(RESTRICTION_HINTS),
+        busy = r.busy.map(|b| format!("!!document.querySelector({})", q(b))).unwrap_or_else(|| "false".into()),
         approval = r.approval.map(|a| format!("!!document.querySelector({})", q(a))).unwrap_or_else(|| "false".into()),
-        challenge = q(r.challenge_selectors), challenge_hints = json!(r.challenge_hints))
+        challenge = q(r.challenge_selectors),
+        challenge_hints = json!(r.challenge_hints)
+    )
 }
 
 /// Clicks the site's own "deny" on every pending request for approval; returns how many.
 pub fn deny_script(r: &Recipe) -> String {
     let Some(approval) = r.approval else { return "0".into() };
-    format!(r#"(() => {{
+    format!(
+        r#"(() => {{
   const re = new RegExp({pattern}, 'i');
   let denied = 0;
   for (const card of document.querySelectorAll({approval})) {{
@@ -510,7 +616,10 @@ pub fn deny_script(r: &Recipe) -> String {
     if (button && !button.disabled) {{ button.click(); denied++; }}
   }}
   return denied;
-}})()"#, pattern = q(r.deny_pattern), approval = q(approval))
+}})()"#,
+        pattern = q(r.deny_pattern),
+        approval = q(approval)
+    )
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -573,8 +682,11 @@ impl WebError {
     pub fn status(&self) -> StatusCode {
         match self {
             WebError::NeedsYou { .. } => StatusCode::UNAUTHORIZED,
-            WebError::Busy { .. } | WebError::Quota | WebError::SlowDown | WebError::DailyLimit { .. } | WebError::Pace { .. } =>
-                StatusCode::TOO_MANY_REQUESTS,
+            WebError::Busy { .. }
+            | WebError::Quota
+            | WebError::SlowDown
+            | WebError::DailyLimit { .. }
+            | WebError::Pace { .. } => StatusCode::TOO_MANY_REQUESTS,
             WebError::TooLong { .. } => StatusCode::PAYLOAD_TOO_LARGE,
             WebError::PageChanged(_) | WebError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             WebError::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
@@ -637,9 +749,16 @@ impl WebError {
             WebError::TooLong { .. } => Some("prompt_too_long"),
             _ => None,
         };
-        let mut response = (self.status(), axum::Json(json!({ "error": {
-            "message": self.message(), "type": kind, "code": code } }))).into_response();
-        if let WebError::Busy { retry_after } | WebError::DailyLimit { retry_after, .. } | WebError::Pace { retry_after, .. } = self {
+        let mut response = (
+            self.status(),
+            axum::Json(json!({ "error": {
+            "message": self.message(), "type": kind, "code": code } })),
+        )
+            .into_response();
+        if let WebError::Busy { retry_after }
+        | WebError::DailyLimit { retry_after, .. }
+        | WebError::Pace { retry_after, .. } = self
+        {
             response.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(*retry_after));
         }
         response
@@ -694,11 +813,20 @@ pub struct Timing {
 
 impl Default for Timing {
     fn default() -> Timing {
-        Timing { poll: Duration::from_millis(300), ready: Duration::from_secs(45), send: Duration::from_secs(5),
-            first_word: Duration::from_secs(60), first_word_per_100_tokens: Duration::from_secs(1),
-            first_word_cap: Duration::from_secs(240), reply: Duration::from_secs(300), stable: 4, stable_busy: 12,
-            queue: Duration::from_secs(60), gap: Duration::from_secs(PACE_SECS),
-            backoff: Duration::from_millis(guard::BACKOFF_BASE_MS as u64) }
+        Timing {
+            poll: Duration::from_millis(300),
+            ready: Duration::from_secs(45),
+            send: Duration::from_secs(5),
+            first_word: Duration::from_secs(60),
+            first_word_per_100_tokens: Duration::from_secs(1),
+            first_word_cap: Duration::from_secs(240),
+            reply: Duration::from_secs(300),
+            stable: 4,
+            stable_busy: 12,
+            queue: Duration::from_secs(60),
+            gap: Duration::from_secs(PACE_SECS),
+            backoff: Duration::from_millis(guard::BACKOFF_BASE_MS as u64),
+        }
     }
 }
 
@@ -775,15 +903,18 @@ pub struct Reply {
 /// `stable_busy` reads whatever it shows, since such a signal can stick). The first word is waited for as long as the
 /// prompt's size allows (`Timing::first_word_wait`), and not at all once the page has shown it is answering: a site
 /// that thinks visibly before it writes has given its first word.
-pub async fn converse(page: &dyn Page, recipe: &Recipe, prompt: &str, timing: &Timing,
-    on_text: &mut (dyn FnMut(&str) + Send)) -> Result<Reply, WebError> {
+pub async fn converse(
+    page: &dyn Page, recipe: &Recipe, prompt: &str, timing: &Timing, on_text: &mut (dyn FnMut(&str) + Send),
+) -> Result<Reply, WebError> {
     converse_marked(page, recipe, prompt, timing, on_text, &AtomicBool::new(false)).await
 }
 
 /// `converse`, setting `submitted` once the site's Send was pressed: from then on the site may have the prompt, and the
 /// gateway sends it to no other web session (Codex's fourth review, A8).
-pub async fn converse_marked(page: &dyn Page, recipe: &Recipe, prompt: &str, timing: &Timing,
-    on_text: &mut (dyn FnMut(&str) + Send), submitted: &AtomicBool) -> Result<Reply, WebError> {
+pub async fn converse_marked(
+    page: &dyn Page, recipe: &Recipe, prompt: &str, timing: &Timing, on_text: &mut (dyn FnMut(&str) + Send),
+    submitted: &AtomicBool,
+) -> Result<Reply, WebError> {
     open_chat(page, recipe, timing).await?;
     let base: ChatState = eval_as(page, read_script(recipe)).await?;
     let filled: Value = page.eval(fill_script(recipe, prompt)).await?;
@@ -796,7 +927,10 @@ pub async fn converse_marked(page: &dyn Page, recipe: &Recipe, prompt: &str, tim
     let started = Instant::now();
     loop {
         match page.eval(send_script(recipe)).await?.as_str() {
-            Some("clicked" | "entered") => { submitted.store(true, Ordering::SeqCst); break }
+            Some("clicked" | "entered") => {
+                submitted.store(true, Ordering::SeqCst);
+                break;
+            }
             Some("offsite") => return Err(WebError::NeedsYou { state: "needs_you", reason: OFF_SITE }),
             _ if started.elapsed() >= timing.send => return Err(WebError::PageChanged(NO_SEND_BUTTON)),
             _ => tokio::time::sleep(timing.poll).await,
@@ -885,7 +1019,8 @@ pub async fn check(page: &dyn Page, recipe: &Recipe, timing: &Timing) -> (&'stat
 
 /// A connection's profile folder, if its name is one Pygg made (`p-` and hex): nothing else is ever deleted.
 pub fn profile_dir(root: &Path, profile: &str) -> Option<std::path::PathBuf> {
-    let valid = profile.strip_prefix("p-").is_some_and(|hex| hex.len() == 32 && hex.chars().all(|c| c.is_ascii_hexdigit()));
+    let valid =
+        profile.strip_prefix("p-").is_some_and(|hex| hex.len() == 32 && hex.chars().all(|c| c.is_ascii_hexdigit()));
     valid.then(|| root.join(profile))
 }
 
@@ -909,7 +1044,8 @@ pub fn sweep(root: &Path, keep: &[String]) -> usize {
     let mut removed = 0;
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        if profile_dir(root, &name).is_some() && !keep.contains(&name) && std::fs::remove_dir_all(entry.path()).is_ok() {
+        if profile_dir(root, &name).is_some() && !keep.contains(&name) && std::fs::remove_dir_all(entry.path()).is_ok()
+        {
             removed += 1;
         }
     }
@@ -964,9 +1100,13 @@ impl Service {
     }
 
     fn web_provider(&self, provider_id: &str) -> Result<(Provider, &'static Recipe), WebError> {
-        let provider = self.with_db(|db| store::get_provider(db, provider_id)).ok().flatten()
+        let provider = self
+            .with_db(|db| store::get_provider(db, provider_id))
+            .ok()
+            .flatten()
             .ok_or_else(|| WebError::BadRequest("No such web-session connection".into()))?;
-        let recipe = recipe(&provider.kind).ok_or_else(|| WebError::BadRequest("No such web-session connection".into()))?;
+        let recipe =
+            recipe(&provider.kind).ok_or_else(|| WebError::BadRequest("No such web-session connection".into()))?;
         if provider.web_ack_version != Some(WARNING_VERSION) {
             return Err(WebError::BadRequest(format!("Not sent: {NOT_ACKNOWLEDGED}")));
         }
@@ -979,7 +1119,8 @@ impl Service {
 
     /// Waits its turn on the connection (or gives up with `Busy`), then the pause after the last request.
     async fn take_turn(&self, provider_id: &str) -> Result<tokio::sync::OwnedMutexGuard<Slot>, WebError> {
-        let guard = tokio::time::timeout(self.timing.queue, self.slot(provider_id).lock_owned()).await
+        let guard = tokio::time::timeout(self.timing.queue, self.slot(provider_id).lock_owned())
+            .await
             .map_err(|_| WebError::Busy { retry_after: 30 })?;
         if let Some(wait) = guard.finished.map(|f| self.timing.gap.saturating_sub(f.elapsed())) {
             tokio::time::sleep(wait).await;
@@ -992,11 +1133,17 @@ impl Service {
     /// fourth review, A6 and A7). A check that sees trouble backs the account off as a request would.
     pub async fn check(&self, provider_id: &str) -> Result<Checked, String> {
         let (provider, recipe) = self.web_provider(provider_id).map_err(|e| e.message())?;
-        let Ok(mut turn) = self.slot(provider_id).try_lock_owned() else { return Ok(Checked::Skipped(CHECK_BUSY.into())) };
+        let Ok(mut turn) = self.slot(provider_id).try_lock_owned() else {
+            return Ok(Checked::Skipped(CHECK_BUSY.into()));
+        };
         let now = crate::db::now_ms();
-        let account = self.with_db(|db| store::web_guard(db, provider_id, now)).map_err(|_| GUARD_UNREADABLE.to_string())?;
+        let account =
+            self.with_db(|db| store::web_guard(db, provider_id, now)).map_err(|_| GUARD_UNREADABLE.to_string())?;
         if let Some(until) = account.backoff_until.filter(|u| *u > now) {
-            return Ok(Checked::Skipped(format!("{CHECK_BACKED_OFF} ({} min. left; Resume Now lifts it.)", (until - now + 59_999) / 60_000)));
+            return Ok(Checked::Skipped(format!(
+                "{CHECK_BACKED_OFF} ({} min. left; Resume Now lifts it.)",
+                (until - now + 59_999) / 60_000
+            )));
         }
         if let Some(next) = account.next_at.filter(|n| *n > now) {
             return Ok(Checked::Skipped(format!("{CHECK_RESTING} ({} s left.)", (next - now + 999) / 1000)));
@@ -1015,7 +1162,9 @@ impl Service {
             _ => None,
         };
         let _ = self.with_db(|db| match trouble {
-            Some(t) => store::web_guard_trouble(db, provider_id, &t, rest, self.timing.backoff.as_millis() as i64, ended),
+            Some(t) => {
+                store::web_guard_trouble(db, provider_id, &t, rest, self.timing.backoff.as_millis() as i64, ended)
+            }
             None => store::web_guard_checked(db, provider_id, rest),
         });
         if state == "signed_in" {
@@ -1035,10 +1184,14 @@ impl Service {
     }
 
     fn authorized(&self, headers: &HeaderMap) -> bool {
-        let given = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "))
+        let given = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
             .unwrap_or("");
         // Constant time over the expected length.
-        given.len() == self.token.len() && given.bytes().zip(self.token.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
+        given.len() == self.token.len()
+            && given.bytes().zip(self.token.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
     }
 }
 
@@ -1065,12 +1218,16 @@ fn chunk(id: &str, model: &str, delta: Value, finish: Option<&str>) -> Bytes {
 }
 
 fn denied_note(denied: u64) -> String {
-    if denied == 0 { String::new() } else {
+    if denied == 0 {
+        String::new()
+    } else {
         format!("\n\n[Pygg denied {denied} request(s) from the site to act on your behalf. Approve actions in the site's own app.]")
     }
 }
 
-async fn chat(State(service): State<Arc<Service>>, UrlPath(provider_id): UrlPath<String>, headers: HeaderMap, body: Bytes) -> Response {
+async fn chat(
+    State(service): State<Arc<Service>>, UrlPath(provider_id): UrlPath<String>, headers: HeaderMap, body: Bytes,
+) -> Response {
     if !service.authorized(&headers) {
         return (StatusCode::UNAUTHORIZED, "").into_response();
     }
@@ -1122,9 +1279,12 @@ async fn admit(service: &Service, provider_id: &str, weight: u32) -> Result<(Pro
         }
         let account = service.with_db(|db| store::web_guard(db, provider_id, now)).map_err(|_| unreadable())?;
         match guard::decide(&account, weight, now, limit, &limits) {
-            guard::Verdict::Refuse { retry_after_ms, why } =>
-                return Err(WebError::Pace { retry_after: ((retry_after_ms + 999) / 1000).max(1) as u64, why }),
-            guard::Verdict::Go { wait_ms } if wait_ms > 0 && round < 2 => tokio::time::sleep(Duration::from_millis(wait_ms as u64)).await,
+            guard::Verdict::Refuse { retry_after_ms, why } => {
+                return Err(WebError::Pace { retry_after: ((retry_after_ms + 999) / 1000).max(1) as u64, why })
+            }
+            guard::Verdict::Go { wait_ms } if wait_ms > 0 && round < 2 => {
+                tokio::time::sleep(Duration::from_millis(wait_ms as u64)).await
+            }
             guard::Verdict::Go { .. } => return Ok((provider, recipe)),
         }
     }
@@ -1163,7 +1323,10 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
     // The request's weight and a first rest are kept before the site is touched (Codex's fourth review, A1).
     let sent_at = crate::db::now_ms();
     let gap = limits.rest_base(service.timing.gap.as_millis() as i64);
-    let row = service.with_db(|db| store::web_guard_reserve(db, provider_id, sent_at, weight, sent_at + guard::rest_ms(gap, weight, 0)))
+    let row = service
+        .with_db(|db| {
+            store::web_guard_reserve(db, provider_id, sent_at, weight, sent_at + guard::rest_ms(gap, weight, 0))
+        })
         .map_err(|_| WebError::Pace { retry_after: 60, why: GUARD_UNREADABLE })?;
     let page = service.windows.page(&provider, recipe)?;
     let submitted = Arc::new(AtomicBool::new(false));
@@ -1173,11 +1336,18 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
     let id = provider_id.to_string();
     tokio::spawn(async move {
         let text_tx = tx.clone();
-        let mut on_text = move |piece: &str| { let _ = text_tx.send(Event::Text(piece.to_string())); };
-        let result = converse_marked(page.as_ref(), recipe, &prompt, &task_service.timing, &mut on_text, &task_submitted).await;
+        let mut on_text = move |piece: &str| {
+            let _ = text_tx.send(Event::Text(piece.to_string()));
+        };
+        let result =
+            converse_marked(page.as_ref(), recipe, &prompt, &task_service.timing, &mut on_text, &task_submitted).await;
         match &result {
             Ok(_) => task_service.record(&id, "signed_in", SIGNED_IN),
-            Err(e) => if let Some((state, reason)) = e.state() { task_service.record(&id, state, reason) },
+            Err(e) => {
+                if let Some((state, reason)) = e.state() {
+                    task_service.record(&id, state, reason)
+                }
+            }
         }
         // The web guard keeps the request's weight, rests the account as long as a person would read the reply, and
         // backs off after a sign of trouble (or clears the back-off after a clean reply).
@@ -1186,8 +1356,18 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
         let rest = guard::rest_ms(limits.rest_base(task_service.timing.gap.as_millis() as i64), weight, reply_chars);
         let trouble = result.as_ref().err().and_then(WebError::trouble);
         let backoff = task_service.timing.backoff.as_millis() as i64;
-        let _ = task_service.with_db(|db| store::web_guard_after(db, &id, row,
-            if result.is_ok() { "ok" } else { "error" }, ended + rest, trouble.as_ref(), backoff, ended));
+        let _ = task_service.with_db(|db| {
+            store::web_guard_after(
+                db,
+                &id,
+                row,
+                if result.is_ok() { "ok" } else { "error" },
+                ended + rest,
+                trouble.as_ref(),
+                backoff,
+                ended,
+            )
+        });
         turn.finished = Some(Instant::now());
         drop(turn);
         let _ = tx.send(Event::Done(result));
@@ -1199,7 +1379,10 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
         while let Some(event) = rx.recv().await {
             match event {
                 Event::Text(_) => {}
-                Event::Done(Ok(reply)) => { text = reply.text + &denied_note(reply.denied); break; }
+                Event::Done(Ok(reply)) => {
+                    text = reply.text + &denied_note(reply.denied);
+                    break;
+                }
                 Event::Done(Err(e)) => return Err(Failed { error: e, sent: submitted.load(Ordering::SeqCst) }),
             }
         }
@@ -1221,28 +1404,39 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
         }
         Event::Text(text) => pending.push(chunk(&completion_id, &model, json!({ "content": text }), None)),
     }
-    let tail = futures_util::stream::unfold((rx, finished, completion_id.clone(), model.clone()), |(mut rx, finished, id, model)| async move {
-        if finished {
-            return None;
-        }
-        let out = match rx.recv().await {
-            Some(Event::Text(text)) => (chunk(&id, &model, json!({ "content": text }), None), false),
-            Some(Event::Done(Ok(reply))) => {
-                let note = denied_note(reply.denied);
-                let mut out = String::new();
-                if !note.is_empty() {
-                    out.push_str(std::str::from_utf8(&chunk(&id, &model, json!({ "content": note }), None)).unwrap_or_default());
-                }
-                out.push_str(std::str::from_utf8(&chunk(&id, &model, json!({}), Some("stop"))).unwrap_or_default());
-                out.push_str("data: [DONE]\n\n");
-                (Bytes::from(out), true)
+    let tail = futures_util::stream::unfold(
+        (rx, finished, completion_id.clone(), model.clone()),
+        |(mut rx, finished, id, model)| async move {
+            if finished {
+                return None;
             }
-            Some(Event::Done(Err(e))) => (Bytes::from(format!("data: {}\n\n",
-                json!({ "error": { "message": e.message(), "type": "api_error" } }))), true),
-            None => return None,
-        };
-        Some((Ok::<Bytes, std::io::Error>(out.0), (rx, out.1, id, model)))
-    });
+            let out = match rx.recv().await {
+                Some(Event::Text(text)) => (chunk(&id, &model, json!({ "content": text }), None), false),
+                Some(Event::Done(Ok(reply))) => {
+                    let note = denied_note(reply.denied);
+                    let mut out = String::new();
+                    if !note.is_empty() {
+                        out.push_str(
+                            std::str::from_utf8(&chunk(&id, &model, json!({ "content": note }), None))
+                                .unwrap_or_default(),
+                        );
+                    }
+                    out.push_str(std::str::from_utf8(&chunk(&id, &model, json!({}), Some("stop"))).unwrap_or_default());
+                    out.push_str("data: [DONE]\n\n");
+                    (Bytes::from(out), true)
+                }
+                Some(Event::Done(Err(e))) => (
+                    Bytes::from(format!(
+                        "data: {}\n\n",
+                        json!({ "error": { "message": e.message(), "type": "api_error" } })
+                    )),
+                    true,
+                ),
+                None => return None,
+            };
+            Some((Ok::<Bytes, std::io::Error>(out.0), (rx, out.1, id, model)))
+        },
+    );
     let head = if finished {
         pending.push(chunk(&completion_id, &model, json!({}), Some("stop")));
         pending.push(Bytes::from_static(b"data: [DONE]\n\n"));
@@ -1252,8 +1446,12 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
     };
     use futures_util::StreamExt;
     let body = Body::from_stream(head.chain(tail));
-    Ok(Response::builder().status(StatusCode::OK).header(header::CONTENT_TYPE, "text/event-stream")
-        .header(header::CACHE_CONTROL, "no-cache").body(body).unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()))
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/event-stream")
+        .header(header::CACHE_CONTROL, "no-cache")
+        .body(body)
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()))
 }
 
 #[cfg(test)]

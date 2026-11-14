@@ -36,7 +36,12 @@ pub fn from_headers(headers: &BTreeMap<String, String>, observed_at: i64) -> Vec
     let get = |name: &str| headers.get(name).map(|v| v.trim());
     let number = |name: &str| get(name).and_then(|v| v.parse::<f64>().ok()).filter(|v| *v >= 0.0).map(|v| v as u64);
     let mut out = Vec::new();
-    for (kind, part) in [("requests", "requests"), ("tokens", "tokens"), ("input_tokens", "input-tokens"), ("output_tokens", "output-tokens")] {
+    for (kind, part) in [
+        ("requests", "requests"),
+        ("tokens", "tokens"),
+        ("input_tokens", "input-tokens"),
+        ("output_tokens", "output-tokens"),
+    ] {
         let window = Window {
             kind: kind.into(),
             limit: number(&format!("anthropic-ratelimit-{part}-limit")),
@@ -61,13 +66,21 @@ pub fn from_headers(headers: &BTreeMap<String, String>, observed_at: i64) -> Vec
     if number("x-ratelimit-limit").is_some() || number("x-ratelimit-remaining").is_some() {
         // OpenRouter: epoch milliseconds; a small number is read as seconds.
         let reset = number("x-ratelimit-reset").map(|v| if v < 100_000_000_000 { v as i64 * 1000 } else { v as i64 });
-        out.push(Window { kind: "requests".into(), limit: number("x-ratelimit-limit"), remaining: number("x-ratelimit-remaining"),
-            resets_at: reset });
+        out.push(Window {
+            kind: "requests".into(),
+            limit: number("x-ratelimit-limit"),
+            remaining: number("x-ratelimit-remaining"),
+            resets_at: reset,
+        });
     }
     if let Some(value) = get("retry-after") {
-        let at = value.parse::<f64>().ok().filter(|s| *s >= 0.0).map(|s| observed_at + (s * 1000.0) as i64)
-            .or_else(|| httpdate::parse_http_date(value).ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as i64));
+        let at =
+            value.parse::<f64>().ok().filter(|s| *s >= 0.0).map(|s| observed_at + (s * 1000.0) as i64).or_else(|| {
+                httpdate::parse_http_date(value)
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as i64)
+            });
         if let Some(at) = at {
             out.push(Window { kind: "retry".into(), limit: None, remaining: Some(0), resets_at: Some(at) });
         }
@@ -90,7 +103,10 @@ pub fn duration_ms(text: &str) -> Option<i64> {
         number.clear();
         let unit = match c {
             'h' => 3_600_000.0,
-            'm' if chars.peek() == Some(&'s') => { chars.next(); 1.0 }
+            'm' if chars.peek() == Some(&'s') => {
+                chars.next();
+                1.0
+            }
             'm' => 60_000.0,
             's' => 1000.0,
             _ => return None,
@@ -171,11 +187,18 @@ pub fn openrouter_key(body: &Value, now: i64) -> Option<Account> {
     let n = |v: &Value| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()));
     let free = &data["free_model_daily_requests"];
     let free_requests = (free.is_object()).then(|| Window {
-        kind: "free_requests_per_day".into(), limit: n(&free["limit"]).map(|v| v as u64),
-        remaining: n(&free["remaining"]).map(|v| v.max(0.0) as u64), resets_at: Some(next_utc_midnight(now)) });
+        kind: "free_requests_per_day".into(),
+        limit: n(&free["limit"]).map(|v| v as u64),
+        remaining: n(&free["remaining"]).map(|v| v.max(0.0) as u64),
+        resets_at: Some(next_utc_midnight(now)),
+    });
     Some(Account {
-        source: "openrouter /key".into(), observed_at: now, balance: n(&data["limit_remaining"]),
-        currency: n(&data["limit_remaining"]).map(|_| "USD".into()), available: None, used_today: n(&data["usage_daily"]),
+        source: "openrouter /key".into(),
+        observed_at: now,
+        balance: n(&data["limit_remaining"]),
+        currency: n(&data["limit_remaining"]).map(|_| "USD".into()),
+        available: None,
+        used_today: n(&data["usage_daily"]),
         free_requests,
     })
 }
@@ -185,9 +208,13 @@ pub fn deepseek_balance(body: &Value, now: i64) -> Option<Account> {
     let info = body["balance_infos"].as_array()?.first();
     let total = info.and_then(|i| i["total_balance"].as_str()).and_then(|s| s.parse::<f64>().ok());
     Some(Account {
-        source: "deepseek /user/balance".into(), observed_at: now, balance: total,
-        currency: info.and_then(|i| i["currency"].as_str()).map(String::from), available: body["is_available"].as_bool(),
-        used_today: None, free_requests: None,
+        source: "deepseek /user/balance".into(),
+        observed_at: now,
+        balance: total,
+        currency: info.and_then(|i| i["currency"].as_str()).map(String::from),
+        available: body["is_available"].as_bool(),
+        used_today: None,
+        free_requests: None,
     })
 }
 
@@ -221,14 +248,20 @@ pub async fn fetch_account(shared: &super::Shared, provider: &Provider) -> Resul
     let Some(reference) = &provider.credential_ref else { return Ok(None) };
     let Some(key) = shared.secrets.read(reference)? else { return Ok(None) };
     let url = format!("{}{path}", provider.endpoint.trim_end_matches('/'));
-    let response = shared.http.get(&url).bearer_auth(&key).send().await
+    let response = shared
+        .http
+        .get(&url)
+        .bearer_auth(&key)
+        .send()
+        .await
         .map_err(|e| crate::redact::redact(&format!("Could not reach {url}: {e}"), &[&key]))?;
     let status = response.status();
     let text = response.text().await.map_err(|e| e.to_string())?;
     if !status.is_success() {
         return Err(format!("The provider's account endpoint answered HTTP {}", status.as_u16()));
     }
-    let body: Value = serde_json::from_str(&text).map_err(|_| "The account endpoint's answer is not JSON".to_string())?;
+    let body: Value =
+        serde_json::from_str(&text).map_err(|_| "The account endpoint's answer is not JSON".to_string())?;
     Ok(read(&body, crate::db::now_ms()))
 }
 
@@ -253,16 +286,24 @@ pub fn windows_of(limits: &store::RateLimits) -> Vec<Window> {
 pub fn exhausted(conn: &Connection, provider: &Provider, model: &Model, now: i64) -> store::Result<Option<String>> {
     let until = |at: i64| crate::gateway::store::iso_utc(at).replace('T', " ")[..16].to_string() + " UTC";
     for limits in store::list_limits(conn, &provider.id)?.into_iter().filter(|l| l.model_id == model.model_id) {
-        if let Some((window, at)) = windows_of(&limits).into_iter().find_map(|w| w.exhausted_at(now).map(|at| (w, at))) {
-            let what = if window.kind == "retry" { "asked to wait".to_string() } else { format!("{} limit used up", window.kind.replace('_', " ")) };
+        if let Some((window, at)) = windows_of(&limits).into_iter().find_map(|w| w.exhausted_at(now).map(|at| (w, at)))
+        {
+            let what = if window.kind == "retry" {
+                "asked to wait".to_string()
+            } else {
+                format!("{} limit used up", window.kind.replace('_', " "))
+            };
             return Ok(Some(format!("the provider said: {what} until {}", until(at))));
         }
     }
     if provider.kind == "openrouter" && model.billing == "free" {
         if let Some(window) = saved_account(conn, &provider.id).and_then(|a| a.free_requests) {
             if let Some(at) = window.exhausted_at(now) {
-                return Ok(Some(format!("the free models' {} requests for today are used up until {}",
-                    window.limit.unwrap_or_default(), until(at))));
+                return Ok(Some(format!(
+                    "the free models' {} requests for today are used up until {}",
+                    window.limit.unwrap_or_default(),
+                    until(at)
+                )));
             }
         }
     }
@@ -294,20 +335,41 @@ mod tests {
     #[test]
     fn windows_from_each_providers_headers() {
         let now = 1_794_469_641_000;
-        let anthropic = from_headers(&headers(&[("anthropic-ratelimit-requests-limit", "50"),
-            ("anthropic-ratelimit-requests-remaining", "0"), ("anthropic-ratelimit-requests-reset", "2026-11-12T07:48:21Z"),
-            ("anthropic-ratelimit-input-tokens-limit", "40000"), ("anthropic-ratelimit-input-tokens-remaining", "39000")]), now);
+        let anthropic = from_headers(
+            &headers(&[
+                ("anthropic-ratelimit-requests-limit", "50"),
+                ("anthropic-ratelimit-requests-remaining", "0"),
+                ("anthropic-ratelimit-requests-reset", "2026-11-12T07:48:21Z"),
+                ("anthropic-ratelimit-input-tokens-limit", "40000"),
+                ("anthropic-ratelimit-input-tokens-remaining", "39000"),
+            ]),
+            now,
+        );
         assert_eq!(anthropic.len(), 2);
         assert_eq!(anthropic[0].exhausted_at(now), Some(1_794_469_701_000));
         assert_eq!(anthropic[1].exhausted_at(now), None);
 
-        let groq = from_headers(&headers(&[("x-ratelimit-limit-requests", "14400"), ("x-ratelimit-remaining-requests", "14370"),
-            ("x-ratelimit-reset-requests", "2m59.56s"), ("x-ratelimit-limit-tokens", "6000"), ("x-ratelimit-remaining-tokens", "0"),
-            ("x-ratelimit-reset-tokens", "7.66s")]), now);
+        let groq = from_headers(
+            &headers(&[
+                ("x-ratelimit-limit-requests", "14400"),
+                ("x-ratelimit-remaining-requests", "14370"),
+                ("x-ratelimit-reset-requests", "2m59.56s"),
+                ("x-ratelimit-limit-tokens", "6000"),
+                ("x-ratelimit-remaining-tokens", "0"),
+                ("x-ratelimit-reset-tokens", "7.66s"),
+            ]),
+            now,
+        );
         assert_eq!(groq[1].exhausted_at(now), Some(now + 7660));
 
-        let openrouter = from_headers(&headers(&[("x-ratelimit-limit", "50"), ("x-ratelimit-remaining", "0"),
-            ("x-ratelimit-reset", "1794528000000")]), now);
+        let openrouter = from_headers(
+            &headers(&[
+                ("x-ratelimit-limit", "50"),
+                ("x-ratelimit-remaining", "0"),
+                ("x-ratelimit-reset", "1794528000000"),
+            ]),
+            now,
+        );
         assert_eq!(openrouter[0].exhausted_at(now), Some(1_794_528_000_000));
 
         let retry = from_headers(&headers(&[("retry-after", "30")]), now);
@@ -318,16 +380,24 @@ mod tests {
     #[test]
     fn account_endpoints() {
         let now = 1_794_469_641_000;
-        let or = openrouter_key(&json!({"data": {"limit": null, "limit_remaining": null, "usage_daily": 0.0123, "is_free_tier": true,
-            "free_model_daily_requests": {"used": 12, "limit": 50, "remaining": 38}}}), now).unwrap();
+        let or = openrouter_key(
+            &json!({"data": {"limit": null, "limit_remaining": null, "usage_daily": 0.0123, "is_free_tier": true,
+            "free_model_daily_requests": {"used": 12, "limit": 50, "remaining": 38}}}),
+            now,
+        )
+        .unwrap();
         assert_eq!((or.balance, or.used_today), (None, Some(0.0123)), "no limit on the key: no balance stated");
         let free = or.free_requests.unwrap();
         assert_eq!((free.limit, free.remaining, free.resets_at), (Some(50), Some(38), Some(1_794_528_000_000)));
         let capped = openrouter_key(&json!({"data": {"limit": 10, "limit_remaining": 4.5}}), now).unwrap();
         assert_eq!((capped.balance, capped.currency.as_deref(), capped.free_requests), (Some(4.5), Some("USD"), None));
 
-        let ds = deepseek_balance(&json!({"is_available": true, "balance_infos": [{"currency": "USD", "total_balance": "1.87",
-            "granted_balance": "0.00", "topped_up_balance": "1.87"}]}), now).unwrap();
+        let ds = deepseek_balance(
+            &json!({"is_available": true, "balance_infos": [{"currency": "USD", "total_balance": "1.87",
+            "granted_balance": "0.00", "topped_up_balance": "1.87"}]}),
+            now,
+        )
+        .unwrap();
         assert_eq!((ds.balance, ds.currency.as_deref(), ds.available), (Some(1.87), Some("USD"), Some(true)));
         assert!(account_endpoint("gemini").is_none());
     }
@@ -335,16 +405,37 @@ mod tests {
     #[test]
     fn auto_skips_a_model_whose_limit_the_provider_said_is_used_up() {
         let conn = crate::db::open_in_memory().unwrap();
-        let p = store::add_provider(&conn, &store::NewProvider { kind: "openrouter", label: "OR", endpoint: "http://o.test",
-            credential_ref: None, default_billing: "free", wire: "openai" }).unwrap();
+        let p = store::add_provider(
+            &conn,
+            &store::NewProvider {
+                kind: "openrouter",
+                label: "OR",
+                endpoint: "http://o.test",
+                credential_ref: None,
+                default_billing: "free",
+                wire: "openai",
+            },
+        )
+        .unwrap();
         let price = crate::gateway::pricing::Price { source: "x".into(), ..Default::default() };
         let listed = |id: &str| store::Listed { id: id.into(), price: Some(price.clone()), ..store::Listed::default() };
         store::import_listed(&conn, &p.id, &[listed("a:free"), listed("b:free")], Some("x")).unwrap();
-        let model = |id: &str| store::list_models(&conn, Some(&p.id)).unwrap().into_iter().find(|m| m.model_id == id).unwrap();
+        let model =
+            |id: &str| store::list_models(&conn, Some(&p.id)).unwrap().into_iter().find(|m| m.model_id == id).unwrap();
         let now = crate::db::now_ms();
         let soon = (now + 60_000).to_string();
-        store::record_limits(&conn, &p.id, "a:free", 429, &[("x-ratelimit-limit".into(), "20".into()),
-            ("x-ratelimit-remaining".into(), "0".into()), ("x-ratelimit-reset".into(), soon)]).unwrap();
+        store::record_limits(
+            &conn,
+            &p.id,
+            "a:free",
+            429,
+            &[
+                ("x-ratelimit-limit".into(), "20".into()),
+                ("x-ratelimit-remaining".into(), "0".into()),
+                ("x-ratelimit-reset".into(), soon),
+            ],
+        )
+        .unwrap();
         let why = exhausted(&conn, &p, &model("a:free"), now).unwrap().unwrap();
         assert!(why.starts_with("the provider said: requests limit used up until"), "{why}");
         assert_eq!(exhausted(&conn, &p, &model("b:free"), now).unwrap(), None);
@@ -352,8 +443,20 @@ mod tests {
         assert_eq!(exhausted(&conn, &p, &model("a:free"), now + 120_000).unwrap(), None);
 
         // The day's free requests, from OpenRouter's /key, hold every free model until midnight UTC.
-        save_account(&conn, &p.id, &Account { free_requests: Some(Window { kind: "free_requests_per_day".into(), limit: Some(50),
-            remaining: Some(0), resets_at: Some(now + 3_600_000) }), ..Account::default() }).unwrap();
+        save_account(
+            &conn,
+            &p.id,
+            &Account {
+                free_requests: Some(Window {
+                    kind: "free_requests_per_day".into(),
+                    limit: Some(50),
+                    remaining: Some(0),
+                    resets_at: Some(now + 3_600_000),
+                }),
+                ..Account::default()
+            },
+        )
+        .unwrap();
         assert!(exhausted(&conn, &p, &model("b:free"), now).unwrap().unwrap().contains("50 requests for today"));
     }
 }

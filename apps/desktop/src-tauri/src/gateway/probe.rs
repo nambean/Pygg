@@ -18,7 +18,8 @@ pub async fn probe_once(shared: &Shared) -> Vec<String> {
     let due = shared.with_db(|db| store::unreachable_to_probe(db, PROBE_GAP_MS)).unwrap_or_default();
     let mut recovered = Vec::new();
     for id in due {
-        let Some(provider) = shared.with_db(store::list_providers).unwrap_or_default().into_iter().find(|p| p.id == id) else {
+        let Some(provider) = shared.with_db(store::list_providers).unwrap_or_default().into_iter().find(|p| p.id == id)
+        else {
             continue;
         };
         match catalog::fetch_models(shared, &provider).await {

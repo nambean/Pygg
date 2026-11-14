@@ -64,11 +64,18 @@ impl Store for Db {
 
 fn server(conn: &Connection) -> Result<integrations::Server, String> {
     let program = std::env::current_exe().map_err(|e| e.to_string())?.to_string_lossy().into_owned();
-    let port: u16 = crate::gateway::store::setting(conn, crate::gateway::PORT_KEY).ok().flatten().and_then(|p| p.parse().ok())
+    let port: u16 = crate::gateway::store::setting(conn, crate::gateway::PORT_KEY)
+        .ok()
+        .flatten()
+        .and_then(|p| p.parse().ok())
         .unwrap_or(crate::gateway::DEFAULT_PORT);
-    Ok(integrations::Server { program, args: vec!["mcp".into()],
+    Ok(integrations::Server {
+        program,
+        args: vec!["mcp".into()],
         url: (port != crate::gateway::DEFAULT_PORT).then(|| format!("http://127.0.0.1:{port}")),
-        gateway_url: format!("http://127.0.0.1:{port}"), models: integrations::gateway_models(conn) })
+        gateway_url: format!("http://127.0.0.1:{port}"),
+        models: integrations::gateway_models(conn),
+    })
 }
 
 fn backups(store: &Path) -> PathBuf {
@@ -87,13 +94,24 @@ pub struct ToolState {
 /// The three tools' gateway set-up, read without writing: the launcher's record and the two configurations.
 pub async fn tool_states(conn: &Connection) -> Vec<ToolState> {
     let launcher = crate::launcher::state(conn);
-    let mut out = vec![ToolState { name: "claude", installed: launcher.installed, set_up: launcher.set_up,
-        state: if launcher.set_up { "set up".into() } else { "not set up".into() } }];
-    let records: Vec<(String, Option<String>)> = integrations::records(conn).into_iter()
-        .filter(|(id, _)| id == integrations::CODEX_GATEWAY || id == integrations::OPENCODE_GATEWAY).collect();
+    let mut out = vec![ToolState {
+        name: "claude",
+        installed: launcher.installed,
+        set_up: launcher.set_up,
+        state: if launcher.set_up { "set up".into() } else { "not set up".into() },
+    }];
+    let records: Vec<(String, Option<String>)> = integrations::records(conn)
+        .into_iter()
+        .filter(|(id, _)| id == integrations::CODEX_GATEWAY || id == integrations::OPENCODE_GATEWAY)
+        .collect();
     for i in integrations::list_with(records, &Homes::from_env()).await {
         let name = if i.id == integrations::CODEX_GATEWAY { "codex" } else { "opencode" };
-        out.push(ToolState { name, installed: i.installed, set_up: i.state == "set_up", state: i.state.replace('_', " ") });
+        out.push(ToolState {
+            name,
+            installed: i.installed,
+            set_up: i.state == "set_up",
+            state: i.state.replace('_', " "),
+        });
     }
     out.sort_by_key(|t| ["claude", "codex", "opencode"].iter().position(|n| *n == t.name));
     out
@@ -120,8 +138,10 @@ async fn setup(args: &[String]) -> Result<i32, Fail> {
         _ => return Err(Fail::usage("name one tool.\nUse: pygg setup claude")),
     };
     if matches!(tool.as_str(), "claude-code") {
-        return Err(Fail::usage("`claude-code` registered Pygg's MCP server (experimental); that is now `pygg mcp setup claude-code`.\n\
-            To route Claude Code through Pygg: pygg setup claude"));
+        return Err(Fail::usage(
+            "`claude-code` registered Pygg's MCP server (experimental); that is now `pygg mcp setup claude-code`.\n\
+            To route Claude Code through Pygg: pygg setup claude",
+        ));
     }
     let Some(id) = resolve(&tool) else {
         return Err(Fail::usage(format!("unknown tool {tool}: one of claude, codex, opencode.")));
@@ -139,8 +159,13 @@ async fn list(opts: &Opts) -> Result<i32, Fail> {
     println!("Route a coding tool through Pygg\n");
     println!("{:<10}{:<11}{:<20}NEXT", "TOOL", "INSTALLED", "PYGG SETUP");
     for t in &tools {
-        let next = if t.set_up { format!("pygg run {}", t.name) } else if t.installed { format!("pygg setup {}", t.name) }
-            else { "install the tool first".into() };
+        let next = if t.set_up {
+            format!("pygg run {}", t.name)
+        } else if t.installed {
+            format!("pygg setup {}", t.name)
+        } else {
+            "install the tool first".into()
+        };
         println!("{:<10}{:<11}{:<20}{next}", t.name, if t.installed { "yes" } else { "no" }, t.state);
     }
     println!("\nPreview a change: pygg setup claude --dry-run. Setup sends no prompt; requests the tool makes later may cost money.");
@@ -154,7 +179,12 @@ async fn apply(id: &'static str, tool: &str, store: &Path, opts: &Opts) -> Resul
         let conn = super::read::open_read(opts)?;
         let server = server(&conn).map_err(Fail::op)?;
         let p = integrations::plan(id, &server, &homes, &backups(store)).map_err(Fail::op)?;
-        println!("Setting up {} would change {}{}", p.name, p.config_path, if p.config_exists { "" } else { " (a new file)" });
+        println!(
+            "Setting up {} would change {}{}",
+            p.name,
+            p.config_path,
+            if p.config_exists { "" } else { " (a new file)" }
+        );
         println!("Backup first, to {}", p.backup_dir);
         println!("A new Pygg API key \"{}\" is made and written there, never printed.\n", p.client_name);
         println!("{}", p.change);
@@ -172,9 +202,17 @@ async fn apply(id: &'static str, tool: &str, store: &Path, opts: &Opts) -> Resul
     };
     let i = result.map_err(Fail::op)?;
     if opts.has("remove") {
-        println!("Removed from {}. Its key is revoked; the backup stays in {}", i.config_path, backups(store).display());
+        println!(
+            "Removed from {}. Its key is revoked; the backup stays in {}",
+            i.config_path,
+            backups(store).display()
+        );
     } else {
-        println!("Set up in {}{}", i.config_path, i.backup.as_ref().map(|b| format!(" (backup: {b})")).unwrap_or_default());
+        println!(
+            "Set up in {}{}",
+            i.config_path,
+            i.backup.as_ref().map(|b| format!(" (backup: {b})")).unwrap_or_default()
+        );
         println!("Next: pygg run {}", if id == integrations::CODEX_GATEWAY { "codex" } else { "opencode" });
         if id == integrations::OPENCODE_GATEWAY {
             println!("      then choose a Pygg model with /models (pygg/auto lets Pygg choose)");
@@ -190,16 +228,27 @@ async fn apply(id: &'static str, tool: &str, store: &Path, opts: &Opts) -> Resul
 /// `pygg setup claude [--dry-run | --remove]`: the Claude Code launcher.
 fn launcher(store: &Path, opts: &Opts) -> Result<i32, Fail> {
     if opts.has("dry-run") {
-        println!("Setting up Claude Code makes the Pygg API key \"{}\" and keeps it in {};", crate::launcher::CLIENT_NAME,
-            crate::vault::STORE_NAME);
-        println!("no file changes. Then `pygg run claude` starts Claude Code through Pygg with the model auto, and plain");
+        println!(
+            "Setting up Claude Code makes the Pygg API key \"{}\" and keeps it in {};",
+            crate::launcher::CLIENT_NAME,
+            crate::vault::STORE_NAME
+        );
+        println!(
+            "no file changes. Then `pygg run claude` starts Claude Code through Pygg with the model auto, and plain"
+        );
         println!("`claude` keeps your Claude sign-in.\n\nNothing was written. Run `pygg setup claude` to do it.");
         return Ok(0);
     }
     let conn = crate::db::open(store).map_err(|e| Fail::op(format!("{}: {e}", store.display())))?;
-    let result = if opts.has("remove") { crate::launcher::remove(&conn) } else { crate::launcher::set_up(&conn, crate::db::now_ms()) };
+    let result = if opts.has("remove") {
+        crate::launcher::remove(&conn)
+    } else {
+        crate::launcher::set_up(&conn, crate::db::now_ms())
+    };
     match result.map_err(Fail::op)? {
-        s if s.set_up => println!("Set up: the key is in {}, no file changed.\nNext: pygg run claude", crate::vault::STORE_NAME),
+        s if s.set_up => {
+            println!("Set up: the key is in {}, no file changed.\nNext: pygg run claude", crate::vault::STORE_NAME)
+        }
         _ => println!("Removed: the launcher's key is revoked and deleted from {}.", crate::vault::STORE_NAME),
     }
     Ok(0)
@@ -223,8 +272,8 @@ async fn mcp(args: &[String]) -> Result<i32, Fail> {
     match opts.words.as_slice() {
         [] => {
             let conn = super::read::open_read(&opts)?;
-            let records: Vec<(String, Option<String>)> = integrations::records(&conn).into_iter()
-                .filter(|(id, _)| resolve_mcp(id).is_some()).collect();
+            let records: Vec<(String, Option<String>)> =
+                integrations::records(&conn).into_iter().filter(|(id, _)| resolve_mcp(id).is_some()).collect();
             println!("{:<14}{:<20}CONFIGURATION", "TOOL", "PYGG MCP SERVER");
             for i in integrations::list_with(records, &Homes::from_env()).await {
                 println!("{:<14}{:<20}{}", i.id, i.state.replace('_', " "), i.config_path);
@@ -233,7 +282,8 @@ async fn mcp(args: &[String]) -> Result<i32, Fail> {
             Ok(0)
         }
         [name] => {
-            let id = resolve_mcp(name).ok_or_else(|| Fail::usage(format!("unknown tool {name}: one of claude-code, codex, opencode.")))?;
+            let id = resolve_mcp(name)
+                .ok_or_else(|| Fail::usage(format!("unknown tool {name}: one of claude-code, codex, opencode.")))?;
             apply(id, name, &store, &opts).await
         }
         _ => Err(Fail::usage("name one tool.\nUse: pygg mcp setup claude-code")),
@@ -262,15 +312,23 @@ mod tests {
     fn a_dry_run_and_bad_options_write_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let store = dir.path().join("store.sqlite3");
-        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).chain(["--db".to_string(), store.to_string_lossy().into_owned()])
-            .collect::<Vec<_>>();
+        let args = |a: &[&str]| {
+            a.iter()
+                .map(|s| s.to_string())
+                .chain(["--db".to_string(), store.to_string_lossy().into_owned()])
+                .collect::<Vec<_>>()
+        };
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         // A preview of Codex's setup on a store that does not exist: refused, and the store is not created.
         assert_eq!(rt.block_on(setup(&args(&["codex", "--dry-run"]))).unwrap_err().code, 1);
         assert!(!store.exists());
         assert_eq!(rt.block_on(setup(&args(&["codex", "--dry-run", "--remove"]))).unwrap_err().code, 2);
         assert_eq!(rt.block_on(setup(&args(&["codex", "--force"]))).unwrap_err().code, 2);
-        assert!(rt.block_on(setup(&args(&["claude-code"]))).unwrap_err().message.contains("pygg mcp setup claude-code"));
+        assert!(rt
+            .block_on(setup(&args(&["claude-code"])))
+            .unwrap_err()
+            .message
+            .contains("pygg mcp setup claude-code"));
         assert!(!store.exists());
     }
 }

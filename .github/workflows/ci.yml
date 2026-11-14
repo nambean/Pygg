@@ -24,10 +24,13 @@ jobs:
       - run: pnpm build
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri
+      # Formatted as rustfmt.toml says.
+      - run: cargo fmt --check
+        working-directory: apps/desktop/src-tauri
       # No lint warnings, in the app and in the console program built without the window (ADR-037).
       - run: cargo clippy --all-targets --all-features -- -D warnings
         working-directory: apps/desktop/src-tauri

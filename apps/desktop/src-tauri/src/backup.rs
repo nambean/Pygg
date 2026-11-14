@@ -19,8 +19,14 @@ pub fn folder(data_dir: &Path) -> PathBuf {
 
 /// The copies there, oldest first.
 pub fn list(data_dir: &Path) -> Vec<PathBuf> {
-    let mut found: Vec<PathBuf> = std::fs::read_dir(folder(data_dir)).into_iter().flatten().flatten().map(|e| e.path())
-        .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("store-") && n.ends_with(".sqlite3")))
+    let mut found: Vec<PathBuf> = std::fs::read_dir(folder(data_dir))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("store-") && n.ends_with(".sqlite3"))
+        })
         .collect();
     found.sort();
     found
@@ -61,7 +67,8 @@ pub fn daily(conn: &Connection, data_dir: &Path, now_ms: i64) -> Result<Option<P
     if path.exists() {
         return Ok(None);
     }
-    conn.execute("VACUUM INTO ?1", [path.to_string_lossy().as_ref()]).map_err(|e| format!("backing up the store: {e}"))?;
+    conn.execute("VACUUM INTO ?1", [path.to_string_lossy().as_ref()])
+        .map_err(|e| format!("backing up the store: {e}"))?;
     let all = list(data_dir);
     for old in all.iter().take(all.len().saturating_sub(KEEP)) {
         let _ = std::fs::remove_file(old);
@@ -80,7 +87,11 @@ mod tests {
         crate::gateway::store::set_setting(&conn, "marker", "kept").unwrap();
         let first = daily(&conn, dir.path(), 1_794_469_641_058).unwrap().expect("a first copy");
         let copy = Connection::open(&first).unwrap();
-        assert_eq!(crate::gateway::store::setting(&copy, "marker").unwrap().as_deref(), Some("kept"), "the copy is the store");
+        assert_eq!(
+            crate::gateway::store::setting(&copy, "marker").unwrap().as_deref(),
+            Some("kept"),
+            "the copy is the store"
+        );
         assert_eq!(daily(&conn, dir.path(), 1_794_469_641_058 + 3_600_000).unwrap(), None, "not twice in a day");
         // Older copies, as if from earlier days: only the newest KEEP stay.
         for day in 1..=4 {
@@ -95,8 +106,9 @@ mod tests {
     /// Ages every copy in `dir` by `ms`, so the next `daily` sees them as old.
     fn filetime_now_minus(dir: &Path, ms: u64) -> bool {
         let when = std::time::SystemTime::now() - std::time::Duration::from_millis(ms);
-        std::fs::read_dir(dir).unwrap().flatten().all(|e| {
-            std::fs::File::options().write(true).open(e.path()).and_then(|f| f.set_modified(when)).is_ok()
-        })
+        std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .all(|e| std::fs::File::options().write(true).open(e.path()).and_then(|f| f.set_modified(when)).is_ok())
     }
 }

@@ -3,15 +3,23 @@
 //! what was committed stays whole, what was not leaves no trace, and the app can say what happened.
 
 use crate::gateway::pricing::Cost;
-use crate::gateway::store::{self, AttemptStart, UsageRecord, Unsettled};
+use crate::gateway::store::{self, AttemptStart, Unsettled, UsageRecord};
 use crate::{backup, db};
 use rusqlite::Connection;
 use std::path::Path;
 use std::time::Duration;
 
 fn start<'a>(client: &'a str, generation: &'a str, hold: u64) -> AttemptStart<'a> {
-    AttemptStart { client_id: client, provider_id: "main", model_id: "fast", requested_model: "coding", session_key: None,
-        route_mode: "native", hold_micro: hold, owner_generation: generation }
+    AttemptStart {
+        client_id: client,
+        provider_id: "main",
+        model_id: "fast",
+        requested_model: "coding",
+        session_key: None,
+        route_mode: "native",
+        hold_micro: hold,
+        owner_generation: generation,
+    }
 }
 
 fn answered(client: &str) -> UsageRecord<'_> {
@@ -51,8 +59,10 @@ fn a_killed_writer_leaves_the_store_whole() {
     let status = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["faults::killed_writer_child", "--exact", "--nocapture", "--test-threads=1"])
         .env("PYGG_FAULT_STORE", &path)
-        .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
-        .status().unwrap();
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .unwrap();
     assert!(!status.success(), "the child must die mid-transaction");
 
     let conn = db::open(&path).unwrap();

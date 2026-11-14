@@ -25,7 +25,8 @@ fn tool_outputs(surface: Surface, body: &Value) -> Vec<String> {
     match surface {
         Surface::Anthropic => {
             for message in body["messages"].as_array().into_iter().flatten() {
-                for block in message["content"].as_array().into_iter().flatten().filter(|b| b["type"] == "tool_result") {
+                for block in message["content"].as_array().into_iter().flatten().filter(|b| b["type"] == "tool_result")
+                {
                     out.push(text_of(&block["content"]));
                 }
             }
@@ -36,8 +37,12 @@ fn tool_outputs(surface: Surface, body: &Value) -> Vec<String> {
             }
         }
         Surface::Responses => {
-            for item in body["input"].as_array().into_iter().flatten()
-                .filter(|i| i["type"] == "function_call_output" || i["type"] == "custom_tool_call_output") {
+            for item in body["input"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|i| i["type"] == "function_call_output" || i["type"] == "custom_tool_call_output")
+            {
                 out.push(text_of(&item["output"]));
             }
         }
@@ -77,7 +82,11 @@ mod tests {
             {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "b", "content": [{"type": "text", "text": file}]}]},
             {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c", "content": "ok"}]},
             {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "d", "content": "ok"}]}]});
-        assert_eq!(repeated_tokens(Surface::Anthropic, &anthropic), Some(100), "the second read of the file; short results not counted");
+        assert_eq!(
+            repeated_tokens(Surface::Anthropic, &anthropic),
+            Some(100),
+            "the second read of the file; short results not counted"
+        );
         let openai = json!({"messages": [{"role": "tool", "content": file}, {"role": "user", "content": "go"}]});
         assert_eq!(repeated_tokens(Surface::OpenAi, &openai), Some(0));
         let responses = json!({"input": [{"type": "function_call_output", "output": file}, {"type": "function_call_output", "output": file}]});

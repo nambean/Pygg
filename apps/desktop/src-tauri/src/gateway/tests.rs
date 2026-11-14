@@ -41,8 +41,12 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
     }
     // Model `ring` answers by key, as separate accounts would: one rejected, one rate-limited, the others well.
     if model == "ring" {
-        let key = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "))
-            .unwrap_or_default().to_string();
+        let key = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .unwrap_or_default()
+            .to_string();
         fake.keys.lock().unwrap().push(key.clone());
         match key.as_str() {
             "key-bad" => return (StatusCode::UNAUTHORIZED, Json(json!({ "error": { "message": "invalid api key" } }))).into_response(),
@@ -58,10 +62,19 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
         return (StatusCode::UNAUTHORIZED, Json(json!({ "error": { "message": "bad key" } }))).into_response();
     }
     match model.as_str() {
-        "limited" => return ([(header::RETRY_AFTER, "120")], (StatusCode::TOO_MANY_REQUESTS,
-            Json(json!({ "error": { "message": "quota" } })))).into_response(),
-        "forbidden" => return (StatusCode::FORBIDDEN, Json(json!({ "error": { "message": "not allowed" } }))).into_response(),
-        "broken" => return (StatusCode::BAD_REQUEST, Json(json!({ "error": { "message": "bad field" } }))).into_response(),
+        "limited" => {
+            return (
+                [(header::RETRY_AFTER, "120")],
+                (StatusCode::TOO_MANY_REQUESTS, Json(json!({ "error": { "message": "quota" } }))),
+            )
+                .into_response()
+        }
+        "forbidden" => {
+            return (StatusCode::FORBIDDEN, Json(json!({ "error": { "message": "not allowed" } }))).into_response()
+        }
+        "broken" => {
+            return (StatusCode::BAD_REQUEST, Json(json!({ "error": { "message": "bad field" } }))).into_response()
+        }
         "down" => return (StatusCode::SERVICE_UNAVAILABLE, "overloaded").into_response(),
         // Overloaded once, and ready again at once (Retry-After: 0, so no cooldown is left behind).
         "flaky" if !fake.flaky_failed.swap(true, Ordering::SeqCst) => {
@@ -71,15 +84,38 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
         "gateway504" => return (StatusCode::GATEWAY_TIMEOUT, "upstream timed out").into_response(),
         "broke" => return (StatusCode::INTERNAL_SERVER_ERROR, "boom").into_response(),
         // OpenRouter's answer on an account with no credit (its `code` is a number).
-        "nocredit" | "nocredit:free" => return (StatusCode::PAYMENT_REQUIRED, Json(json!({ "error": {
-            "message": "Insufficient credits", "code": 402 } }))).into_response(),
-        "noquota" => return (StatusCode::TOO_MANY_REQUESTS, Json(json!({ "error": { "message": "You exceeded your current quota",
-            "type": "insufficient_quota", "code": "insufficient_quota" } }))).into_response(),
-        "daylong" => return ([(header::RETRY_AFTER, "86400")], (StatusCode::TOO_MANY_REQUESTS,
-            Json(json!({ "error": { "message": "daily quota" } })))).into_response(),
+        "nocredit" | "nocredit:free" => {
+            return (
+                StatusCode::PAYMENT_REQUIRED,
+                Json(json!({ "error": {
+            "message": "Insufficient credits", "code": 402 } })),
+            )
+                .into_response()
+        }
+        "noquota" => {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(json!({ "error": { "message": "You exceeded your current quota",
+            "type": "insufficient_quota", "code": "insufficient_quota" } })),
+            )
+                .into_response()
+        }
+        "daylong" => {
+            return (
+                [(header::RETRY_AFTER, "86400")],
+                (StatusCode::TOO_MANY_REQUESTS, Json(json!({ "error": { "message": "daily quota" } }))),
+            )
+                .into_response()
+        }
         // Gemini's answer for a model the key's tier does not serve: 429 "quota", no reset (CCHT benchmark, 2026-11-13).
-        "quota429" => return (StatusCode::TOO_MANY_REQUESTS, Json(json!([{ "error": { "code": 429, "status": "RESOURCE_EXHAUSTED",
-            "message": "You exceeded your current quota, please check your plan and billing details." } }]))).into_response(),
+        "quota429" => {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(json!([{ "error": { "code": 429, "status": "RESOURCE_EXHAUSTED",
+            "message": "You exceeded your current quota, please check your plan and billing details." } }])),
+            )
+                .into_response()
+        }
         "slow" => tokio::time::sleep(Duration::from_millis(1500)).await,
         "slow-ok" => tokio::time::sleep(Duration::from_millis(300)).await,
         _ => {}
@@ -96,7 +132,10 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
             let data = if i == 14 {
-                format!("data: {}\n\ndata: [DONE]\n\n", json!({ "choices": [], "usage": { "prompt_tokens": 10, "completion_tokens": 15 } }))
+                format!(
+                    "data: {}\n\ndata: [DONE]\n\n",
+                    json!({ "choices": [], "usage": { "prompt_tokens": 10, "completion_tokens": 15 } })
+                )
             } else {
                 format!("data: {}\n\n", json!({ "choices": [{ "delta": { "content": "x" } }] }))
             };
@@ -105,73 +144,124 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
         return ([(header::CONTENT_TYPE, "text/event-stream")], Body::from_stream(chunks)).into_response();
     }
     // A model that reports more than any estimate held for it: 1M prompt tokens.
-    let usage = if model == "heavy" { json!({ "prompt_tokens": 1_000_000, "completion_tokens": 500 }) }
-        else { json!({ "prompt_tokens": 1000, "completion_tokens": 500 }) };
+    let usage = if model == "heavy" {
+        json!({ "prompt_tokens": 1_000_000, "completion_tokens": 500 })
+    } else {
+        json!({ "prompt_tokens": 1000, "completion_tokens": 500 })
+    };
     // Says whether prompt-cache markers survived the trip, for the translation tests.
     let text = if body.to_string().contains("cache_control") { "pong cache:yes" } else { "pong" };
     if model == "keyorder" {
         // Echoes the key order of the first tool's schema properties, for the passthrough test.
-        let order: Vec<String> = body["tools"][0]["function"]["parameters"]["properties"].as_object()
-            .map(|m| m.keys().cloned().collect()).unwrap_or_default();
-        return ([("x-ratelimit-remaining-requests", "41"), ("x-request-id", "req_7")],
+        let order: Vec<String> = body["tools"][0]["function"]["parameters"]["properties"]
+            .as_object()
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default();
+        return (
+            [("x-ratelimit-remaining-requests", "41"), ("x-request-id", "req_7")],
             Json(json!({ "choices": [{ "index": 0, "finish_reason": "stop", "message": { "role": "assistant",
-                "content": order.join(",") } }], "usage": usage }))).into_response();
+                "content": order.join(",") } }], "usage": usage })),
+        )
+            .into_response();
     }
     if body["stream"] == true {
         assert_eq!(body["stream_options"]["include_usage"], true, "the gateway asks for usage");
         let mut sse = String::new();
         if model == "patcher" {
             // A call to Codex's free-form `apply_patch`, which reached the provider as a function taking `input`.
-            sse.push_str(&format!("data: {}\n\n", json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0, "id": "call_p",
-                "function": { "name": "apply_patch", "arguments": "{\"input\":\"*** Begin Patch\\n" } }] } }] })));
-            sse.push_str(&format!("data: {}\n\n", json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0,
-                "function": { "arguments": "*** End Patch\"}" } }] }, "finish_reason": "tool_calls" }] })));
+            sse.push_str(&format!(
+                "data: {}\n\n",
+                json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0, "id": "call_p",
+                "function": { "name": "apply_patch", "arguments": "{\"input\":\"*** Begin Patch\\n" } }] } }] })
+            ));
+            sse.push_str(&format!(
+                "data: {}\n\n",
+                json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0,
+                "function": { "arguments": "*** End Patch\"}" } }] }, "finish_reason": "tool_calls" }] })
+            ));
         } else if model == "tooler" {
-            sse.push_str(&format!("data: {}\n\n", json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0, "id": "call_1",
-                "function": { "name": "read", "arguments": "{\"path\":" } }] } }] })));
-            sse.push_str(&format!("data: {}\n\n", json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0,
-                "function": { "arguments": "\"a\"}" } }] }, "finish_reason": "tool_calls" }] })));
+            sse.push_str(&format!(
+                "data: {}\n\n",
+                json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0, "id": "call_1",
+                "function": { "name": "read", "arguments": "{\"path\":" } }] } }] })
+            ));
+            sse.push_str(&format!(
+                "data: {}\n\n",
+                json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0,
+                "function": { "arguments": "\"a\"}" } }] }, "finish_reason": "tool_calls" }] })
+            ));
         } else {
             sse.push_str(&format!("data: {}\n\n", json!({ "choices": [{ "delta": { "content": "po" } }] })));
-            sse.push_str(&format!("data: {}\n\n", json!({ "choices": [{ "delta": { "content": "ng" }, "finish_reason": "stop" }] })));
+            sse.push_str(&format!(
+                "data: {}\n\n",
+                json!({ "choices": [{ "delta": { "content": "ng" }, "finish_reason": "stop" }] })
+            ));
         }
         sse.push_str(&format!("data: {}\n\ndata: [DONE]\n\n", json!({ "choices": [], "usage": usage })));
         return ([(header::CONTENT_TYPE, "text/event-stream")], sse).into_response();
     }
     Json(json!({ "id": "x", "object": "chat.completion", "model": model,
         "choices": [{ "index": 0, "finish_reason": "stop", "message": { "role": "assistant", "content": text } }],
-        "usage": usage })).into_response()
+        "usage": usage }))
+    .into_response()
 }
 
 /// The fake Anthropic provider: answers with what it received, so passthrough can be checked field by field.
-async fn fake_anthropic(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody(body): JsonBody<Value>) -> Response {
+async fn fake_anthropic(
+    State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody(body): JsonBody<Value>,
+) -> Response {
     let model = body["model"].as_str().unwrap_or("").to_string();
     *fake.calls.lock().unwrap().entry(model.clone()).or_default() += 1;
     *fake.last_body.lock().unwrap() = Some(body.clone());
-    if headers.get("x-api-key").and_then(|v| v.to_str().ok()) != Some("key-1") || headers.get("anthropic-version").is_none() {
-        return (StatusCode::UNAUTHORIZED, Json(json!({ "type": "error", "error": { "type": "authentication_error",
-            "message": "missing key or version" } }))).into_response();
+    if headers.get("x-api-key").and_then(|v| v.to_str().ok()) != Some("key-1")
+        || headers.get("anthropic-version").is_none()
+    {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "type": "error", "error": { "type": "authentication_error",
+            "message": "missing key or version" } })),
+        )
+            .into_response();
     }
     if model == "limited" {
-        return ([(header::RETRY_AFTER, "30")], (StatusCode::TOO_MANY_REQUESTS, Json(json!({ "type": "error",
-            "error": { "type": "rate_limit_error", "message": "slow down" } })))).into_response();
+        return (
+            [(header::RETRY_AFTER, "30")],
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(json!({ "type": "error",
+            "error": { "type": "rate_limit_error", "message": "slow down" } })),
+            ),
+        )
+            .into_response();
     }
     // Claude Haiku 5.5 to a conversation that ends with an assistant turn (CCHT benchmark, 2026-11-13).
-    if model == "noprefill" && body["messages"].as_array().and_then(|m| m.last()).is_some_and(|m| m["role"] == "assistant") {
+    if model == "noprefill"
+        && body["messages"].as_array().and_then(|m| m.last()).is_some_and(|m| m["role"] == "assistant")
+    {
         return (StatusCode::BAD_REQUEST, Json(json!({ "type": "error", "error": { "type": "invalid_request_error",
             "message": "This model does not support assistant message prefill. The conversation must end with a user message." } })))
             .into_response();
     }
-    let seen = format!("cache_control={} thinking={} beta={}", body.to_string().contains("cache_control"),
-        !body["thinking"].is_null(), headers.get("anthropic-beta").and_then(|v| v.to_str().ok()).unwrap_or("-"));
+    let seen = format!(
+        "cache_control={} thinking={} beta={}",
+        body.to_string().contains("cache_control"),
+        !body["thinking"].is_null(),
+        headers.get("anthropic-beta").and_then(|v| v.to_str().ok()).unwrap_or("-")
+    );
     let usage = json!({ "input_tokens": 10, "cache_read_input_tokens": 900, "cache_creation_input_tokens": 90, "output_tokens": 5 });
     let limits = [("anthropic-ratelimit-requests-remaining", "99"), ("request-id", "req_a1")];
     if model == "thinker" {
         // Thinks aloud about the thinking it was asked for, then a redacted block, then the answer (ROADMAP B5).
         // Not asked to think: an empty block, as Claude's default `display: "omitted"` sends.
-        let thought = if body["thinking"].is_null() { String::new() } else {
-            format!("thinking={} effort={}", body["thinking"]["type"].as_str().unwrap_or("-"),
-                body["output_config"]["effort"].as_str().unwrap_or("-")) };
+        let thought = if body["thinking"].is_null() {
+            String::new()
+        } else {
+            format!(
+                "thinking={} effort={}",
+                body["thinking"]["type"].as_str().unwrap_or("-"),
+                body["output_config"]["effort"].as_str().unwrap_or("-")
+            )
+        };
         if body["stream"] == true {
             let events = [
                 json!({ "type": "message_start", "message": { "id": "msg_t", "usage": usage } }),
@@ -187,13 +277,18 @@ async fn fake_anthropic(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonB
                 json!({ "type": "message_delta", "delta": { "stop_reason": "end_turn" }, "usage": { "output_tokens": 7 } }),
                 json!({ "type": "message_stop" }),
             ];
-            let sse: String = events.iter().map(|e| format!("event: {}\ndata: {e}\n\n", e["type"].as_str().unwrap())).collect();
+            let sse: String =
+                events.iter().map(|e| format!("event: {}\ndata: {e}\n\n", e["type"].as_str().unwrap())).collect();
             return ([(header::CONTENT_TYPE, "text/event-stream")], limits, sse).into_response();
         }
-        return (limits, Json(json!({ "id": "msg_t", "type": "message", "role": "assistant", "model": model,
+        return (
+            limits,
+            Json(json!({ "id": "msg_t", "type": "message", "role": "assistant", "model": model,
             "content": [{ "type": "thinking", "thinking": thought, "signature": "EqQBsig" },
                 { "type": "redacted_thinking", "data": "secret" }, { "type": "text", "text": seen }],
-            "stop_reason": "end_turn", "usage": usage }))).into_response();
+            "stop_reason": "end_turn", "usage": usage })),
+        )
+            .into_response();
     }
     if body["stream"] == true {
         let sse = format!(
@@ -203,12 +298,18 @@ async fn fake_anthropic(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonB
             json!({ "type": "message_delta", "delta": { "stop_reason": "end_turn" }, "usage": { "output_tokens": 7 } }));
         return ([(header::CONTENT_TYPE, "text/event-stream")], limits, sse).into_response();
     }
-    (limits, Json(json!({ "id": "msg_1", "type": "message", "role": "assistant", "model": model,
-        "content": [{ "type": "text", "text": seen }], "stop_reason": "end_turn", "usage": usage }))).into_response()
+    (
+        limits,
+        Json(json!({ "id": "msg_1", "type": "message", "role": "assistant", "model": model,
+        "content": [{ "type": "text", "text": seen }], "stop_reason": "end_turn", "usage": usage })),
+    )
+        .into_response()
 }
 
 /// The fake provider's own Responses API, for the native passthrough (ADR-033).
-async fn fake_responses(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody(body): JsonBody<Value>) -> Response {
+async fn fake_responses(
+    State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody(body): JsonBody<Value>,
+) -> Response {
     let model = body["model"].as_str().unwrap_or("").to_string();
     *fake.calls.lock().unwrap().entry(format!("responses:{model}")).or_default() += 1;
     *fake.last_body.lock().unwrap() = Some(body.clone());
@@ -216,8 +317,12 @@ async fn fake_responses(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonB
         return (StatusCode::UNAUTHORIZED, Json(json!({ "error": { "message": "bad key" } }))).into_response();
     }
     if model == "broken" {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "error": { "message": "Unsupported parameter: 'x'",
-            "type": "invalid_request_error", "param": "x", "code": "unsupported_parameter" } }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": { "message": "Unsupported parameter: 'x'",
+            "type": "invalid_request_error", "param": "x", "code": "unsupported_parameter" } })),
+        )
+            .into_response();
     }
     let usage = json!({ "input_tokens": 1000, "input_tokens_details": { "cached_tokens": 800 }, "output_tokens": 500,
         "output_tokens_details": { "reasoning_tokens": 64 }, "total_tokens": 1500 });
@@ -247,8 +352,14 @@ struct Rig {
 
 fn price() -> Price {
     // $0.10 in, $0.40 out per million tokens: 1000 in + 500 out = $0.0001 + $0.0002.
-    Price { input_micro_per_mtok: 100_000, output_micro_per_mtok: 400_000, cached_input_micro_per_mtok: None,
-        cache_write_micro_per_mtok: None, source: "user".into(), observed_at: 0 }
+    Price {
+        input_micro_per_mtok: 100_000,
+        output_micro_per_mtok: 400_000,
+        cached_input_micro_per_mtok: None,
+        cache_write_micro_per_mtok: None,
+        source: "user".into(),
+        observed_at: 0,
+    }
 }
 
 async fn rig_with(read_timeout: Duration) -> Rig {
@@ -272,11 +383,24 @@ async fn rig_on(read_timeout: Duration, store_path: Option<&std::path::Path>) ->
         .with_state(fake.clone());
     tokio::spawn(async move { axum::serve(upstream, app).await.unwrap() });
 
-    let conn = match store_path { Some(path) => crate::db::open(path).unwrap(), None => crate::db::open_in_memory().unwrap() };
+    let conn = match store_path {
+        Some(path) => crate::db::open(path).unwrap(),
+        None => crate::db::open_in_memory().unwrap(),
+    };
     let endpoint = format!("http://{upstream_addr}/v1");
     let add = |kind: &str, label: &str, endpoint: &str, billing: &str, wire: &str| {
-        store::add_provider(&conn, &NewProvider { kind, label, endpoint, credential_ref: Some("provider-main"),
-            default_billing: billing, wire }).unwrap()
+        store::add_provider(
+            &conn,
+            &NewProvider {
+                kind,
+                label,
+                endpoint,
+                credential_ref: Some("provider-main"),
+                default_billing: billing,
+                wire,
+            },
+        )
+        .unwrap()
     };
     let main = add("custom", "Main", &endpoint, "paid", "openai");
     // Same provider kind as Main, so the same quota group: a sibling key of the same organization.
@@ -285,7 +409,8 @@ async fn rig_on(read_timeout: Duration, store_path: Option<&std::path::Path>) ->
     let backup = add("custom", "Backup", &endpoint, "free", "openai");
     store::update_provider(&conn, &backup.id, None, None, Some(true)).unwrap();
     let router = add("openrouter", "Router", &endpoint, "free", "openai");
-    let claude = add("custom-anthropic", "Claude", &format!("http://{upstream_addr}/anthropic/v1"), "paid", "anthropic");
+    let claude =
+        add("custom-anthropic", "Claude", &format!("http://{upstream_addr}/anthropic/v1"), "paid", "anthropic");
     for model in ["fast", "slow-ok"] {
         store::add_model(&conn, &main.id, model).unwrap();
         store::update_model(&conn, &main.id, model, None, None, Some(Some(price()))).unwrap();
@@ -293,7 +418,8 @@ async fn rig_on(read_timeout: Duration, store_path: Option<&std::path::Path>) ->
     store::add_model(&conn, &claude.id, "sonnet").unwrap();
     store::update_model(&conn, &claude.id, "sonnet", None, None, Some(Some(price()))).unwrap();
     let combo = |name: &str, members: &[(&str, &str)]| {
-        let members: Vec<Target> = members.iter().map(|(p, m)| Target { provider_id: p.to_string(), model_id: m.to_string() }).collect();
+        let members: Vec<Target> =
+            members.iter().map(|(p, m)| Target { provider_id: p.to_string(), model_id: m.to_string() }).collect();
         store::save_combo(&conn, None, name, &members).unwrap();
     };
     combo("coding", &[(&main.id, "limited"), (&main.id, "down"), (&backup.id, "steady")]);
@@ -304,14 +430,27 @@ async fn rig_on(read_timeout: Duration, store_path: Option<&std::path::Path>) ->
     let _ = router;
     let (client, token) = store::create_client(&conn, "Tests", None).unwrap();
 
-    let secrets = MapSecrets(HashMap::from([("provider-main".to_string(), "key-1".to_string()),
-        ("provider-k2".to_string(), "key-2".to_string()), ("provider-limited".to_string(), "key-limited".to_string()),
-        ("provider-bad".to_string(), "key-bad".to_string())]));
+    let secrets = MapSecrets(HashMap::from([
+        ("provider-main".to_string(), "key-1".to_string()),
+        ("provider-k2".to_string(), "key-2".to_string()),
+        ("provider-limited".to_string(), "key-limited".to_string()),
+        ("provider-bad".to_string(), "key-bad".to_string()),
+    ]));
     let shared = Shared::with_read_timeout(Arc::new(Mutex::new(conn)), Arc::new(secrets), read_timeout);
-    let shared = match store_path { Some(path) => Shared::for_store(shared.db.clone(), shared.secrets.clone(), path), None => shared };
+    let shared = match store_path {
+        Some(path) => Shared::for_store(shared.db.clone(), shared.secrets.clone(), path),
+        None => shared,
+    };
     let server = start(shared.clone(), 0).await.unwrap();
-    Rig { base: format!("http://{}", server.addr), token, client_id: client.id, shared, fake, http: reqwest::Client::new(),
-        server: tokio::sync::Mutex::new(Some(server)) }
+    Rig {
+        base: format!("http://{}", server.addr),
+        token,
+        client_id: client.id,
+        shared,
+        fake,
+        http: reqwest::Client::new(),
+        server: tokio::sync::Mutex::new(Some(server)),
+    }
 }
 
 async fn rig() -> Rig {
@@ -324,8 +463,14 @@ impl Rig {
     }
 
     async fn post_session(&self, path: &str, session: &str, body: Value) -> reqwest::Response {
-        self.http.post(format!("{}{path}", self.base)).bearer_auth(&self.token).header(SESSION_HEADER, session)
-            .json(&body).send().await.unwrap()
+        self.http
+            .post(format!("{}{path}", self.base))
+            .bearer_auth(&self.token)
+            .header(SESSION_HEADER, session)
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
     }
 
     fn ledger(&self) -> Vec<store::UsageEvent> {
@@ -339,7 +484,8 @@ impl Rig {
     }
 
     fn combo(&self, name: &str, members: &[(&str, &str)]) {
-        let members: Vec<Target> = members.iter().map(|(p, m)| Target { provider_id: p.to_string(), model_id: m.to_string() }).collect();
+        let members: Vec<Target> =
+            members.iter().map(|(p, m)| Target { provider_id: p.to_string(), model_id: m.to_string() }).collect();
         self.shared.with_db(|db| store::save_combo(db, None, name, &members)).unwrap();
     }
 
@@ -402,11 +548,16 @@ fn chat(model: &str) -> Value {
 fn requires_a_token_and_a_loopback_host() {
     rt().block_on(async {
         let rig = rig().await;
-        let anonymous = rig.http.post(format!("{}/v1/chat/completions", rig.base)).json(&json!({ "model": "x" }))
-            .send().await.unwrap();
+        let anonymous = rig
+            .http
+            .post(format!("{}/v1/chat/completions", rig.base))
+            .json(&json!({ "model": "x" }))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(anonymous.status(), 401);
-        let rebound = rig.http.get(format!("{}/health", rig.base)).header(header::HOST, "evil.example:80")
-            .send().await.unwrap();
+        let rebound =
+            rig.http.get(format!("{}/health", rig.base)).header(header::HOST, "evil.example:80").send().await.unwrap();
         assert_eq!(rebound.status(), 403);
         assert_eq!(rig.http.get(format!("{}/health", rig.base)).send().await.unwrap().status(), 200);
     });
@@ -450,7 +601,8 @@ fn a_bad_request_is_returned_not_retried() {
 fn streams_through_unchanged_and_records_usage() {
     rt().block_on(async {
         let rig = rig().await;
-        let response = rig.post("/v1/chat/completions", json!({ "model": "main/fast", "stream": true, "messages": [] })).await;
+        let response =
+            rig.post("/v1/chat/completions", json!({ "model": "main/fast", "stream": true, "messages": [] })).await;
         assert_eq!(response.status(), 200);
         let text = response.text().await.unwrap();
         assert!(text.contains("\"po\"") && text.contains("[DONE]"));
@@ -471,15 +623,21 @@ fn a_combo_falls_back_across_groups_and_cools_failing_targets_down() {
         let response = rig.post("/v1/chat/completions", chat("coding")).await;
         assert_eq!(response.status(), 200);
         assert_eq!(response.headers()["x-pygg-route"], "backup/steady");
-        let outcomes: Vec<(String, Option<u16>)> = rig.ledger().into_iter().map(|e| (e.outcome, e.http_status)).collect();
-        assert_eq!(outcomes, [("fallback".into(), Some(429)), ("fallback".into(), Some(503)), ("ok".into(), Some(200))]);
+        let outcomes: Vec<(String, Option<u16>)> =
+            rig.ledger().into_iter().map(|e| (e.outcome, e.http_status)).collect();
+        assert_eq!(
+            outcomes,
+            [("fallback".into(), Some(429)), ("fallback".into(), Some(503)), ("ok".into(), Some(200))]
+        );
         // One request, three attempts in order, each with the billing and route it was sent under (migration 0030), and
         // the request's id in the answer's headers.
         let id = response.headers()[REQUEST_ID_HEADER].to_str().unwrap().to_string();
         let ledger = rig.ledger();
         assert!(ledger.iter().all(|e| e.request_id.as_deref() == Some(id.as_str())), "{ledger:?}");
         assert_eq!(ledger.iter().map(|e| e.attempt).collect::<Vec<_>>(), [Some(1), Some(2), Some(3)]);
-        assert!(ledger.iter().all(|e| e.route_kind.as_deref() == Some("combo") && e.cache_hint.as_deref() == Some("none")));
+        assert!(ledger
+            .iter()
+            .all(|e| e.route_kind.as_deref() == Some("combo") && e.cache_hint.as_deref() == Some("none")));
         assert!(ledger.iter().all(|e| e.billing.is_some()));
 
         // The 429 asked for two minutes: the next request skips that model without calling it.
@@ -516,7 +674,10 @@ fn a_rejected_key_blocks_the_connection_until_it_is_fixed() {
         let rig = rig().await;
         assert_eq!(rig.post("/v1/chat/completions", chat("main/badkey")).await.status(), 401);
         let health = rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap();
-        assert_eq!((health[0].state.as_str(), health[0].model_id.as_str(), health[0].until_ms), ("invalid_credentials", "", None));
+        assert_eq!(
+            (health[0].state.as_str(), health[0].model_id.as_str(), health[0].until_ms),
+            ("invalid_credentials", "", None)
+        );
 
         // Every model of the connection is skipped now, without a call.
         let blocked = rig.post("/v1/chat/completions", chat("main/fast")).await;
@@ -537,7 +698,10 @@ fn an_ambiguous_timeout_is_not_retried_on_another_model() {
         assert_eq!(response.status(), 504);
         assert_eq!(rig.fake.count("steady"), 0, "no second provider was charged");
         let event = rig.ledger().pop().unwrap();
-        assert_eq!((event.model.as_str(), event.outcome.as_str(), event.cost_status.as_str()), ("slow", "error", "unknown"));
+        assert_eq!(
+            (event.model.as_str(), event.outcome.as_str(), event.cost_status.as_str()),
+            ("slow", "error", "unknown")
+        );
     });
 }
 
@@ -561,7 +725,8 @@ fn concurrent_requests_cannot_pass_a_limit_together() {
         // Each request may cost up to 1M output tokens × $0.40 = $0.40; the limit holds one, not two.
         rig.set_budget(Some(500_000));
         let body = json!({ "model": "main/slow-ok", "max_tokens": 1_000_000, "messages": [] });
-        let (a, b) = tokio::join!(rig.post("/v1/chat/completions", body.clone()), rig.post("/v1/chat/completions", body));
+        let (a, b) =
+            tokio::join!(rig.post("/v1/chat/completions", body.clone()), rig.post("/v1/chat/completions", body));
         let mut statuses = [a.status().as_u16(), b.status().as_u16()];
         statuses.sort();
         assert_eq!(statuses, [200, 429]);
@@ -593,8 +758,10 @@ fn requests_in_flight_are_capped_per_client() {
     rt().block_on(async {
         let rig = rig().await;
         rig.shared.with_db(|db| store::set_client_policy(db, &rig.client_id, Some(1), None)).unwrap();
-        let (a, b) = tokio::join!(rig.post("/v1/chat/completions", chat("main/slow-ok")),
-            async { tokio::time::sleep(Duration::from_millis(50)).await; rig.post("/v1/chat/completions", chat("main/slow-ok")).await });
+        let (a, b) = tokio::join!(rig.post("/v1/chat/completions", chat("main/slow-ok")), async {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            rig.post("/v1/chat/completions", chat("main/slow-ok")).await
+        });
         assert_eq!((a.status().as_u16(), b.status().as_u16()), (200, 429));
         // The slot is free again afterwards.
         assert_eq!(rig.post("/v1/chat/completions", chat("main/fast")).await.status(), 200);
@@ -606,8 +773,12 @@ fn a_client_that_leaves_early_still_leaves_a_ledger_entry() {
     rt().block_on(async {
         let rig = rig().await;
         let impatient = reqwest::Client::builder().timeout(Duration::from_millis(100)).build().unwrap();
-        let result = impatient.post(format!("{}/v1/chat/completions", rig.base)).bearer_auth(&rig.token)
-            .json(&chat("main/slow-ok")).send().await;
+        let result = impatient
+            .post(format!("{}/v1/chat/completions", rig.base))
+            .bearer_auth(&rig.token)
+            .json(&chat("main/slow-ok"))
+            .send()
+            .await;
         assert!(result.is_err(), "the client gave up");
         tokio::time::sleep(Duration::from_millis(600)).await;
         let event = rig.ledger().pop().expect("the request was recorded");
@@ -652,9 +823,16 @@ fn claude_request(stream: bool) -> Value {
 fn an_anthropic_request_to_an_anthropic_connection_passes_through_unchanged() {
     rt().block_on(async {
         let rig = rig().await;
-        let response = rig.http.post(format!("{}/v1/messages", rig.base)).header("x-api-key", &rig.token)
-            .header("anthropic-version", "2023-06-01").header("anthropic-beta", "prompt-caching-test")
-            .json(&claude_request(false)).send().await.unwrap();
+        let response = rig
+            .http
+            .post(format!("{}/v1/messages", rig.base))
+            .header("x-api-key", &rig.token)
+            .header("anthropic-version", "2023-06-01")
+            .header("anthropic-beta", "prompt-caching-test")
+            .json(&claude_request(false))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(response.status(), 200);
         assert_eq!(response.headers()["x-pygg-mode"], "native");
         assert!(response.headers().get("x-pygg-dropped").is_none());
@@ -663,7 +841,10 @@ fn an_anthropic_request_to_an_anthropic_connection_passes_through_unchanged() {
         assert_eq!(body["content"][0]["text"], "cache_control=true thinking=true beta=prompt-caching-test");
         assert_eq!(body["usage"]["cache_read_input_tokens"], 900, "the provider's answer came back as it was");
         let event = rig.ledger().pop().unwrap();
-        assert_eq!((event.cache_tokens, event.cache_write_tokens, event.input_tokens), (Some(900), Some(90), Some(1000)));
+        assert_eq!(
+            (event.cache_tokens, event.cache_write_tokens, event.input_tokens),
+            (Some(900), Some(90), Some(1000))
+        );
         assert_eq!(event.route_mode.as_deref(), Some("native"));
 
         let streamed = rig.post("/v1/messages", claude_request(true)).await.text().await.unwrap();
@@ -689,8 +870,10 @@ fn an_openai_request_reaches_an_anthropic_connection_through_translation() {
         assert_eq!(body["object"], "chat.completion");
         assert_eq!(body["choices"][0]["message"]["content"], "cache_control=false thinking=false beta=-");
         assert_eq!(body["choices"][0]["finish_reason"], "stop");
-        assert_eq!((body["usage"]["prompt_tokens"].as_u64(), body["usage"]["prompt_tokens_details"]["cached_tokens"].as_u64()),
-            (Some(1000), Some(900)));
+        assert_eq!(
+            (body["usage"]["prompt_tokens"].as_u64(), body["usage"]["prompt_tokens_details"]["cached_tokens"].as_u64()),
+            (Some(1000), Some(900))
+        );
         assert_eq!(rig.fake.count("sonnet"), 1);
         let event = rig.ledger().pop().unwrap();
         assert_eq!(event.route_mode.as_deref(), Some("translated:openai->anthropic"));
@@ -740,9 +923,20 @@ fn an_agents_openai_turn_to_anthropics_own_api_turns_on_prompt_caching() {
 /// A Claude model that takes adaptive thinking and three effort levels, as Anthropic's model list reports one.
 fn add_thinker(rig: &Rig, efforts: &[&str]) {
     rig.priced("claude", "thinker");
-    rig.shared.with_db(|db| store::set_capabilities(db, "claude", "thinker", &store::Capabilities {
-        thinking_types: Some(vec!["adaptive".into()]), effort_levels: Some(efforts.iter().map(|e| e.to_string()).collect()),
-        ..store::Capabilities::default() })).unwrap();
+    rig.shared
+        .with_db(|db| {
+            store::set_capabilities(
+                db,
+                "claude",
+                "thinker",
+                &store::Capabilities {
+                    thinking_types: Some(vec!["adaptive".into()]),
+                    effort_levels: Some(efforts.iter().map(|e| e.to_string()).collect()),
+                    ..store::Capabilities::default()
+                },
+            )
+        })
+        .unwrap();
 }
 
 /// ROADMAP B5, the other direction: an OpenAI client's `reasoning_effort` reaches Claude as thinking, and Claude's
@@ -814,7 +1008,10 @@ fn reasoning_effort_is_dropped_and_named_where_claude_cannot_take_it() {
         let response = rig.post("/v1/chat/completions", none).await;
         assert_eq!(response.headers()["x-pygg-dropped"], "reasoning_effort (none)");
         let body: Value = response.json().await.unwrap();
-        assert!(body["choices"][0]["message"].get("reasoning_content").is_none(), "an empty thought is not sent: {body}");
+        assert!(
+            body["choices"][0]["message"].get("reasoning_content").is_none(),
+            "an empty thought is not sent: {body}"
+        );
     });
 }
 
@@ -837,12 +1034,19 @@ fn a_responses_client_gets_claudes_thinking_as_a_reasoning_summary() {
         assert_eq!(sent["output_config"]["effort"], "low");
         let body: Value = response.json().await.unwrap();
         assert_eq!(body["output"][0]["type"], "reasoning");
-        assert_eq!(body["output"][0]["summary"][0], json!({ "type": "summary_text", "text": "thinking=adaptive effort=low" }));
+        assert_eq!(
+            body["output"][0]["summary"][0],
+            json!({ "type": "summary_text", "text": "thinking=adaptive effort=low" })
+        );
         assert_eq!(body["output"][1]["content"][0]["text"], "cache_control=false thinking=true beta=-");
 
         let text = rig.post("/v1/responses", request(true, "low")).await.text().await.unwrap();
         let events = responses_events(&text);
-        assert!(events.iter().any(|e| e["type"] == "response.reasoning_summary_text.delta" && e["delta"] == "thinking=adaptive effort=low"), "{text}");
+        assert!(
+            events.iter().any(|e| e["type"] == "response.reasoning_summary_text.delta"
+                && e["delta"] == "thinking=adaptive effort=low"),
+            "{text}"
+        );
         let done = &events.last().unwrap()["response"];
         assert_eq!(done["output"][0]["summary"][0]["text"], "thinking=adaptive effort=low");
         assert_eq!(done["output"][1]["content"][0]["text"], "cache_control=false thinking=true beta=-");
@@ -860,9 +1064,11 @@ fn a_responses_client_gets_claudes_thinking_as_a_reasoning_summary() {
 fn a_translation_keeps_cache_markers_only_where_the_provider_accepts_them() {
     rt().block_on(async {
         let rig = rig().await;
-        let request = |model: &str| json!({ "model": model, "max_tokens": 64,
+        let request = |model: &str| {
+            json!({ "model": model, "max_tokens": 64,
             "system": [{ "type": "text", "text": "Long", "cache_control": { "type": "ephemeral" } }],
-            "messages": [{ "role": "user", "content": "ping" }] });
+            "messages": [{ "role": "user", "content": "ping" }] })
+        };
 
         let kept = rig.post("/v1/messages", request("router/m")).await;
         assert_eq!(kept.headers()["x-pygg-mode"], "translated:anthropic->openai");
@@ -881,24 +1087,50 @@ fn a_translation_keeps_cache_markers_only_where_the_provider_accepts_them() {
 fn anthropic_messages_round_trip_through_translation() {
     rt().block_on(async {
         let rig = rig().await;
-        let response = rig.http.post(format!("{}/v1/messages", rig.base)).header("x-api-key", &rig.token)
-            .json(&json!({ "model": "main/fast", "max_tokens": 64, "messages": [{ "role": "user", "content": "ping" }] }))
-            .send().await.unwrap();
+        let response = rig
+            .http
+            .post(format!("{}/v1/messages", rig.base))
+            .header("x-api-key", &rig.token)
+            .json(
+                &json!({ "model": "main/fast", "max_tokens": 64, "messages": [{ "role": "user", "content": "ping" }] }),
+            )
+            .send()
+            .await
+            .unwrap();
         assert_eq!(response.status(), 200);
         let body: Value = response.json().await.unwrap();
         assert_eq!(body["type"], "message");
         assert_eq!(body["content"][0]["text"], "pong");
         assert_eq!(body["usage"]["output_tokens"], 500);
 
-        let streamed = rig.post("/v1/messages", json!({ "model": "main/tooler", "stream": true, "max_tokens": 64,
-            "messages": [{ "role": "user", "content": "read a" }] })).await.text().await.unwrap();
+        let streamed = rig
+            .post(
+                "/v1/messages",
+                json!({ "model": "main/tooler", "stream": true, "max_tokens": 64,
+            "messages": [{ "role": "user", "content": "read a" }] }),
+            )
+            .await
+            .text()
+            .await
+            .unwrap();
         assert!(streamed.starts_with("event: message_start"));
         assert!(streamed.contains("\"type\":\"tool_use\"") && streamed.contains("\"partial_json\":\"\\\"a\\\"}\""));
-        assert!(streamed.contains("\"stop_reason\":\"tool_use\"") && streamed.trim_end().ends_with("{\"type\":\"message_stop\"}"));
+        assert!(
+            streamed.contains("\"stop_reason\":\"tool_use\"")
+                && streamed.trim_end().ends_with("{\"type\":\"message_stop\"}")
+        );
 
         // An empty stream is the provider failing, not an empty answer: an error event, and the ledger says so.
-        let empty = rig.post("/v1/messages", json!({ "model": "main/empty", "stream": true, "max_tokens": 64,
-            "messages": [{ "role": "user", "content": "hi" }] })).await.text().await.unwrap();
+        let empty = rig
+            .post(
+                "/v1/messages",
+                json!({ "model": "main/empty", "stream": true, "max_tokens": 64,
+            "messages": [{ "role": "user", "content": "hi" }] }),
+            )
+            .await
+            .text()
+            .await
+            .unwrap();
         assert!(empty.contains("event: error") && empty.contains(crate::gateway::anthropic::EMPTY_ANSWER), "{empty}");
         assert!(!empty.contains("message_stop"));
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -957,14 +1189,30 @@ fn no_credit_on_openrouter_does_not_hold_its_free_models() {
     rt().block_on(async {
         let rig = rig().await;
         let zero = Price { input_micro_per_mtok: 0, output_micro_per_mtok: 0, ..price() };
-        let listed = |provider: &str, model: &str, price: &Price| rig.shared.with_db(|db| {
-            store::add_model(db, provider, model).unwrap();
-            store::update_model(db, provider, model, None, None, Some(Some(price.clone()))).unwrap();
-        });
+        let listed = |provider: &str, model: &str, price: &Price| {
+            rig.shared.with_db(|db| {
+                store::add_model(db, provider, model).unwrap();
+                store::update_model(db, provider, model, None, None, Some(Some(price.clone()))).unwrap();
+            })
+        };
         // A second OpenRouter key: same quota group as Router.
         let endpoint = rig.shared.with_db(|db| store::get_provider(db, "router")).unwrap().unwrap().endpoint;
-        let other = rig.shared.with_db(|db| store::add_provider(db, &NewProvider { kind: "openrouter", label: "Router 2",
-            endpoint: &endpoint, credential_ref: Some("provider-main"), default_billing: "free", wire: "openai" })).unwrap();
+        let other = rig
+            .shared
+            .with_db(|db| {
+                store::add_provider(
+                    db,
+                    &NewProvider {
+                        kind: "openrouter",
+                        label: "Router 2",
+                        endpoint: &endpoint,
+                        credential_ref: Some("provider-main"),
+                        default_billing: "free",
+                        wire: "openai",
+                    },
+                )
+            })
+            .unwrap();
         for provider in ["router", other.id.as_str(), "main"] {
             listed(provider, "free-a:free", &zero);
         }
@@ -987,10 +1235,17 @@ fn no_credit_on_openrouter_does_not_hold_its_free_models() {
         assert_eq!(rig.fake.count("paid-b"), 0);
         // `auto` judges them the same way.
         let client = rig.client();
-        let plan = rig.shared.with_db(|db| auto::plan(db, &client, "auto/cheap", auto::Strategy::Cheap,
-            &auto::Needs::default())).unwrap();
-        let reason = |provider: &str, model: &str| plan.excluded.iter()
-            .find(|e| e.provider_id == provider && e.model_id == model).map(|e| e.reason.clone()).unwrap_or_default();
+        let plan = rig
+            .shared
+            .with_db(|db| auto::plan(db, &client, "auto/cheap", auto::Strategy::Cheap, &auto::Needs::default()))
+            .unwrap();
+        let reason = |provider: &str, model: &str| {
+            plan.excluded
+                .iter()
+                .find(|e| e.provider_id == provider && e.model_id == model)
+                .map(|e| e.reason.clone())
+                .unwrap_or_default()
+        };
         assert!(reason("router", "paid-b").starts_with("payment required"), "{plan:?}");
         assert!(!reason("router", "free-a:free").contains("payment"), "{plan:?}");
         assert!(!reason(&other.id, "free-a:free").contains("payment"), "{plan:?}");
@@ -1104,7 +1359,11 @@ fn every_attempt_is_settled_and_leaves_no_journal_entry() {
         rig.allow_paid_retries(1);
         // Two refusals and an answer, a stream, and a native Anthropic answer: five attempts.
         rig.post("/v1/chat/completions", chat("coding")).await;
-        rig.post("/v1/chat/completions", json!({ "model": "main/fast", "stream": true, "messages": [] })).await.text().await.unwrap();
+        rig.post("/v1/chat/completions", json!({ "model": "main/fast", "stream": true, "messages": [] }))
+            .await
+            .text()
+            .await
+            .unwrap();
         rig.post("/v1/messages", claude_request(false)).await;
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(rig.journal_len(), 0);
@@ -1135,8 +1394,16 @@ fn nothing_is_sent_when_the_ledger_cannot_be_written() {
 fn an_attempt_never_settled_becomes_an_interrupted_entry() {
     let conn = crate::db::open_in_memory().unwrap();
     let (client, _) = store::create_client(&conn, "Tests", Some(1_000_000)).unwrap();
-    let start = store::AttemptStart { client_id: &client.id, provider_id: "main", model_id: "fast", requested_model: "coding",
-        session_key: Some("s-9"), route_mode: "native", hold_micro: 4_000, owner_generation: "g1" };
+    let start = store::AttemptStart {
+        client_id: &client.id,
+        provider_id: "main",
+        model_id: "fast",
+        requested_model: "coding",
+        session_key: Some("s-9"),
+        route_mode: "native",
+        hold_micro: 4_000,
+        owner_generation: "g1",
+    };
     let id = store::open_attempt(&conn, &start).unwrap().unwrap();
     // The generation that journaled it is still live: its entries are left alone.
     assert_eq!(store::settle_interrupted(&conn, store::Unsettled::NotOf("g1")).unwrap(), 0);
@@ -1144,11 +1411,15 @@ fn an_attempt_never_settled_becomes_an_interrupted_entry() {
     assert_eq!(store::settle_interrupted(&conn, store::Unsettled::NotOf("g2")).unwrap(), 1);
     assert_eq!(store::settle_interrupted(&conn, store::Unsettled::NotOf("g3")).unwrap(), 0, "turned exactly once");
     let event = store::usage_summary(&conn, 0, 10).unwrap().recent.remove(0);
-    assert_eq!((event.outcome.as_str(), event.cost_status.as_str(), event.at_risk_micro_usd), ("interrupted", "unknown", Some(4_000)));
+    assert_eq!(
+        (event.outcome.as_str(), event.cost_status.as_str(), event.at_risk_micro_usd),
+        ("interrupted", "unknown", Some(4_000))
+    );
     assert_eq!((event.provider.as_str(), event.session_key.as_deref()), ("main", Some("s-9")));
     // Settling it afterwards writes nothing twice.
     let cost = pricing::Cost::Estimated { micro_usd: 1, source: "x".into() };
-    store::settle(&conn, &id, &UsageRecord::failed(&client.id, "main", "fast", "coding", &cost, "ok", None, 0, "")).unwrap();
+    store::settle(&conn, &id, &UsageRecord::failed(&client.id, "main", "fast", "coding", &cost, "ok", None, 0, ""))
+        .unwrap();
     assert_eq!(store::usage_summary(&conn, 0, 10).unwrap().recent.len(), 1);
     assert_eq!(store::list_clients(&conn).unwrap()[0].counted_micro_usd(), 4_000);
 }
@@ -1164,8 +1435,15 @@ fn a_session_id_is_scoped_to_its_client_and_validated() {
         assert_eq!(first.headers()["x-pygg-route"], "backup/steady");
         // Another client naming the same session is not sent to the first client's pin.
         let (_, other) = rig.shared.with_db(|db| store::create_client(db, "Other", None)).unwrap();
-        let theirs = rig.http.post(format!("{}/v1/chat/completions", rig.base)).bearer_auth(&other)
-            .header(SESSION_HEADER, "shared-id").json(&chat("pinme")).send().await.unwrap();
+        let theirs = rig
+            .http
+            .post(format!("{}/v1/chat/completions", rig.base))
+            .bearer_auth(&other)
+            .header(SESSION_HEADER, "shared-id")
+            .json(&chat("pinme"))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(theirs.headers()["x-pygg-route"], "main/flaky");
         assert_eq!(theirs.headers()["x-pygg-session"], "new");
         // An id that is too long is ignored, not truncated into someone else's.
@@ -1186,8 +1464,18 @@ fn a_session_id_is_scoped_to_its_client_and_validated() {
 fn expired_session_pins_are_deleted() {
     let conn = crate::db::open_in_memory().unwrap();
     let (client, _) = store::create_client(&conn, "Tests", None).unwrap();
-    let provider = store::add_provider(&conn, &NewProvider { kind: "custom", label: "Main", endpoint: "http://x.test",
-        credential_ref: None, default_billing: "paid", wire: "openai" }).unwrap();
+    let provider = store::add_provider(
+        &conn,
+        &NewProvider {
+            kind: "custom",
+            label: "Main",
+            endpoint: "http://x.test",
+            credential_ref: None,
+            default_billing: "paid",
+            wire: "openai",
+        },
+    )
+    .unwrap();
     let target = Target { provider_id: provider.id.clone(), model_id: "m".into() };
     store::pin(&conn, &client.id, "old", "m", &target).unwrap();
     conn.execute("UPDATE session_affinity SET last_used_at = 0", []).unwrap();
@@ -1202,9 +1490,14 @@ fn expired_session_pins_are_deleted() {
 fn a_native_request_keeps_its_key_order_and_the_providers_limit_headers() {
     rt().block_on(async {
         let rig = rig().await;
-        let response = rig.post("/v1/chat/completions", json!({ "model": "main/keyorder", "messages": [],
+        let response = rig
+            .post(
+                "/v1/chat/completions",
+                json!({ "model": "main/keyorder", "messages": [],
             "tools": [{ "type": "function", "function": { "name": "f", "parameters": { "type": "object",
-                "properties": { "zeta": {}, "alpha": {}, "mid": {} } } } }] })).await;
+                "properties": { "zeta": {}, "alpha": {}, "mid": {} } } } }] }),
+            )
+            .await;
         assert_eq!(response.headers()["x-ratelimit-remaining-requests"], "41");
         assert_eq!(response.headers()["x-request-id"], "req_7");
         let body: Value = response.json().await.unwrap();
@@ -1232,20 +1525,37 @@ fn a_restricted_client_never_reaches_a_connection_outside_its_list() {
         rig.allow_paid_retries(1);
         rig.combo("private", &[("main", "limited"), ("backup", "steady")]);
         // Client A may use Main only; client B may use Main and Backup.
-        rig.shared.with_db(|db| store::set_client_connections(db, &rig.client_id, Some(&["main".to_string()]))).unwrap();
+        rig.shared
+            .with_db(|db| store::set_client_connections(db, &rig.client_id, Some(&["main".to_string()])))
+            .unwrap();
         let (b, b_token) = rig.shared.with_db(|db| store::create_client(db, "Vetted", None)).unwrap();
-        rig.shared.with_db(|db| store::set_client_connections(db, &b.id, Some(&["main".to_string(), "backup".to_string()])))
+        rig.shared
+            .with_db(|db| store::set_client_connections(db, &b.id, Some(&["main".to_string(), "backup".to_string()])))
             .unwrap();
 
-        let a = rig.post("/v1/chat/completions", json!({ "model": "private",
-            "messages": [{ "role": "user", "content": "secret-prompt-text" }] })).await;
+        let a = rig
+            .post(
+                "/v1/chat/completions",
+                json!({ "model": "private",
+            "messages": [{ "role": "user", "content": "secret-prompt-text" }] }),
+            )
+            .await;
         assert_eq!(a.status(), 429, "Main's refusal is returned; Backup is never tried");
         assert!(!a.text().await.unwrap().contains("secret-prompt-text"), "no prompt in the diagnostics");
         assert_eq!(rig.fake.count("steady"), 0);
 
         // A session pin cannot route A there either.
-        rig.shared.with_db(|db| store::pin(db, &rig.client_id, "s-a", "private",
-            &Target { provider_id: "backup".into(), model_id: "steady".into() })).unwrap();
+        rig.shared
+            .with_db(|db| {
+                store::pin(
+                    db,
+                    &rig.client_id,
+                    "s-a",
+                    "private",
+                    &Target { provider_id: "backup".into(), model_id: "steady".into() },
+                )
+            })
+            .unwrap();
         rig.post_session("/v1/chat/completions", "s-a", chat("private")).await;
         assert_eq!(rig.fake.count("steady"), 0);
         // Nor a direct request, and the refusal says why.
@@ -1255,13 +1565,27 @@ fn a_restricted_client_never_reaches_a_connection_outside_its_list() {
         assert_eq!(rig.fake.count("steady"), 0);
 
         // B falls back as the combo says (Main is cooling down, so B goes straight to Backup).
-        let vetted = rig.http.post(format!("{}/v1/chat/completions", rig.base)).bearer_auth(&b_token).json(&chat("private"))
-            .send().await.unwrap();
+        let vetted = rig
+            .http
+            .post(format!("{}/v1/chat/completions", rig.base))
+            .bearer_auth(&b_token)
+            .json(&chat("private"))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(vetted.headers()["x-pygg-route"], "backup/steady");
 
         // The model list shows A only what it may use.
-        let models: Value = rig.http.get(format!("{}/v1/models", rig.base)).bearer_auth(&rig.token).send().await.unwrap()
-            .json().await.unwrap();
+        let models: Value = rig
+            .http
+            .get(format!("{}/v1/models", rig.base))
+            .bearer_auth(&rig.token)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
         let ids: Vec<&str> = models["data"].as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).collect();
         assert!(ids.iter().any(|id| id.starts_with("main/")) && !ids.iter().any(|id| id.starts_with("claude/")));
 
@@ -1279,9 +1603,14 @@ fn a_client_that_requires_no_training_reaches_only_connections_recorded_so() {
     rt().block_on(async {
         let rig = rig().await;
         rig.combo("careful", &[("main", "fast"), ("backup", "steady")]);
-        assert!(rig.shared.with_db(|db| store::set_provider_terms(db, "backup", "no_training", None)).is_err(),
-            "no_training needs a source");
-        rig.shared.with_db(|db| store::set_provider_terms(db, "backup", "no_training", Some("https://example.test/terms, 2026-11-11")))
+        assert!(
+            rig.shared.with_db(|db| store::set_provider_terms(db, "backup", "no_training", None)).is_err(),
+            "no_training needs a source"
+        );
+        rig.shared
+            .with_db(|db| {
+                store::set_provider_terms(db, "backup", "no_training", Some("https://example.test/terms, 2026-11-11"))
+            })
             .unwrap();
         rig.shared.with_db(|db| store::set_provider_terms(db, "router", "may_train", Some("its policy page"))).unwrap();
         rig.shared.with_db(|db| store::set_client_require_no_training(db, &rig.client_id, true)).unwrap();
@@ -1295,16 +1624,40 @@ fn a_client_that_requires_no_training_reaches_only_connections_recorded_so() {
         assert_eq!(direct.status(), 502);
         assert!(direct.text().await.unwrap().contains("do not train on its data, and Main's terms are not recorded"));
         // auto leaves them out with the same reason.
-        let client = rig.shared.with_db(store::list_clients).unwrap().into_iter().find(|c| c.id == rig.client_id).unwrap();
-        let plan = rig.shared.with_db(|db| auto::plan(db, &client, "auto/cheap", auto::Strategy::Cheap,
-            &auto::Needs { input_tokens: 100, ..auto::Needs::default() })).unwrap();
-        assert!(plan.excluded.iter().filter(|e| e.provider_id == "router").all(|e| e.reason.contains("terms are that it may")));
+        let client =
+            rig.shared.with_db(store::list_clients).unwrap().into_iter().find(|c| c.id == rig.client_id).unwrap();
+        let plan = rig
+            .shared
+            .with_db(|db| {
+                auto::plan(
+                    db,
+                    &client,
+                    "auto/cheap",
+                    auto::Strategy::Cheap,
+                    &auto::Needs { input_tokens: 100, ..auto::Needs::default() },
+                )
+            })
+            .unwrap();
+        assert!(plan
+            .excluded
+            .iter()
+            .filter(|e| e.provider_id == "router")
+            .all(|e| e.reason.contains("terms are that it may")));
         // The model list shows only Backup.
-        let models: Value = rig.http.get(format!("{}/v1/models", rig.base)).bearer_auth(&rig.token).send().await.unwrap()
-            .json().await.unwrap();
+        let models: Value = rig
+            .http
+            .get(format!("{}/v1/models", rig.base))
+            .bearer_auth(&rig.token)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
         let ids: Vec<&str> = models["data"].as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).collect();
         assert!(!ids.iter().any(|id| id.starts_with("main/")), "{ids:?}");
-        let provider = rig.shared.with_db(store::list_providers).unwrap().into_iter().find(|p| p.id == "backup").unwrap();
+        let provider =
+            rig.shared.with_db(store::list_providers).unwrap().into_iter().find(|p| p.id == "backup").unwrap();
         assert_eq!((provider.data_use_terms.as_str(), provider.terms_checked_at.is_some()), ("no_training", true));
     });
 }
@@ -1320,15 +1673,27 @@ fn a_strict_limit_needs_a_stated_maximum_output_and_holds_it() {
         // No output limit in the request, none known for the model: not sent.
         let refused = rig.post("/v1/chat/completions", chat("main/fast")).await;
         assert_eq!(refused.status(), 502);
-        assert!(refused.text().await.unwrap().contains("limit is strict, and neither the request nor the model states a maximum output"));
+        assert!(refused
+            .text()
+            .await
+            .unwrap()
+            .contains("limit is strict, and neither the request nor the model states a maximum output"));
         assert_eq!(rig.fake.count("fast"), 0);
         // The request's own limit is enough.
         let mut body = chat("main/fast");
         body["max_tokens"] = json!(256);
         assert_eq!(rig.post("/v1/chat/completions", body).await.status(), 200);
         // So is the model's stated maximum.
-        rig.shared.with_db(|db| store::set_capabilities(db, "main", "fast", &store::Capabilities {
-            max_output_tokens: Some(8_000), ..store::Capabilities::default() })).unwrap();
+        rig.shared
+            .with_db(|db| {
+                store::set_capabilities(
+                    db,
+                    "main",
+                    "fast",
+                    &store::Capabilities { max_output_tokens: Some(8_000), ..store::Capabilities::default() },
+                )
+            })
+            .unwrap();
         assert_eq!(rig.post("/v1/chat/completions", chat("main/fast")).await.status(), 200);
         // A model without a price is never used, whatever the unknown-price policy says.
         rig.shared.with_db(|db| store::set_client_policy(db, &rig.client_id, None, Some("allow"))).unwrap();
@@ -1347,10 +1712,12 @@ fn a_subscription_model_is_used_under_a_spending_limit_and_holds_nothing() {
     rt().block_on(async {
         let rig = rig().await;
         rig.shared.with_db(|db| store::set_client_budget(db, &rig.client_id, Some(1_000))).unwrap();
-        rig.shared.with_db(|db| {
-            let _ = store::add_model(db, "main", "steady");
-            store::update_model(db, "main", "steady", None, Some("subscription"), None)
-        }).unwrap();
+        rig.shared
+            .with_db(|db| {
+                let _ = store::add_model(db, "main", "steady");
+                store::update_model(db, "main", "steady", None, Some("subscription"), None)
+            })
+            .unwrap();
         for strict in [false, true] {
             rig.shared.with_db(|db| store::set_client_strict_budget(db, &rig.client_id, strict)).unwrap();
             let before = rig.fake.count("steady");
@@ -1370,11 +1737,16 @@ fn a_subscription_model_is_used_under_a_spending_limit_and_holds_nothing() {
 #[test]
 fn a_failed_subscription_request_is_quota_not_money() {
     use crate::gateway::pricing::Cost;
-    let failed = super::quota_not_money(false, "subscription", Cost::Unknown { source: "HTTP 503: the provider may have run the request".into() });
+    let failed = super::quota_not_money(
+        false,
+        "subscription",
+        Cost::Unknown { source: "HTTP 503: the provider may have run the request".into() },
+    );
     assert!(failed.source().starts_with("subscription: counts against a quota, not money"), "{}", failed.source());
     let paid = super::quota_not_money(false, "paid", Cost::Unknown { source: "HTTP 503".into() });
     assert_eq!(paid.source(), "HTTP 503");
-    let zero = super::quota_not_money(false, "subscription", Cost::Estimated { micro_usd: 0, source: "rejected".into() });
+    let zero =
+        super::quota_not_money(false, "subscription", Cost::Estimated { micro_usd: 0, source: "rejected".into() });
     assert_eq!(zero.micro_usd(), Some(0));
 }
 
@@ -1385,15 +1757,34 @@ fn repeated_failures_wait_longer_and_a_probe_lifts_an_outage_that_is_over() {
     rt().block_on(async {
         let rig = rig().await;
         let now = crate::db::now_ms();
-        let mark = || rig.shared.with_db(|db| store::mark_health(db, "main", "", "unreachable", "connection refused", None, Some(crate::db::now_ms() + 15_000))).unwrap();
-        let until = || rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap()[0].until_ms.unwrap() - crate::db::now_ms();
+        let mark = || {
+            rig.shared
+                .with_db(|db| {
+                    store::mark_health(
+                        db,
+                        "main",
+                        "",
+                        "unreachable",
+                        "connection refused",
+                        None,
+                        Some(crate::db::now_ms() + 15_000),
+                    )
+                })
+                .unwrap()
+        };
+        let until = || {
+            rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap()[0].until_ms.unwrap()
+                - crate::db::now_ms()
+        };
         mark();
         assert!(until() <= 15_000);
         mark();
         assert!(until() > 25_000 && until() <= 30_000, "the second failure in a row waits twice as long");
         mark();
         assert!(until() > 55_000, "the third four times as long");
-        assert!(rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap()[0].reason.contains("failure 3 in a row"));
+        assert!(rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap()[0]
+            .reason
+            .contains("failure 3 in a row"));
 
         // Not checked again within a minute of the last failure.
         assert!(probe::probe_once(&rig.shared).await.is_empty());
@@ -1403,18 +1794,40 @@ fn repeated_failures_wait_longer_and_a_probe_lifts_an_outage_that_is_over() {
         assert!(rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap().is_empty());
 
         // A connection whose list does not answer stays out, and is not checked again for a minute.
-        rig.shared.with_db(|db| db.execute("UPDATE providers SET endpoint = 'http://127.0.0.1:9/v1' WHERE id = 'sibling'", [])).unwrap();
-        rig.shared.with_db(|db| store::mark_health(db, "sibling", "", "unreachable", "refused", None, Some(now + 600_000))).unwrap();
-        rig.shared.with_db(|db| db.execute("UPDATE connection_health SET updated_at = ?1 WHERE provider_id = 'sibling'", [now - 120_000])).unwrap();
+        rig.shared
+            .with_db(|db| {
+                db.execute("UPDATE providers SET endpoint = 'http://127.0.0.1:9/v1' WHERE id = 'sibling'", [])
+            })
+            .unwrap();
+        rig.shared
+            .with_db(|db| store::mark_health(db, "sibling", "", "unreachable", "refused", None, Some(now + 600_000)))
+            .unwrap();
+        rig.shared
+            .with_db(|db| {
+                db.execute(
+                    "UPDATE connection_health SET updated_at = ?1 WHERE provider_id = 'sibling'",
+                    [now - 120_000],
+                )
+            })
+            .unwrap();
         assert!(probe::probe_once(&rig.shared).await.is_empty());
         assert_eq!(rig.shared.with_db(|db| store::list_health(db, Some("sibling"))).unwrap().len(), 1);
         assert!(probe::probe_once(&rig.shared).await.is_empty());
 
         // A rejected key is never lifted by a probe.
-        rig.shared.with_db(|db| store::mark_health(db, "backup", "", "invalid_credentials", "401", Some(401), None)).unwrap();
-        rig.shared.with_db(|db| db.execute("UPDATE connection_health SET updated_at = ?1 WHERE provider_id = 'backup'", [now - 120_000])).unwrap();
+        rig.shared
+            .with_db(|db| store::mark_health(db, "backup", "", "invalid_credentials", "401", Some(401), None))
+            .unwrap();
+        rig.shared
+            .with_db(|db| {
+                db.execute("UPDATE connection_health SET updated_at = ?1 WHERE provider_id = 'backup'", [now - 120_000])
+            })
+            .unwrap();
         probe::probe_once(&rig.shared).await;
-        assert_eq!(rig.shared.with_db(|db| store::list_health(db, Some("backup"))).unwrap()[0].state, "invalid_credentials");
+        assert_eq!(
+            rig.shared.with_db(|db| store::list_health(db, Some("backup"))).unwrap()[0].state,
+            "invalid_credentials"
+        );
     });
 }
 
@@ -1526,8 +1939,16 @@ fn owning_the_store_turns_every_older_unsettled_attempt_at_once() {
         let conn = crate::db::open(&path).unwrap();
         let (client, _) = store::create_client(&conn, "Tests", None).unwrap();
         // An entry left a moment ago by a gateway of an earlier generation that died: no one else can own it.
-        let start_row = store::AttemptStart { client_id: &client.id, provider_id: "main", model_id: "fast",
-            requested_model: "main/fast", session_key: None, route_mode: "native", hold_micro: 0, owner_generation: "dead" };
+        let start_row = store::AttemptStart {
+            client_id: &client.id,
+            provider_id: "main",
+            model_id: "fast",
+            requested_model: "main/fast",
+            session_key: None,
+            route_mode: "native",
+            hold_micro: 0,
+            owner_generation: "dead",
+        };
         store::open_attempt(&conn, &start_row).unwrap().unwrap();
         let shared = Shared::for_store(Arc::new(Mutex::new(conn)), Arc::new(MapSecrets(HashMap::new())), &path);
         let server = start(shared.clone(), 0).await.unwrap();
@@ -1557,9 +1978,17 @@ fn stopping_keeps_the_store_owned_until_a_request_in_flight_is_settled() {
         let path = dir.path().join("store.sqlite3");
         let rig = rig_on_store(&path).await;
         // A 1.5 s answer, stopped 300 ms in with a 100 ms grace: the listener ends long before the answer.
-        let request = { let (http, base, token) = (rig.http.clone(), rig.base.clone(), rig.token.clone());
-            tokio::spawn(async move { http.post(format!("{base}/v1/chat/completions")).bearer_auth(token)
-                .json(&chat("main/slow")).send().await.map(|r| r.status().as_u16()) }) };
+        let request = {
+            let (http, base, token) = (rig.http.clone(), rig.base.clone(), rig.token.clone());
+            tokio::spawn(async move {
+                http.post(format!("{base}/v1/chat/completions"))
+                    .bearer_auth(token)
+                    .json(&chat("main/slow"))
+                    .send()
+                    .await
+                    .map(|r| r.status().as_u16())
+            })
+        };
         tokio::time::sleep(Duration::from_millis(300)).await;
         rig.stop_server(Duration::from_millis(100)).await;
 
@@ -1585,16 +2014,28 @@ fn stopping_while_streaming_keeps_the_store_until_the_stream_is_settled() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("store.sqlite3");
         let rig = rig_on_store(&path).await;
-        let stream = { let (http, base, token) = (rig.http.clone(), rig.base.clone(), rig.token.clone());
+        let stream = {
+            let (http, base, token) = (rig.http.clone(), rig.base.clone(), rig.token.clone());
             tokio::spawn(async move {
-                let response = http.post(format!("{base}/v1/chat/completions")).bearer_auth(token)
-                    .json(&json!({ "model": "main/drip", "stream": true, "messages": [] })).send().await;
-                match response { Ok(r) => r.text().await.map(|t| t.len()).unwrap_or(0), Err(_) => 0 }
-            }) };
+                let response = http
+                    .post(format!("{base}/v1/chat/completions"))
+                    .bearer_auth(token)
+                    .json(&json!({ "model": "main/drip", "stream": true, "messages": [] }))
+                    .send()
+                    .await;
+                match response {
+                    Ok(r) => r.text().await.map(|t| t.len()).unwrap_or(0),
+                    Err(_) => 0,
+                }
+            })
+        };
         tokio::time::sleep(Duration::from_millis(400)).await;
         rig.stop_server(Duration::from_millis(100)).await;
         assert!(rig.shared.owns_store(), "the stream pump still holds the store");
-        assert_eq!(start(other_gateway(&path), 0).await.err().map(|e| e.kind()), Some(std::io::ErrorKind::ResourceBusy));
+        assert_eq!(
+            start(other_gateway(&path), 0).await.err().map(|e| e.kind()),
+            Some(std::io::ErrorKind::ResourceBusy)
+        );
 
         let _ = stream.await;
         rig.until_released().await;
@@ -1611,9 +2052,16 @@ fn restarting_in_the_same_process_recovers_orphans_once_and_never_interrupts_liv
         let path = dir.path().join("store.sqlite3");
         let rig = rig_on_store(&path).await;
         // An orphan of an earlier generation (journaled, never settled, its holder gone).
-        let orphan = store::AttemptStart { client_id: &rig.client_id, provider_id: "main", model_id: "orphan",
-            requested_model: "main/orphan", session_key: None, route_mode: "native", hold_micro: 700,
-            owner_generation: "earlier" };
+        let orphan = store::AttemptStart {
+            client_id: &rig.client_id,
+            provider_id: "main",
+            model_id: "orphan",
+            requested_model: "main/orphan",
+            session_key: None,
+            route_mode: "native",
+            hold_micro: 700,
+            owner_generation: "earlier",
+        };
         rig.shared.with_db(|db| store::open_attempt(db, &orphan)).unwrap().unwrap();
 
         // Stop and start several times in a row, quickly: the orphan becomes exactly one interrupted entry.
@@ -1627,9 +2075,17 @@ fn restarting_in_the_same_process_recovers_orphans_once_and_never_interrupts_liv
         assert_eq!(rig.ledger().iter().find(|e| e.model == "orphan").unwrap().at_risk_micro_usd, Some(700));
 
         // Restarting while an attempt is in flight joins its ownership: the live attempt is not interrupted.
-        let request = { let (http, token) = (rig.http.clone(), rig.token.clone());
-            tokio::spawn(async move { http.post(format!("{base}/v1/chat/completions")).bearer_auth(token)
-                .json(&chat("main/slow")).send().await.map(|r| r.status().as_u16()) }) };
+        let request = {
+            let (http, token) = (rig.http.clone(), rig.token.clone());
+            tokio::spawn(async move {
+                http.post(format!("{base}/v1/chat/completions"))
+                    .bearer_auth(token)
+                    .json(&chat("main/slow"))
+                    .send()
+                    .await
+                    .map(|r| r.status().as_u16())
+            })
+        };
         tokio::time::sleep(Duration::from_millis(300)).await;
         rig.stop_server(Duration::from_millis(50)).await;
         assert!(rig.shared.owns_store());
@@ -1649,8 +2105,16 @@ fn a_failed_startup_recovery_refuses_to_start_and_succeeds_once_the_store_is_wri
         let path = dir.path().join("store.sqlite3");
         let shared = other_gateway(&path);
         let client = shared.with_db(|db| store::create_client(db, "Tests", None)).unwrap().0;
-        let orphan = store::AttemptStart { client_id: &client.id, provider_id: "main", model_id: "orphan",
-            requested_model: "main/orphan", session_key: None, route_mode: "native", hold_micro: 0, owner_generation: "dead" };
+        let orphan = store::AttemptStart {
+            client_id: &client.id,
+            provider_id: "main",
+            model_id: "orphan",
+            requested_model: "main/orphan",
+            session_key: None,
+            route_mode: "native",
+            hold_micro: 0,
+            owner_generation: "dead",
+        };
         shared.with_db(|db| store::open_attempt(db, &orphan)).unwrap().unwrap();
 
         shared.with_db(|db| db.execute_batch("PRAGMA query_only = ON")).unwrap();
@@ -1685,7 +2149,10 @@ fn a_settlement_waiting_at_stop_keeps_the_store_until_it_is_written() {
         // entry into an interrupted one while its exact figures are still in memory.
         rig.stop_server(Duration::from_millis(50)).await;
         assert!(rig.shared.owns_store());
-        assert_eq!(start(other_gateway(&path), 0).await.err().map(|e| e.kind()), Some(std::io::ErrorKind::ResourceBusy));
+        assert_eq!(
+            start(other_gateway(&path), 0).await.err().map(|e| e.kind()),
+            Some(std::io::ErrorKind::ResourceBusy)
+        );
 
         // Started again once the store is writable: the entry is written exactly, and the store can be released.
         rig.shared.with_db(|db| db.execute_batch("PRAGMA query_only = OFF")).unwrap();
@@ -1701,12 +2168,24 @@ fn a_settlement_waiting_at_stop_keeps_the_store_until_it_is_written() {
 // ---------- ROADMAP P0-5: rule-based Auto routing ----------
 
 fn set_caps(rig: &Rig, provider: &str, model: &str, tier: &str, tools: Option<bool>) {
-    rig.shared.with_db(|db| {
-        let _ = store::add_model(db, provider, model);
-        store::set_capabilities(db, provider, model, &store::Capabilities { tier: Some(tier.into()),
-            context_tokens: Some(128_000), max_output_tokens: Some(8192), supports_tools: tools, supports_vision: Some(false),
-            ..store::Capabilities::default() })
-    }).unwrap();
+    rig.shared
+        .with_db(|db| {
+            let _ = store::add_model(db, provider, model);
+            store::set_capabilities(
+                db,
+                provider,
+                model,
+                &store::Capabilities {
+                    tier: Some(tier.into()),
+                    context_tokens: Some(128_000),
+                    max_output_tokens: Some(8192),
+                    supports_tools: tools,
+                    supports_vision: Some(false),
+                    ..store::Capabilities::default()
+                },
+            )
+        })
+        .unwrap();
 }
 
 #[test]
@@ -1720,12 +2199,22 @@ fn auto_routes_to_the_lowest_eligible_tier_and_says_why() {
         // Same tier, and Backup is free: it comes first.
         assert_eq!(response.headers()["x-pygg-route"], "backup/steady");
         let why = response.headers()["x-pygg-auto"].to_str().unwrap().to_string();
-        assert!(why.starts_with("auto; backup/steady ranked 1 of 2 (lowest eligible tier first): tier T2 (minimum T2); free"), "{why}");
+        assert!(
+            why.starts_with(
+                "auto; backup/steady ranked 1 of 2 (lowest eligible tier first): tier T2 (minimum T2); free"
+            ),
+            "{why}"
+        );
         assert!(rig.ledger().pop().unwrap().route_reason.unwrap().contains("tier T2"));
 
         // A request with tools needs a model known to take them: Backup's support is unknown.
-        let tools = rig.post("/v1/chat/completions", json!({ "model": "auto", "messages": [],
-            "tools": [{ "type": "function", "function": { "name": "f", "parameters": { "type": "object" } } }] })).await;
+        let tools = rig
+            .post(
+                "/v1/chat/completions",
+                json!({ "model": "auto", "messages": [],
+            "tools": [{ "type": "function", "function": { "name": "f", "parameters": { "type": "object" } } }] }),
+            )
+            .await;
         assert_eq!(tools.headers()["x-pygg-route"], "main/fast");
 
         // auto/cheap: the free one, by estimated cost.
@@ -1733,8 +2222,16 @@ fn auto_routes_to_the_lowest_eligible_tier_and_says_why() {
         assert_eq!(cheap.headers()["x-pygg-route"], "backup/steady");
 
         // The aliases are listed with the models.
-        let models: Value = rig.http.get(format!("{}/v1/models", rig.base)).bearer_auth(&rig.token).send().await.unwrap()
-            .json().await.unwrap();
+        let models: Value = rig
+            .http
+            .get(format!("{}/v1/models", rig.base))
+            .bearer_auth(&rig.token)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
         let ids: Vec<&str> = models["data"].as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).collect();
         assert!(ids.contains(&"auto") && ids.contains(&"auto/cheap"));
     });
@@ -1751,13 +2248,17 @@ fn a_model_answering_429_without_a_reset_is_held_out_of_auto_but_not_of_a_named_
         assert_eq!(first.status(), 200);
         assert_eq!(first.headers()["x-pygg-route"], "main/fast");
         assert_eq!(rig.fake.count("quota429"), 1);
-        let outcomes: Vec<(String, Option<u16>)> = rig.ledger().into_iter().map(|e| (e.outcome, e.http_status)).collect();
+        let outcomes: Vec<(String, Option<u16>)> =
+            rig.ledger().into_iter().map(|e| (e.outcome, e.http_status)).collect();
         assert_eq!(outcomes, [("fallback".into(), Some(429)), ("ok".into(), Some(200))]);
 
         // Held out of auto from the first strike, and the header says so.
         let held = rig.shared.with_db(|db| auto::hold(db, "backup", "quota429", crate::db::now_ms())).unwrap();
         assert_eq!(held.strikes, 1);
-        assert!(held.until_ms.unwrap() - crate::db::now_ms() > 9 * 60_000, "ten minutes, not the 30 s rate-limit cooldown");
+        assert!(
+            held.until_ms.unwrap() - crate::db::now_ms() > 9 * 60_000,
+            "ten minutes, not the 30 s rate-limit cooldown"
+        );
         let again = rig.post("/v1/chat/completions", chat("auto/cheap")).await;
         assert_eq!(again.headers()["x-pygg-route"], "main/fast");
         let why = again.headers()["x-pygg-auto"].to_str().unwrap().to_string();
@@ -1792,11 +2293,20 @@ fn a_prefill_refusal_falls_back_to_the_next_target_before_anything_reaches_the_c
         let response = rig.post("/v1/chat/completions", assistant_last.clone()).await;
         assert_eq!(response.status(), 200);
         assert_eq!(response.headers()["x-pygg-route"], "main/fast");
-        let outcomes: Vec<(String, Option<u16>)> = rig.ledger().into_iter().map(|e| (e.outcome, e.http_status)).collect();
+        let outcomes: Vec<(String, Option<u16>)> =
+            rig.ledger().into_iter().map(|e| (e.outcome, e.http_status)).collect();
         assert_eq!(outcomes, [("fallback".into(), Some(400)), ("ok".into(), Some(200))]);
-        assert!(rig.shared.with_db(|db| store::list_health(db, Some("claude"))).unwrap().is_empty(), "the model is well");
+        assert!(
+            rig.shared.with_db(|db| store::list_health(db, Some("claude"))).unwrap().is_empty(),
+            "the model is well"
+        );
         // Named alone, the refusal reaches the client as the 400 it is.
-        let alone = rig.post("/v1/chat/completions", json!({ "model": "claude/noprefill", "messages": assistant_last["messages"] })).await;
+        let alone = rig
+            .post(
+                "/v1/chat/completions",
+                json!({ "model": "claude/noprefill", "messages": assistant_last["messages"] }),
+            )
+            .await;
         assert_eq!(alone.status(), 400);
         assert!(alone.text().await.unwrap().contains("assistant message prefill"));
     });
@@ -1846,7 +2356,9 @@ fn auto_respects_the_client_minimum_tier_and_its_connection_list() {
         assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-pygg-route"], "main/fast");
         rig.shared.with_db(|db| store::set_client_auto_min_tier(db, &rig.client_id, "T1")).unwrap();
         assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-pygg-route"], "backup/steady");
-        rig.shared.with_db(|db| store::set_client_connections(db, &rig.client_id, Some(&["main".to_string()]))).unwrap();
+        rig.shared
+            .with_db(|db| store::set_client_connections(db, &rig.client_id, Some(&["main".to_string()])))
+            .unwrap();
         assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-pygg-route"], "main/fast");
     });
 }
@@ -1854,44 +2366,107 @@ fn auto_respects_the_client_minimum_tier_and_its_connection_list() {
 #[test]
 fn a_listed_model_keeps_what_the_user_set() {
     let conn = crate::db::open_in_memory().unwrap();
-    let p = store::add_provider(&conn, &NewProvider { kind: "openrouter", label: "Router", endpoint: "https://o.test",
-        credential_ref: None, default_billing: "paid", wire: "openai" }).unwrap();
-    let listed = |context: u64| store::Listed { id: "vendor/m".into(), context_tokens: Some(context), max_output_tokens: Some(4096),
-        supports_tools: Some(true), supports_vision: Some(false), thinking_types: None, effort_levels: None,
-        price: Some(Price { input_micro_per_mtok: 1, output_micro_per_mtok: 2,
-            cached_input_micro_per_mtok: None, cache_write_micro_per_mtok: None, source: "provider list price".into(), observed_at: 0 }) };
+    let p = store::add_provider(
+        &conn,
+        &NewProvider {
+            kind: "openrouter",
+            label: "Router",
+            endpoint: "https://o.test",
+            credential_ref: None,
+            default_billing: "paid",
+            wire: "openai",
+        },
+    )
+    .unwrap();
+    let listed = |context: u64| store::Listed {
+        id: "vendor/m".into(),
+        context_tokens: Some(context),
+        max_output_tokens: Some(4096),
+        supports_tools: Some(true),
+        supports_vision: Some(false),
+        thinking_types: None,
+        effort_levels: None,
+        price: Some(Price {
+            input_micro_per_mtok: 1,
+            output_micro_per_mtok: 2,
+            cached_input_micro_per_mtok: None,
+            cache_write_micro_per_mtok: None,
+            source: "provider list price".into(),
+            observed_at: 0,
+        }),
+    };
     store::import_listed(&conn, &p.id, &[listed(100_000)], Some("provider: openrouter /models")).unwrap();
     let m = store::list_models(&conn, Some(&p.id)).unwrap().remove(0);
-    assert_eq!((m.capabilities.context_tokens, m.capabilities.source.as_deref()), (Some(100_000), Some("provider: openrouter /models")));
+    assert_eq!(
+        (m.capabilities.context_tokens, m.capabilities.source.as_deref()),
+        (Some(100_000), Some("provider: openrouter /models"))
+    );
     assert_eq!(m.price.as_ref().unwrap().source, "provider list price");
 
     // The user sets a tier and their own price; a later refresh changes neither.
-    store::set_capabilities(&conn, &p.id, "vendor/m", &store::Capabilities { tier: Some("T2".into()), context_tokens: Some(64_000),
-        ..m.capabilities.clone() }).unwrap();
+    store::set_capabilities(
+        &conn,
+        &p.id,
+        "vendor/m",
+        &store::Capabilities { tier: Some("T2".into()), context_tokens: Some(64_000), ..m.capabilities.clone() },
+    )
+    .unwrap();
     store::update_model(&conn, &p.id, "vendor/m", None, None, Some(Some(price()))).unwrap();
     store::import_listed(&conn, &p.id, &[listed(200_000)], Some("provider: openrouter /models")).unwrap();
     let m = store::list_models(&conn, Some(&p.id)).unwrap().remove(0);
-    assert_eq!((m.capabilities.tier.as_deref(), m.capabilities.context_tokens, m.capabilities.source.as_deref()),
-        (Some("T2"), Some(64_000), Some("user")));
+    assert_eq!(
+        (m.capabilities.tier.as_deref(), m.capabilities.context_tokens, m.capabilities.source.as_deref()),
+        (Some("T2"), Some(64_000), Some("user"))
+    );
     assert_eq!(m.price.unwrap().source, "user");
 
     // "auto" is reserved.
-    let auto = store::add_provider(&conn, &NewProvider { kind: "custom", label: "Auto", endpoint: "https://a.test",
-        credential_ref: None, default_billing: "paid", wire: "openai" }).unwrap();
+    let auto = store::add_provider(
+        &conn,
+        &NewProvider {
+            kind: "custom",
+            label: "Auto",
+            endpoint: "https://a.test",
+            credential_ref: None,
+            default_billing: "paid",
+            wire: "openai",
+        },
+    )
+    .unwrap();
     assert_eq!(auto.id, "auto-connection");
-    assert!(store::save_combo(&conn, None, "auto", &[Target { provider_id: p.id.clone(), model_id: "vendor/m".into() }]).is_err());
+    assert!(store::save_combo(
+        &conn,
+        None,
+        "auto",
+        &[Target { provider_id: p.id.clone(), model_id: "vendor/m".into() }]
+    )
+    .is_err());
 }
 
 #[test]
 fn one_providers_two_api_formats_share_a_quota_group() {
     let conn = crate::db::open_in_memory().unwrap();
-    let add = |kind: &str, wire: &str| store::add_provider(&conn, &NewProvider { kind, label: kind, endpoint: "https://x.test",
-        credential_ref: None, default_billing: "paid", wire }).unwrap();
+    let add = |kind: &str, wire: &str| {
+        store::add_provider(
+            &conn,
+            &NewProvider {
+                kind,
+                label: kind,
+                endpoint: "https://x.test",
+                credential_ref: None,
+                default_billing: "paid",
+                wire,
+            },
+        )
+        .unwrap()
+    };
     let openai = add("deepseek", "openai");
     let anthropic = add("deepseek-anthropic", "anthropic");
     let other = add("mistral", "openai");
-    assert_eq!((openai.quota_group.as_str(), anthropic.quota_group.as_str(), other.quota_group.as_str()),
-        ("deepseek", "deepseek", "mistral"));
+    assert_eq!(
+        (openai.quota_group.as_str(), anthropic.quota_group.as_str(), other.quota_group.as_str()),
+        ("deepseek", "deepseek", "mistral")
+    );
     store::update_provider(&conn, &anthropic.id, None, None, Some(true)).unwrap();
     assert_eq!(store::get_provider(&conn, &anthropic.id).unwrap().unwrap().quota_group, anthropic.id);
 }
@@ -1916,8 +2491,10 @@ fn responses_request(model: &str, stream: bool) -> Value {
 
 /// The `data` of each server-sent event.
 fn responses_events(text: &str) -> Vec<Value> {
-    text.split("\n\n").filter_map(|block| block.lines().find_map(|l| l.strip_prefix("data: ")))
-        .map(|d| serde_json::from_str(d).unwrap()).collect()
+    text.split("\n\n")
+        .filter_map(|block| block.lines().find_map(|l| l.strip_prefix("data: ")))
+        .map(|d| serde_json::from_str(d).unwrap())
+        .collect()
 }
 
 #[test]
@@ -1930,23 +2507,35 @@ fn a_responses_request_reaches_an_openai_format_connection_through_chat_completi
         assert_eq!(response.headers()["x-pygg-route"], "main/fast");
         assert_eq!(response.headers()["x-pygg-dropped"], "web_search tool,prompt_cache_key");
         let body: Value = response.json().await.unwrap();
-        assert_eq!((body["object"].as_str(), body["status"].as_str(), body["model"].as_str()),
-            (Some("response"), Some("completed"), Some("main/fast")));
-        assert_eq!(body["output"][0]["content"][0], json!({ "type": "output_text", "text": "pong", "annotations": [] }));
-        assert_eq!((body["usage"]["input_tokens"].as_u64(), body["usage"]["output_tokens"].as_u64()), (Some(1000), Some(500)));
+        assert_eq!(
+            (body["object"].as_str(), body["status"].as_str(), body["model"].as_str()),
+            (Some("response"), Some("completed"), Some("main/fast"))
+        );
+        assert_eq!(
+            body["output"][0]["content"][0],
+            json!({ "type": "output_text", "text": "pong", "annotations": [] })
+        );
+        assert_eq!(
+            (body["usage"]["input_tokens"].as_u64(), body["usage"]["output_tokens"].as_u64()),
+            (Some(1000), Some(500))
+        );
 
         // What the provider received: one system message, the user turn, and both tools as functions.
         let sent = rig.fake.last_body.lock().unwrap().clone().unwrap();
         assert_eq!(sent["messages"][0], json!({ "role": "system", "content": "Be brief.\n\nUse tools." }));
         assert_eq!(sent["messages"][1], json!({ "role": "user", "content": "ping" }));
-        let tools: Vec<&str> = sent["tools"].as_array().unwrap().iter().map(|t| t["function"]["name"].as_str().unwrap()).collect();
+        let tools: Vec<&str> =
+            sent["tools"].as_array().unwrap().iter().map(|t| t["function"]["name"].as_str().unwrap()).collect();
         assert_eq!(tools, ["read", "apply_patch"]);
         assert_eq!(sent["tools"][1]["function"]["parameters"]["properties"]["input"]["type"], "string");
         assert!(sent.get("input").is_none() && sent.get("instructions").is_none());
 
         let event = rig.ledger().pop().unwrap();
         assert_eq!(event.route_mode.as_deref(), Some("translated:responses->openai"));
-        assert_eq!((event.input_tokens, event.output_tokens, event.cost_status.as_str()), (Some(1000), Some(500), "estimated"));
+        assert_eq!(
+            (event.input_tokens, event.output_tokens, event.cost_status.as_str()),
+            (Some(1000), Some(500), "estimated")
+        );
         assert_eq!(event.cost_micro_usd, Some(300));
     });
 }
@@ -1961,11 +2550,23 @@ fn a_streamed_custom_tool_call_comes_back_as_codex_reads_it() {
         assert_eq!(response.headers()[header::CONTENT_TYPE], "text/event-stream");
         let events = responses_events(&response.text().await.unwrap());
         let kinds: Vec<&str> = events.iter().map(|e| e["type"].as_str().unwrap()).collect();
-        assert_eq!(kinds, ["response.created", "response.in_progress", "response.output_item.added",
-            "response.custom_tool_call_input.delta", "response.custom_tool_call_input.done", "response.output_item.done",
-            "response.completed"]);
-        assert_eq!(events[5]["item"], json!({ "id": events[5]["item"]["id"], "type": "custom_tool_call", "status": "completed",
-            "call_id": "call_p", "name": "apply_patch", "input": "*** Begin Patch\n*** End Patch" }));
+        assert_eq!(
+            kinds,
+            [
+                "response.created",
+                "response.in_progress",
+                "response.output_item.added",
+                "response.custom_tool_call_input.delta",
+                "response.custom_tool_call_input.done",
+                "response.output_item.done",
+                "response.completed"
+            ]
+        );
+        assert_eq!(
+            events[5]["item"],
+            json!({ "id": events[5]["item"]["id"], "type": "custom_tool_call", "status": "completed",
+            "call_id": "call_p", "name": "apply_patch", "input": "*** Begin Patch\n*** End Patch" })
+        );
         let done = &events[6]["response"];
         assert_eq!((done["status"].as_str(), done["usage"]["output_tokens"].as_u64()), (Some("completed"), Some(500)));
 
@@ -1973,18 +2574,28 @@ fn a_streamed_custom_tool_call_comes_back_as_codex_reads_it() {
         let mut next = responses_request("main/fast", false);
         let input = next["input"].as_array_mut().unwrap();
         input.push(events[5]["item"].clone());
-        input.push(json!({ "type": "custom_tool_call_output", "call_id": "call_p", "output": "Success. Updated a.py" }));
+        input
+            .push(json!({ "type": "custom_tool_call_output", "call_id": "call_p", "output": "Success. Updated a.py" }));
         let response = rig.post_session("/v1/responses", "codex-1", next).await;
         assert_eq!(response.status(), 200);
         let sent = rig.fake.last_body.lock().unwrap().clone().unwrap();
-        assert_eq!(sent["messages"][2]["tool_calls"][0], json!({ "id": "call_p", "type": "function", "function": {
-            "name": "apply_patch", "arguments": "{\"input\":\"*** Begin Patch\\n*** End Patch\"}" } }));
-        assert_eq!(sent["messages"][3], json!({ "role": "tool", "tool_call_id": "call_p", "content": "Success. Updated a.py" }));
+        assert_eq!(
+            sent["messages"][2]["tool_calls"][0],
+            json!({ "id": "call_p", "type": "function", "function": {
+            "name": "apply_patch", "arguments": "{\"input\":\"*** Begin Patch\\n*** End Patch\"}" } })
+        );
+        assert_eq!(
+            sent["messages"][3],
+            json!({ "role": "tool", "tool_call_id": "call_p", "content": "Success. Updated a.py" })
+        );
 
         tokio::time::sleep(Duration::from_millis(100)).await;
         let ledger = rig.ledger();
         let streamed = &ledger[ledger.len() - 2];
-        assert_eq!((streamed.outcome.as_str(), streamed.output_tokens, streamed.session_key.as_deref()), ("ok", Some(500), Some("codex-1")));
+        assert_eq!(
+            (streamed.outcome.as_str(), streamed.output_tokens, streamed.session_key.as_deref()),
+            ("ok", Some(500), Some("codex-1"))
+        );
     });
 }
 
@@ -1998,8 +2609,10 @@ fn a_responses_request_reaches_an_anthropic_connection_through_two_translations(
         assert_eq!(response.headers()["x-pygg-dropped"], "web_search tool,prompt_cache_key");
         let body: Value = response.json().await.unwrap();
         assert_eq!(body["output"][0]["content"][0]["text"], "cache_control=false thinking=false beta=-");
-        assert_eq!((body["usage"]["input_tokens"].as_u64(), body["usage"]["input_tokens_details"]["cached_tokens"].as_u64()),
-            (Some(1000), Some(900)));
+        assert_eq!(
+            (body["usage"]["input_tokens"].as_u64(), body["usage"]["input_tokens_details"]["cached_tokens"].as_u64()),
+            (Some(1000), Some(900))
+        );
         let sent = rig.fake.last_body.lock().unwrap().clone().unwrap();
         assert_eq!(sent["system"], "Be brief.\n\nUse tools.");
         assert_eq!(sent["tools"][1]["name"], "apply_patch");
@@ -2013,8 +2626,10 @@ fn a_responses_request_reaches_an_anthropic_connection_through_two_translations(
         assert_eq!(done["response"]["output"][0]["content"][0]["text"], "cache_control=false thinking=false beta=-");
         tokio::time::sleep(Duration::from_millis(100)).await;
         let event = rig.ledger().pop().unwrap();
-        assert_eq!((event.route_mode.as_deref(), event.output_tokens, event.cache_write_tokens),
-            (Some("translated:responses->anthropic"), Some(7), Some(90)));
+        assert_eq!(
+            (event.route_mode.as_deref(), event.output_tokens, event.cache_write_tokens),
+            (Some("translated:responses->anthropic"), Some(7), Some(90))
+        );
     });
 }
 
@@ -2023,8 +2638,22 @@ fn a_provider_that_serves_responses_gets_the_request_unchanged() {
     rt().block_on(async {
         let rig = rig().await;
         let endpoint = rig.shared.with_db(|db| store::get_provider(db, "main")).unwrap().unwrap().endpoint;
-        let openai = rig.shared.with_db(|db| store::add_provider(db, &NewProvider { kind: "openai", label: "OpenAI",
-            endpoint: &endpoint, credential_ref: Some("provider-main"), default_billing: "paid", wire: "openai" })).unwrap();
+        let openai = rig
+            .shared
+            .with_db(|db| {
+                store::add_provider(
+                    db,
+                    &NewProvider {
+                        kind: "openai",
+                        label: "OpenAI",
+                        endpoint: &endpoint,
+                        credential_ref: Some("provider-main"),
+                        default_billing: "paid",
+                        wire: "openai",
+                    },
+                )
+            })
+            .unwrap();
         rig.priced(&openai.id, "gpt");
         let request = responses_request(&format!("{}/gpt", openai.id), false);
         let response = rig.post("/v1/responses", request.clone()).await;
@@ -2041,7 +2670,12 @@ fn a_provider_that_serves_responses_gets_the_request_unchanged() {
         let event = rig.ledger().pop().unwrap();
         assert_eq!((event.input_tokens, event.cache_tokens, event.output_tokens), (Some(1000), Some(800), Some(500)));
 
-        let text = rig.post("/v1/responses", responses_request(&format!("{}/gpt", openai.id), true)).await.text().await.unwrap();
+        let text = rig
+            .post("/v1/responses", responses_request(&format!("{}/gpt", openai.id), true))
+            .await
+            .text()
+            .await
+            .unwrap();
         assert!(text.starts_with("event: response.created") && text.contains("\"resp_up\""), "{text}");
         tokio::time::sleep(Duration::from_millis(100)).await;
         let event = rig.ledger().pop().unwrap();
@@ -2080,8 +2714,13 @@ fn responses_errors_are_in_the_openai_format() {
         let body: Value = broken.json().await.unwrap();
         assert!(body["error"]["message"].as_str().unwrap().contains("bad field"), "{body}");
 
-        let anonymous = rig.http.post(format!("{}/v1/responses", rig.base)).json(&responses_request("main/fast", false))
-            .send().await.unwrap();
+        let anonymous = rig
+            .http
+            .post(format!("{}/v1/responses", rig.base))
+            .json(&responses_request("main/fast", false))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(anonymous.status(), 401);
     });
 }
@@ -2089,15 +2728,43 @@ fn responses_errors_are_in_the_openai_format() {
 #[test]
 fn a_cheapest_combo_orders_its_members_by_this_requests_cost() {
     let conn = crate::db::open_in_memory().unwrap();
-    let paid = store::add_provider(&conn, &store::NewProvider { kind: "openai", label: "Paid", endpoint: "https://example.test/v1/",
-        credential_ref: Some("provider-x"), default_billing: "paid", wire: "openai" }).unwrap();
-    let local = store::add_provider(&conn, &store::NewProvider { kind: "ollama", label: "Local", endpoint: "http://127.0.0.1:11434/v1/",
-        credential_ref: None, default_billing: "local", wire: "openai" }).unwrap();
+    let paid = store::add_provider(
+        &conn,
+        &store::NewProvider {
+            kind: "openai",
+            label: "Paid",
+            endpoint: "https://example.test/v1/",
+            credential_ref: Some("provider-x"),
+            default_billing: "paid",
+            wire: "openai",
+        },
+    )
+    .unwrap();
+    let local = store::add_provider(
+        &conn,
+        &store::NewProvider {
+            kind: "ollama",
+            label: "Local",
+            endpoint: "http://127.0.0.1:11434/v1/",
+            credential_ref: None,
+            default_billing: "local",
+            wire: "openai",
+        },
+    )
+    .unwrap();
     for (p, m) in [(&paid.id, "dear"), (&paid.id, "cheap"), (&paid.id, "unpriced"), (&local.id, "qwen")] {
         store::add_model(&conn, p, m).unwrap();
     }
-    let price = |input: u64, output: u64| Some(Some(crate::gateway::pricing::Price { input_micro_per_mtok: input,
-        output_micro_per_mtok: output, cached_input_micro_per_mtok: None, cache_write_micro_per_mtok: None, source: "user".into(), observed_at: 0 }));
+    let price = |input: u64, output: u64| {
+        Some(Some(crate::gateway::pricing::Price {
+            input_micro_per_mtok: input,
+            output_micro_per_mtok: output,
+            cached_input_micro_per_mtok: None,
+            cache_write_micro_per_mtok: None,
+            source: "user".into(),
+            observed_at: 0,
+        }))
+    };
     store::update_model(&conn, &paid.id, "dear", None, None, price(15_000_000, 75_000_000)).unwrap();
     store::update_model(&conn, &paid.id, "cheap", None, None, price(100_000, 500_000)).unwrap();
     let members = [("dear", &paid.id), ("unpriced", &paid.id), ("cheap", &paid.id), ("qwen", &local.id)]
@@ -2109,8 +2776,13 @@ fn a_cheapest_combo_orders_its_members_by_this_requests_cost() {
     let shared = Shared::new(Arc::new(Mutex::new(conn)), Arc::new(crate::gateway::OsSecrets));
     let mut targets = shared.with_db(|db| store::resolve(db, "thrifty")).unwrap();
     let mut reasons = HashMap::new();
-    super::cheapest_first(&shared, &mut targets, &json!({"messages": [{"role": "user", "content": "hi"}], "max_tokens": 100}),
-        "thrifty", &mut reasons);
+    super::cheapest_first(
+        &shared,
+        &mut targets,
+        &json!({"messages": [{"role": "user", "content": "hi"}], "max_tokens": 100}),
+        "thrifty",
+        &mut reasons,
+    );
     let order: Vec<&str> = targets.iter().map(|(_, m)| m.as_str()).collect();
     assert_eq!(order, ["qwen", "cheap", "dear", "unpriced"], "local at $0, then by cost, unknown price last");
     assert!(reasons[&(paid.id.clone(), "unpriced".to_string())].contains("price unknown"));
@@ -2232,12 +2904,18 @@ fn a_key_ring_moves_past_a_rate_limited_or_rejected_key_and_the_ledger_names_eac
         assert_eq!(body["choices"][0]["message"]["content"], "answered with key-1");
         assert_eq!(*rig.fake.keys.lock().unwrap(), ["key-limited", "key-1"]);
         let ledger = rig.ledger();
-        let labels: Vec<(Option<&str>, &str)> = ledger.iter().map(|e| (e.key_label.as_deref(), e.outcome.as_str())).collect();
+        let labels: Vec<(Option<&str>, &str)> =
+            ledger.iter().map(|e| (e.key_label.as_deref(), e.outcome.as_str())).collect();
         assert_eq!(labels, [(Some("Limited"), "fallback"), (Some("First key"), "ok")]);
-        assert!(rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap().is_empty(), "the connection is not marked");
+        assert!(
+            rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap().is_empty(),
+            "the connection is not marked"
+        );
         let marks = rig.shared.with_db(|db| keys::health(db, "main", crate::db::now_ms())).unwrap();
-        assert_eq!((marks[0].key_id.as_str(), marks[0].model_id.as_str(), marks[0].state.as_str()),
-            (limited.id.as_str(), "ring", "rate_limited"));
+        assert_eq!(
+            (marks[0].key_id.as_str(), marks[0].model_id.as_str(), marks[0].state.as_str()),
+            (limited.id.as_str(), "ring", "rate_limited")
+        );
         assert!(marks[0].until_ms.unwrap() > crate::db::now_ms() + 100_000, "its Retry-After of 120 s");
 
         // The next request skips the cooling key without asking it.
@@ -2256,7 +2934,8 @@ fn a_key_ring_moves_past_a_rate_limited_or_rejected_key_and_the_ledger_names_eac
         rig.fake.keys.lock().unwrap().clear();
         assert_eq!(rig.post("/v1/chat/completions", chat("main/ring")).await.status(), 200);
         assert_eq!(*rig.fake.keys.lock().unwrap(), ["key-bad", "key-1"]);
-        let blocked = rig.shared.with_db(|db| keys::blocking(db, &bad, "anything", crate::db::now_ms())).unwrap().unwrap();
+        let blocked =
+            rig.shared.with_db(|db| keys::blocking(db, &bad, "anything", crate::db::now_ms())).unwrap().unwrap();
         assert_eq!((blocked.state.as_str(), blocked.until_ms), ("invalid_credentials", None));
         assert!(rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap().is_empty());
     });

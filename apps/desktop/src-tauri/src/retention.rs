@@ -53,7 +53,9 @@ pub fn days(conn: &Connection) -> store::Result<Option<u32>> {
 
 pub fn set_days(conn: &Connection, days: Option<u32>) -> store::Result<()> {
     match days {
-        Some(d) if !CHOICES.contains(&d) => Err(format!("Usage history can be kept for 30, 90 or 365 days, or forever, not {d} days.")),
+        Some(d) if !CHOICES.contains(&d) => {
+            Err(format!("Usage history can be kept for 30, 90 or 365 days, or forever, not {d} days."))
+        }
         Some(d) => store::set_setting(conn, KEY, &d.to_string()),
         None => store::set_setting(conn, KEY, "forever"),
     }
@@ -71,8 +73,11 @@ pub fn cutoff(days: u32, now: i64) -> i64 {
 
 /// How many ledger rows a period of `days` would delete now; nothing is deleted.
 pub fn would_delete(conn: &Connection, days: u32, now: i64) -> store::Result<u64> {
-    conn.query_row(&format!("SELECT COUNT(*) FROM usage_events WHERE {USAGE_GONE}"), [cutoff(days, now)], |r| r.get::<_, i64>(0))
-        .map(|n| n.max(0) as u64).map_err(|e| e.to_string())
+    conn.query_row(&format!("SELECT COUNT(*) FROM usage_events WHERE {USAGE_GONE}"), [cutoff(days, now)], |r| {
+        r.get::<_, i64>(0)
+    })
+    .map(|n| n.max(0) as u64)
+    .map_err(|e| e.to_string())
 }
 
 /// Deletes what is older than the setting allows, in one transaction, and records what it did. `None` when history is
@@ -82,19 +87,27 @@ pub fn prune(conn: &Connection, now: i64) -> store::Result<Option<Pruned>> {
     let before = cutoff(days, now);
     let err = |e: rusqlite::Error| e.to_string();
     let tx = conn.unchecked_transaction().map_err(err)?;
-    let usage_rows = tx.execute(&format!("DELETE FROM usage_events WHERE {USAGE_GONE}"), params![before]).map_err(err)? as u64;
+    let usage_rows =
+        tx.execute(&format!("DELETE FROM usage_events WHERE {USAGE_GONE}"), params![before]).map_err(err)? as u64;
     tx.execute(&format!("DELETE FROM feedback WHERE {FEEDBACK_GONE}"), params![before]).map_err(err)?;
-    let route_decisions = tx.execute(&format!("DELETE FROM route_decisions WHERE {DECISIONS_GONE}"), params![before]).map_err(err)? as u64;
+    let route_decisions = tx
+        .execute(&format!("DELETE FROM route_decisions WHERE {DECISIONS_GONE}"), params![before])
+        .map_err(err)? as u64;
     let pruned = Pruned { at: now, before, usage_rows, route_decisions };
-    tx.execute("INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2",
-        params![LAST_RUN_KEY, serde_json::to_string(&pruned).unwrap_or_default()]).map_err(err)?;
+    tx.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2",
+        params![LAST_RUN_KEY, serde_json::to_string(&pruned).unwrap_or_default()],
+    )
+    .map_err(err)?;
     tx.commit().map_err(err)?;
     Ok(Some(pruned))
 }
 
 /// Whether a row with this id is still in the ledger.
 pub fn has_usage_row(conn: &Connection, id: &str) -> store::Result<bool> {
-    conn.query_row("SELECT 1 FROM usage_events WHERE id = ?1", [id], |_| Ok(())).optional().map(|r| r.is_some())
+    conn.query_row("SELECT 1 FROM usage_events WHERE id = ?1", [id], |_| Ok(()))
+        .optional()
+        .map(|r| r.is_some())
         .map_err(|e| e.to_string())
 }
 
@@ -131,14 +144,31 @@ mod tests {
         let now = db::now_ms();
         let month = store::month_start(now);
         let conn = db::open_in_memory().unwrap();
-        conn.execute("INSERT INTO workspaces (id, name, path, created_at) VALUES ('w1', 'repo', 'C:/src/repo', 1)", []).unwrap();
-        conn.execute("INSERT INTO tasks (id, workspace_id, title, prompt, strategy, state, created_at, updated_at) \
-             VALUES ('t1', 'w1', 'x', 'x', 'free_first', 'done', 1, 1)", []).unwrap();
-        conn.execute("INSERT INTO task_stages (id, task_id, position, name, state) VALUES ('s1', 't1', 0, 'main', 'done')", []).unwrap();
-        conn.execute("INSERT INTO attempts (id, stage_id, number, agent, model_ref, tier, billing, state) \
-             VALUES ('a1', 's1', 1, 'opencode', 'x', 1, 'paid', 'passed')", []).unwrap();
-        conn.execute("INSERT INTO route_decisions (id, stage_id, eligible_json, excluded_json, created_at) VALUES \
-             ('old', 's1', '[]', '[]', ?1), ('new', 's1', '[]', '[]', ?2)", params![now - 200 * DAY, now - DAY]).unwrap();
+        conn.execute("INSERT INTO workspaces (id, name, path, created_at) VALUES ('w1', 'repo', 'C:/src/repo', 1)", [])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO tasks (id, workspace_id, title, prompt, strategy, state, created_at, updated_at) \
+             VALUES ('t1', 'w1', 'x', 'x', 'free_first', 'done', 1, 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO task_stages (id, task_id, position, name, state) VALUES ('s1', 't1', 0, 'main', 'done')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO attempts (id, stage_id, number, agent, model_ref, tier, billing, state) \
+             VALUES ('a1', 's1', 1, 'opencode', 'x', 1, 'paid', 'passed')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO route_decisions (id, stage_id, eligible_json, excluded_json, created_at) VALUES \
+             ('old', 's1', '[]', '[]', ?1), ('new', 's1', '[]', '[]', ?2)",
+            params![now - 200 * DAY, now - DAY],
+        )
+        .unwrap();
         row(&conn, "old", now - 200 * DAY, None, None);
         row(&conn, "old-of-an-attempt", now - 200 * DAY, Some("a1"), None);
         // A running attempt's gateway rows, and an agent's own run, point at it through the session until linked.
@@ -149,8 +179,12 @@ mod tests {
         // The first moment of this month, which a client's monthly limit counts, however short the period.
         row(&conn, "this-month", month, None, None);
         row(&conn, "now", now, None, None);
-        conn.execute("INSERT INTO feedback (id, metric_name, target_kind, target_id, value_bool, source, created_at) VALUES \
-             ('f1', 'checks_passed', 'request', 'old', 1, 'client', ?1)", [now - 200 * DAY]).unwrap();
+        conn.execute(
+            "INSERT INTO feedback (id, metric_name, target_kind, target_id, value_bool, source, created_at) VALUES \
+             ('f1', 'checks_passed', 'request', 'old', 1, 'client', ?1)",
+            [now - 200 * DAY],
+        )
+        .unwrap();
         let (client, _) = store::create_client(&conn, "Codex", Some(5_000_000)).unwrap();
         conn.execute("UPDATE usage_events SET client_id = ?1", [&client.id]).unwrap();
         let month_spend = |conn: &Connection| store::list_clients(conn).unwrap()[0].month_spend_micro_usd;
@@ -161,8 +195,15 @@ mod tests {
         assert_eq!(would_delete(&conn, 90, now).unwrap(), 2);
         let pruned = prune(&conn, now).unwrap().unwrap();
         assert_eq!((pruned.usage_rows, pruned.route_decisions, pruned.before), (2, 1, now - 90 * DAY));
-        for (id, kept) in [("old", false), ("old-other-session", false), ("old-of-an-attempt", true),
-            ("old-session-of-an-attempt", true), ("last-month", true), ("this-month", true), ("now", true)] {
+        for (id, kept) in [
+            ("old", false),
+            ("old-other-session", false),
+            ("old-of-an-attempt", true),
+            ("old-session-of-an-attempt", true),
+            ("last-month", true),
+            ("this-month", true),
+            ("now", true),
+        ] {
             assert_eq!(has_usage_row(&conn, id).unwrap(), kept, "{id}");
         }
         let feedback: i64 = conn.query_row("SELECT COUNT(*) FROM feedback", [], |r| r.get(0)).unwrap();
@@ -174,8 +215,11 @@ mod tests {
         assert!(!has_usage_row(&conn, "last-month").unwrap());
         assert!(has_usage_row(&conn, "this-month").unwrap() && has_usage_row(&conn, "old-of-an-attempt").unwrap());
         assert_eq!(month_spend(&conn), spend_before, "the monthly limit still counts the same spend");
-        let task_rows: i64 = conn.query_row("SELECT COUNT(*) FROM usage_events WHERE attempt_id = 'a1' OR session_key = 'a1'",
-            [], |r| r.get(0)).unwrap();
+        let task_rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM usage_events WHERE attempt_id = 'a1' OR session_key = 'a1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(task_rows, 2, "the task's cost is unchanged");
     }
 

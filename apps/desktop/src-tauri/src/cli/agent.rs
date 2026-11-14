@@ -26,7 +26,9 @@ async fn task(db_path: PathBuf, flags: &HashMap<String, String>) {
     // No `tasks::recover` here: the store may be the app's, and its running tasks are not this process's to close.
     let worktrees = std::env::temp_dir().join("pygg-task-worktrees");
     let path = need("workspace");
-    let found = tasks::list_workspaces(&conn).unwrap_or_else(|e| fail(e)).into_iter()
+    let found = tasks::list_workspaces(&conn)
+        .unwrap_or_else(|e| fail(e))
+        .into_iter()
         .find(|w| std::fs::canonicalize(&w.path).ok() == std::fs::canonicalize(&path).ok());
     let workspace = match found {
         Some(w) => w,
@@ -35,13 +37,25 @@ async fn task(db_path: PathBuf, flags: &HashMap<String, String>) {
     if let Some(check) = flags.get("check") {
         tasks::add_check(&conn, &workspace.id, check).unwrap_or_else(|e| fail(e));
     }
-    let steps = need("steps").split(',').map(str::trim).filter(|s| !s.is_empty()).map(|s| {
-        let (agent, model) = s.split_once(':').map(|(a, m)| (a, Some(m.to_string()))).unwrap_or((s, None));
-        tasks::Step { agent: agent.into(), model, tier: 2, billing: "unknown".into() }
-    }).collect();
-    let new = tasks::NewTask { workspace_id: workspace.id.clone(), title: None, prompt: need("prompt"), strategy: "free_first".into(),
-        steps, allow_shell: flags.get("shell").map(String::as_str) == Some("yes"), timeout_secs: flags.get("timeout").and_then(|t| t.parse().ok()),
-        handoff: flags.get("handoff").cloned() };
+    let steps = need("steps")
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            let (agent, model) = s.split_once(':').map(|(a, m)| (a, Some(m.to_string()))).unwrap_or((s, None));
+            tasks::Step { agent: agent.into(), model, tier: 2, billing: "unknown".into() }
+        })
+        .collect();
+    let new = tasks::NewTask {
+        workspace_id: workspace.id.clone(),
+        title: None,
+        prompt: need("prompt"),
+        strategy: "free_first".into(),
+        steps,
+        allow_shell: flags.get("shell").map(String::as_str) == Some("yes"),
+        timeout_secs: flags.get("timeout").and_then(|t| t.parse().ok()),
+        handoff: flags.get("handoff").cloned(),
+    };
     let id = tasks::create_task(&conn, &new).unwrap_or_else(|e| fail(e));
     let db = Arc::new(Mutex::new(conn));
     let runner = tasks::Runner::new(db.clone(), worktrees, tasks::agent_executor());
@@ -57,14 +71,35 @@ async fn task(db_path: PathBuf, flags: &HashMap<String, String>) {
     handle.await.unwrap_or_else(|e| fail(e));
 
     let detail = tasks::task_detail(&db.lock().unwrap(), &id).unwrap_or_else(|e| fail(e));
-    println!("task {id}: {}{}", detail.summary.state, detail.reason.as_deref().map(|r| format!(" ({r})")).unwrap_or_default());
+    println!(
+        "task {id}: {}{}",
+        detail.summary.state,
+        detail.reason.as_deref().map(|r| format!(" ({r})")).unwrap_or_default()
+    );
     for a in &detail.attempt_details {
-        fn n(v: Option<impl ToString>) -> String { v.map_or("?".to_string(), |v| v.to_string()) }
-        println!("  #{} step {} {:<40} {:<8} {}  files {} +{} -{}  tokens {}/{}", a.number, a.step + 1, a.label, a.outcome,
-            a.escalation_reason.as_deref().or(a.detail.as_deref()).unwrap_or(""), n(a.files_changed), n(a.insertions),
-            n(a.deletions), n(a.input_tokens), n(a.output_tokens));
+        fn n(v: Option<impl ToString>) -> String {
+            v.map_or("?".to_string(), |v| v.to_string())
+        }
+        println!(
+            "  #{} step {} {:<40} {:<8} {}  files {} +{} -{}  tokens {}/{}",
+            a.number,
+            a.step + 1,
+            a.label,
+            a.outcome,
+            a.escalation_reason.as_deref().or(a.detail.as_deref()).unwrap_or(""),
+            n(a.files_changed),
+            n(a.insertions),
+            n(a.deletions),
+            n(a.input_tokens),
+            n(a.output_tokens)
+        );
         for c in &a.checks {
-            println!("      check `{}`: {} ({} ms)", c.command, if c.passed { "passed" } else { &c.detail }, c.duration_ms);
+            println!(
+                "      check `{}`: {} ({} ms)",
+                c.command,
+                if c.passed { "passed" } else { &c.detail },
+                c.duration_ms
+            );
             if !c.passed {
                 // What the next step is handed: the end of the check's (redacted) output.
                 for line in c.output_tail.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev() {
@@ -77,8 +112,13 @@ async fn task(db_path: PathBuf, flags: &HashMap<String, String>) {
     if let Ok(diff) = tasks::result_diff(&conn, &id) {
         println!("--- diff ---\n{}", diff.chars().take(2000).collect::<String>());
         match (flags.get("keep"), flags.get("discard")) {
-            (Some(title), _) => println!("kept as {}", tasks::keep(&conn, &id, Some(title)).unwrap_or_else(|e| fail(e))),
-            (None, Some(_)) => { tasks::discard(&conn, &id).unwrap_or_else(|e| fail(e)); println!("discarded"); }
+            (Some(title), _) => {
+                println!("kept as {}", tasks::keep(&conn, &id, Some(title)).unwrap_or_else(|e| fail(e)))
+            }
+            (None, Some(_)) => {
+                tasks::discard(&conn, &id).unwrap_or_else(|e| fail(e));
+                println!("discarded");
+            }
             _ => println!("the result waits in the app (or run again with --keep / --discard)"),
         }
     }
@@ -123,14 +163,21 @@ pub async fn run(mut args: Vec<String>) {
     match command.as_str() {
         "detect" => {
             for a in agents::detect().await {
-                println!("{:<12} {:<10} {:<40} {}", a.id, if a.installed { "installed" } else { "missing" },
-                    a.version.unwrap_or_default(), a.login.unwrap_or_default());
+                println!(
+                    "{:<12} {:<10} {:<40} {}",
+                    a.id,
+                    if a.installed { "installed" } else { "missing" },
+                    a.version.unwrap_or_default(),
+                    a.login.unwrap_or_default()
+                );
             }
         }
         "run" => {
             let request = agents::TaskRequest {
                 agent: flags.get("agent").cloned().unwrap_or_else(|| fail("--agent is required")),
-                workspace: PathBuf::from(flags.get("workspace").cloned().unwrap_or_else(|| fail("--workspace is required"))),
+                workspace: PathBuf::from(
+                    flags.get("workspace").cloned().unwrap_or_else(|| fail("--workspace is required")),
+                ),
                 prompt: flags.get("prompt").cloned().unwrap_or_else(|| fail("--prompt is required")),
                 model: flags.get("model").cloned(),
                 allow_shell: flags.get("shell").map(String::as_str) == Some("yes"),
@@ -144,8 +191,14 @@ pub async fn run(mut args: Vec<String>) {
             println!("outcome: {} ({}) in {} ms", run.outcome, run.exit, run.duration_ms);
             println!("changes: {} files, +{} -{}", run.files_changed, run.insertions, run.deletions);
             let u = &run.usage;
-            println!("model: {}  tokens in/out/cache read: {:?}/{:?}/{:?}  agent's estimate: {:?}",
-                u.model.as_deref().unwrap_or("-"), u.input_tokens, u.output_tokens, u.cache_read_tokens, u.estimate_usd);
+            println!(
+                "model: {}  tokens in/out/cache read: {:?}/{:?}/{:?}  agent's estimate: {:?}",
+                u.model.as_deref().unwrap_or("-"),
+                u.input_tokens,
+                u.output_tokens,
+                u.cache_read_tokens,
+                u.estimate_usd
+            );
             if let Some(result) = &u.result {
                 println!("result: {}", result.chars().take(400).collect::<String>());
             }
@@ -164,23 +217,36 @@ pub async fn run(mut args: Vec<String>) {
                 println!("--- diff ---\n{}", diff.chars().take(2000).collect::<String>());
             }
             match (flags.get("keep"), flags.get("discard")) {
-                (Some(title), _) => println!("kept as {}", agents::finish(&run, Some(title)).unwrap_or_else(|e| fail(e)).unwrap_or_default()),
-                (None, Some(_)) => { agents::finish(&run, None).unwrap_or_else(|e| fail(e)); println!("discarded"); }
+                (Some(title), _) => println!(
+                    "kept as {}",
+                    agents::finish(&run, Some(title)).unwrap_or_else(|e| fail(e)).unwrap_or_default()
+                ),
+                (None, Some(_)) => {
+                    agents::finish(&run, None).unwrap_or_else(|e| fail(e));
+                    println!("discarded");
+                }
                 _ => println!("worktree left at {}", run.worktree),
             }
         }
         "task" => task(db_path.unwrap_or_else(|| fail("task needs --db PATH")), &flags).await,
         "quality" => {
             // How tasks turned out (ROADMAP C4): checks passed, results kept, and known money per kept result.
-            let conn = db::open(&db_path.unwrap_or_else(|| fail("quality needs --db PATH"))).unwrap_or_else(|e| fail(e));
+            let conn =
+                db::open(&db_path.unwrap_or_else(|| fail("quality needs --db PATH"))).unwrap_or_else(|e| fail(e));
             let days: i64 = flags.get("days").and_then(|d| d.parse().ok()).unwrap_or(30);
             let q = tasks::quality(&conn, db::now_ms() - days * 86_400_000).unwrap_or_else(|e| fail(e));
             let usd = |m: u64| format!("${:.4}", m as f64 / 1e6);
-            println!("last {days} days: {} tasks; {} results kept, {} discarded; {} retried, {} stopped", q.tasks, q.kept,
-                q.discarded, q.retried, q.cancelled);
+            println!(
+                "last {days} days: {} tasks; {} results kept, {} discarded; {} retried, {} stopped",
+                q.tasks, q.kept, q.discarded, q.retried, q.cancelled
+            );
             println!("checks passed on {} of {} checked attempts", q.passed_attempts, q.checked_attempts);
-            println!("known money {} ({} entries with an unknown cost, not counted); per kept result {}", usd(q.known_micro_usd),
-                q.unknown_entries, q.micro_usd_per_kept.map(usd).unwrap_or_else(|| "-".into()));
+            println!(
+                "known money {} ({} entries with an unknown cost, not counted); per kept result {}",
+                usd(q.known_micro_usd),
+                q.unknown_entries,
+                q.micro_usd_per_kept.map(usd).unwrap_or_else(|| "-".into())
+            );
         }
         other => fail(format!("unknown command {other}")),
     }

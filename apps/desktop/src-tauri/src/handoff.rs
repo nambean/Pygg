@@ -78,18 +78,30 @@ fn section(a: &Attempt, latest: bool, earlier: &[&Attempt]) -> String {
         s.push_str(&format!("Attempt {} · {} — skipped: it was not answering.\n", a.number, a.label));
         return s;
     }
-    let what = if a.failed_check.is_some() { "did not pass the checks" }
-        else if a.no_changes { "ended without changing any file" }
-        else { "did not finish" };
+    let what = if a.failed_check.is_some() {
+        "did not pass the checks"
+    } else if a.no_changes {
+        "ended without changing any file"
+    } else {
+        "did not finish"
+    };
     s.push_str(&format!("Attempt {} · {} — {what}.\n", a.number, a.label));
     if let Some((command, detail, output)) = a.failed_check {
-        let same = earlier.iter().find(|e| e.failed_check.map(|(c, _, o)| c == command && clean(o) == clean(output)).unwrap_or(false));
+        let same = earlier
+            .iter()
+            .find(|e| e.failed_check.map(|(c, _, o)| c == command && clean(o) == clean(output)).unwrap_or(false));
         if let Some(e) = same {
-            s.push_str(&format!("- Verified by the check `{command}`: {detail}, with the same output as attempt {}.\n", e.number));
+            s.push_str(&format!(
+                "- Verified by the check `{command}`: {detail}, with the same output as attempt {}.\n",
+                e.number
+            ));
         } else {
             let (text, cut) = tail(&clean(output), if latest { LATEST_TAIL } else { EARLIER_TAIL });
-            s.push_str(&format!("- Verified by the check `{command}`: {detail}. {}:\n{}\n",
-                if cut { "The end of its output" } else { "Its output" }, indent(text.trim_end())));
+            s.push_str(&format!(
+                "- Verified by the check `{command}`: {detail}. {}:\n{}\n",
+                if cut { "The end of its output" } else { "Its output" },
+                indent(text.trim_end())
+            ));
         }
     } else if !a.no_changes {
         if let Some(reason) = a.escalation_reason.or(a.detail) {
@@ -100,8 +112,11 @@ fn section(a: &Attempt, latest: bool, earlier: &[&Attempt]) -> String {
         let mut list: Vec<&str> = a.changed_paths.iter().map(String::as_str).take(PATHS_LISTED).collect();
         list.sort_unstable();
         let more = a.changed_paths.len().saturating_sub(PATHS_LISTED);
-        s.push_str(&format!("- Changed in that discarded attempt, and not in your copy: {}{}\n", list.join(", "),
-            if more > 0 { format!(" and {more} more") } else { String::new() }));
+        s.push_str(&format!(
+            "- Changed in that discarded attempt, and not in your copy: {}{}\n",
+            list.join(", "),
+            if more > 0 { format!(" and {more} more") } else { String::new() }
+        ));
     }
     if let Some(summary) = a.summary.map(str::trim).filter(|t| !t.is_empty()) {
         // The start of a message says what the agent thinks it did; keep the head, not the tail.
@@ -120,8 +135,8 @@ pub fn evidence(attempts: &[Attempt]) -> Option<String> {
         return None;
     }
     let last = relevant.len() - 1;
-    let sections: Vec<String> = relevant.iter().enumerate()
-        .map(|(i, a)| section(a, i == last, &relevant[..i])).collect();
+    let sections: Vec<String> =
+        relevant.iter().enumerate().map(|(i, a)| section(a, i == last, &relevant[..i])).collect();
     // Newest first in the budget, then printed oldest first.
     let mut kept: Vec<usize> = Vec::new();
     let mut used = 0;
@@ -134,8 +149,10 @@ pub fn evidence(attempts: &[Attempt]) -> Option<String> {
     }
     kept.reverse();
     let omitted = sections.len() - kept.len();
-    let mut out = format!("{VERSION}: what earlier attempts at this task found. Each started from the same original code, \
-        and none of their changes are in your copy.\n");
+    let mut out = format!(
+        "{VERSION}: what earlier attempts at this task found. Each started from the same original code, \
+        and none of their changes are in your copy.\n"
+    );
     if omitted > 0 {
         out.push_str(&format!("({omitted} earlier attempt(s) omitted to keep this short.)\n"));
     }
@@ -151,15 +168,27 @@ mod tests {
     use super::*;
 
     fn failed<'a>(number: u32, output: &'a str, paths: &[&str], summary: Option<&'a str>) -> Attempt<'a> {
-        Attempt { number, label: "OpenCode · ollama/qwen3:8b", outcome: "failed", detail: Some("exit 0"), escalation_reason: None,
-            failed_check: Some(("node test.js", "exited 1", output)), summary,
-            changed_paths: paths.iter().map(|p| p.to_string()).collect(), no_changes: false }
+        Attempt {
+            number,
+            label: "OpenCode · ollama/qwen3:8b",
+            outcome: "failed",
+            detail: Some("exit 0"),
+            escalation_reason: None,
+            failed_check: Some(("node test.js", "exited 1", output)),
+            summary,
+            changed_paths: paths.iter().map(|p| p.to_string()).collect(),
+            no_changes: false,
+        }
     }
 
     #[test]
     fn says_where_each_line_comes_from_and_how_far_to_trust_it() {
-        let attempts = [failed(1, "\u{1b}[31mFAIL\u{1b}[0m parse('a=1')\nexpected 1, got undefined\n", &["src/ini.js"],
-            Some("I fixed the parser and all tests pass."))];
+        let attempts = [failed(
+            1,
+            "\u{1b}[31mFAIL\u{1b}[0m parse('a=1')\nexpected 1, got undefined\n",
+            &["src/ini.js"],
+            Some("I fixed the parser and all tests pass."),
+        )];
         let text = evidence(&attempts).unwrap();
         assert!(text.starts_with(VERSION), "{text}");
         assert!(text.contains("none of their changes are in your copy"));
@@ -172,8 +201,17 @@ mod tests {
     #[test]
     fn nothing_to_hand_on_without_a_failure() {
         assert!(evidence(&[]).is_none());
-        let skipped = Attempt { number: 1, label: "x", outcome: "skipped", detail: None, escalation_reason: None, failed_check: None,
-            summary: None, changed_paths: vec![], no_changes: false };
+        let skipped = Attempt {
+            number: 1,
+            label: "x",
+            outcome: "skipped",
+            detail: None,
+            escalation_reason: None,
+            failed_check: None,
+            summary: None,
+            changed_paths: vec![],
+            no_changes: false,
+        };
         assert!(evidence(&[skipped]).is_none());
     }
 

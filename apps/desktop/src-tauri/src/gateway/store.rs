@@ -101,7 +101,8 @@ fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
 }
 
 pub fn list_providers(conn: &Connection) -> Result<Vec<Provider>> {
-    let mut stmt = conn.prepare(&format!("SELECT {PROVIDER_COLUMNS} FROM providers ORDER BY created_at")).map_err(err)?;
+    let mut stmt =
+        conn.prepare(&format!("SELECT {PROVIDER_COLUMNS} FROM providers ORDER BY created_at")).map_err(err)?;
     let rows = stmt.query_map([], provider_row).map_err(err)?;
     rows.collect::<rusqlite::Result<_>>().map_err(err)
 }
@@ -123,7 +124,11 @@ pub fn slug(label: &str) -> String {
         }
     }
     let out = out.trim_end_matches('-').chars().take(32).collect::<String>();
-    if out.is_empty() { "connection".into() } else { out }
+    if out.is_empty() {
+        "connection".into()
+    } else {
+        out
+    }
 }
 
 pub struct NewProvider<'a> {
@@ -177,7 +182,8 @@ pub fn add_web_provider(conn: &Connection, kind: &str, label: &str, ack_version:
         return Err("Read and acknowledge the account-risk warning first".into());
     }
     // `Muse (muse.ai)` → `Muse`, so its models are `muse/muse`.
-    let label = if label.trim().is_empty() { preset.name.split(" (").next().unwrap_or(preset.name) } else { label.trim() };
+    let label =
+        if label.trim().is_empty() { preset.name.split(" (").next().unwrap_or(preset.name) } else { label.trim() };
     let base = slug(label);
     let base = if base == AUTO { format!("{AUTO}-connection") } else { base };
     let mut id = base.clone();
@@ -196,8 +202,16 @@ pub fn add_web_provider(conn: &Connection, kind: &str, label: &str, ack_version:
         params![id, kind, label, preset.endpoint.unwrap_or_default(), preset.wire, now, profile, ack_version,
             crate::websession::NOT_SIGNED_IN],
     ).map_err(err)?;
-    let listed: Vec<Listed> = recipe.models.iter().map(|m| Listed {
-        id: m.to_string(), supports_tools: Some(false), supports_vision: Some(false), ..Listed::default() }).collect();
+    let listed: Vec<Listed> = recipe
+        .models
+        .iter()
+        .map(|m| Listed {
+            id: m.to_string(),
+            supports_tools: Some(false),
+            supports_vision: Some(false),
+            ..Listed::default()
+        })
+        .collect();
     import_listed(conn, &id, &listed, Some(crate::websession::CAPS_SOURCE))?;
     get_provider(conn, &id)?.ok_or_else(|| "connection was not saved".into())
 }
@@ -208,10 +222,16 @@ pub fn set_web_state(conn: &Connection, provider_id: &str, state: &str, reason: 
     if !crate::websession::STATES.contains(&state) {
         return Err(format!("unknown web-session state {state}"));
     }
-    let before: Option<String> = conn.query_row("SELECT web_state FROM providers WHERE id = ?1", [provider_id], |r| r.get(0))
-        .optional().map_err(err)?.flatten();
-    conn.execute("UPDATE providers SET web_state = ?2, web_state_reason = ?3, web_state_at = ?4 WHERE id = ?1",
-        params![provider_id, state, reason, now_ms()]).map_err(err)?;
+    let before: Option<String> = conn
+        .query_row("SELECT web_state FROM providers WHERE id = ?1", [provider_id], |r| r.get(0))
+        .optional()
+        .map_err(err)?
+        .flatten();
+    conn.execute(
+        "UPDATE providers SET web_state = ?2, web_state_reason = ?3, web_state_at = ?4 WHERE id = ?1",
+        params![provider_id, state, reason, now_ms()],
+    )
+    .map_err(err)?;
     if state == "signed_in" && before.as_deref() != Some("signed_in") {
         clear_health(conn, provider_id)?;
     }
@@ -224,13 +244,18 @@ pub fn set_web_state(conn: &Connection, provider_id: &str, state: &str, reason: 
 
 /// A web session's daily request limit; `None` returns it to Pygg's default.
 pub fn set_web_daily_limit(conn: &Connection, provider_id: &str, limit: Option<u32>) -> Result<()> {
-    let kind: String = conn.query_row("SELECT kind FROM providers WHERE id = ?1", [provider_id], |r| r.get(0))
-        .optional().map_err(err)?.ok_or("No such connection")?;
+    let kind: String = conn
+        .query_row("SELECT kind FROM providers WHERE id = ?1", [provider_id], |r| r.get(0))
+        .optional()
+        .map_err(err)?
+        .ok_or("No such connection")?;
     let max = crate::websession::guard::limits(&kind).max_daily_limit;
     if limit.is_some_and(|n| !(1..=max).contains(&n)) {
         return Err(format!("A daily limit for this site is 1 to {max} requests"));
     }
-    conn.execute("UPDATE providers SET web_daily_limit = ?2 WHERE id = ?1", params![provider_id, limit]).map(|_| ()).map_err(err)
+    conn.execute("UPDATE providers SET web_daily_limit = ?2 WHERE id = ?1", params![provider_id, limit])
+        .map(|_| ())
+        .map_err(err)
 }
 
 /// Requests sent to a web session's site since 00:00 UTC: the web guard's reservations (`web_guard_reserve`), each
@@ -238,20 +263,36 @@ pub fn set_web_daily_limit(conn: &Connection, provider_id: &str, limit: Option<u
 /// refused itself never got one (Codex's fourth review, A4).
 pub fn web_requests_today(conn: &Connection, provider_id: &str, now: i64) -> Result<u64> {
     let day_start = now - now.rem_euclid(86_400_000);
-    conn.query_row("SELECT COUNT(*) FROM web_pace WHERE provider_id = ?1 AND at >= ?2", params![provider_id, day_start],
-        |r| r.get::<_, i64>(0)).map(|n| n.max(0) as u64).map_err(err)
+    conn.query_row(
+        "SELECT COUNT(*) FROM web_pace WHERE provider_id = ?1 AND at >= ?2",
+        params![provider_id, day_start],
+        |r| r.get::<_, i64>(0),
+    )
+    .map(|n| n.max(0) as u64)
+    .map_err(err)
 }
 
 /// The web guard's record of an account (ADR-035, migration 0028): the requests of the last day with their weight, and
 /// its rest and back-off.
 pub fn web_guard(conn: &Connection, provider_id: &str, now: i64) -> Result<crate::websession::guard::Account> {
-    let mut stmt = conn.prepare("SELECT at, weight FROM web_pace WHERE provider_id = ?1 AND at > ?2 ORDER BY at").map_err(err)?;
-    let sent = stmt.query_map(params![provider_id, now - crate::websession::guard::DAY_MS],
-        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?.clamp(1, 1_000) as u32))).map_err(err)?
-        .collect::<rusqlite::Result<Vec<_>>>().map_err(err)?;
-    let (next_at, backoff_until, backoff_reason) = conn.query_row(
-        "SELECT web_next_at, web_backoff_until, web_backoff_reason FROM providers WHERE id = ?1", [provider_id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional().map_err(err)?.unwrap_or((None, None, None));
+    let mut stmt =
+        conn.prepare("SELECT at, weight FROM web_pace WHERE provider_id = ?1 AND at > ?2 ORDER BY at").map_err(err)?;
+    let sent = stmt
+        .query_map(params![provider_id, now - crate::websession::guard::DAY_MS], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?.clamp(1, 1_000) as u32))
+        })
+        .map_err(err)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(err)?;
+    let (next_at, backoff_until, backoff_reason) = conn
+        .query_row(
+            "SELECT web_next_at, web_backoff_until, web_backoff_reason FROM providers WHERE id = ?1",
+            [provider_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(err)?
+        .unwrap_or((None, None, None));
     Ok(crate::websession::guard::Account { sent, next_at, backoff_until, backoff_reason })
 }
 
@@ -259,11 +300,17 @@ pub fn web_guard(conn: &Connection, provider_id: &str, now: i64) -> Result<crate
 /// `min_next_at`, so a crash mid-request still leaves the account its weight and a rest (Codex's fourth review, A1).
 /// Returns the reservation's row, which `web_guard_after` finishes.
 pub fn web_guard_reserve(conn: &Connection, provider_id: &str, at: i64, weight: u32, min_next_at: i64) -> Result<i64> {
-    conn.execute("INSERT INTO web_pace (provider_id, at, weight, outcome) VALUES (?1, ?2, ?3, 'sent')",
-        params![provider_id, at, weight.max(1)]).map_err(err)?;
+    conn.execute(
+        "INSERT INTO web_pace (provider_id, at, weight, outcome) VALUES (?1, ?2, ?3, 'sent')",
+        params![provider_id, at, weight.max(1)],
+    )
+    .map_err(err)?;
     let row = conn.last_insert_rowid();
-    conn.execute("UPDATE providers SET web_next_at = MAX(COALESCE(web_next_at, 0), ?2) WHERE id = ?1",
-        params![provider_id, min_next_at]).map_err(err)?;
+    conn.execute(
+        "UPDATE providers SET web_next_at = MAX(COALESCE(web_next_at, 0), ?2) WHERE id = ?1",
+        params![provider_id, min_next_at],
+    )
+    .map_err(err)?;
     conn.execute("DELETE FROM web_pace WHERE at < ?1", [at - 2 * crate::websession::guard::DAY_MS]).map_err(err)?;
     Ok(row)
 }
@@ -272,31 +319,54 @@ pub fn web_guard_reserve(conn: &Connection, provider_id: &str, at: i64, weight: 
 /// after a sign of trouble (doubling with each one in a row, from `backoff_base_ms`) or clears the back-off after a
 /// clean reply.
 #[allow(clippy::too_many_arguments)]
-pub fn web_guard_after(conn: &Connection, provider_id: &str, row: i64, outcome: &str, next_at: i64,
-    trouble: Option<&crate::websession::guard::Trouble>, backoff_base_ms: i64, now: i64) -> Result<()> {
+pub fn web_guard_after(
+    conn: &Connection, provider_id: &str, row: i64, outcome: &str, next_at: i64,
+    trouble: Option<&crate::websession::guard::Trouble>, backoff_base_ms: i64, now: i64,
+) -> Result<()> {
     conn.execute("UPDATE web_pace SET outcome = ?2 WHERE rowid = ?1", params![row, outcome]).map_err(err)?;
     match trouble {
         Some(trouble) => web_guard_trouble(conn, provider_id, trouble, next_at, backoff_base_ms, now),
-        None => conn.execute("UPDATE providers SET web_next_at = ?2, web_strikes = 0, web_backoff_until = NULL, \
-                web_backoff_reason = NULL WHERE id = ?1", params![provider_id, next_at]).map(|_| ()).map_err(err),
+        None => conn
+            .execute(
+                "UPDATE providers SET web_next_at = ?2, web_strikes = 0, web_backoff_until = NULL, \
+                web_backoff_reason = NULL WHERE id = ?1",
+                params![provider_id, next_at],
+            )
+            .map(|_| ())
+            .map_err(err),
     }
 }
 
 /// A sign of trouble on a web session's site (after a request, or seen by a sign-in check): the account rests at least
 /// until `next_at`, and backs off for longer with each sign in a row, never less than the kind of trouble asks.
-pub fn web_guard_trouble(conn: &Connection, provider_id: &str, trouble: &crate::websession::guard::Trouble, next_at: i64,
-    backoff_base_ms: i64, now: i64) -> Result<()> {
-    let strikes: i64 = conn.query_row("SELECT web_strikes FROM providers WHERE id = ?1", [provider_id], |r| r.get(0))
-        .optional().map_err(err)?.unwrap_or(0) + 1;
+pub fn web_guard_trouble(
+    conn: &Connection, provider_id: &str, trouble: &crate::websession::guard::Trouble, next_at: i64,
+    backoff_base_ms: i64, now: i64,
+) -> Result<()> {
+    let strikes: i64 = conn
+        .query_row("SELECT web_strikes FROM providers WHERE id = ?1", [provider_id], |r| r.get(0))
+        .optional()
+        .map_err(err)?
+        .unwrap_or(0)
+        + 1;
     let until = now + trouble.backoff_ms(backoff_base_ms, strikes as u32);
-    conn.execute("UPDATE providers SET web_next_at = ?2, web_strikes = ?3, web_backoff_until = ?4, web_backoff_reason = ?5 \
-        WHERE id = ?1", params![provider_id, next_at.max(until), strikes, until, trouble.reason]).map(|_| ()).map_err(err)
+    conn.execute(
+        "UPDATE providers SET web_next_at = ?2, web_strikes = ?3, web_backoff_until = ?4, web_backoff_reason = ?5 \
+        WHERE id = ?1",
+        params![provider_id, next_at.max(until), strikes, until, trouble.reason],
+    )
+    .map(|_| ())
+    .map_err(err)
 }
 
 /// A sign-in check loaded the site's page: the account rests at least until `next_at` before the next request or check.
 pub fn web_guard_checked(conn: &Connection, provider_id: &str, next_at: i64) -> Result<()> {
-    conn.execute("UPDATE providers SET web_next_at = MAX(COALESCE(web_next_at, 0), ?2) WHERE id = ?1",
-        params![provider_id, next_at]).map(|_| ()).map_err(err)
+    conn.execute(
+        "UPDATE providers SET web_next_at = MAX(COALESCE(web_next_at, 0), ?2) WHERE id = ?1",
+        params![provider_id, next_at],
+    )
+    .map(|_| ())
+    .map_err(err)
 }
 
 /// The user lifts a web session's rest and back-off (Providers → Resume Now). The hour's and the day's shares stay.
@@ -311,17 +381,23 @@ pub fn web_resting(conn: &Connection, provider: &Provider, now: i64) -> bool {
     use crate::websession::guard;
     let limits = guard::limits(&provider.kind);
     let limit = limits.daily_limit(provider.web_daily_limit.unwrap_or(crate::websession::DEFAULT_DAILY_LIMIT));
-    web_guard(conn, &provider.id, now).is_ok_and(|account|
-        matches!(guard::decide(&account, 1, now, limit, &limits), guard::Verdict::Refuse { .. }))
+    web_guard(conn, &provider.id, now)
+        .is_ok_and(|account| matches!(guard::decide(&account, 1, now, limit, &limits), guard::Verdict::Refuse { .. }))
 }
 
 /// Says what the window last refused to open, keeping the session's state: a sign-in that stalls on an address
 /// outside the site's hosts shows why, by host only (owner, 2026-11-13: ChatGPT's Google sign-in kept spinning).
 pub fn set_web_blocked(conn: &Connection, provider_id: &str, host: &str) -> Result<()> {
-    let reason = format!("Pygg blocked {host} in this window: it is not one of this site's sign-in addresses. If sign-in \
-        stalls, this is why; the site's recipe needs it added.");
-    conn.execute("UPDATE providers SET web_state_reason = ?2, web_state_at = ?3 WHERE id = ?1", params![provider_id, reason, now_ms()])
-        .map(|_| ()).map_err(err)
+    let reason = format!(
+        "Pygg blocked {host} in this window: it is not one of this site's sign-in addresses. If sign-in \
+        stalls, this is why; the site's recipe needs it added."
+    );
+    conn.execute(
+        "UPDATE providers SET web_state_reason = ?2, web_state_at = ?3 WHERE id = ?1",
+        params![provider_id, reason, now_ms()],
+    )
+    .map(|_| ())
+    .map_err(err)
 }
 
 /// The profile folder names of the web sessions that exist; any other folder under `websessions/` is a leftover.
@@ -345,12 +421,16 @@ pub fn remove_provider(conn: &Connection, id: &str) -> Result<Vec<String>> {
     Ok(references)
 }
 
-pub fn update_provider(conn: &Connection, id: &str, enabled: Option<bool>, billing: Option<&str>,
-    separate_quota: Option<bool>) -> Result<()> {
+pub fn update_provider(
+    conn: &Connection, id: &str, enabled: Option<bool>, billing: Option<&str>, separate_quota: Option<bool>,
+) -> Result<()> {
     if let Some(separate) = separate_quota {
-        conn.execute("UPDATE providers SET quota_group = CASE WHEN ?2 THEN id END, \
-             quota_confirmed_at = CASE WHEN ?2 THEN ?3 END WHERE id = ?1", params![id, separate, now_ms()])
-            .map_err(err)?;
+        conn.execute(
+            "UPDATE providers SET quota_group = CASE WHEN ?2 THEN id END, \
+             quota_confirmed_at = CASE WHEN ?2 THEN ?3 END WHERE id = ?1",
+            params![id, separate, now_ms()],
+        )
+        .map_err(err)?;
     }
     if let Some(enabled) = enabled {
         conn.execute("UPDATE providers SET enabled = ?2 WHERE id = ?1", params![id, enabled as i64]).map_err(err)?;
@@ -359,7 +439,8 @@ pub fn update_provider(conn: &Connection, id: &str, enabled: Option<bool>, billi
         if !BILLING.contains(&billing) {
             return Err(format!("unknown billing type {billing}"));
         }
-        let kind: Option<String> = conn.query_row("SELECT kind FROM providers WHERE id = ?1", [id], |r| r.get(0)).optional().map_err(err)?;
+        let kind: Option<String> =
+            conn.query_row("SELECT kind FROM providers WHERE id = ?1", [id], |r| r.get(0)).optional().map_err(err)?;
         // A web session is the user's plan with the site: free ($0 a request, the default since migration 0027) or a
         // subscription (quota, cost unknown); never paid per token, and not a local model.
         if kind.as_deref().is_some_and(super::presets::is_web) && !matches!(billing, "free" | "subscription") {
@@ -441,27 +522,37 @@ pub struct Listed {
 
 impl Listed {
     fn has_facts(&self) -> bool {
-        self.context_tokens.is_some() || self.max_output_tokens.is_some() || self.supports_tools.is_some()
-            || self.supports_vision.is_some() || self.thinking_types.is_some() || self.effort_levels.is_some()
+        self.context_tokens.is_some()
+            || self.max_output_tokens.is_some()
+            || self.supports_tools.is_some()
+            || self.supports_vision.is_some()
+            || self.thinking_types.is_some()
+            || self.effort_levels.is_some()
     }
 }
 
 /// A connection (`p`) set as free whose free part is a set of $0 models (presets.rs `free_models`). The kinds are
 /// checked against the presets by a test.
 macro_rules! free_models_connection {
-    () => { "(p.default_billing = 'free' AND p.kind IN ('openrouter', 'zai', 'zai-anthropic'))" };
+    () => {
+        "(p.default_billing = 'free' AND p.kind IN ('openrouter', 'zai', 'zai-anthropic'))"
+    };
 }
 
 /// A model (`m`) listed at a price above zero.
 macro_rules! priced {
-    () => { "(COALESCE(json_extract(m.price_json, '$.inputMicroPerMtok'), 0) > 0 \
-              OR COALESCE(json_extract(m.price_json, '$.outputMicroPerMtok'), 0) > 0)" };
+    () => {
+        "(COALESCE(json_extract(m.price_json, '$.inputMicroPerMtok'), 0) > 0 \
+              OR COALESCE(json_extract(m.price_json, '$.outputMicroPerMtok'), 0) > 0)"
+    };
 }
 
 /// A model (`m`) listed at $0 for input and output.
 macro_rules! listed_free {
-    () => { "(m.price_json IS NOT NULL AND COALESCE(json_extract(m.price_json, '$.inputMicroPerMtok'), 0) = 0 \
-              AND COALESCE(json_extract(m.price_json, '$.outputMicroPerMtok'), 0) = 0)" };
+    () => {
+        "(m.price_json IS NOT NULL AND COALESCE(json_extract(m.price_json, '$.inputMicroPerMtok'), 0) = 0 \
+              AND COALESCE(json_extract(m.price_json, '$.outputMicroPerMtok'), 0) = 0)"
+    };
 }
 
 /// A model's billing is its own, or its connection's when it has none. On a connection set as free whose free part
@@ -471,8 +562,19 @@ macro_rules! listed_free {
 /// request to a paid OpenRouter model as free, and only the account's empty balance (HTTP 402) stopped it being billed
 /// as $0. Where the account itself is free (a trial key, a free tier), a list price does not make a call paid.
 macro_rules! billing {
-    () => { concat!("CASE WHEN m.billing <> 'unknown' THEN m.billing WHEN ", free_models_connection!(), " AND ", priced!(),
-        " THEN 'paid' WHEN ", free_models_connection!(), " AND NOT ", listed_free!(), " THEN 'unknown' ELSE p.default_billing END") };
+    () => {
+        concat!(
+            "CASE WHEN m.billing <> 'unknown' THEN m.billing WHEN ",
+            free_models_connection!(),
+            " AND ",
+            priced!(),
+            " THEN 'paid' WHEN ",
+            free_models_connection!(),
+            " AND NOT ",
+            listed_free!(),
+            " THEN 'unknown' ELSE p.default_billing END"
+        )
+    };
 }
 
 const MODEL_COLUMNS: &str = concat!("m.provider_id, m.model_id, ", billing!(), ", \
@@ -491,12 +593,31 @@ pub const OFF_ON_FREE_CONNECTION: &str = "free-connection";
 /// true (the connection is no longer free, or the model's price or billing changed). Returns (turned off, turned
 /// back on).
 pub fn apply_free_connection_rule(conn: &Connection) -> Result<(usize, usize)> {
-    const PAID_HERE: &str = concat!("SELECT m.id FROM models m JOIN providers p ON p.id = m.provider_id WHERE ",
-        free_models_connection!(), " AND (m.billing = 'paid' OR (m.billing = 'unknown' AND NOT ", listed_free!(), "))");
-    let off = conn.execute(&format!("UPDATE models SET enabled = 0, enabled_source = '{OFF_ON_FREE_CONNECTION}' \
-         WHERE enabled = 1 AND enabled_source IS NULL AND id IN ({PAID_HERE})"), []).map_err(err)?;
-    let on = conn.execute(&format!("UPDATE models SET enabled = 1, enabled_source = NULL \
-         WHERE enabled_source = '{OFF_ON_FREE_CONNECTION}' AND id NOT IN ({PAID_HERE})"), []).map_err(err)?;
+    const PAID_HERE: &str = concat!(
+        "SELECT m.id FROM models m JOIN providers p ON p.id = m.provider_id WHERE ",
+        free_models_connection!(),
+        " AND (m.billing = 'paid' OR (m.billing = 'unknown' AND NOT ",
+        listed_free!(),
+        "))"
+    );
+    let off = conn
+        .execute(
+            &format!(
+                "UPDATE models SET enabled = 0, enabled_source = '{OFF_ON_FREE_CONNECTION}' \
+         WHERE enabled = 1 AND enabled_source IS NULL AND id IN ({PAID_HERE})"
+            ),
+            [],
+        )
+        .map_err(err)?;
+    let on = conn
+        .execute(
+            &format!(
+                "UPDATE models SET enabled = 1, enabled_source = NULL \
+         WHERE enabled_source = '{OFF_ON_FREE_CONNECTION}' AND id NOT IN ({PAID_HERE})"
+            ),
+            [],
+        )
+        .map_err(err)?;
     Ok((off, on))
 }
 
@@ -505,7 +626,9 @@ fn model_row(row: &rusqlite::Row) -> rusqlite::Result<Model> {
     let u = |i: usize| row.get::<_, Option<i64>>(i).map(|v| v.map(|v| v.max(0) as u64));
     let b = |i: usize| row.get::<_, Option<i64>>(i).map(|v| v.map(|v| v == 1));
     // A list that cannot be read is unknown, which counts as missing.
-    let list = |i: usize| row.get::<_, Option<String>>(i).map(|v| v.and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok()));
+    let list = |i: usize| {
+        row.get::<_, Option<String>>(i).map(|v| v.and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok()))
+    };
     Ok(Model {
         provider_id: row.get(0)?,
         model_id: row.get(1)?,
@@ -524,8 +647,10 @@ fn model_row(row: &rusqlite::Row) -> rusqlite::Result<Model> {
             thinking_types: list(13)?,
             effort_levels: list(14)?,
             tier_note: match row.get::<_, Option<String>>(15)?.as_deref() {
-                Some(super::tiers::SOURCE) => super::tiers::suggest(&row.get::<_, String>(16)?, &row.get::<_, String>(1)?)
-                    .map(|(_, why)| why.to_string()),
+                Some(super::tiers::SOURCE) => {
+                    super::tiers::suggest(&row.get::<_, String>(16)?, &row.get::<_, String>(1)?)
+                        .map(|(_, why)| why.to_string())
+                }
                 Some(super::reference::TIER_SOURCE) => Some(super::reference::TIER_NOTE.to_string()),
                 _ => None,
             },
@@ -539,7 +664,8 @@ pub fn list_models(conn: &Connection, provider_id: Option<&str>) -> Result<Vec<M
     let mut stmt = conn
         .prepare(&format!(
             "SELECT {MODEL_COLUMNS} FROM models m JOIN providers p ON p.id = m.provider_id \
-             WHERE ?1 IS NULL OR m.provider_id = ?1 ORDER BY m.provider_id, m.model_id"))
+             WHERE ?1 IS NULL OR m.provider_id = ?1 ORDER BY m.provider_id, m.model_id"
+        ))
         .map_err(err)?;
     let rows = stmt.query_map([provider_id], model_row).map_err(err)?;
     rows.collect::<rusqlite::Result<_>>().map_err(err)
@@ -549,21 +675,39 @@ pub fn list_models(conn: &Connection, provider_id: Option<&str>) -> Result<Vec<M
 /// tier the user set or cleared is never touched. Returns how many were filled.
 pub fn fill_curated_tiers(conn: &Connection) -> Result<usize> {
     // Tiers an earlier version of the table filled follow the current one; a tier the user set or cleared is theirs.
-    let mut older = conn.prepare(
-        "SELECT m.provider_id, m.model_id, p.kind, m.tier FROM models m JOIN providers p ON p.id = m.provider_id \
-         WHERE m.tier_source LIKE 'curated:v%' AND m.tier_source <> ?1").map_err(err)?;
-    let stale: Vec<(String, String, String, Option<i64>)> = older.query_map([super::tiers::SOURCE], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
-        .map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
+    let mut older = conn
+        .prepare(
+            "SELECT m.provider_id, m.model_id, p.kind, m.tier FROM models m JOIN providers p ON p.id = m.provider_id \
+         WHERE m.tier_source LIKE 'curated:v%' AND m.tier_source <> ?1",
+        )
+        .map_err(err)?;
+    let stale: Vec<(String, String, String, Option<i64>)> = older
+        .query_map([super::tiers::SOURCE], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .map_err(err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(err)?;
     for (provider, model, kind, _) in stale {
-        let tier = super::tiers::suggest(&kind, &model).and_then(|(t, _)| TIERS.iter().position(|x| *x == t)).map(|n| n as i64);
-        conn.execute("UPDATE models SET tier = ?3, tier_source = CASE WHEN ?3 IS NULL THEN NULL ELSE ?4 END \
-                      WHERE provider_id = ?1 AND model_id = ?2", params![provider, model, tier, super::tiers::SOURCE]).map_err(err)?;
+        let tier = super::tiers::suggest(&kind, &model)
+            .and_then(|(t, _)| TIERS.iter().position(|x| *x == t))
+            .map(|n| n as i64);
+        conn.execute(
+            "UPDATE models SET tier = ?3, tier_source = CASE WHEN ?3 IS NULL THEN NULL ELSE ?4 END \
+                      WHERE provider_id = ?1 AND model_id = ?2",
+            params![provider, model, tier, super::tiers::SOURCE],
+        )
+        .map_err(err)?;
     }
-    let mut statement = conn.prepare(
-        "SELECT m.provider_id, m.model_id, p.kind FROM models m JOIN providers p ON p.id = m.provider_id \
-         WHERE m.tier IS NULL AND m.tier_source IS NULL").map_err(err)?;
-    let rows: Vec<(String, String, String)> = statement.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).map_err(err)?
-        .collect::<rusqlite::Result<_>>().map_err(err)?;
+    let mut statement = conn
+        .prepare(
+            "SELECT m.provider_id, m.model_id, p.kind FROM models m JOIN providers p ON p.id = m.provider_id \
+         WHERE m.tier IS NULL AND m.tier_source IS NULL",
+        )
+        .map_err(err)?;
+    let rows: Vec<(String, String, String)> = statement
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .map_err(err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(err)?;
     let mut filled = 0;
     for (provider, model, kind) in rows {
         let Some((tier, _)) = super::tiers::suggest(&kind, &model) else { continue };
@@ -608,8 +752,11 @@ pub fn import_listed(conn: &Connection, provider_id: &str, listed: &[Listed], so
                 params![format!("{provider_id}/{}", model.id), provider_id, model.id, now],
             )
             .map_err(err)?;
-        conn.execute("UPDATE models SET observed_at = ?3 WHERE provider_id = ?1 AND model_id = ?2",
-            params![provider_id, model.id, now]).map_err(err)?;
+        conn.execute(
+            "UPDATE models SET observed_at = ?3 WHERE provider_id = ?1 AND model_id = ?2",
+            params![provider_id, model.id, now],
+        )
+        .map_err(err)?;
         if let (Some(source), true) = (source, model.has_facts()) {
             conn.execute(
                 "UPDATE models SET context_tokens = ?3, max_output_tokens = ?4, supports_tools = ?5, supports_vision = ?6, \
@@ -625,7 +772,8 @@ pub fn import_listed(conn: &Connection, provider_id: &str, listed: &[Listed], so
                 "UPDATE models SET price_json = ?3 WHERE provider_id = ?1 AND model_id = ?2 \
                  AND (price_json IS NULL OR json_extract(price_json, '$.source') <> 'user')",
                 params![provider_id, model.id, json],
-            ).map_err(err)?;
+            )
+            .map_err(err)?;
         }
     }
     fill_curated_tiers(conn)?;
@@ -671,23 +819,34 @@ pub fn add_model(conn: &Connection, provider_id: &str, model_id: &str) -> Result
     import_models(conn, provider_id, &[model_id.to_string()]).map(|_| ())
 }
 
-pub fn update_model(conn: &Connection, provider_id: &str, model_id: &str, enabled: Option<bool>,
-    billing: Option<&str>, price: Option<Option<Price>>) -> Result<()> {
+pub fn update_model(
+    conn: &Connection, provider_id: &str, model_id: &str, enabled: Option<bool>, billing: Option<&str>,
+    price: Option<Option<Price>>,
+) -> Result<()> {
     if let Some(enabled) = enabled {
-        conn.execute("UPDATE models SET enabled = ?3, enabled_source = 'user' WHERE provider_id = ?1 AND model_id = ?2",
-            params![provider_id, model_id, enabled as i64]).map_err(err)?;
+        conn.execute(
+            "UPDATE models SET enabled = ?3, enabled_source = 'user' WHERE provider_id = ?1 AND model_id = ?2",
+            params![provider_id, model_id, enabled as i64],
+        )
+        .map_err(err)?;
     }
     if let Some(billing) = billing {
         if !BILLING.contains(&billing) {
             return Err(format!("unknown billing type {billing}"));
         }
-        conn.execute("UPDATE models SET billing = ?3 WHERE provider_id = ?1 AND model_id = ?2",
-            params![provider_id, model_id, billing]).map_err(err)?;
+        conn.execute(
+            "UPDATE models SET billing = ?3 WHERE provider_id = ?1 AND model_id = ?2",
+            params![provider_id, model_id, billing],
+        )
+        .map_err(err)?;
     }
     if let Some(price) = price {
         let json = price.map(|p| serde_json::to_string(&p).unwrap_or_default());
-        conn.execute("UPDATE models SET price_json = ?3 WHERE provider_id = ?1 AND model_id = ?2",
-            params![provider_id, model_id, json]).map_err(err)?;
+        conn.execute(
+            "UPDATE models SET price_json = ?3 WHERE provider_id = ?1 AND model_id = ?2",
+            params![provider_id, model_id, json],
+        )
+        .map_err(err)?;
     }
     apply_free_connection_rule(conn)?;
     Ok(())
@@ -703,9 +862,16 @@ pub fn remove_model(conn: &Connection, provider_id: &str, model_id: &str) -> Res
 /// its connection's billing type.
 pub fn pricing_for(conn: &Connection, provider: &Provider, model_id: &str) -> Result<(String, Option<Price>)> {
     let row: Option<(String, Option<String>)> = conn
-        .query_row(concat!("SELECT ", billing!(), ", m.price_json FROM models m JOIN providers p ON p.id = m.provider_id \
-             WHERE m.provider_id = ?1 AND m.model_id = ?2"),
-            params![provider.id, model_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_row(
+            concat!(
+                "SELECT ",
+                billing!(),
+                ", m.price_json FROM models m JOIN providers p ON p.id = m.provider_id \
+             WHERE m.provider_id = ?1 AND m.model_id = ?2"
+            ),
+            params![provider.id, model_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .optional()
         .map_err(err)?;
     Ok(match row {
@@ -771,8 +937,11 @@ impl Client {
             return Err(format!("this client may not use {}", provider.label));
         }
         if self.require_no_training && provider.data_use_terms != "no_training" {
-            return Err(format!("this client sends only to providers that do not train on its data, and {}'s terms are {}",
-                provider.label, if provider.data_use_terms == "may_train" { "that it may" } else { "not recorded" }));
+            return Err(format!(
+                "this client sends only to providers that do not train on its data, and {}'s terms are {}",
+                provider.label,
+                if provider.data_use_terms == "may_train" { "that it may" } else { "not recorded" }
+            ));
         }
         Ok(())
     }
@@ -814,7 +983,10 @@ fn client_row(conn: &Connection, row: &rusqlite::Row) -> rusqlite::Result<Client
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
     let reserved: i64 = conn.query_row(
-        "SELECT COALESCE(SUM(reserved_micro), 0) FROM budget_reservations WHERE client_id = ?1", [&id], |r| r.get(0))?;
+        "SELECT COALESCE(SUM(reserved_micro), 0) FROM budget_reservations WHERE client_id = ?1",
+        [&id],
+        |r| r.get(0),
+    )?;
     Ok(Client {
         id,
         name: row.get(1)?,
@@ -830,7 +1002,8 @@ fn client_row(conn: &Connection, row: &rusqlite::Row) -> rusqlite::Result<Client
         reserved_micro_usd: reserved.max(0) as u64,
         month_at_risk_micro_usd: at_risk.max(0) as u64,
         // A list that cannot be read allows nothing, rather than everything.
-        allowed_connections: row.get::<_, Option<String>>(9)?
+        allowed_connections: row
+            .get::<_, Option<String>>(9)?
             .map(|json| serde_json::from_str::<Vec<String>>(&json).unwrap_or_default()),
         paid_retries: row.get::<_, i64>(10)?.clamp(0, 5) as u32,
         auto_min_tier: row.get(11)?,
@@ -847,8 +1020,10 @@ const CLIENT_COLUMNS: &str = "id, name, token_prefix, monthly_budget_micro_usd, 
 
 pub fn list_clients(conn: &Connection) -> Result<Vec<Client>> {
     let mut stmt = conn
-        .prepare(&format!("SELECT {CLIENT_COLUMNS} FROM gateway_clients WHERE deleted_at IS NULL \
-            ORDER BY revoked_at IS NOT NULL, created_at"))
+        .prepare(&format!(
+            "SELECT {CLIENT_COLUMNS} FROM gateway_clients WHERE deleted_at IS NULL \
+            ORDER BY revoked_at IS NOT NULL, created_at"
+        ))
         .map_err(err)?;
     let rows = stmt.query_map([], |row| client_row(conn, row)).map_err(err)?;
     rows.collect::<rusqlite::Result<_>>().map_err(err)
@@ -879,12 +1054,22 @@ pub fn client_defaults(conn: &Connection) -> Result<ClientDefaults> {
 
 pub fn set_client_defaults(conn: &Connection, d: &ClientDefaults) -> Result<()> {
     if let Some(tier) = &d.auto_min_tier {
-        if !["T0", "T1", "T2", "T3", "T4"].contains(&tier.as_str()) { return Err(format!("unknown tier {tier}")); }
+        if !["T0", "T1", "T2", "T3", "T4"].contains(&tier.as_str()) {
+            return Err(format!("unknown tier {tier}"));
+        }
     }
-    if d.max_concurrency.is_some_and(|n| !(1..=256).contains(&n)) { return Err("Requests at once must be 1 to 256".into()); }
-    if d.paid_retries.is_some_and(|n| n > 5) { return Err("Paid retries must be 0 to 5".into()); }
-    if d.unknown_cost_policy.as_deref().is_some_and(|p| p != "block" && p != "allow") { return Err("Unknown prices: block or allow".into()); }
-    if d.monthly_budget_micro_usd == Some(0) { return Err("Enter a monthly limit above $0, or none".into()); }
+    if d.max_concurrency.is_some_and(|n| !(1..=256).contains(&n)) {
+        return Err("Requests at once must be 1 to 256".into());
+    }
+    if d.paid_retries.is_some_and(|n| n > 5) {
+        return Err("Paid retries must be 0 to 5".into());
+    }
+    if d.unknown_cost_policy.as_deref().is_some_and(|p| p != "block" && p != "allow") {
+        return Err("Unknown prices: block or allow".into());
+    }
+    if d.monthly_budget_micro_usd == Some(0) {
+        return Err("Enter a monthly limit above $0, or none".into());
+    }
     set_setting(conn, CLIENT_DEFAULTS, &serde_json::to_string(d).map_err(|e| e.to_string())?)
 }
 
@@ -905,15 +1090,25 @@ pub fn create_client(conn: &Connection, name: &str, monthly_budget_micro_usd: Op
         params![id, name, hash_token(&token), &token[..12], budget.map(|v| v as i64), now_ms()],
     )
     .map_err(err)?;
-    if let Some(tier) = &defaults.auto_min_tier { set_client_auto_min_tier(conn, &id, tier)?; }
+    if let Some(tier) = &defaults.auto_min_tier {
+        set_client_auto_min_tier(conn, &id, tier)?;
+    }
     if defaults.max_concurrency.is_some() || defaults.unknown_cost_policy.is_some() {
         set_client_policy(conn, &id, defaults.max_concurrency, defaults.unknown_cost_policy.as_deref())?;
     }
-    if let Some(n) = defaults.paid_retries { set_client_paid_retries(conn, &id, n)?; }
-    if let Some(required) = defaults.require_no_training { set_client_require_no_training(conn, &id, required)?; }
-    if let Some(strict) = defaults.strict_budget { set_client_strict_budget(conn, &id, strict)?; }
+    if let Some(n) = defaults.paid_retries {
+        set_client_paid_retries(conn, &id, n)?;
+    }
+    if let Some(required) = defaults.require_no_training {
+        set_client_require_no_training(conn, &id, required)?;
+    }
+    if let Some(strict) = defaults.strict_budget {
+        set_client_strict_budget(conn, &id, strict)?;
+    }
     let client = conn
-        .query_row(&format!("SELECT {CLIENT_COLUMNS} FROM gateway_clients WHERE id = ?1"), [&id], |r| client_row(conn, r))
+        .query_row(&format!("SELECT {CLIENT_COLUMNS} FROM gateway_clients WHERE id = ?1"), [&id], |r| {
+            client_row(conn, r)
+        })
         .map_err(err)?;
     Ok((client, token))
 }
@@ -921,19 +1116,28 @@ pub fn create_client(conn: &Connection, name: &str, monthly_budget_micro_usd: Op
 /// The credential-store entry holding a copy of the client's token, if one was kept.
 pub fn client_token_ref(conn: &Connection, id: &str) -> Result<Option<String>> {
     conn.query_row("SELECT token_ref FROM gateway_clients WHERE id = ?1 AND revoked_at IS NULL", [id], |r| r.get(0))
-        .optional().map_err(err).map(Option::flatten)
+        .optional()
+        .map_err(err)
+        .map(Option::flatten)
 }
 
 pub fn set_client_token_ref(conn: &Connection, id: &str, token_ref: Option<&str>) -> Result<()> {
-    conn.execute("UPDATE gateway_clients SET token_ref = ?2 WHERE id = ?1", params![id, token_ref]).map(|_| ()).map_err(err)
+    conn.execute("UPDATE gateway_clients SET token_ref = ?2 WHERE id = ?1", params![id, token_ref])
+        .map(|_| ())
+        .map_err(err)
 }
 
 /// Takes a revoked client off the list; returns its token copy's reference, for the caller to delete. A key still in
 /// use is refused: revoke it first.
 pub fn delete_client(conn: &Connection, id: &str) -> Result<Option<String>> {
-    let row: Option<(Option<i64>, Option<String>)> = conn.query_row(
-        "SELECT revoked_at, token_ref FROM gateway_clients WHERE id = ?1 AND deleted_at IS NULL", [id],
-        |r| Ok((r.get(0)?, r.get(1)?))).optional().map_err(err)?;
+    let row: Option<(Option<i64>, Option<String>)> = conn
+        .query_row(
+            "SELECT revoked_at, token_ref FROM gateway_clients WHERE id = ?1 AND deleted_at IS NULL",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(err)?;
     let Some((revoked, token_ref)) = row else { return Err("No such API key".into()) };
     if revoked.is_none() {
         return Err("Revoke the key before deleting it.".into());
@@ -945,25 +1149,34 @@ pub fn delete_client(conn: &Connection, id: &str) -> Result<Option<String>> {
 
 /// The revoked clients still listed.
 pub fn revoked_client_ids(conn: &Connection) -> Result<Vec<String>> {
-    let mut stmt = conn.prepare("SELECT id FROM gateway_clients WHERE revoked_at IS NOT NULL AND deleted_at IS NULL")
+    let mut stmt = conn
+        .prepare("SELECT id FROM gateway_clients WHERE revoked_at IS NOT NULL AND deleted_at IS NULL")
         .map_err(err)?;
     let ids = stmt.query_map([], |r| r.get(0)).map_err(err)?.collect::<rusqlite::Result<Vec<String>>>().map_err(err)?;
     Ok(ids)
 }
 
 pub fn revoke_client(conn: &Connection, id: &str) -> Result<()> {
-    conn.execute("UPDATE gateway_clients SET revoked_at = ?2 WHERE id = ?1 AND revoked_at IS NULL", params![id, now_ms()])
-        .map(|_| ())
-        .map_err(err)
+    conn.execute(
+        "UPDATE gateway_clients SET revoked_at = ?2 WHERE id = ?1 AND revoked_at IS NULL",
+        params![id, now_ms()],
+    )
+    .map(|_| ())
+    .map_err(err)
 }
 
 pub fn set_client_budget(conn: &Connection, id: &str, monthly_budget_micro_usd: Option<u64>) -> Result<()> {
-    conn.execute("UPDATE gateway_clients SET monthly_budget_micro_usd = ?2 WHERE id = ?1",
-        params![id, monthly_budget_micro_usd.map(|v| v as i64)]).map(|_| ()).map_err(err)
+    conn.execute(
+        "UPDATE gateway_clients SET monthly_budget_micro_usd = ?2 WHERE id = ?1",
+        params![id, monthly_budget_micro_usd.map(|v| v as i64)],
+    )
+    .map(|_| ())
+    .map_err(err)
 }
 
-pub fn set_client_policy(conn: &Connection, id: &str, max_concurrency: Option<u32>, unknown_cost_policy: Option<&str>)
-    -> Result<()> {
+pub fn set_client_policy(
+    conn: &Connection, id: &str, max_concurrency: Option<u32>, unknown_cost_policy: Option<&str>,
+) -> Result<()> {
     if let Some(n) = max_concurrency {
         if !(1..=256).contains(&n) {
             return Err("Allow from 1 to 256 requests at once".into());
@@ -974,7 +1187,8 @@ pub fn set_client_policy(conn: &Connection, id: &str, max_concurrency: Option<u3
         if !matches!(policy, "block" | "allow") {
             return Err(format!("unknown policy {policy}"));
         }
-        conn.execute("UPDATE gateway_clients SET unknown_cost_policy = ?2 WHERE id = ?1", params![id, policy]).map_err(err)?;
+        conn.execute("UPDATE gateway_clients SET unknown_cost_policy = ?2 WHERE id = ?1", params![id, policy])
+            .map_err(err)?;
     }
     Ok(())
 }
@@ -983,14 +1197,17 @@ pub fn set_client_policy(conn: &Connection, id: &str, max_concurrency: Option<u3
 pub fn set_client_connections(conn: &Connection, id: &str, allowed: Option<&[String]>) -> Result<()> {
     let json = allowed.map(|list| serde_json::to_string(list).unwrap_or_else(|_| "[]".into()));
     conn.execute("UPDATE gateway_clients SET allowed_connections = ?2 WHERE id = ?1", params![id, json])
-        .map(|_| ()).map_err(err)
+        .map(|_| ())
+        .map_err(err)
 }
 
 pub fn set_client_auto_min_tier(conn: &Connection, id: &str, tier: &str) -> Result<()> {
     if !TIERS.contains(&tier) {
         return Err(format!("unknown tier {tier}"));
     }
-    conn.execute("UPDATE gateway_clients SET auto_min_tier = ?2 WHERE id = ?1", params![id, tier]).map(|_| ()).map_err(err)
+    conn.execute("UPDATE gateway_clients SET auto_min_tier = ?2 WHERE id = ?1", params![id, tier])
+        .map(|_| ())
+        .map_err(err)
 }
 
 pub fn set_client_paid_retries(conn: &Connection, id: &str, retries: u32) -> Result<()> {
@@ -998,29 +1215,47 @@ pub fn set_client_paid_retries(conn: &Connection, id: &str, retries: u32) -> Res
         return Err("Allow from 0 to 5 retries after a server error".into());
     }
     conn.execute("UPDATE gateway_clients SET paid_retries = ?2 WHERE id = ?1", params![id, retries])
-        .map(|_| ()).map_err(err)
+        .map(|_| ())
+        .map_err(err)
 }
 
 pub fn set_client_strict_budget(conn: &Connection, id: &str, strict: bool) -> Result<()> {
-    conn.execute("UPDATE gateway_clients SET strict_budget = ?2 WHERE id = ?1", params![id, strict]).map(|_| ()).map_err(err)
+    conn.execute("UPDATE gateway_clients SET strict_budget = ?2 WHERE id = ?1", params![id, strict])
+        .map(|_| ())
+        .map_err(err)
 }
 
 /// The model's maximum output, when it is known.
 pub fn max_output_tokens(conn: &Connection, provider_id: &str, model_id: &str) -> Result<Option<u64>> {
-    conn.query_row("SELECT max_output_tokens FROM models WHERE provider_id = ?1 AND model_id = ?2", params![provider_id, model_id],
-        |r| r.get::<_, Option<i64>>(0)).optional().map(|v| v.flatten().filter(|m| *m > 0).map(|m| m as u64)).map_err(err)
+    conn.query_row(
+        "SELECT max_output_tokens FROM models WHERE provider_id = ?1 AND model_id = ?2",
+        params![provider_id, model_id],
+        |r| r.get::<_, Option<i64>>(0),
+    )
+    .optional()
+    .map(|v| v.flatten().filter(|m| *m > 0).map(|m| m as u64))
+    .map_err(err)
 }
 
 /// The thinking types and effort levels the model takes, when they are known (`None` is unknown).
-pub fn thinking_support(conn: &Connection, provider_id: &str, model_id: &str) -> Result<(Option<Vec<String>>, Option<Vec<String>>)> {
+pub fn thinking_support(
+    conn: &Connection, provider_id: &str, model_id: &str,
+) -> Result<(Option<Vec<String>>, Option<Vec<String>>)> {
     let parse = |v: Option<String>| v.and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok());
-    conn.query_row("SELECT thinking_types, effort_levels FROM models WHERE provider_id = ?1 AND model_id = ?2",
-        params![provider_id, model_id], |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?)))
-        .optional().map(|row| row.map(|(t, e)| (parse(t), parse(e))).unwrap_or((None, None))).map_err(err)
+    conn.query_row(
+        "SELECT thinking_types, effort_levels FROM models WHERE provider_id = ?1 AND model_id = ?2",
+        params![provider_id, model_id],
+        |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?)),
+    )
+    .optional()
+    .map(|row| row.map(|(t, e)| (parse(t), parse(e))).unwrap_or((None, None)))
+    .map_err(err)
 }
 
 pub fn set_client_require_no_training(conn: &Connection, id: &str, required: bool) -> Result<()> {
-    conn.execute("UPDATE gateway_clients SET require_no_training = ?2 WHERE id = ?1", params![id, required]).map(|_| ()).map_err(err)
+    conn.execute("UPDATE gateway_clients SET require_no_training = ?2 WHERE id = ?1", params![id, required])
+        .map(|_| ())
+        .map_err(err)
 }
 
 /// Records what a provider's terms say about training on what is sent, and where the user read it. `no_training`
@@ -1031,7 +1266,9 @@ pub fn set_provider_terms(conn: &Connection, id: &str, terms: &str, source: Opti
     }
     let source = source.map(str::trim).filter(|s| !s.is_empty());
     if terms == "no_training" && source.is_none() {
-        return Err("Say where the terms say so (a link to the provider's policy, or the page and date you read)".into());
+        return Err(
+            "Say where the terms say so (a link to the provider's policy, or the page and date you read)".into()
+        );
     }
     let changed = conn.execute(
         "UPDATE providers SET data_use_terms = ?2, terms_source = ?3, terms_checked_at = CASE WHEN ?2 = 'unknown' THEN NULL ELSE ?4 END WHERE id = ?1",
@@ -1043,7 +1280,9 @@ pub fn set_provider_terms(conn: &Connection, id: &str, terms: &str, source: Opti
 }
 
 pub fn set_client_may_run_tasks(conn: &Connection, id: &str, allowed: bool) -> Result<()> {
-    conn.execute("UPDATE gateway_clients SET may_run_tasks = ?2 WHERE id = ?1", params![id, allowed]).map(|_| ()).map_err(err)
+    conn.execute("UPDATE gateway_clients SET may_run_tasks = ?2 WHERE id = ?1", params![id, allowed])
+        .map(|_| ())
+        .map_err(err)
 }
 
 // ---------- Budget reservations (ROADMAP P0-3) ----------
@@ -1095,14 +1334,21 @@ pub fn open_attempt(conn: &Connection, a: &AttemptStart) -> Result<std::result::
     immediate(conn, || {
         if a.hold_micro > 0 {
             let budget: Option<i64> = conn.query_row(
-                "SELECT monthly_budget_micro_usd FROM gateway_clients WHERE id = ?1", [a.client_id], |r| r.get(0))?;
+                "SELECT monthly_budget_micro_usd FROM gateway_clients WHERE id = ?1",
+                [a.client_id],
+                |r| r.get(0),
+            )?;
             if let Some(budget) = budget.map(|b| b.max(0) as u64) {
                 let spent: i64 = conn.query_row(
                     &format!("SELECT {COUNTED_SPEND} FROM usage_events WHERE client_id = ?1 AND created_at >= ?2"),
-                    params![a.client_id, month_start(now_ms())], |r| r.get(0))?;
+                    params![a.client_id, month_start(now_ms())],
+                    |r| r.get(0),
+                )?;
                 let reserved: i64 = conn.query_row(
                     "SELECT COALESCE(SUM(reserved_micro), 0) FROM budget_reservations WHERE client_id = ?1",
-                    [a.client_id], |r| r.get(0))?;
+                    [a.client_id],
+                    |r| r.get(0),
+                )?;
                 let (spent, reserved) = (spent.max(0) as u64, reserved.max(0) as u64);
                 if spent + reserved + a.hold_micro > budget || spent >= budget {
                     return Ok((Err(OverBudget { spent, reserved, budget, wanted: a.hold_micro }), false));
@@ -1125,8 +1371,9 @@ pub fn open_attempt(conn: &Connection, a: &AttemptStart) -> Result<std::result::
 /// If the journal entry is already gone (settled twice), nothing is written.
 pub fn settle(conn: &Connection, attempt_id: &str, record: &UsageRecord) -> Result<()> {
     immediate(conn, || {
-        let held: Option<i64> = conn.query_row("SELECT reserved_micro FROM budget_reservations WHERE id = ?1",
-            [attempt_id], |r| r.get(0)).optional()?;
+        let held: Option<i64> = conn
+            .query_row("SELECT reserved_micro FROM budget_reservations WHERE id = ?1", [attempt_id], |r| r.get(0))
+            .optional()?;
         let Some(held) = held else { return Ok(((), false)) };
         let at_risk = (record.cost.micro_usd().is_none() && held > 0).then_some(held as u64);
         insert_usage(conn, record, at_risk)?;
@@ -1189,13 +1436,23 @@ pub struct Health {
 pub const BACKOFF_STATES: [&str; 2] = ["unreachable", "server_error"];
 pub const BACKOFF_CAP_MS: i64 = 15 * 60 * 1000;
 
-pub fn mark_health(conn: &Connection, provider_id: &str, model_id: &str, state: &str, reason: &str,
-    http_status: Option<u16>, until_ms: Option<i64>) -> Result<()> {
+pub fn mark_health(
+    conn: &Connection, provider_id: &str, model_id: &str, state: &str, reason: &str, http_status: Option<u16>,
+    until_ms: Option<i64>,
+) -> Result<()> {
     let now = now_ms();
-    let previous: Option<(String, i64, Option<i64>)> = conn.query_row(
-        "SELECT state, strikes, until_ms FROM connection_health WHERE provider_id = ?1 AND model_id = ?2", params![provider_id, model_id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional().map_err(err)?;
-    let strikes = match &previous { Some((s, n, _)) if s == state => n + 1, _ => 1 };
+    let previous: Option<(String, i64, Option<i64>)> = conn
+        .query_row(
+            "SELECT state, strikes, until_ms FROM connection_health WHERE provider_id = ?1 AND model_id = ?2",
+            params![provider_id, model_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(err)?;
+    let strikes = match &previous {
+        Some((s, n, _)) if s == state => n + 1,
+        _ => 1,
+    };
     let (until_ms, reason) = match until_ms {
         Some(until) if BACKOFF_STATES.contains(&state) && strikes > 1 => {
             let base = (until - now).max(1_000);
@@ -1239,22 +1496,33 @@ pub struct Check {
 /// Keeps a check's result; checks older than seven days go.
 pub fn record_check(conn: &Connection, provider_id: &str, ok: bool, kind: &str, detail: &str) -> Result<()> {
     let now = now_ms();
-    conn.execute("INSERT INTO connection_checks (provider_id, at, ok, kind, detail) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![provider_id, now, ok as i64, kind, detail]).map_err(err)?;
+    conn.execute(
+        "INSERT INTO connection_checks (provider_id, at, ok, kind, detail) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![provider_id, now, ok as i64, kind, detail],
+    )
+    .map_err(err)?;
     conn.execute("DELETE FROM connection_checks WHERE at < ?1", [now - 7 * 86_400_000]).map(|_| ()).map_err(err)
 }
 
 /// A connection's last check, if any.
 pub fn last_check(conn: &Connection, provider_id: &str) -> Result<Option<Check>> {
-    conn.query_row("SELECT at, ok, kind, detail FROM connection_checks WHERE provider_id = ?1 ORDER BY at DESC LIMIT 1",
-        [provider_id], |r| Ok(Check { at: r.get(0)?, ok: r.get::<_, i64>(1)? == 1, kind: r.get(2)?, detail: r.get(3)? }))
-        .optional().map_err(err)
+    conn.query_row(
+        "SELECT at, ok, kind, detail FROM connection_checks WHERE provider_id = ?1 ORDER BY at DESC LIMIT 1",
+        [provider_id],
+        |r| Ok(Check { at: r.get(0)?, ok: r.get::<_, i64>(1)? == 1, kind: r.get(2)?, detail: r.get(3)? }),
+    )
+    .optional()
+    .map_err(err)
 }
 
 /// Enabled connections whose last check is older than `every_ms` (or that were never checked), oldest first.
 pub fn checks_due(conn: &Connection, every_ms: i64, now: i64) -> Result<Vec<String>> {
-    let mut stmt = conn.prepare("SELECT p.id, (SELECT MAX(at) FROM connection_checks c WHERE c.provider_id = p.id) AS last \
-        FROM providers p WHERE p.enabled = 1 AND (last IS NULL OR last < ?1) ORDER BY COALESCE(last, 0), p.id").map_err(err)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT p.id, (SELECT MAX(at) FROM connection_checks c WHERE c.provider_id = p.id) AS last \
+        FROM providers p WHERE p.enabled = 1 AND (last IS NULL OR last < ?1) ORDER BY COALESCE(last, 0), p.id",
+        )
+        .map_err(err)?;
     let rows = stmt.query_map([now - every_ms], |r| r.get(0)).map_err(err)?;
     rows.collect::<rusqlite::Result<_>>().map_err(err)
 }
@@ -1284,7 +1552,8 @@ pub const STRIP_HOURS: i64 = 24;
 /// stream cut off, except a request Pygg itself refused before sending ("Not sent", `not sent`) and one the provider
 /// refused as malformed (400, 413, 422), which says nothing about the provider. A client that left, or a restart, is
 /// not counted either way.
-const PROVIDER_FAILED: &str = "(u.outcome IN ('error', 'fallback', 'stream_error') AND COALESCE(u.http_status, 0) NOT IN (400, 413, 422) \
+const PROVIDER_FAILED: &str =
+    "(u.outcome IN ('error', 'fallback', 'stream_error') AND COALESCE(u.http_status, 0) NOT IN (400, 413, 422) \
     AND COALESCE(u.error, '') NOT LIKE '%Not sent%' AND COALESCE(u.source, '') <> 'not sent')";
 
 pub fn health_strip(conn: &Connection, provider_id: &str, now: i64) -> Result<HealthStrip> {
@@ -1294,7 +1563,10 @@ pub fn health_strip(conn: &Connection, provider_id: &str, now: i64) -> Result<He
     let mut checks = vec![(0u32, 0u32); STRIP_HOURS as usize];
     let add = |sql: &str, counts: &mut Vec<(u32, u32)>| -> Result<()> {
         let mut stmt = conn.prepare(sql).map_err(err)?;
-        let rows = stmt.query_map(params![provider_id, since, now, HOUR], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)))
+        let rows = stmt
+            .query_map(params![provider_id, since, now, HOUR], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+            })
             .map_err(err)?;
         for row in rows {
             let (ago, ok, failed) = row.map_err(err)?;
@@ -1318,8 +1590,15 @@ pub fn health_strip(conn: &Connection, provider_id: &str, now: i64) -> Result<He
             *slot = check;
         }
     }
-    let buckets: Vec<HealthBucket> = counts.iter().enumerate()
-        .map(|(i, (ok, failed))| HealthBucket { start: now - (STRIP_HOURS - i as i64) * HOUR, ok: *ok, failed: *failed }).collect();
+    let buckets: Vec<HealthBucket> = counts
+        .iter()
+        .enumerate()
+        .map(|(i, (ok, failed))| HealthBucket {
+            start: now - (STRIP_HOURS - i as i64) * HOUR,
+            ok: *ok,
+            failed: *failed,
+        })
+        .collect();
     // Each hour with anything in it gives its own share that went well, so a busy hour cannot outweigh a quiet hour's
     // outage, and pressing Check Now cannot raise the score. The newest hour weighs 1, the oldest 0.25, in a straight line.
     let (mut good, mut all) = (0.0f64, 0.0f64);
@@ -1334,8 +1613,12 @@ pub fn health_strip(conn: &Connection, provider_id: &str, now: i64) -> Result<He
 
 /// The probe reached the provider: its connection-wide outage is over.
 pub fn probe_succeeded(conn: &Connection, provider_id: &str) -> Result<()> {
-    conn.execute("DELETE FROM connection_health WHERE provider_id = ?1 AND model_id = '' AND state = 'unreachable'", [provider_id])
-        .map(|_| ()).map_err(err)
+    conn.execute(
+        "DELETE FROM connection_health WHERE provider_id = ?1 AND model_id = '' AND state = 'unreachable'",
+        [provider_id],
+    )
+    .map(|_| ())
+    .map_err(err)
 }
 
 /// The probe did not reach it: remember when it was checked, so it is not checked again for a while.
@@ -1375,10 +1658,11 @@ pub fn is_limit_header(name: &str) -> bool {
 }
 
 /// Keeps the provider's rate-limit headers from one answer; does nothing when it sent none.
-pub fn record_limits(conn: &Connection, provider_id: &str, model_id: &str, status: u16,
-    headers: &[(String, String)]) -> Result<()> {
-    let kept: std::collections::BTreeMap<&str, &str> = headers.iter()
-        .filter(|(n, _)| is_limit_header(n)).map(|(n, v)| (n.as_str(), v.as_str())).collect();
+pub fn record_limits(
+    conn: &Connection, provider_id: &str, model_id: &str, status: u16, headers: &[(String, String)],
+) -> Result<()> {
+    let kept: std::collections::BTreeMap<&str, &str> =
+        headers.iter().filter(|(n, _)| is_limit_header(n)).map(|(n, v)| (n.as_str(), v.as_str())).collect();
     if kept.is_empty() {
         return Ok(());
     }
@@ -1390,15 +1674,23 @@ pub fn record_limits(conn: &Connection, provider_id: &str, model_id: &str, statu
 }
 
 pub fn list_limits(conn: &Connection, provider_id: &str) -> Result<Vec<RateLimits>> {
-    let mut stmt = conn.prepare("SELECT model_id, headers_json, http_status, observed_at FROM rate_limits \
-        WHERE provider_id = ?1 ORDER BY observed_at DESC").map_err(err)?;
-    let rows = stmt.query_map([provider_id], |r| Ok(RateLimits {
-        model_id: r.get(0)?,
-        headers: serde_json::from_str(&r.get::<_, String>(1)?).unwrap_or_default(),
-        http_status: r.get::<_, Option<i64>>(2)?.map(|v| v as u16),
-        observed_at: r.get(3)?,
-        windows: Vec::new(),
-    })).map_err(err)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT model_id, headers_json, http_status, observed_at FROM rate_limits \
+        WHERE provider_id = ?1 ORDER BY observed_at DESC",
+        )
+        .map_err(err)?;
+    let rows = stmt
+        .query_map([provider_id], |r| {
+            Ok(RateLimits {
+                model_id: r.get(0)?,
+                headers: serde_json::from_str(&r.get::<_, String>(1)?).unwrap_or_default(),
+                http_status: r.get::<_, Option<i64>>(2)?.map(|v| v as u16),
+                observed_at: r.get(3)?,
+                windows: Vec::new(),
+            })
+        })
+        .map_err(err)?;
     let mut out: Vec<RateLimits> = rows.collect::<rusqlite::Result<_>>().map_err(err)?;
     for limits in &mut out {
         limits.windows = super::quota::from_headers(&limits.headers, limits.observed_at);
@@ -1511,8 +1803,11 @@ pub fn pinned_target(conn: &Connection, client_id: &str, session_key: &str, requ
 /// Deletes expired pins, of one client or of all. Clients may name as many sessions as they like; only the
 /// last two hours of them are kept.
 pub fn purge_sessions(conn: &Connection, client_id: Option<&str>) -> Result<usize> {
-    conn.execute("DELETE FROM session_affinity WHERE (?1 IS NULL OR client_id = ?1) AND last_used_at < ?2",
-        params![client_id, now_ms() - AFFINITY_TTL_MS]).map_err(err)
+    conn.execute(
+        "DELETE FROM session_affinity WHERE (?1 IS NULL OR client_id = ?1) AND last_used_at < ?2",
+        params![client_id, now_ms() - AFFINITY_TTL_MS],
+    )
+    .map_err(err)
 }
 
 pub fn pin(conn: &Connection, client_id: &str, session_key: &str, requested: &str, target: &Target) -> Result<()> {
@@ -1530,10 +1825,13 @@ pub fn pin(conn: &Connection, client_id: &str, session_key: &str, requested: &st
 }
 
 pub fn active_sessions(conn: &Connection, client_id: &str) -> Result<usize> {
-    conn.query_row("SELECT COUNT(*) FROM session_affinity WHERE client_id = ?1 AND last_used_at >= ?2",
-        params![client_id, now_ms() - AFFINITY_TTL_MS], |r| r.get::<_, i64>(0))
-        .map(|n| n.max(0) as usize)
-        .map_err(err)
+    conn.query_row(
+        "SELECT COUNT(*) FROM session_affinity WHERE client_id = ?1 AND last_used_at >= ?2",
+        params![client_id, now_ms() - AFFINITY_TTL_MS],
+        |r| r.get::<_, i64>(0),
+    )
+    .map(|n| n.max(0) as usize)
+    .map_err(err)
 }
 
 /// The active client a bearer token belongs to.
@@ -1582,8 +1880,11 @@ pub fn combo_strategy(conn: &Connection, name: &str) -> Result<Option<String>> {
 
 pub fn list_combos(conn: &Connection) -> Result<Vec<Combo>> {
     let mut stmt = conn.prepare("SELECT id, name, strategy FROM combos ORDER BY name").map_err(err)?;
-    let heads: Vec<(String, String, String)> =
-        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
+    let heads: Vec<(String, String, String)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .map_err(err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(err)?;
     let mut combos = Vec::new();
     for (id, name, strategy) in heads {
         let mut members = conn
@@ -1637,7 +1938,11 @@ pub fn save_combo(conn: &Connection, id: Option<&str>, name: &str, members: &[Ta
 }
 
 fn unique(e: rusqlite::Error, name: &str) -> String {
-    if e.to_string().contains("UNIQUE") { format!("A combo named {name} already exists") } else { e.to_string() }
+    if e.to_string().contains("UNIQUE") {
+        format!("A combo named {name} already exists")
+    } else {
+        e.to_string()
+    }
 }
 
 pub fn delete_combo(conn: &Connection, id: &str) -> Result<()> {
@@ -1646,7 +1951,8 @@ pub fn delete_combo(conn: &Connection, id: &str) -> Result<()> {
 
 /// The connections of a pool, in the order they are tried.
 pub fn pool_members(conn: &Connection, pool: &str) -> Result<Vec<Provider>> {
-    let mut members: Vec<Provider> = list_providers(conn)?.into_iter().filter(|p| p.pool.as_deref() == Some(pool)).collect();
+    let mut members: Vec<Provider> =
+        list_providers(conn)?.into_iter().filter(|p| p.pool.as_deref() == Some(pool)).collect();
     members.sort_by_key(|p| (p.pool_rank.unwrap_or(i64::MAX), p.created_at));
     Ok(members)
 }
@@ -1678,8 +1984,11 @@ pub fn set_pool(conn: &Connection, provider_id: &str, pool: Option<&str>) -> Res
     // Web sessions may pool with others of the same site (owner, 2026-11-13; ADR-035): each account keeps its own daily
     // limit and pace, and the pool sends to the one used least today. Confirming its own quota says it is another account.
     if !provider.separate_quota {
-        return Err("Confirm first that this connection has its own provider quota (Independent quota confirmed): a pool is \
-            for separate accounts, not several keys of one account".into());
+        return Err(
+            "Confirm first that this connection has its own provider quota (Independent quota confirmed): a pool is \
+            for separate accounts, not several keys of one account"
+                .into(),
+        );
     }
     let members = pool_members(conn, name)?;
     if let Some(other) = members.iter().find(|m| m.kind != provider.kind && m.id != provider.id) {
@@ -1689,7 +1998,8 @@ pub fn set_pool(conn: &Connection, provider_id: &str, pool: Option<&str>) -> Res
         return Ok(());
     }
     let rank = members.iter().filter_map(|m| m.pool_rank).max().unwrap_or(0) + 1;
-    conn.execute("UPDATE providers SET pool = ?2, pool_rank = ?3 WHERE id = ?1", params![provider_id, name, rank]).map_err(err)?;
+    conn.execute("UPDATE providers SET pool = ?2, pool_rank = ?3 WHERE id = ?1", params![provider_id, name, rank])
+        .map_err(err)?;
     Ok(())
 }
 
@@ -1704,7 +2014,8 @@ pub fn move_in_pool(conn: &Connection, provider_id: &str, up: bool) -> Result<()
         members.swap(at, to);
     }
     for (rank, member) in members.iter().enumerate() {
-        conn.execute("UPDATE providers SET pool_rank = ?2 WHERE id = ?1", params![member.id, rank as i64 + 1]).map_err(err)?;
+        conn.execute("UPDATE providers SET pool_rank = ?2 WHERE id = ?1", params![member.id, rank as i64 + 1])
+            .map_err(err)?;
     }
     Ok(())
 }
@@ -1723,8 +2034,10 @@ pub fn resolve(conn: &Connection, requested: &str) -> Result<Vec<(Provider, Stri
                 // next one answers.
                 if members.iter().all(|p| super::presets::is_web(&p.kind)) {
                     let now = now_ms();
-                    let mut used: Vec<(bool, u64, Provider)> = members.into_iter()
-                        .map(|p| (web_resting(conn, &p, now), web_requests_today(conn, &p.id, now).unwrap_or(0), p)).collect();
+                    let mut used: Vec<(bool, u64, Provider)> = members
+                        .into_iter()
+                        .map(|p| (web_resting(conn, &p, now), web_requests_today(conn, &p.id, now).unwrap_or(0), p))
+                        .collect();
                     used.sort_by_key(|(resting, n, p)| (*resting, *n, p.pool_rank.unwrap_or(i64::MAX)));
                     members = used.into_iter().map(|(_, _, p)| p).collect();
                 }
@@ -1797,11 +2110,30 @@ pub struct AttemptFacts {
 
 impl<'a> UsageRecord<'a> {
     /// An attempt that produced no usage: a rejection, a refused connection, a key that could not be read.
-    pub fn failed(client_id: &'a str, provider_id: &'a str, model_id: &'a str, requested_model: &'a str, cost: &'a Cost,
-        outcome: &'a str, http_status: Option<u16>, latency_ms: u64, error: &'a str) -> UsageRecord<'a> {
-        UsageRecord { client_id: Some(client_id), provider_id, model_id, requested_model, input_tokens: None,
-            output_tokens: None, cache_tokens: None, cost, outcome, http_status, latency_ms, error: Some(error),
-            cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None , facts: None, repeated_tokens: None}
+    pub fn failed(
+        client_id: &'a str, provider_id: &'a str, model_id: &'a str, requested_model: &'a str, cost: &'a Cost,
+        outcome: &'a str, http_status: Option<u16>, latency_ms: u64, error: &'a str,
+    ) -> UsageRecord<'a> {
+        UsageRecord {
+            client_id: Some(client_id),
+            provider_id,
+            model_id,
+            requested_model,
+            input_tokens: None,
+            output_tokens: None,
+            cache_tokens: None,
+            cost,
+            outcome,
+            http_status,
+            latency_ms,
+            error: Some(error),
+            cache_write_tokens: None,
+            session_key: None,
+            route_mode: None,
+            route_reason: None,
+            facts: None,
+            repeated_tokens: None,
+        }
     }
 }
 
@@ -1829,23 +2161,45 @@ pub struct PendingUsage {
 impl PendingUsage {
     pub fn of(r: &UsageRecord) -> PendingUsage {
         PendingUsage {
-            client_id: r.client_id.map(String::from), provider_id: r.provider_id.into(), model_id: r.model_id.into(),
-            requested_model: r.requested_model.into(), input_tokens: r.input_tokens, output_tokens: r.output_tokens,
-            cache_tokens: r.cache_tokens, cost: r.cost.clone(), outcome: r.outcome.into(), http_status: r.http_status,
-            latency_ms: r.latency_ms, error: r.error.map(String::from), cache_write_tokens: r.cache_write_tokens,
-            session_key: r.session_key.map(String::from), route_mode: r.route_mode.map(String::from),
+            client_id: r.client_id.map(String::from),
+            provider_id: r.provider_id.into(),
+            model_id: r.model_id.into(),
+            requested_model: r.requested_model.into(),
+            input_tokens: r.input_tokens,
+            output_tokens: r.output_tokens,
+            cache_tokens: r.cache_tokens,
+            cost: r.cost.clone(),
+            outcome: r.outcome.into(),
+            http_status: r.http_status,
+            latency_ms: r.latency_ms,
+            error: r.error.map(String::from),
+            cache_write_tokens: r.cache_write_tokens,
+            session_key: r.session_key.map(String::from),
+            route_mode: r.route_mode.map(String::from),
             route_reason: r.route_reason.map(String::from),
         }
     }
 
     pub fn record(&self) -> UsageRecord<'_> {
         UsageRecord {
-            client_id: self.client_id.as_deref(), provider_id: &self.provider_id, model_id: &self.model_id,
-            requested_model: &self.requested_model, input_tokens: self.input_tokens, output_tokens: self.output_tokens,
-            cache_tokens: self.cache_tokens, cost: &self.cost, outcome: &self.outcome, http_status: self.http_status,
-            latency_ms: self.latency_ms, error: self.error.as_deref(), cache_write_tokens: self.cache_write_tokens,
-            session_key: self.session_key.as_deref(), route_mode: self.route_mode.as_deref(),
-            route_reason: self.route_reason.as_deref(), facts: None, repeated_tokens: None,
+            client_id: self.client_id.as_deref(),
+            provider_id: &self.provider_id,
+            model_id: &self.model_id,
+            requested_model: &self.requested_model,
+            input_tokens: self.input_tokens,
+            output_tokens: self.output_tokens,
+            cache_tokens: self.cache_tokens,
+            cost: &self.cost,
+            outcome: &self.outcome,
+            http_status: self.http_status,
+            latency_ms: self.latency_ms,
+            error: self.error.as_deref(),
+            cache_write_tokens: self.cache_write_tokens,
+            session_key: self.session_key.as_deref(),
+            route_mode: self.route_mode.as_deref(),
+            route_reason: self.route_reason.as_deref(),
+            facts: None,
+            repeated_tokens: None,
         }
     }
 }
@@ -1967,16 +2321,29 @@ pub struct UsageBucket {
 /// Periods with no request are left out; the chart shows them as empty.
 pub fn usage_over_time(conn: &Connection, since: i64, bucket_ms: i64, offset_ms: i64) -> Result<Vec<UsageBucket>> {
     let bucket_ms = bucket_ms.max(60_000);
-    let mut stmt = conn.prepare(
-        "SELECT ((created_at + ?3) / ?2) * ?2 - ?3 AS start, COUNT(*), SUM(outcome NOT IN ('ok', 'fallback')), \
+    let mut stmt = conn
+        .prepare(
+            "SELECT ((created_at + ?3) / ?2) * ?2 - ?3 AS start, COUNT(*), SUM(outcome NOT IN ('ok', 'fallback')), \
          COALESCE(SUM(cost_micro_usd), 0), COALESCE(SUM(CASE WHEN cost_status = 'actual' THEN cost_micro_usd END), 0), \
          SUM(cost_status = 'unknown'), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0) \
-         FROM usage_events WHERE created_at >= ?1 GROUP BY start ORDER BY start").map_err(err)?;
-    let rows = stmt.query_map(params![since, bucket_ms, offset_ms], |r| {
-        let n = |i: usize| r.get::<_, Option<i64>>(i).map(|v| v.unwrap_or(0).max(0) as u64);
-        Ok(UsageBucket { start: r.get(0)?, requests: n(1)?, failed: n(2)?, known_micro_usd: n(3)?, actual_micro_usd: n(4)?,
-            unknown_requests: n(5)?, input_tokens: n(6)?, output_tokens: n(7)? })
-    }).map_err(err)?;
+         FROM usage_events WHERE created_at >= ?1 GROUP BY start ORDER BY start",
+        )
+        .map_err(err)?;
+    let rows = stmt
+        .query_map(params![since, bucket_ms, offset_ms], |r| {
+            let n = |i: usize| r.get::<_, Option<i64>>(i).map(|v| v.unwrap_or(0).max(0) as u64);
+            Ok(UsageBucket {
+                start: r.get(0)?,
+                requests: n(1)?,
+                failed: n(2)?,
+                known_micro_usd: n(3)?,
+                actual_micro_usd: n(4)?,
+                unknown_requests: n(5)?,
+                input_tokens: n(6)?,
+                output_tokens: n(7)?,
+            })
+        })
+        .map_err(err)?;
     rows.collect::<rusqlite::Result<_>>().map_err(err)
 }
 
@@ -1993,14 +2360,24 @@ pub fn iso_utc(ms: i64) -> String {
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + i64::from(month <= 2);
-    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z", rest / 3_600_000, rest / 60_000 % 60, rest / 1000 % 60, rest % 1000)
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        rest / 3_600_000,
+        rest / 60_000 % 60,
+        rest / 1000 % 60,
+        rest % 1000
+    )
 }
 
 /// One CSV field: quoted when it holds a comma, quote or line break, and a leading `=`, `+`, `@`, tab or carriage return
 /// prefixed with `'`, so a spreadsheet never runs text from a provider's error as a formula.
 fn csv_field(value: &str) -> String {
     let value = if value.starts_with(['=', '+', '@', '\t', '\r']) { format!("'{value}") } else { value.to_string() };
-    if value.contains([',', '"', '\n', '\r']) { format!("\"{}\"", value.replace('"', "\"\"")) } else { value }
+    if value.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value
+    }
 }
 
 /// Every request since `since`, oldest first, as CSV for a spreadsheet (Usage → Export CSV): the ledger's own figures,
@@ -2016,15 +2393,37 @@ pub fn usage_csv(conn: &Connection, since: i64) -> Result<String> {
     let num = |n: Option<i64>| n.map(|n| n.to_string()).unwrap_or_default();
     let mut out = String::from("time_utc,client,requested_model,provider,model,route,outcome,http_status,input_tokens,output_tokens,\
         cache_read_tokens,cache_write_tokens,cost_usd,cost_status,cost_source,at_risk_usd,latency_ms,session,route_reason,error\r\n");
-    let rows = stmt.query_map([since], |r| {
-        let text = |i: usize| r.get::<_, String>(i).map(|s| csv_field(&s));
-        let status: String = r.get(13)?;
-        // An unknown cost is empty, never 0 (ADR-011).
-        let cost = if status == "unknown" { String::new() } else { usd(r.get(12)?) };
-        Ok([iso_utc(r.get(0)?), text(1)?, text(2)?, text(3)?, text(4)?, text(5)?, text(6)?, num(r.get(7)?), num(r.get(8)?),
-            num(r.get(9)?), num(r.get(10)?), num(r.get(11)?), cost, csv_field(&status), text(14)?, usd(r.get(15)?), num(r.get(16)?),
-            text(17)?, text(18)?, text(19)?].join(","))
-    }).map_err(err)?;
+    let rows = stmt
+        .query_map([since], |r| {
+            let text = |i: usize| r.get::<_, String>(i).map(|s| csv_field(&s));
+            let status: String = r.get(13)?;
+            // An unknown cost is empty, never 0 (ADR-011).
+            let cost = if status == "unknown" { String::new() } else { usd(r.get(12)?) };
+            Ok([
+                iso_utc(r.get(0)?),
+                text(1)?,
+                text(2)?,
+                text(3)?,
+                text(4)?,
+                text(5)?,
+                text(6)?,
+                num(r.get(7)?),
+                num(r.get(8)?),
+                num(r.get(9)?),
+                num(r.get(10)?),
+                num(r.get(11)?),
+                cost,
+                csv_field(&status),
+                text(14)?,
+                usd(r.get(15)?),
+                num(r.get(16)?),
+                text(17)?,
+                text(18)?,
+                text(19)?,
+            ]
+            .join(","))
+        })
+        .map_err(err)?;
     for row in rows {
         out.push_str(&row.map_err(err)?);
         out.push_str("\r\n");
@@ -2045,13 +2444,23 @@ pub struct ShadowSummary {
 }
 
 pub fn shadow_summary(conn: &Connection, since: i64) -> Result<ShadowSummary> {
-    conn.query_row("SELECT COUNT(*), COALESCE(SUM(repeated_tokens > 0), 0), COALESCE(SUM(repeated_tokens), 0), \
+    conn.query_row(
+        "SELECT COUNT(*), COALESCE(SUM(repeated_tokens > 0), 0), COALESCE(SUM(repeated_tokens), 0), \
         COALESCE(SUM(input_tokens), 0), COALESCE(SUM(cache_tokens), 0) FROM usage_events \
-        WHERE created_at >= ?1 AND repeated_tokens IS NOT NULL AND outcome = 'ok'", [since], |r| {
-        let n = |i: usize| r.get::<_, i64>(i).map(|v| v.max(0) as u64);
-        Ok(ShadowSummary { requests: n(0)?, requests_with_repeats: n(1)?, repeated_tokens: n(2)?, input_tokens: n(3)?,
-            cache_read_tokens: n(4)? })
-    }).map_err(err)
+        WHERE created_at >= ?1 AND repeated_tokens IS NOT NULL AND outcome = 'ok'",
+        [since],
+        |r| {
+            let n = |i: usize| r.get::<_, i64>(i).map(|v| v.max(0) as u64);
+            Ok(ShadowSummary {
+                requests: n(0)?,
+                requests_with_repeats: n(1)?,
+                repeated_tokens: n(2)?,
+                input_tokens: n(3)?,
+                cache_read_tokens: n(4)?,
+            })
+        },
+    )
+    .map_err(err)
 }
 
 /// How a model has answered, from the ledger (SCREENS §5.4: "reliability appears only once measured, with the sample
@@ -2068,10 +2477,17 @@ pub struct Reliability {
 /// Reliability of a connection's models since `since`. A request the client left before it finished counts neither
 /// way: it says nothing about the model.
 pub fn reliability(conn: &Connection, provider_id: &str, since: i64) -> Result<Vec<Reliability>> {
-    let mut stmt = conn.prepare("SELECT model, outcome, latency_ms FROM usage_events WHERE provider = ?1 AND created_at >= ?2 \
-        AND outcome <> 'client_disconnected' ORDER BY model").map_err(err)?;
-    let rows: Vec<(String, String, Option<i64>)> = stmt.query_map(params![provider_id, since], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
-        .map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT model, outcome, latency_ms FROM usage_events WHERE provider = ?1 AND created_at >= ?2 \
+        AND outcome <> 'client_disconnected' ORDER BY model",
+        )
+        .map_err(err)?;
+    let rows: Vec<(String, String, Option<i64>)> = stmt
+        .query_map(params![provider_id, since], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .map_err(err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(err)?;
     let mut out: Vec<Reliability> = Vec::new();
     let mut latencies: Vec<Vec<u64>> = Vec::new();
     for (model, outcome, latency) in rows {
@@ -2131,9 +2547,20 @@ pub fn latest_requests(conn: &Connection) -> Result<Vec<LatestRequest>> {
     let mut stmt = conn.prepare("SELECT u.client_id, u.created_at, u.provider, u.model, u.requested_model, u.outcome \
         FROM usage_events u JOIN (SELECT client_id, MAX(created_at) AS at FROM usage_events WHERE client_id IS NOT NULL \
         GROUP BY client_id) m ON m.client_id = u.client_id AND m.at = u.created_at ORDER BY u.created_at DESC").map_err(err)?;
-    let rows = stmt.query_map([], |r| Ok(LatestRequest { client_id: r.get(0)?, created_at: r.get(1)?, provider: r.get(2)?,
-        model: r.get(3)?, requested_model: r.get(4)?, outcome: r.get(5)? })).map_err(err)?
-        .collect::<rusqlite::Result<Vec<_>>>().map_err(err)?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(LatestRequest {
+                client_id: r.get(0)?,
+                created_at: r.get(1)?,
+                provider: r.get(2)?,
+                model: r.get(3)?,
+                requested_model: r.get(4)?,
+                outcome: r.get(5)?,
+            })
+        })
+        .map_err(err)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(err)?;
     // Two entries at the same millisecond: the first is enough.
     let mut seen = std::collections::HashSet::new();
     Ok(rows.into_iter().filter(|r| seen.insert(r.client_id.clone())).collect())
@@ -2144,7 +2571,13 @@ pub fn usage_alerts(conn: &Connection, now: i64) -> Result<Vec<UsageAlert>> {
     for c in list_clients(conn)?.into_iter().filter(|c| c.revoked_at.is_none()) {
         let Some(limit) = c.monthly_budget_micro_usd.filter(|l| *l > 0) else { continue };
         let used = c.month_spend_micro_usd + c.reserved_micro_usd;
-        let kind = if used >= limit { "over_limit" } else if used * 5 >= limit * 4 { "near_limit" } else { continue };
+        let kind = if used >= limit {
+            "over_limit"
+        } else if used * 5 >= limit * 4 {
+            "near_limit"
+        } else {
+            continue;
+        };
         out.push(UsageAlert { kind: kind.into(), client: Some(c.name), value: used, against: limit });
     }
     let day = 86_400_000;
@@ -2158,7 +2591,9 @@ pub fn usage_alerts(conn: &Connection, now: i64) -> Result<Vec<UsageAlert>> {
     if week > 0 && today >= SPIKE_FLOOR_MICRO_USD && today >= average.max(1) * SPIKE_FACTOR {
         out.push(UsageAlert { kind: "spend_spike".into(), client: None, value: today, against: average });
     }
-    let unknown = one("SELECT COUNT(*) FROM usage_events WHERE cost_status = 'unknown' AND created_at >= ?1", &[&(now - day)])?.max(0) as u64;
+    let unknown =
+        one("SELECT COUNT(*) FROM usage_events WHERE cost_status = 'unknown' AND created_at >= ?1", &[&(now - day)])?
+            .max(0) as u64;
     if unknown >= 5 {
         out.push(UsageAlert { kind: "unknown_costs".into(), client: None, value: unknown, against: 0 });
     }
@@ -2209,14 +2644,48 @@ pub struct RoutingSummary {
 
 pub fn routing_summary(conn: &Connection, since: i64) -> Result<RoutingSummary> {
     let mut out = RoutingSummary::default();
-    let mut stmt = conn.prepare("SELECT u.request_id, u.attempt, u.outcome, u.http_status, u.provider, u.model, u.session_key, \
+    let mut stmt = conn
+        .prepare(
+            "SELECT u.request_id, u.attempt, u.outcome, u.http_status, u.provider, u.model, u.session_key, \
         u.created_at, c.name, u.cache_write_tokens, u.cost_status, u.cost_micro_usd \
         FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id \
-        WHERE u.created_at >= ?1 AND u.request_id IS NOT NULL ORDER BY u.created_at, u.attempt").map_err(err)?;
-    type Row = (String, Option<i64>, String, Option<i64>, String, String, Option<String>, i64, Option<String>, Option<i64>, String, Option<i64>);
-    let rows: Vec<Row> = stmt.query_map([since], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?,
-        r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?))).map_err(err)?
-        .collect::<rusqlite::Result<_>>().map_err(err)?;
+        WHERE u.created_at >= ?1 AND u.request_id IS NOT NULL ORDER BY u.created_at, u.attempt",
+        )
+        .map_err(err)?;
+    type Row = (
+        String,
+        Option<i64>,
+        String,
+        Option<i64>,
+        String,
+        String,
+        Option<String>,
+        i64,
+        Option<String>,
+        Option<i64>,
+        String,
+        Option<i64>,
+    );
+    let rows: Vec<Row> = stmt
+        .query_map([since], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
+                r.get(7)?,
+                r.get(8)?,
+                r.get(9)?,
+                r.get(10)?,
+                r.get(11)?,
+            ))
+        })
+        .map_err(err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(err)?;
     // The failed attempts of each request so far, for the reason of a change.
     let mut failures: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
     let mut requests = std::collections::HashSet::new();
@@ -2243,9 +2712,15 @@ pub fn routing_summary(conn: &Connection, since: i64) -> Result<RoutingSummary> 
         let target = format!("{provider}/{model}");
         if let Some(before) = sessions.insert(session, target.clone()) {
             if before != target {
-                out.changes.push(RouteChange { at, client, from: before, to: target, reason: failed.join(", "),
+                out.changes.push(RouteChange {
+                    at,
+                    client,
+                    from: before,
+                    to: target,
+                    reason: failed.join(", "),
                     cache_writes_after: written.unwrap_or(0).max(0) as u64,
-                    known_micro_usd: (cost_status != "unknown").then(|| cost.unwrap_or(0).max(0) as u64) });
+                    known_micro_usd: (cost_status != "unknown").then(|| cost.unwrap_or(0).max(0) as u64),
+                });
             }
         }
     }
@@ -2301,28 +2776,52 @@ pub struct TokenMix {
 
 pub fn token_mix(conn: &Connection, since: i64) -> Result<TokenMix> {
     use std::collections::HashMap;
-    let prices: HashMap<(String, String), Price> = list_models(conn, None)?.into_iter()
-        .filter_map(|m| m.price.map(|p| ((m.provider_id, m.model_id), p))).collect();
+    let prices: HashMap<(String, String), Price> = list_models(conn, None)?
+        .into_iter()
+        .filter_map(|m| m.price.map(|p| ((m.provider_id, m.model_id), p)))
+        .collect();
     let mut mix = TokenMix {
-        requests: conn.query_row("SELECT COUNT(*) FROM usage_events WHERE created_at >= ?1", [since], |r| r.get::<_, i64>(0))
-            .map_err(err)?.max(0) as u64,
+        requests: conn
+            .query_row("SELECT COUNT(*) FROM usage_events WHERE created_at >= ?1", [since], |r| r.get::<_, i64>(0))
+            .map_err(err)?
+            .max(0) as u64,
         ..TokenMix::default()
     };
-    let mut stmt = conn.prepare("SELECT u.provider, u.model, COALESCE(c.name, ''), u.input_tokens, COALESCE(u.cache_tokens, 0), \
+    let mut stmt = conn
+        .prepare(
+            "SELECT u.provider, u.model, COALESCE(c.name, ''), u.input_tokens, COALESCE(u.cache_tokens, 0), \
         COALESCE(u.cache_write_tokens, 0), COALESCE(u.output_tokens, 0), u.cost_status, u.cost_micro_usd \
         FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id \
-        WHERE u.created_at >= ?1 AND (u.input_tokens IS NOT NULL OR u.output_tokens IS NOT NULL)").map_err(err)?;
-    let rows = stmt.query_map([since], |r| {
-        let n = |i: usize| r.get::<_, Option<i64>>(i).map(|v| v.unwrap_or(0).max(0) as u64);
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, n(3)?, n(4)?, n(5)?, n(6)?,
-            r.get::<_, String>(7)?, r.get::<_, Option<i64>>(8)?))
-    }).map_err(err)?;
+        WHERE u.created_at >= ?1 AND (u.input_tokens IS NOT NULL OR u.output_tokens IS NOT NULL)",
+        )
+        .map_err(err)?;
+    let rows = stmt
+        .query_map([since], |r| {
+            let n = |i: usize| r.get::<_, Option<i64>>(i).map(|v| v.unwrap_or(0).max(0) as u64);
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                n(3)?,
+                n(4)?,
+                n(5)?,
+                n(6)?,
+                r.get::<_, String>(7)?,
+                r.get::<_, Option<i64>>(8)?,
+            ))
+        })
+        .map_err(err)?;
     let mut by_client: HashMap<String, TokenMixGroup> = HashMap::new();
     let mut by_model: HashMap<String, TokenMixGroup> = HashMap::new();
     for row in rows {
         let (provider, model, client, input, read, write, output, status, cost) = row.map_err(err)?;
         // An Anthropic prompt counts its cache reads and writes in the whole (pricing.rs); an OpenAI one its reads.
-        let parts = TokenParts { new_input: input.saturating_sub(read + write), cache_read: read.min(input), cache_write: write, output };
+        let parts = TokenParts {
+            new_input: input.saturating_sub(read + write),
+            cache_read: read.min(input),
+            cache_write: write,
+            output,
+        };
         let known = (status != "unknown").then(|| cost.unwrap_or(0).max(0) as u64);
         mix.with_tokens += 1;
         add_parts(&mut mix.tokens, &parts);
@@ -2343,7 +2842,8 @@ pub fn token_mix(conn: &Connection, since: i64) -> Result<TokenMix> {
     }
     let sorted = |map: HashMap<String, TokenMixGroup>| -> Vec<TokenMixGroup> {
         let mut groups: Vec<TokenMixGroup> = map.into_values().collect();
-        let total = |g: &TokenMixGroup| g.tokens.new_input + g.tokens.cache_read + g.tokens.cache_write + g.tokens.output;
+        let total =
+            |g: &TokenMixGroup| g.tokens.new_input + g.tokens.cache_read + g.tokens.cache_write + g.tokens.output;
         groups.sort_by(|a, b| total(b).cmp(&total(a)).then_with(|| a.key.cmp(&b.key)));
         groups
     };
@@ -2444,12 +2944,21 @@ const REQUEST_MATCH: &str = "u.created_at >= ?1 AND (?4 IS NULL OR COALESCE(c.na
     AND (?5 IS NULL OR u.provider || '/' || u.model = ?5) \
     AND (?6 IS NULL OR (?6 = 'problems' AND u.outcome <> 'ok') OR (?6 = 'unknown' AND u.cost_status = 'unknown'))";
 
-pub fn usage_requests_matching(conn: &Connection, since: i64, filter: &RequestFilter, offset: usize, limit: usize)
-    -> Result<RequestPage> {
+pub fn usage_requests_matching(
+    conn: &Connection, since: i64, filter: &RequestFilter, offset: usize, limit: usize,
+) -> Result<RequestPage> {
     let show = filter.show.as_deref().filter(|s| *s == "problems" || *s == "unknown");
     let values = params![since, limit as i64, offset as i64, filter.client, filter.model, show];
-    let total: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id \
-        WHERE {REQUEST_MATCH}"), values, |r| r.get(0)).map_err(err)?;
+    let total: i64 = conn
+        .query_row(
+            &format!(
+                "SELECT COUNT(*) FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id \
+        WHERE {REQUEST_MATCH}"
+            ),
+            values,
+            |r| r.get(0),
+        )
+        .map_err(err)?;
     let mut stmt = conn
         .prepare(&format!(
             "SELECT u.id, u.created_at, c.name, u.provider, u.model, u.requested_model, u.input_tokens, u.output_tokens, \
@@ -2507,8 +3016,14 @@ pub fn usage_requests_matching(conn: &Connection, since: i64, filter: &RequestFi
 /// the same rule as the model list (`billing!`). Rows from an agent's own sign-in (`route_mode = 'agent'`) are on no
 /// connection and are left out by the callers.
 macro_rules! row_billing {
-    () => { concat!("CASE WHEN u.source LIKE 'subscription%' THEN 'subscription' WHEN u.source = 'local model' THEN 'local' \
-        WHEN COALESCE(u.cost_micro_usd, 0) > 0 THEN 'paid' ELSE ", billing!(), " END") };
+    () => {
+        concat!(
+            "CASE WHEN u.source LIKE 'subscription%' THEN 'subscription' WHEN u.source = 'local model' THEN 'local' \
+        WHEN COALESCE(u.cost_micro_usd, 0) > 0 THEN 'paid' ELSE ",
+            billing!(),
+            " END"
+        )
+    };
 }
 
 /// One subscription connection: what went through it in the period, and the limits its provider last stated.
@@ -2569,11 +3084,15 @@ struct Tally {
 }
 
 fn tally(conn: &Connection, billing: &str, since: i64) -> Result<Vec<Tally>> {
-    let sql = concat!("SELECT u.provider, u.model, u.outcome, u.input_tokens, u.output_tokens, u.latency_ms, u.created_at \
+    let sql = concat!(
+        "SELECT u.provider, u.model, u.outcome, u.input_tokens, u.output_tokens, u.latency_ms, u.created_at \
          FROM usage_events u LEFT JOIN providers p ON p.id = u.provider \
          LEFT JOIN models m ON m.provider_id = u.provider AND m.model_id = u.model \
-         WHERE u.created_at >= ?1 AND COALESCE(u.route_mode, '') <> 'agent' AND (", row_billing!(), ") = ?2 \
-         ORDER BY u.provider, u.model");
+         WHERE u.created_at >= ?1 AND COALESCE(u.route_mode, '') <> 'agent' AND (",
+        row_billing!(),
+        ") = ?2 \
+         ORDER BY u.provider, u.model"
+    );
     let mut stmt = conn.prepare(sql).map_err(err)?;
     let mut rows = stmt.query(params![since, billing]).map_err(err)?;
     let mut out: Vec<Tally> = Vec::new();
@@ -2585,8 +3104,16 @@ fn tally(conn: &Connection, billing: &str, since: i64) -> Result<Vec<Tally>> {
         let latency: Option<i64> = r.get(5).map_err(err)?;
         let at: i64 = r.get(6).map_err(err)?;
         if !out.last().is_some_and(|t| t.provider_id == provider_id && t.model == model) {
-            out.push(Tally { provider_id, model, requests: 0, not_ok: 0, input_tokens: 0, output_tokens: 0, last_used_at: at,
-                ok_latencies: Vec::new() });
+            out.push(Tally {
+                provider_id,
+                model,
+                requests: 0,
+                not_ok: 0,
+                input_tokens: 0,
+                output_tokens: 0,
+                last_used_at: at,
+                ok_latencies: Vec::new(),
+            });
         }
         let t = out.last_mut().expect("pushed above");
         t.requests += 1;
@@ -2616,16 +3143,30 @@ fn median(mut values: Vec<u64>) -> Option<u64> {
 
 /// The connections billed `billing` now (as a connection or for one of its models), with their label and kind, plus
 /// those named only by ledger rows (removed since): (id, label, kind).
-fn connections_billed(conn: &Connection, billing: &str, seen: &[String]) -> Result<Vec<(String, String, Option<String>)>> {
-    let mut stmt = conn.prepare(concat!("SELECT p.id, p.account_label, p.kind FROM providers p WHERE p.default_billing = ?1 \
-         OR EXISTS (SELECT 1 FROM models m WHERE m.provider_id = p.id AND (", billing!(), ") = ?1) ORDER BY p.account_label")).map_err(err)?;
+fn connections_billed(
+    conn: &Connection, billing: &str, seen: &[String],
+) -> Result<Vec<(String, String, Option<String>)>> {
+    let mut stmt = conn
+        .prepare(concat!(
+            "SELECT p.id, p.account_label, p.kind FROM providers p WHERE p.default_billing = ?1 \
+         OR EXISTS (SELECT 1 FROM models m WHERE m.provider_id = p.id AND (",
+            billing!(),
+            ") = ?1) ORDER BY p.account_label"
+        ))
+        .map_err(err)?;
     let mut out: Vec<(String, String, Option<String>)> = stmt
-        .query_map([billing], |r| Ok((r.get(0)?, r.get(1)?, Some(r.get(2)?)))).map_err(err)?
-        .collect::<rusqlite::Result<_>>().map_err(err)?;
+        .query_map([billing], |r| Ok((r.get(0)?, r.get(1)?, Some(r.get(2)?))))
+        .map_err(err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(err)?;
     for id in seen {
         if !out.iter().any(|(known, ..)| known == id) {
             let found = get_provider(conn, id)?;
-            out.push((id.clone(), found.as_ref().map_or_else(|| id.clone(), |p| p.label.clone()), found.map(|p| p.kind)));
+            out.push((
+                id.clone(),
+                found.as_ref().map_or_else(|| id.clone(), |p| p.label.clone()),
+                found.map(|p| p.kind),
+            ));
         }
     }
     Ok(out)
@@ -2647,7 +3188,9 @@ pub fn subscription_usage(conn: &Connection, since: i64) -> Result<Vec<Subscript
             last_used_at: mine.iter().map(|t| t.last_used_at).max(),
             limits: list_limits(conn, &provider_id)?,
             account: super::quota::saved_account(conn, &provider_id),
-            provider_id, label, kind,
+            provider_id,
+            label,
+            kind,
         });
     }
     out.sort_by(|a, b| b.requests.cmp(&a.requests).then_with(|| a.label.cmp(&b.label)));
@@ -2661,10 +3204,19 @@ pub fn local_usage(conn: &Connection, since: i64) -> Result<Vec<LocalUsage>> {
     let seen: Vec<String> = tallies.iter().map(|t| t.provider_id.clone()).collect();
     let mut out = Vec::new();
     for (provider_id, label, kind) in connections_billed(conn, "local", &seen)? {
-        let mut models: Vec<LocalModelUsage> = tallies.iter().filter(|t| t.provider_id == provider_id).map(|t| LocalModelUsage {
-            model: t.model.clone(), requests: t.requests, not_ok: t.not_ok, input_tokens: t.input_tokens,
-            output_tokens: t.output_tokens, median_latency_ms: median(t.ok_latencies.clone()), last_used_at: Some(t.last_used_at),
-        }).collect();
+        let mut models: Vec<LocalModelUsage> = tallies
+            .iter()
+            .filter(|t| t.provider_id == provider_id)
+            .map(|t| LocalModelUsage {
+                model: t.model.clone(),
+                requests: t.requests,
+                not_ok: t.not_ok,
+                input_tokens: t.input_tokens,
+                output_tokens: t.output_tokens,
+                median_latency_ms: median(t.ok_latencies.clone()),
+                last_used_at: Some(t.last_used_at),
+            })
+            .collect();
         models.sort_by(|a, b| b.requests.cmp(&a.requests).then_with(|| a.model.cmp(&b.model)));
         out.push(LocalUsage { provider_id, label, kind, models });
     }
@@ -2680,8 +3232,12 @@ pub fn setting(conn: &Connection, key: &str) -> Result<Option<String>> {
 }
 
 pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
-    conn.execute("INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2",
-        params![key, value]).map(|_| ()).map_err(err)
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2",
+        params![key, value],
+    )
+    .map(|_| ())
+    .map_err(err)
 }
 
 pub fn delete_setting(conn: &Connection, key: &str) -> Result<()> {
@@ -2699,8 +3255,18 @@ mod tests {
     use crate::db;
 
     fn gemini(conn: &Connection) -> Provider {
-        add_provider(conn, &NewProvider { kind: "gemini", label: "Google Gemini", endpoint: "https://example.test/v1/",
-            credential_ref: Some("provider-x"), default_billing: "unknown", wire: "openai" }).unwrap()
+        add_provider(
+            conn,
+            &NewProvider {
+                kind: "gemini",
+                label: "Google Gemini",
+                endpoint: "https://example.test/v1/",
+                credential_ref: Some("provider-x"),
+                default_billing: "unknown",
+                wire: "openai",
+            },
+        )
+        .unwrap()
     }
 
     #[test]
@@ -2711,8 +3277,18 @@ mod tests {
         assert_eq!((a.id.as_str(), b.id.as_str()), ("google-gemini", "google-gemini-2"));
         assert_eq!(a.endpoint, "https://example.test/v1");
         assert_eq!(slug("  OpenRouter / Work "), "openrouter-work");
-        assert!(add_provider(&conn, &NewProvider { kind: "custom", label: "x", endpoint: "ftp://x", credential_ref: None,
-            default_billing: "paid", wire: "openai" }).is_err());
+        assert!(add_provider(
+            &conn,
+            &NewProvider {
+                kind: "custom",
+                label: "x",
+                endpoint: "ftp://x",
+                credential_ref: None,
+                default_billing: "paid",
+                wire: "openai"
+            }
+        )
+        .is_err());
     }
 
     #[test]
@@ -2732,8 +3308,18 @@ mod tests {
     fn combos_resolve_in_order_and_skip_disabled_connections() {
         let conn = db::open_in_memory().unwrap();
         let a = gemini(&conn);
-        let b = add_provider(&conn, &NewProvider { kind: "openrouter", label: "OpenRouter", endpoint: "https://o.test",
-            credential_ref: None, default_billing: "paid", wire: "openai" }).unwrap();
+        let b = add_provider(
+            &conn,
+            &NewProvider {
+                kind: "openrouter",
+                label: "OpenRouter",
+                endpoint: "https://o.test",
+                credential_ref: None,
+                default_billing: "paid",
+                wire: "openai",
+            },
+        )
+        .unwrap();
         let members = vec![
             Target { provider_id: a.id.clone(), model_id: "flash".into() },
             Target { provider_id: b.id.clone(), model_id: "vendor/big".into() },
@@ -2742,7 +3328,8 @@ mod tests {
         assert!(save_combo(&conn, None, "coding", &members).is_err(), "names are unique");
         assert!(save_combo(&conn, None, "a/b", &members).is_err());
 
-        let routed: Vec<String> = resolve(&conn, "coding").unwrap().into_iter().map(|(p, m)| format!("{}/{m}", p.id)).collect();
+        let routed: Vec<String> =
+            resolve(&conn, "coding").unwrap().into_iter().map(|(p, m)| format!("{}/{m}", p.id)).collect();
         assert_eq!(routed, ["google-gemini/flash", "openrouter/vendor/big"]);
         update_provider(&conn, &a.id, Some(false), None, None).unwrap();
         assert_eq!(resolve(&conn, "coding").unwrap().len(), 1);
@@ -2753,11 +3340,33 @@ mod tests {
     #[test]
     fn a_pool_tries_separate_accounts_in_order_and_holds_only_those() {
         let conn = db::open_in_memory().unwrap();
-        let add = |label: &str| add_provider(&conn, &NewProvider { kind: "openrouter", label, endpoint: "http://o.test",
-            credential_ref: None, default_billing: "paid", wire: "openai" }).unwrap();
+        let add = |label: &str| {
+            add_provider(
+                &conn,
+                &NewProvider {
+                    kind: "openrouter",
+                    label,
+                    endpoint: "http://o.test",
+                    credential_ref: None,
+                    default_billing: "paid",
+                    wire: "openai",
+                },
+            )
+            .unwrap()
+        };
         let (a, b) = (add("Work"), add("Personal"));
-        let gem = add_provider(&conn, &NewProvider { kind: "gemini", label: "G", endpoint: "http://g.test",
-            credential_ref: None, default_billing: "paid", wire: "openai" }).unwrap();
+        let gem = add_provider(
+            &conn,
+            &NewProvider {
+                kind: "gemini",
+                label: "G",
+                endpoint: "http://g.test",
+                credential_ref: None,
+                default_billing: "paid",
+                wire: "openai",
+            },
+        )
+        .unwrap();
         // Two keys of one account (no separate quota confirmed) cannot be pooled.
         assert!(set_pool(&conn, &a.id, Some("router")).unwrap_err().contains("own provider quota"));
         for p in [&a, &b, &gem] {
@@ -2765,11 +3374,16 @@ mod tests {
         }
         set_pool(&conn, &a.id, Some("router")).unwrap();
         set_pool(&conn, &b.id, Some("router")).unwrap();
-        assert!(set_pool(&conn, &gem.id, Some("router")).unwrap_err().contains("openrouter"), "one provider kind per pool");
+        assert!(
+            set_pool(&conn, &gem.id, Some("router")).unwrap_err().contains("openrouter"),
+            "one provider kind per pool"
+        );
         assert!(set_pool(&conn, &gem.id, Some(&a.id)).unwrap_err().contains("already a connection"));
         assert!(set_pool(&conn, &gem.id, Some("Bad Name")).is_err());
 
-        let ids = |requested: &str| resolve(&conn, requested).unwrap().into_iter().map(|(p, m)| format!("{}:{m}", p.id)).collect::<Vec<_>>();
+        let ids = |requested: &str| {
+            resolve(&conn, requested).unwrap().into_iter().map(|(p, m)| format!("{}:{m}", p.id)).collect::<Vec<_>>()
+        };
         assert_eq!(ids("router/x/y"), [format!("{}:x/y", a.id), format!("{}:x/y", b.id)]);
         move_in_pool(&conn, &b.id, true).unwrap();
         assert_eq!(ids("router/x/y"), [format!("{}:x/y", b.id), format!("{}:x/y", a.id)]);
@@ -2784,19 +3398,39 @@ mod tests {
     #[test]
     fn tiers_from_an_older_table_follow_the_current_one_and_the_users_stay() {
         let conn = db::open_in_memory().unwrap();
-        let p = add_provider(&conn, &NewProvider { kind: "anthropic", label: "Claude", endpoint: "http://a.test",
-            credential_ref: None, default_billing: "paid", wire: "anthropic" }).unwrap();
+        let p = add_provider(
+            &conn,
+            &NewProvider {
+                kind: "anthropic",
+                label: "Claude",
+                endpoint: "http://a.test",
+                credential_ref: None,
+                default_billing: "paid",
+                wire: "anthropic",
+            },
+        )
+        .unwrap();
         for m in ["claude-haiku-5-5", "claude-haiku-4-5"] {
             add_model(&conn, &p.id, m).unwrap();
         }
         // As the first table left them: both Haiku at T1 (index 1).
         conn.execute("UPDATE models SET tier = 1, tier_source = 'curated:v1'", []).unwrap();
         fill_curated_tiers(&conn).unwrap();
-        let tier = |m: &str| list_models(&conn, None).unwrap().into_iter().find(|x| x.model_id == m).unwrap().capabilities;
-        assert_eq!((tier("claude-haiku-5-5").tier.as_deref(), tier("claude-haiku-5-5").tier_source.as_deref()), (Some("T2"), Some(CURATED)));
+        let tier =
+            |m: &str| list_models(&conn, None).unwrap().into_iter().find(|x| x.model_id == m).unwrap().capabilities;
+        assert_eq!(
+            (tier("claude-haiku-5-5").tier.as_deref(), tier("claude-haiku-5-5").tier_source.as_deref()),
+            (Some("T2"), Some(CURATED))
+        );
         assert_eq!(tier("claude-haiku-4-5").tier.as_deref(), Some("T1"));
         // A tier the user set stays theirs.
-        set_capabilities(&conn, &p.id, "claude-haiku-5-5", &Capabilities { tier: Some("T1".into()), ..Capabilities::default() }).unwrap();
+        set_capabilities(
+            &conn,
+            &p.id,
+            "claude-haiku-5-5",
+            &Capabilities { tier: Some("T1".into()), ..Capabilities::default() },
+        )
+        .unwrap();
         fill_curated_tiers(&conn).unwrap();
         assert_eq!(tier("claude-haiku-5-5").tier.as_deref(), Some("T1"));
     }
@@ -2824,12 +3458,31 @@ mod tests {
         let (old, _) = create_client(&conn, "Old", None).unwrap();
         assert_eq!(old.auto_min_tier, "T2");
         assert!(set_client_defaults(&conn, &ClientDefaults { paid_retries: Some(9), ..Default::default() }).is_err());
-        set_client_defaults(&conn, &ClientDefaults { auto_min_tier: Some("T1".into()), monthly_budget_micro_usd: Some(5_000_000),
-            max_concurrency: Some(2), unknown_cost_policy: Some("allow".into()), paid_retries: Some(1), require_no_training: Some(true),
-            strict_budget: Some(true) }).unwrap();
+        set_client_defaults(
+            &conn,
+            &ClientDefaults {
+                auto_min_tier: Some("T1".into()),
+                monthly_budget_micro_usd: Some(5_000_000),
+                max_concurrency: Some(2),
+                unknown_cost_policy: Some("allow".into()),
+                paid_retries: Some(1),
+                require_no_training: Some(true),
+                strict_budget: Some(true),
+            },
+        )
+        .unwrap();
         let (new, _) = create_client(&conn, "New", None).unwrap();
-        assert_eq!((new.auto_min_tier.as_str(), new.monthly_budget_micro_usd, new.max_concurrency, new.unknown_cost_policy.as_str(),
-            new.paid_retries, new.require_no_training), ("T1", Some(5_000_000), 2, "allow", 1, true));
+        assert_eq!(
+            (
+                new.auto_min_tier.as_str(),
+                new.monthly_budget_micro_usd,
+                new.max_concurrency,
+                new.unknown_cost_policy.as_str(),
+                new.paid_retries,
+                new.require_no_training
+            ),
+            ("T1", Some(5_000_000), 2, "allow", 1, true)
+        );
         assert!(new.strict_budget);
         assert!(new.strict_budget);
         assert!(new.strict_budget);
@@ -2847,10 +3500,30 @@ mod tests {
         let (a, _) = create_client(&conn, "A", None).unwrap();
         let (b, _) = create_client(&conn, "B", None).unwrap();
         for (client, model, outcome) in [(&a, "m1", "ok"), (&a, "m2", "error"), (&b, "m3", "ok")] {
-            record_usage(&conn, &UsageRecord { client_id: Some(&client.id), provider_id: &p.id, model_id: model, requested_model: "auto",
-                input_tokens: None, output_tokens: None, cache_tokens: None, cost: &cost, outcome, http_status: Some(200),
-                latency_ms: 1, error: None, cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None,
-                facts: None, repeated_tokens: None }).unwrap();
+            record_usage(
+                &conn,
+                &UsageRecord {
+                    client_id: Some(&client.id),
+                    provider_id: &p.id,
+                    model_id: model,
+                    requested_model: "auto",
+                    input_tokens: None,
+                    output_tokens: None,
+                    cache_tokens: None,
+                    cost: &cost,
+                    outcome,
+                    http_status: Some(200),
+                    latency_ms: 1,
+                    error: None,
+                    cache_write_tokens: None,
+                    session_key: None,
+                    route_mode: None,
+                    route_reason: None,
+                    facts: None,
+                    repeated_tokens: None,
+                },
+            )
+            .unwrap();
             std::thread::sleep(std::time::Duration::from_millis(3));
         }
         let latest = latest_requests(&conn).unwrap();
@@ -2865,11 +3538,33 @@ mod tests {
         let conn = db::open_in_memory().unwrap();
         let p = gemini(&conn);
         let cost = Cost::Estimated { micro_usd: 1, source: "x".into() };
-        for (model, outcome, ms) in [("a", "ok", 100), ("a", "ok", 300), ("a", "error", 50), ("a", "client_disconnected", 9), ("b", "ok", 700)] {
-            record_usage(&conn, &UsageRecord { client_id: None, provider_id: &p.id, model_id: model, requested_model: model,
-                input_tokens: None, output_tokens: None, cache_tokens: None, cost: &cost, outcome, http_status: Some(200),
-                latency_ms: ms, error: None, cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None,
-                facts: None, repeated_tokens: None }).unwrap();
+        for (model, outcome, ms) in
+            [("a", "ok", 100), ("a", "ok", 300), ("a", "error", 50), ("a", "client_disconnected", 9), ("b", "ok", 700)]
+        {
+            record_usage(
+                &conn,
+                &UsageRecord {
+                    client_id: None,
+                    provider_id: &p.id,
+                    model_id: model,
+                    requested_model: model,
+                    input_tokens: None,
+                    output_tokens: None,
+                    cache_tokens: None,
+                    cost: &cost,
+                    outcome,
+                    http_status: Some(200),
+                    latency_ms: ms,
+                    error: None,
+                    cache_write_tokens: None,
+                    session_key: None,
+                    route_mode: None,
+                    route_reason: None,
+                    facts: None,
+                    repeated_tokens: None,
+                },
+            )
+            .unwrap();
         }
         let r = reliability(&conn, &p.id, 0).unwrap();
         assert_eq!((r[0].model_id.as_str(), r[0].requests, r[0].ok, r[0].median_latency_ms), ("a", 3, 2, Some(300)));
@@ -2883,12 +3578,34 @@ mod tests {
         let (client, _) = create_client(&conn, "Claude Code", Some(1_000_000)).unwrap();
         let now = now_ms();
         let add = |micro: Option<u64>, outcome: &str, ago_ms: i64| {
-            let cost = match micro { Some(m) => Cost::Estimated { micro_usd: m, source: "price: user".into() },
-                None => Cost::Unknown { source: "no price".into() } };
-            record_usage(&conn, &UsageRecord { client_id: Some(&client.id), provider_id: &p.id, model_id: "flash",
-                requested_model: "auto", input_tokens: Some(10), output_tokens: Some(5), cache_tokens: None, cost: &cost,
-                outcome, http_status: Some(200), latency_ms: 12, error: None, cache_write_tokens: None, session_key: None,
-                route_mode: None, route_reason: None , facts: None, repeated_tokens: None}).unwrap();
+            let cost = match micro {
+                Some(m) => Cost::Estimated { micro_usd: m, source: "price: user".into() },
+                None => Cost::Unknown { source: "no price".into() },
+            };
+            record_usage(
+                &conn,
+                &UsageRecord {
+                    client_id: Some(&client.id),
+                    provider_id: &p.id,
+                    model_id: "flash",
+                    requested_model: "auto",
+                    input_tokens: Some(10),
+                    output_tokens: Some(5),
+                    cache_tokens: None,
+                    cost: &cost,
+                    outcome,
+                    http_status: Some(200),
+                    latency_ms: 12,
+                    error: None,
+                    cache_write_tokens: None,
+                    session_key: None,
+                    route_mode: None,
+                    route_reason: None,
+                    facts: None,
+                    repeated_tokens: None,
+                },
+            )
+            .unwrap();
             conn.execute("UPDATE usage_events SET created_at = ?1 WHERE id = (SELECT id FROM usage_events ORDER BY rowid DESC LIMIT 1)",
                 [now - ago_ms]).unwrap();
         };
@@ -2899,7 +3616,8 @@ mod tests {
             add(Some(100_000), "ok", d * 86_400_000 - 3_600_000);
         }
         add(Some(850_000), "ok", 60_000);
-        let kinds = |conn: &Connection| usage_alerts(conn, now).unwrap().into_iter().map(|a| a.kind).collect::<Vec<_>>();
+        let kinds =
+            |conn: &Connection| usage_alerts(conn, now).unwrap().into_iter().map(|a| a.kind).collect::<Vec<_>>();
         let alerts = usage_alerts(&conn, now).unwrap();
         let spike = alerts.iter().find(|a| a.kind == "spend_spike").unwrap();
         assert_eq!((spike.value, spike.against), (850_000, 100_000));
@@ -2921,13 +3639,45 @@ mod tests {
     fn routing_shows_fallbacks_sessions_and_changes_of_model() {
         let conn = db::open_in_memory().unwrap();
         let p = gemini(&conn);
-        let record = |request: &str, attempt: u32, model: &str, outcome: &str, status: u16, session: Option<&str>, written: u64| {
-            let facts = AttemptFacts { request_id: request.into(), attempt, billing: "paid".into(), route_kind: "auto".into(),
-                cache_hint: "none".into(), key_id: None };
-            record_usage(&conn, &UsageRecord { client_id: None, provider_id: &p.id, model_id: model, requested_model: "auto",
-                input_tokens: Some(100), output_tokens: Some(10), cache_tokens: Some(0), cost: &Cost::Estimated { micro_usd: 7, source: "x".into() },
-                outcome, http_status: Some(status), latency_ms: 1, error: None, cache_write_tokens: Some(written), session_key: session,
-                route_mode: None, route_reason: None, repeated_tokens: None, facts: Some(&facts) }).unwrap();
+        let record = |request: &str,
+                      attempt: u32,
+                      model: &str,
+                      outcome: &str,
+                      status: u16,
+                      session: Option<&str>,
+                      written: u64| {
+            let facts = AttemptFacts {
+                request_id: request.into(),
+                attempt,
+                billing: "paid".into(),
+                route_kind: "auto".into(),
+                cache_hint: "none".into(),
+                key_id: None,
+            };
+            record_usage(
+                &conn,
+                &UsageRecord {
+                    client_id: None,
+                    provider_id: &p.id,
+                    model_id: model,
+                    requested_model: "auto",
+                    input_tokens: Some(100),
+                    output_tokens: Some(10),
+                    cache_tokens: Some(0),
+                    cost: &Cost::Estimated { micro_usd: 7, source: "x".into() },
+                    outcome,
+                    http_status: Some(status),
+                    latency_ms: 1,
+                    error: None,
+                    cache_write_tokens: Some(written),
+                    session_key: session,
+                    route_mode: None,
+                    route_reason: None,
+                    repeated_tokens: None,
+                    facts: Some(&facts),
+                },
+            )
+            .unwrap();
         };
         record("a", 1, "flash", "ok", 200, Some("launch-1"), 0);
         record("b", 1, "flash", "fallback", 429, Some("launch-1"), 0);
@@ -2938,7 +3688,10 @@ mod tests {
         assert_eq!((r.with_session, r.sessions), (3, 1));
         assert_eq!(r.changes.len(), 1);
         let c = &r.changes[0];
-        assert_eq!((c.from.clone(), c.to.clone(), c.reason.as_str(), c.cache_writes_after), (format!("{}/flash", p.id), format!("{}/pro", p.id), "HTTP 429", 500));
+        assert_eq!(
+            (c.from.clone(), c.to.clone(), c.reason.as_str(), c.cache_writes_after),
+            (format!("{}/flash", p.id), format!("{}/pro", p.id), "HTTP 429", 500)
+        );
         assert_eq!(c.known_micro_usd, Some(7));
     }
 
@@ -2948,14 +3701,40 @@ mod tests {
         let p = gemini(&conn);
         add_model(&conn, &p.id, "flash").unwrap();
         add_model(&conn, &p.id, "pro").unwrap();
-        let price = Price { input_micro_per_mtok: 1_000_000, output_micro_per_mtok: 5_000_000, cached_input_micro_per_mtok: Some(100_000),
-            cache_write_micro_per_mtok: Some(1_250_000), source: "user".into(), observed_at: 0 };
+        let price = Price {
+            input_micro_per_mtok: 1_000_000,
+            output_micro_per_mtok: 5_000_000,
+            cached_input_micro_per_mtok: Some(100_000),
+            cache_write_micro_per_mtok: Some(1_250_000),
+            source: "user".into(),
+            observed_at: 0,
+        };
         update_model(&conn, &p.id, "flash", None, None, Some(Some(price))).unwrap();
         let record = |model: &str, input: Option<u64>, read: u64, write: u64, output: u64, cost: Cost| {
-            record_usage(&conn, &UsageRecord { client_id: None, provider_id: &p.id, model_id: model, requested_model: "auto",
-                input_tokens: input, output_tokens: input.map(|_| output), cache_tokens: Some(read), cost: &cost, outcome: "ok",
-                http_status: Some(200), latency_ms: 1, error: None, cache_write_tokens: Some(write), session_key: None,
-                route_mode: None, route_reason: None, facts: None, repeated_tokens: None }).unwrap();
+            record_usage(
+                &conn,
+                &UsageRecord {
+                    client_id: None,
+                    provider_id: &p.id,
+                    model_id: model,
+                    requested_model: "auto",
+                    input_tokens: input,
+                    output_tokens: input.map(|_| output),
+                    cache_tokens: Some(read),
+                    cost: &cost,
+                    outcome: "ok",
+                    http_status: Some(200),
+                    latency_ms: 1,
+                    error: None,
+                    cache_write_tokens: Some(write),
+                    session_key: None,
+                    route_mode: None,
+                    route_reason: None,
+                    facts: None,
+                    repeated_tokens: None,
+                },
+            )
+            .unwrap();
         };
         let est = |micro| Cost::Estimated { micro_usd: micro, source: "price: user".into() };
         // A cached prompt: 100 new, 800 read, 100 written, 100 out, $0.001 recorded.
@@ -2985,10 +3764,30 @@ mod tests {
         let known = Cost::Estimated { micro_usd: 1500, source: "price: user".into() };
         let unknown = Cost::Unknown { source: "no price".into() };
         for (cost, outcome) in [(&known, "ok"), (&unknown, "ok"), (&known, "fallback")] {
-            record_usage(&conn, &UsageRecord { client_id: Some(&client.id), provider_id: &p.id, model_id: "flash",
-                requested_model: "coding", input_tokens: Some(10), output_tokens: Some(5), cache_tokens: None, cost,
-                outcome, http_status: Some(200), latency_ms: 12, error: None, cache_write_tokens: None, session_key: None,
-                route_mode: None, route_reason: None , facts: None, repeated_tokens: None}).unwrap();
+            record_usage(
+                &conn,
+                &UsageRecord {
+                    client_id: Some(&client.id),
+                    provider_id: &p.id,
+                    model_id: "flash",
+                    requested_model: "coding",
+                    input_tokens: Some(10),
+                    output_tokens: Some(5),
+                    cache_tokens: None,
+                    cost,
+                    outcome,
+                    http_status: Some(200),
+                    latency_ms: 12,
+                    error: None,
+                    cache_write_tokens: None,
+                    session_key: None,
+                    route_mode: None,
+                    route_reason: None,
+                    facts: None,
+                    repeated_tokens: None,
+                },
+            )
+            .unwrap();
         }
         let csv = usage_csv(&conn, 0).unwrap();
         let lines: Vec<&str> = csv.trim_end().split("\r\n").collect();
@@ -2999,7 +3798,10 @@ mod tests {
         assert_eq!(csv_field("=HYPERLINK(\"x\")"), "\"'=HYPERLINK(\"\"x\"\")\"");
         assert_eq!(csv_field("a,b"), "\"a,b\"");
         let buckets = usage_over_time(&conn, 0, 86_400_000, 7 * 3_600_000).unwrap();
-        assert_eq!(buckets.iter().map(|b| b.requests).sum::<u64>(), usage_summary(&conn, 0, 10).unwrap().total.requests);
+        assert_eq!(
+            buckets.iter().map(|b| b.requests).sum::<u64>(),
+            usage_summary(&conn, 0, 10).unwrap().total.requests
+        );
         assert!(buckets.iter().all(|b| (b.start + 7 * 3_600_000) % 86_400_000 == 0), "periods start at local midnight");
         let summary = usage_summary(&conn, 0, 10).unwrap();
         assert_eq!((summary.total.requests, summary.total.failed, summary.total.fallbacks), (3, 0, 1));
@@ -3007,15 +3809,32 @@ mod tests {
         assert_eq!(summary.by_client[0].key, "Codex");
         assert_eq!(summary.recent.len(), 3);
         // The chart's periods carry tokens; the request list pages newest first without a gap or a repeat.
-        assert_eq!(buckets.iter().map(|b| (b.input_tokens, b.output_tokens)).fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1)), (30, 15));
-        let page = |offset, limit| usage_requests(&conn, 0, offset, limit).unwrap().into_iter().map(|e| e.id).collect::<Vec<_>>();
+        assert_eq!(
+            buckets.iter().map(|b| (b.input_tokens, b.output_tokens)).fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1)),
+            (30, 15)
+        );
+        let page = |offset, limit| {
+            usage_requests(&conn, 0, offset, limit).unwrap().into_iter().map(|e| e.id).collect::<Vec<_>>()
+        };
         let all = page(0, 10);
         assert_eq!(all.len(), 3);
         assert_eq!([page(0, 2), page(2, 2)].concat(), all);
         assert!(page(3, 2).is_empty());
         // Filters search the whole period in the query, and say how many match.
-        let matching = |client: Option<&str>, model: Option<&str>, show: Option<&str>, limit| usage_requests_matching(&conn, 0,
-            &RequestFilter { client: client.map(String::from), model: model.map(String::from), show: show.map(String::from) }, 0, limit).unwrap();
+        let matching = |client: Option<&str>, model: Option<&str>, show: Option<&str>, limit| {
+            usage_requests_matching(
+                &conn,
+                0,
+                &RequestFilter {
+                    client: client.map(String::from),
+                    model: model.map(String::from),
+                    show: show.map(String::from),
+                },
+                0,
+                limit,
+            )
+            .unwrap()
+        };
         assert_eq!(matching(None, None, Some("problems"), 10).total, 1);
         assert_eq!(matching(None, None, Some("unknown"), 10).total, 1);
         let codex = matching(Some("Codex"), None, None, 1);
@@ -3030,11 +3849,30 @@ mod tests {
         assert_eq!(strip.buckets.last().map(|b| (b.ok, b.failed)), Some((2, 1)));
         assert_eq!(strip.score, Some(67));
         record_check(&conn, &p.id, true, "models", "Reachable · 1 models listed").unwrap();
-        record_usage(&conn, &UsageRecord { client_id: Some(&client.id), provider_id: &p.id, model_id: "flash",
-            requested_model: "coding", input_tokens: None, output_tokens: None, cache_tokens: None,
-            cost: &Cost::Estimated { micro_usd: 0, source: "not sent".into() }, outcome: "error", http_status: Some(429), latency_ms: 0,
-            error: Some("Not sent: the web guard"), cache_write_tokens: None, session_key: None, route_mode: None, route_reason: None,
-            facts: None, repeated_tokens: None }).unwrap();
+        record_usage(
+            &conn,
+            &UsageRecord {
+                client_id: Some(&client.id),
+                provider_id: &p.id,
+                model_id: "flash",
+                requested_model: "coding",
+                input_tokens: None,
+                output_tokens: None,
+                cache_tokens: None,
+                cost: &Cost::Estimated { micro_usd: 0, source: "not sent".into() },
+                outcome: "error",
+                http_status: Some(429),
+                latency_ms: 0,
+                error: Some("Not sent: the web guard"),
+                cache_write_tokens: None,
+                session_key: None,
+                route_mode: None,
+                route_reason: None,
+                facts: None,
+                repeated_tokens: None,
+            },
+        )
+        .unwrap();
         // A check in an hour with requests adds nothing to them, and a request Pygg refused itself does not count.
         let at = now_ms() + 1;
         let strip = health_strip(&conn, &p.id, at).unwrap();
@@ -3059,50 +3897,127 @@ mod tests {
     fn subscription_and_local_requests_are_counted_apart_from_money() {
         use super::super::pricing::{self, Usage};
         let conn = db::open_in_memory().unwrap();
-        let new = |kind, label, billing| add_provider(&conn, &NewProvider { kind, label, endpoint: "https://example.test/v1",
-            credential_ref: None, default_billing: billing, wire: "openai" }).unwrap();
+        let new = |kind, label, billing| {
+            add_provider(
+                &conn,
+                &NewProvider {
+                    kind,
+                    label,
+                    endpoint: "https://example.test/v1",
+                    credential_ref: None,
+                    default_billing: billing,
+                    wire: "openai",
+                },
+            )
+            .unwrap()
+        };
         let plan = new("qwen", "Qwen token plan", "subscription");
         let ollama = new("ollama", "Ollama", "local");
         let paid = new("openrouter", "OpenRouter", "paid");
         let _idle_plan = new("zai", "GLM plan", "subscription");
         let usage = Usage { prompt: 100, completion: 20, ..Default::default() };
-        let record = |provider: &str, model: &str, cost: &Cost, outcome: &str, latency_ms: u64, route_mode: Option<&str>| {
-            record_usage(&conn, &UsageRecord { client_id: None, provider_id: provider, model_id: model, requested_model: model,
-                input_tokens: Some(100), output_tokens: Some(20), cache_tokens: None, cost, outcome, http_status: Some(200),
-                latency_ms, error: None, cache_write_tokens: None, session_key: None, route_mode, route_reason: None , facts: None, repeated_tokens: None}).unwrap();
-        };
+        let record =
+            |provider: &str, model: &str, cost: &Cost, outcome: &str, latency_ms: u64, route_mode: Option<&str>| {
+                record_usage(
+                    &conn,
+                    &UsageRecord {
+                        client_id: None,
+                        provider_id: provider,
+                        model_id: model,
+                        requested_model: model,
+                        input_tokens: Some(100),
+                        output_tokens: Some(20),
+                        cache_tokens: None,
+                        cost,
+                        outcome,
+                        http_status: Some(200),
+                        latency_ms,
+                        error: None,
+                        cache_write_tokens: None,
+                        session_key: None,
+                        route_mode,
+                        route_reason: None,
+                        facts: None,
+                        repeated_tokens: None,
+                    },
+                )
+                .unwrap();
+            };
         let quota = pricing::resolve("subscription", None, Some(&usage));
         let local = pricing::resolve("local", None, Some(&usage));
         record(&plan.id, "qwen3-coder-plus", &quota, "ok", 900, None);
         record(&plan.id, "qwen3-coder-plus", &quota, "ok", 1100, None);
         // A failure before the provider answered says nothing about billing; the connection's billing decides.
-        record(&plan.id, "qwen3-coder-plus", &Cost::Estimated { micro_usd: 0, source: "could not connect".into() }, "error", 5, None);
+        record(
+            &plan.id,
+            "qwen3-coder-plus",
+            &Cost::Estimated { micro_usd: 0, source: "could not connect".into() },
+            "error",
+            5,
+            None,
+        );
         for ms in [300, 100, 200, 10_000] {
             record(&ollama.id, "qwen2.5-coder:7b", &local, if ms == 10_000 { "error" } else { "ok" }, ms, None);
         }
         record(&ollama.id, "llama3.2:3b", &local, "ok", 40, None);
-        record(&paid.id, "qwen/qwen3-coder", &Cost::Actual { micro_usd: 900, source: "provider response".into() }, "ok", 700, None);
+        record(
+            &paid.id,
+            "qwen/qwen3-coder",
+            &Cost::Actual { micro_usd: 900, source: "provider response".into() },
+            "ok",
+            700,
+            None,
+        );
         // An agent's own sign-in is on no connection.
-        record("agent:codex", "gpt-5", &Cost::Unknown { source: "subscription: agent".into() }, "ok", 60_000, Some("agent"));
+        record(
+            "agent:codex",
+            "gpt-5",
+            &Cost::Unknown { source: "subscription: agent".into() },
+            "ok",
+            60_000,
+            Some("agent"),
+        );
         // Left out: before the period.
         conn.execute("UPDATE usage_events SET created_at = 5 WHERE model = 'llama3.2:3b'", []).unwrap();
-        record_limits(&conn, &plan.id, "qwen3-coder-plus", 200, &[("x-ratelimit-limit-requests".into(), "2000".into()),
-            ("x-ratelimit-remaining-requests".into(), "1997".into())]).unwrap();
+        record_limits(
+            &conn,
+            &plan.id,
+            "qwen3-coder-plus",
+            200,
+            &[
+                ("x-ratelimit-limit-requests".into(), "2000".into()),
+                ("x-ratelimit-remaining-requests".into(), "1997".into()),
+            ],
+        )
+        .unwrap();
 
         let subs = subscription_usage(&conn, 1_000).unwrap();
         let ids: Vec<&str> = subs.iter().map(|s| s.provider_id.as_str()).collect();
         assert_eq!(ids, [plan.id.as_str(), "glm-plan"], "busiest first; a plan with no requests still shows");
         let s = &subs[0];
-        assert_eq!((s.label.as_str(), s.requests, s.not_ok, s.input_tokens, s.output_tokens), ("Qwen token plan", 3, 1, 300, 60));
+        assert_eq!(
+            (s.label.as_str(), s.requests, s.not_ok, s.input_tokens, s.output_tokens),
+            ("Qwen token plan", 3, 1, 300, 60)
+        );
         assert_eq!(s.limits[0].windows[0].limit, Some(2000));
         assert!(subs[1].limits.is_empty() && subs[1].requests == 0 && subs[1].last_used_at.is_none());
 
         let locals = local_usage(&conn, 1_000).unwrap();
         assert_eq!(locals.len(), 1);
         assert_eq!(locals[0].label, "Ollama");
-        assert_eq!(locals[0].models, [LocalModelUsage { model: "qwen2.5-coder:7b".into(), requests: 4, not_ok: 1, input_tokens: 400,
-            output_tokens: 80, median_latency_ms: Some(200), last_used_at: locals[0].models[0].last_used_at }],
-            "the median is of successful requests only, and an old request is outside the period");
+        assert_eq!(
+            locals[0].models,
+            [LocalModelUsage {
+                model: "qwen2.5-coder:7b".into(),
+                requests: 4,
+                not_ok: 1,
+                input_tokens: 400,
+                output_tokens: 80,
+                median_latency_ms: Some(200),
+                last_used_at: locals[0].models[0].last_used_at
+            }],
+            "the median is of successful requests only, and an old request is outside the period"
+        );
         assert_eq!(local_usage(&conn, 0).unwrap()[0].models.len(), 2);
         assert_eq!(median(vec![100, 300]), Some(200));
         assert_eq!(median(Vec::new()), None);

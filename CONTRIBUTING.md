@@ -27,6 +27,7 @@ pnpm install
 pnpm typecheck
 pnpm build                       # the desktop crate embeds the built interface
 cd apps/desktop/src-tauri
+cargo fmt --check                # cargo fmt formats as rustfmt.toml says
 cargo clippy --all-targets --all-features -- -D warnings
 cargo clippy --no-default-features --all-targets -- -D warnings
 cargo test --lib

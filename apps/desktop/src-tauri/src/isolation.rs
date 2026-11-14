@@ -12,7 +12,10 @@ pub enum IsolationError {
     GitMissing,
     BranchExists(String),
     /// A git command failed; the message is git's own stderr.
-    Git { args: String, message: String },
+    Git {
+        args: String,
+        message: String,
+    },
 }
 
 use crate::messages::{self as m, fill};
@@ -35,7 +38,9 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, IsolationError> {
     command.arg("-C").arg(dir).args(args).stdin(Stdio::null());
     no_window(&mut command);
     let output = command.output().map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound { IsolationError::GitMissing } else {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            IsolationError::GitMissing
+        } else {
             IsolationError::Git { args: args.join(" "), message: e.to_string() }
         }
     })?;
@@ -83,7 +88,11 @@ pub fn current_branch(repo: &Path) -> Result<Option<String>, IsolationError> {
 }
 
 fn require_repository(repo: &Path) -> Result<(), IsolationError> {
-    if is_repository(repo) { Ok(()) } else { Err(IsolationError::NotARepository(repo.to_path_buf())) }
+    if is_repository(repo) {
+        Ok(())
+    } else {
+        Err(IsolationError::NotARepository(repo.to_path_buf()))
+    }
 }
 
 #[derive(Clone, Debug)]

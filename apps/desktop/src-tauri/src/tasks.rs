@@ -35,7 +35,8 @@ const CHECK_TIMEOUT: Duration = Duration::from_secs(600);
 /// How much of a failed check's output the next step is given.
 const HANDOFF_CHARS: usize = 1500;
 use crate::messages::{self as m, fill, NO_CHANGES};
-const NO_CHANGES_HANDOFF: &str = "The previous attempt ended without changing any file. The task needs changes to the files.";
+const NO_CHANGES_HANDOFF: &str =
+    "The previous attempt ended without changing any file. The task needs changes to the files.";
 
 fn new_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()
@@ -94,16 +95,23 @@ pub fn add_workspace(conn: &Connection, path: &str, name: Option<&str>) -> Resul
     if !isolation::is_repository(dir) {
         return Err(m::WORKSPACE_NOT_REPOSITORY.into());
     }
-    let name = name.map(str::trim).filter(|n| !n.is_empty()).map(String::from)
+    let name = name
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map(String::from)
         .or_else(|| dir.file_name().map(|n| n.to_string_lossy().into_owned()))
         .unwrap_or_else(|| path.to_string());
     let id = new_id();
-    conn.execute("INSERT INTO workspaces (id, name, path, created_at) VALUES (?1, ?2, ?3, ?4)", params![id, name, path, now_ms()])
-        .map_err(|e| match e {
-            rusqlite::Error::SqliteFailure(f, _) if f.code == rusqlite::ErrorCode::ConstraintViolation =>
-                "That folder is already a workspace".to_string(),
-            e => err(e),
-        })?;
+    conn.execute(
+        "INSERT INTO workspaces (id, name, path, created_at) VALUES (?1, ?2, ?3, ?4)",
+        params![id, name, path, now_ms()],
+    )
+    .map_err(|e| match e {
+        rusqlite::Error::SqliteFailure(f, _) if f.code == rusqlite::ErrorCode::ConstraintViolation => {
+            "That folder is already a workspace".to_string()
+        }
+        e => err(e),
+    })?;
     suggest_checks(conn, &id, dir)?;
     workspace(conn, &id)
 }
@@ -117,21 +125,44 @@ fn suggest_checks(conn: &Connection, id: &str, dir: &Path) -> Result<()> {
 }
 
 pub fn workspace(conn: &Connection, id: &str) -> Result<WorkspaceView> {
-    let (name, path, budget, privacy_class): (String, String, Option<i64>, String) = conn.query_row(
-        "SELECT name, path, daily_budget_micro_usd, privacy_class FROM workspaces WHERE id = ?1", [id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).optional().map_err(err)?.ok_or(m::WORKSPACE_GONE)?;
-    let mut statement = conn.prepare("SELECT command, source, approved FROM workspace_checks WHERE workspace_id = ?1 ORDER BY rowid")
+    let (name, path, budget, privacy_class): (String, String, Option<i64>, String) = conn
+        .query_row(
+            "SELECT name, path, daily_budget_micro_usd, privacy_class FROM workspaces WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()
+        .map_err(err)?
+        .ok_or(m::WORKSPACE_GONE)?;
+    let mut statement = conn
+        .prepare("SELECT command, source, approved FROM workspace_checks WHERE workspace_id = ?1 ORDER BY rowid")
         .map_err(err)?;
-    let checks = statement.query_map([id], |r| Ok(WorkspaceCheck { command: r.get(0)?, source: r.get(1)?, approved: r.get(2)? }))
-        .map_err(err)?.collect::<rusqlite::Result<Vec<_>>>().map_err(err)?;
-    let tasks: u32 = conn.query_row("SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1", [id], |r| r.get(0)).map_err(err)?;
-    Ok(WorkspaceView { id: id.into(), name, path, checks, tasks, daily_budget_usd: budget.filter(|b| *b > 0).map(|b| b as f64 / 1e6),
-        privacy_class })
+    let checks = statement
+        .query_map([id], |r| Ok(WorkspaceCheck { command: r.get(0)?, source: r.get(1)?, approved: r.get(2)? }))
+        .map_err(err)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(err)?;
+    let tasks: u32 =
+        conn.query_row("SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1", [id], |r| r.get(0)).map_err(err)?;
+    Ok(WorkspaceView {
+        id: id.into(),
+        name,
+        path,
+        checks,
+        tasks,
+        daily_budget_usd: budget.filter(|b| *b > 0).map(|b| b as f64 / 1e6),
+        privacy_class,
+    })
 }
 
 pub fn list_workspaces(conn: &Connection) -> Result<Vec<WorkspaceView>> {
-    let ids: Vec<String> = conn.prepare("SELECT id FROM workspaces ORDER BY name COLLATE NOCASE").map_err(err)?
-        .query_map([], |r| r.get(0)).map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
+    let ids: Vec<String> = conn
+        .prepare("SELECT id FROM workspaces ORDER BY name COLLATE NOCASE")
+        .map_err(err)?
+        .query_map([], |r| r.get(0))
+        .map_err(err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(err)?;
     ids.iter().map(|id| workspace(conn, id)).collect()
 }
 
@@ -143,12 +174,22 @@ pub fn detect_checks(conn: &Connection, id: &str) -> Result<WorkspaceView> {
 }
 
 pub fn set_check(conn: &Connection, id: &str, command: &str, approved: bool) -> Result<()> {
-    let changed = conn.execute("UPDATE workspace_checks SET approved = ?3 WHERE workspace_id = ?1 AND command = ?2",
-        params![id, command, approved]).map_err(err)?;
+    let changed = conn
+        .execute(
+            "UPDATE workspace_checks SET approved = ?3 WHERE workspace_id = ?1 AND command = ?2",
+            params![id, command, approved],
+        )
+        .map_err(err)?;
     if changed == 0 {
         return Err(m::CHECK_GONE.into());
     }
-    audit(conn, if approved { "check.approved" } else { "check.unapproved" }, id, serde_json::json!({"command": command})).map_err(err)
+    audit(
+        conn,
+        if approved { "check.approved" } else { "check.unapproved" },
+        id,
+        serde_json::json!({"command": command}),
+    )
+    .map_err(err)
 }
 
 /// A check the user typed. Typing it is approving it.
@@ -161,13 +202,18 @@ pub fn add_check(conn: &Connection, id: &str, command: &str) -> Result<()> {
         return Err(m::CHECK_TOO_LONG.into());
     }
     workspace(conn, id)?;
-    conn.execute("INSERT INTO workspace_checks (id, workspace_id, command, source, approved) VALUES (?1, ?2, ?3, 'user', 1) \
-                  ON CONFLICT (workspace_id, command) DO UPDATE SET approved = 1", params![new_id(), id, command]).map_err(err)?;
+    conn.execute(
+        "INSERT INTO workspace_checks (id, workspace_id, command, source, approved) VALUES (?1, ?2, ?3, 'user', 1) \
+                  ON CONFLICT (workspace_id, command) DO UPDATE SET approved = 1",
+        params![new_id(), id, command],
+    )
+    .map_err(err)?;
     audit(conn, "check.approved", id, serde_json::json!({"command": command})).map_err(err)
 }
 
 pub fn remove_check(conn: &Connection, id: &str, command: &str) -> Result<()> {
-    conn.execute("DELETE FROM workspace_checks WHERE workspace_id = ?1 AND command = ?2", params![id, command]).map_err(err)?;
+    conn.execute("DELETE FROM workspace_checks WHERE workspace_id = ?1 AND command = ?2", params![id, command])
+        .map_err(err)?;
     Ok(())
 }
 
@@ -177,7 +223,8 @@ pub fn set_privacy(conn: &Connection, id: &str, class: &str) -> Result<()> {
     if !matches!(class, "standard" | "sensitive") {
         return Err(fill(m::UNKNOWN_PRIVACY, &[&class]));
     }
-    let changed = conn.execute("UPDATE workspaces SET privacy_class = ?2 WHERE id = ?1", params![id, class]).map_err(err)?;
+    let changed =
+        conn.execute("UPDATE workspaces SET privacy_class = ?2 WHERE id = ?1", params![id, class]).map_err(err)?;
     if changed == 0 {
         return Err(m::WORKSPACE_GONE.into());
     }
@@ -292,24 +339,40 @@ pub fn create_task_for(conn: &Connection, new: &NewTask, client_id: Option<&str>
             return Err(fill(m::UNKNOWN_BILLING, &[&step.billing]));
         }
     }
-    let handoff = new.handoff.as_deref().map(str::trim).filter(|h| !h.is_empty()).unwrap_or(crate::handoff::DEFAULT_MODE);
+    let handoff =
+        new.handoff.as_deref().map(str::trim).filter(|h| !h.is_empty()).unwrap_or(crate::handoff::DEFAULT_MODE);
     if !crate::handoff::MODES.contains(&handoff) {
         return Err(fill(m::UNKNOWN_HANDOFF, &[&handoff]));
     }
     let ws = workspace(conn, &new.workspace_id)?;
     let base = isolation::head(Path::new(&ws.path)).map_err(|e| e.to_string())?;
-    let steps = new.steps.iter().map(|s| Step {
-        model: s.model.as_deref().map(str::trim).filter(|m| !m.is_empty()).map(String::from), ..s.clone()
-    }).collect();
+    let steps = new
+        .steps
+        .iter()
+        .map(|s| Step {
+            model: s.model.as_deref().map(str::trim).filter(|m| !m.is_empty()).map(String::from),
+            ..s.clone()
+        })
+        .collect();
     let policy = Policy {
         steps,
-        checks: ws.checks.iter().filter(|c| c.approved)
-            .map(|c| PolicyCheck { command: c.command.clone(), source: c.source.clone() }).collect(),
+        checks: ws
+            .checks
+            .iter()
+            .filter(|c| c.approved)
+            .map(|c| PolicyCheck { command: c.command.clone(), source: c.source.clone() })
+            .collect(),
         allow_shell: new.allow_shell,
         timeout_secs: new.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS).clamp(60, 3600),
         handoff: handoff.into(),
     };
-    let title = new.title.as_deref().map(str::trim).filter(|t| !t.is_empty()).map(String::from).unwrap_or_else(|| title_of(prompt));
+    let title = new
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(String::from)
+        .unwrap_or_else(|| title_of(prompt));
     let id = new_id();
     let now = now_ms();
     let tx = conn.unchecked_transaction().map_err(err)?;
@@ -319,7 +382,8 @@ pub fn create_task_for(conn: &Connection, new: &NewTask, client_id: Option<&str>
         .map_err(err)?;
     tx.execute("INSERT INTO task_stages (id, task_id, position, name, check_spec, state) VALUES (?1, ?2, 0, 'change', ?3, 'running')",
         params![new_id(), id, serde_json::to_string(&policy.checks).map_err(|e| e.to_string())?]).map_err(err)?;
-    audit(&tx, "task.created", &id, serde_json::json!({"steps": policy.steps.len(), "checks": policy.checks.len()})).map_err(err)?;
+    audit(&tx, "task.created", &id, serde_json::json!({"steps": policy.steps.len(), "checks": policy.checks.len()}))
+        .map_err(err)?;
     tx.commit().map_err(err)?;
     Ok(id)
 }
@@ -497,25 +561,47 @@ fn attempts_of(conn: &Connection, task_id: &str) -> Result<Vec<AttemptView>> {
                 (SELECT COUNT(*) FROM usage_events u WHERE u.attempt_id = a.id AND u.cost_status = 'unknown' \
                  AND COALESCE(u.route_mode, '') <> 'agent') \
          FROM attempts a JOIN task_stages s ON s.id = a.stage_id WHERE s.task_id = ?1 ORDER BY a.number").map_err(err)?;
-    let rows = statement.query_map([task_id], |r| {
-        let checks: Option<String> = r.get(11)?;
-        let worktree: Option<String> = r.get(21)?;
-        Ok(AttemptView {
-            id: r.get(0)?, number: r.get(1)?, step: r.get::<_, i64>(2)? as usize, agent: r.get(3)?, label: r.get(4)?,
-            agent_model: r.get(5)?, tier: r.get(6)?, billing: r.get(7)?, outcome: r.get(8)?, detail: r.get(9)?,
-            escalation_reason: r.get(10)?,
-            checks: checks.and_then(|c| serde_json::from_str(&c).ok()).unwrap_or_default(),
-            files_changed: r.get(12)?, insertions: r.get(13)?, deletions: r.get(14)?, summary: r.get(15)?, log_tail: r.get(16)?,
-            input_tokens: r.get(17)?, output_tokens: r.get(18)?, started_at: r.get(19)?, finished_at: r.get(20)?,
-            open: worktree.is_some(), worktree, base: r.get(22)?,
-            agent_estimate_usd: r.get::<_, Option<i64>>(23)?.map(|m| m as f64 / 1e6),
-            cap_usd: r.get::<_, Option<i64>>(24)?.filter(|c| *c > 0).map(|c| c as f64 / 1e6),
-            handoff_sent: r.get(25)?,
-            changed_paths: r.get::<_, Option<String>>(26)?.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
-            cost_source: r.get(27)?,
-            unpriced_requests: r.get(28)?,
+    let rows = statement
+        .query_map([task_id], |r| {
+            let checks: Option<String> = r.get(11)?;
+            let worktree: Option<String> = r.get(21)?;
+            Ok(AttemptView {
+                id: r.get(0)?,
+                number: r.get(1)?,
+                step: r.get::<_, i64>(2)? as usize,
+                agent: r.get(3)?,
+                label: r.get(4)?,
+                agent_model: r.get(5)?,
+                tier: r.get(6)?,
+                billing: r.get(7)?,
+                outcome: r.get(8)?,
+                detail: r.get(9)?,
+                escalation_reason: r.get(10)?,
+                checks: checks.and_then(|c| serde_json::from_str(&c).ok()).unwrap_or_default(),
+                files_changed: r.get(12)?,
+                insertions: r.get(13)?,
+                deletions: r.get(14)?,
+                summary: r.get(15)?,
+                log_tail: r.get(16)?,
+                input_tokens: r.get(17)?,
+                output_tokens: r.get(18)?,
+                started_at: r.get(19)?,
+                finished_at: r.get(20)?,
+                open: worktree.is_some(),
+                worktree,
+                base: r.get(22)?,
+                agent_estimate_usd: r.get::<_, Option<i64>>(23)?.map(|m| m as f64 / 1e6),
+                cap_usd: r.get::<_, Option<i64>>(24)?.filter(|c| *c > 0).map(|c| c as f64 / 1e6),
+                handoff_sent: r.get(25)?,
+                changed_paths: r
+                    .get::<_, Option<String>>(26)?
+                    .and_then(|j| serde_json::from_str(&j).ok())
+                    .unwrap_or_default(),
+                cost_source: r.get(27)?,
+                unpriced_requests: r.get(28)?,
+            })
         })
-    }).map_err(err)?;
+        .map_err(err)?;
     rows.collect::<rusqlite::Result<Vec<_>>>().map_err(err)
 }
 
@@ -528,7 +614,9 @@ fn cost_of(conn: &Connection, task_id: &str, attempts: &[AttemptView]) -> Result
         "SELECT u.cost_status, COALESCE(SUM(u.cost_micro_usd), 0), COUNT(*) FROM usage_events u \
          JOIN attempts a ON a.id = u.attempt_id JOIN task_stages s ON s.id = a.stage_id WHERE s.task_id = ?1 GROUP BY u.cost_status")
         .map_err(err)?;
-    let rows = statement.query_map([task_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, u32>(2)?))).map_err(err)?;
+    let rows = statement
+        .query_map([task_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, u32>(2)?)))
+        .map_err(err)?;
     for row in rows {
         let (status, micro, count) = row.map_err(err)?;
         match status.as_str() {
@@ -542,23 +630,42 @@ fn cost_of(conn: &Connection, task_id: &str, attempts: &[AttemptView]) -> Result
 
 fn summary_of(conn: &Connection, id: &str, row: &TaskRow, attempts: &[AttemptView]) -> Result<TaskSummary> {
     Ok(TaskSummary {
-        id: id.into(), title: row.title.clone(), workspace_id: row.workspace_id.clone(), state: row.state.clone(),
+        id: id.into(),
+        title: row.title.clone(),
+        workspace_id: row.workspace_id.clone(),
+        state: row.state.clone(),
         phase: row.phase.clone(),
-        attempts: attempts.iter().map(|a| AttemptChip { tier: a.tier, billing: a.billing.clone(), model: a.label.clone(),
-            outcome: a.outcome.clone() }).collect(),
+        attempts: attempts
+            .iter()
+            .map(|a| AttemptChip {
+                tier: a.tier,
+                billing: a.billing.clone(),
+                model: a.label.clone(),
+                outcome: a.outcome.clone(),
+            })
+            .collect(),
         cost: cost_of(conn, id, attempts)?,
-        started_at: row.created_at, updated_at: row.updated_at, source: row.client_name.clone(),
+        started_at: row.created_at,
+        updated_at: row.updated_at,
+        source: row.client_name.clone(),
     })
 }
 
 pub fn list_tasks(conn: &Connection) -> Result<Vec<TaskSummary>> {
-    let ids: Vec<String> = conn.prepare("SELECT id FROM tasks ORDER BY updated_at DESC LIMIT 500").map_err(err)?
-        .query_map([], |r| r.get(0)).map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
-    ids.iter().map(|id| {
-        let row = task_row(conn, id)?;
-        let attempts = attempts_of(conn, id)?;
-        summary_of(conn, id, &row, &attempts)
-    }).collect()
+    let ids: Vec<String> = conn
+        .prepare("SELECT id FROM tasks ORDER BY updated_at DESC LIMIT 500")
+        .map_err(err)?
+        .query_map([], |r| r.get(0))
+        .map_err(err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(err)?;
+    ids.iter()
+        .map(|id| {
+            let row = task_row(conn, id)?;
+            let attempts = attempts_of(conn, id)?;
+            summary_of(conn, id, &row, &attempts)
+        })
+        .collect()
 }
 
 pub fn task_detail(conn: &Connection, id: &str) -> Result<TaskDetail> {
@@ -575,10 +682,18 @@ pub fn task_detail_for(conn: &Connection, id: &str, client_id: Option<&str>) -> 
     let summary = summary_of(conn, id, &row, &attempts)?;
     let approval = approval_of(conn, &row, &attempts)?;
     Ok(TaskDetail {
-        summary, prompt: row.prompt, strategy: row.strategy, reason: row.reason, result: row.result,
-        result_branch: row.result_branch, base_revision: row.base_revision, workspace_name: row.workspace_name,
+        summary,
+        prompt: row.prompt,
+        strategy: row.strategy,
+        reason: row.reason,
+        result: row.result,
+        result_branch: row.result_branch,
+        base_revision: row.base_revision,
+        workspace_name: row.workspace_name,
         approval,
-        workspace_path: row.workspace_path, policy: row.policy, attempt_details: attempts,
+        workspace_path: row.workspace_path,
+        policy: row.policy,
+        attempt_details: attempts,
     })
 }
 
@@ -596,23 +711,40 @@ fn approval_of(conn: &Connection, row: &TaskRow, attempts: &[AttemptView]) -> Re
     let runs = asked_on.split('|').nth(5).and_then(|n| n.parse().ok()).unwrap_or(0);
     let estimate = Estimate { runs, low_micro_usd: low.map(|v| v as u64), high_micro_usd: high.map(|v| v as u64) };
     let left = remaining(conn, &row.workspace_id).map_err(err)?;
-    let suggested = match left { Some(left) if left > 0 => suggested_cap_micro(&estimate).min(left), _ => suggested_cap_micro(&estimate) };
-    Ok(Some(ApprovalView { step: waiting.step, paid: step.billing == "paid", label: waiting.label.clone(), suggested_cap_usd: usd(suggested),
-        enforced_by_agent: agents::enforces_budget(&step.agent), remaining_usd: left.map(usd), estimate }))
+    let suggested = match left {
+        Some(left) if left > 0 => suggested_cap_micro(&estimate).min(left),
+        _ => suggested_cap_micro(&estimate),
+    };
+    Ok(Some(ApprovalView {
+        step: waiting.step,
+        paid: step.billing == "paid",
+        label: waiting.label.clone(),
+        suggested_cap_usd: usd(suggested),
+        enforced_by_agent: agents::enforces_budget(&step.agent),
+        remaining_usd: left.map(usd),
+        estimate,
+    }))
 }
 
 // ---------- State changes ----------
 
-fn set_task(conn: &Connection, id: &str, state: &str, phase: Option<&str>, reason: Option<&str>) -> rusqlite::Result<()> {
-    conn.execute("UPDATE tasks SET state = ?2, phase = ?3, reason = ?4, updated_at = ?5 WHERE id = ?1",
-        params![id, state, phase, reason, now_ms()])?;
+fn set_task(
+    conn: &Connection, id: &str, state: &str, phase: Option<&str>, reason: Option<&str>,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE tasks SET state = ?2, phase = ?3, reason = ?4, updated_at = ?5 WHERE id = ?1",
+        params![id, state, phase, reason, now_ms()],
+    )?;
     conn.execute("UPDATE task_stages SET state = ?2 WHERE task_id = ?1", params![id, state])?;
     Ok(())
 }
 
 fn set_phase(conn: &Connection, id: &str, phase: &str) -> rusqlite::Result<()> {
-    conn.execute("UPDATE tasks SET phase = ?2, updated_at = ?3 WHERE id = ?1 AND state = 'running'", params![id, phase, now_ms()])
-        .map(|_| ())
+    conn.execute(
+        "UPDATE tasks SET phase = ?2, updated_at = ?3 WHERE id = ?1 AND state = 'running'",
+        params![id, phase, now_ms()],
+    )
+    .map(|_| ())
 }
 
 fn step_label(step: &Step) -> String {
@@ -627,7 +759,9 @@ enum Opened {
     Declined,
 }
 
-fn open_attempt(conn: &Connection, task_id: &str, stage_id: &str, index: usize, step: &Step) -> rusqlite::Result<Opened> {
+fn open_attempt(
+    conn: &Connection, task_id: &str, stage_id: &str, index: usize, step: &Step,
+) -> rusqlite::Result<Opened> {
     let now = now_ms();
     let paid = step.billing == "paid";
     let workspace = task_workspace(conn, task_id)?;
@@ -643,11 +777,19 @@ fn open_attempt(conn: &Connection, task_id: &str, stage_id: &str, index: usize, 
             // The latest approval by insertion order (rowid), not by `created_at`: an approval asked again after an
             // invalidation can share the millisecond of the one it replaced, and the older, invalidated one would
             // then read as this attempt's decision.
-            let decision: Option<String> = conn.query_row(
-                "SELECT state FROM approvals WHERE attempt_id = ?1 ORDER BY rowid DESC LIMIT 1", [&attempt], |r| r.get(0)).optional()?;
+            let decision: Option<String> = conn
+                .query_row(
+                    "SELECT state FROM approvals WHERE attempt_id = ?1 ORDER BY rowid DESC LIMIT 1",
+                    [&attempt],
+                    |r| r.get(0),
+                )
+                .optional()?;
             return match decision.as_deref() {
                 Some("approved") => {
-                    conn.execute("UPDATE attempts SET state = 'running', started_at = ?2 WHERE id = ?1", params![attempt, now])?;
+                    conn.execute(
+                        "UPDATE attempts SET state = 'running', started_at = ?2 WHERE id = ?1",
+                        params![attempt, now],
+                    )?;
                     Ok(Opened::Run(attempt))
                 }
                 Some("pending") | None => {
@@ -664,12 +806,27 @@ fn open_attempt(conn: &Connection, task_id: &str, stage_id: &str, index: usize, 
             return Ok(Opened::Declined);
         }
     }
-    let number: u32 = conn.query_row("SELECT COALESCE(MAX(number), 0) + 1 FROM attempts WHERE stage_id = ?1", [stage_id], |r| r.get(0))?;
+    let number: u32 =
+        conn.query_row("SELECT COALESCE(MAX(number), 0) + 1 FROM attempts WHERE stage_id = ?1", [stage_id], |r| {
+            r.get(0)
+        })?;
     let id = new_id();
-    conn.execute("INSERT INTO attempts (id, stage_id, number, agent, model_ref, tier, billing, state, started_at, rung) \
+    conn.execute(
+        "INSERT INTO attempts (id, stage_id, number, agent, model_ref, tier, billing, state, started_at, rung) \
                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![id, stage_id, number, step.agent, step_label(step), step.tier, step.billing, if asks { "waiting" } else { "running" },
-            if asks { None } else { Some(now) }, index as i64])?;
+        params![
+            id,
+            stage_id,
+            number,
+            step.agent,
+            step_label(step),
+            step.tier,
+            step.billing,
+            if asks { "waiting" } else { "running" },
+            if asks { None } else { Some(now) },
+            index as i64
+        ],
+    )?;
     if asks {
         ask_approval(conn, &id, step, &workspace)?;
         set_task(conn, task_id, "waiting_approval", None, Some(&ask_reason(index, step, paid)))?;
@@ -701,18 +858,33 @@ const ESTIMATE_RUNS: i64 = 10;
 fn estimate_for(conn: &Connection, step: &Step) -> rusqlite::Result<Estimate> {
     let mut statement = conn.prepare(
         "SELECT agent_estimate_micro_usd FROM attempts WHERE agent = ?1 AND model_ref = ?2 \
-         AND agent_estimate_micro_usd IS NOT NULL ORDER BY finished_at DESC LIMIT ?3")?;
-    let values: Vec<i64> = statement.query_map(params![step.agent, step_label(step), ESTIMATE_RUNS], |r| r.get(0))?
+         AND agent_estimate_micro_usd IS NOT NULL ORDER BY finished_at DESC LIMIT ?3",
+    )?;
+    let values: Vec<i64> = statement
+        .query_map(params![step.agent, step_label(step), ESTIMATE_RUNS], |r| r.get(0))?
         .collect::<rusqlite::Result<_>>()?;
-    Ok(Estimate { runs: values.len() as u32, low_micro_usd: values.iter().min().map(|v| (*v).max(0) as u64),
-        high_micro_usd: values.iter().max().map(|v| (*v).max(0) as u64) })
+    Ok(Estimate {
+        runs: values.len() as u32,
+        low_micro_usd: values.iter().min().map(|v| (*v).max(0) as u64),
+        high_micro_usd: values.iter().max().map(|v| (*v).max(0) as u64),
+    })
 }
 
 /// What an approval was asked on (`approvals.policy_version`): the step and its estimate. When it is different at
 /// the moment the user decides, the approval no longer describes what would run (ADR-010).
 fn basis(step: &Step, estimate: &Estimate, limits: &Limits) -> String {
-    format!("tasks-v3|{}|{}|T{}|{}|{}|{:?}|{:?}|{:?}|{:?}", step.agent, step.model.as_deref().unwrap_or(""), step.tier, step.billing,
-        estimate.runs, estimate.low_micro_usd, estimate.high_micro_usd, limits.daily, limits.workspace)
+    format!(
+        "tasks-v3|{}|{}|T{}|{}|{}|{:?}|{:?}|{:?}|{:?}",
+        step.agent,
+        step.model.as_deref().unwrap_or(""),
+        step.tier,
+        step.billing,
+        estimate.runs,
+        estimate.low_micro_usd,
+        estimate.high_micro_usd,
+        limits.daily,
+        limits.workspace
+    )
 }
 
 /// A pending approval for one attempt, with the estimate and the budgets as they are now. The cap is the user's,
@@ -728,8 +900,13 @@ fn ask_approval(conn: &Connection, attempt: &str, step: &Step, workspace_id: &st
 
 /// The cap the user approved for an attempt.
 fn approved_cap(conn: &Connection, attempt: &str) -> rusqlite::Result<Option<u64>> {
-    conn.query_row("SELECT cap_micro_usd FROM approvals WHERE attempt_id = ?1 AND state = 'approved' ORDER BY rowid DESC LIMIT 1",
-        [attempt], |r| r.get::<_, i64>(0)).optional().map(|v| v.filter(|c| *c > 0).map(|c| c as u64))
+    conn.query_row(
+        "SELECT cap_micro_usd FROM approvals WHERE attempt_id = ?1 AND state = 'approved' ORDER BY rowid DESC LIMIT 1",
+        [attempt],
+        |r| r.get::<_, i64>(0),
+    )
+    .optional()
+    .map(|v| v.filter(|c| *c > 0).map(|c| c as u64))
 }
 
 /// A cap to offer: half again the highest recent cost, rounded up to 5 cents; 50 cents with no history.
@@ -761,10 +938,19 @@ struct Limits {
 }
 
 fn limits(conn: &Connection, workspace_id: &str) -> rusqlite::Result<Limits> {
-    let daily = conn.query_row("SELECT value FROM settings WHERE key = ?1", [DAILY_BUDGET_KEY], |r| r.get::<_, String>(0))
-        .optional()?.and_then(|v| v.parse::<u64>().ok()).filter(|v| *v > 0);
-    let workspace = conn.query_row("SELECT daily_budget_micro_usd FROM workspaces WHERE id = ?1", [workspace_id],
-        |r| r.get::<_, Option<i64>>(0)).optional()?.flatten().filter(|v| *v > 0).map(|v| v as u64);
+    let daily = conn
+        .query_row("SELECT value FROM settings WHERE key = ?1", [DAILY_BUDGET_KEY], |r| r.get::<_, String>(0))
+        .optional()?
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|v| *v > 0);
+    let workspace = conn
+        .query_row("SELECT daily_budget_micro_usd FROM workspaces WHERE id = ?1", [workspace_id], |r| {
+            r.get::<_, Option<i64>>(0)
+        })
+        .optional()?
+        .flatten()
+        .filter(|v| *v > 0)
+        .map(|v| v as u64);
     Ok(Limits { daily, workspace })
 }
 
@@ -818,25 +1004,41 @@ pub struct DayBudget {
 
 pub fn day_budget(conn: &Connection) -> Result<DayBudget> {
     let (spent, held, unknown) = used_today(conn, None).map_err(err)?;
-    let limit = conn.query_row("SELECT value FROM settings WHERE key = ?1", [DAILY_BUDGET_KEY], |r| r.get::<_, String>(0))
-        .optional().map_err(err)?.and_then(|v| v.parse::<u64>().ok()).filter(|v| *v > 0);
-    Ok(DayBudget { recorded_usd: usd(spent), reserved_usd: usd(held), limit_usd: limit.map(usd), unknown_calls: unknown })
+    let limit = conn
+        .query_row("SELECT value FROM settings WHERE key = ?1", [DAILY_BUDGET_KEY], |r| r.get::<_, String>(0))
+        .optional()
+        .map_err(err)?
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|v| *v > 0);
+    Ok(DayBudget {
+        recorded_usd: usd(spent),
+        reserved_usd: usd(held),
+        limit_usd: limit.map(usd),
+        unknown_calls: unknown,
+    })
 }
 
 /// Sets (or, with `None`, removes) the daily limit for paid steps. Pending approvals then no longer match and are
 /// asked again when the user decides (ADR-010).
 pub fn set_daily_budget(conn: &Connection, micro_usd: Option<u64>) -> Result<()> {
     match micro_usd.filter(|v| *v > 0) {
-        Some(v) => conn.execute("INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2",
-            params![DAILY_BUDGET_KEY, v.to_string()]),
+        Some(v) => conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2",
+            params![DAILY_BUDGET_KEY, v.to_string()],
+        ),
         None => conn.execute("DELETE FROM settings WHERE key = ?1", [DAILY_BUDGET_KEY]),
-    }.map_err(err)?;
+    }
+    .map_err(err)?;
     audit(conn, "budget.daily", "tasks", serde_json::json!({"microUsd": micro_usd})).map_err(err)
 }
 
 pub fn set_workspace_budget(conn: &Connection, id: &str, micro_usd: Option<u64>) -> Result<()> {
-    let changed = conn.execute("UPDATE workspaces SET daily_budget_micro_usd = ?2 WHERE id = ?1",
-        params![id, micro_usd.filter(|v| *v > 0).map(|v| v as i64)]).map_err(err)?;
+    let changed = conn
+        .execute(
+            "UPDATE workspaces SET daily_budget_micro_usd = ?2 WHERE id = ?1",
+            params![id, micro_usd.filter(|v| *v > 0).map(|v| v as i64)],
+        )
+        .map_err(err)?;
     if changed == 0 {
         return Err(m::WORKSPACE_GONE.into());
     }
@@ -844,10 +1046,15 @@ pub fn set_workspace_budget(conn: &Connection, id: &str, micro_usd: Option<u64>)
 }
 
 /// Records one quality signal (ROADMAP C4, ADR-029; migration 0015). Only known signals are written.
-fn signal(conn: &Connection, metric: &str, kind: &str, target: &str, value: bool, source: &str) -> rusqlite::Result<()> {
-    conn.execute("INSERT INTO feedback (id, metric_name, target_kind, target_id, value_bool, source, created_at) \
+fn signal(
+    conn: &Connection, metric: &str, kind: &str, target: &str, value: bool, source: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO feedback (id, metric_name, target_kind, target_id, value_bool, source, created_at) \
                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![new_id(), metric, kind, target, value as i64, source, now_ms()]).map(|_| ())
+        params![new_id(), metric, kind, target, value as i64, source, now_ms()],
+    )
+    .map(|_| ())
 }
 
 /// How tasks turned out, and the money they cost per result the user kept (ROADMAP C4): every paid step of every
@@ -876,15 +1083,24 @@ pub fn quality(conn: &Connection, since_ms: i64) -> Result<Quality> {
         conn.query_row("SELECT COUNT(DISTINCT target_id) FROM feedback WHERE metric_name = ?1 AND value_bool = ?2 AND created_at >= ?3",
             params![metric, value, since_ms], |r| r.get::<_, i64>(0)).map(|n| n.max(0) as u64).map_err(err)
     };
-    let tasks: i64 = conn.query_row("SELECT COUNT(*) FROM tasks WHERE created_at >= ?1", [since_ms], |r| r.get(0)).map_err(err)?;
+    let tasks: i64 =
+        conn.query_row("SELECT COUNT(*) FROM tasks WHERE created_at >= ?1", [since_ms], |r| r.get(0)).map_err(err)?;
     let (known, unknown): (i64, i64) = conn.query_row(
         "SELECT COALESCE(SUM(u.cost_micro_usd), 0), COALESCE(SUM(u.cost_status = 'unknown'), 0) FROM usage_events u \
          JOIN attempts a ON a.id = u.attempt_id JOIN task_stages s ON s.id = a.stage_id JOIN tasks t ON t.id = s.task_id \
          WHERE t.created_at >= ?1", [since_ms], |r| Ok((r.get(0)?, r.get(1)?))).map_err(err)?;
     let kept = count("result_kept", 1)?;
-    let mut q = Quality { tasks: tasks.max(0) as u64, kept, discarded: count("result_kept", 0)?, retried: count("retried", 1)?,
-        cancelled: count("cancelled", 1)?, passed_attempts: count("checks_passed", 1)?, known_micro_usd: known.max(0) as u64,
-        unknown_entries: unknown.max(0) as u64, ..Quality::default() };
+    let mut q = Quality {
+        tasks: tasks.max(0) as u64,
+        kept,
+        discarded: count("result_kept", 0)?,
+        retried: count("retried", 1)?,
+        cancelled: count("cancelled", 1)?,
+        passed_attempts: count("checks_passed", 1)?,
+        known_micro_usd: known.max(0) as u64,
+        unknown_entries: unknown.max(0) as u64,
+        ..Quality::default()
+    };
     q.checked_attempts = q.passed_attempts + count("checks_passed", 0)?;
     q.micro_usd_per_kept = (kept > 0).then(|| q.known_micro_usd / kept);
     Ok(q)
@@ -902,7 +1118,11 @@ fn save_run(conn: &Connection, id: &str, run: &TaskRun) -> rusqlite::Result<()> 
         params![id, run.worktree, run.base, run.usage.model, detail, run.files_changed as i64, run.insertions as i64,
             run.deletions as i64, run.usage.result, run.log_tail,
             run.usage.estimate_usd.map(|usd| (usd * 1e6).round().max(0.0) as i64)])?;
-    conn.execute("UPDATE attempts SET cost_source = 'agent' WHERE id = ?1 AND agent_estimate_micro_usd IS NOT NULL", [id]).map(|_| ())
+    conn.execute(
+        "UPDATE attempts SET cost_source = 'agent' WHERE id = ?1 AND agent_estimate_micro_usd IS NOT NULL",
+        [id],
+    )
+    .map(|_| ())
 }
 
 /// What a step's requests through Pygg's own gateway cost. The agent sends its attempt id as its session header
@@ -911,21 +1131,32 @@ fn save_run(conn: &Connection, id: &str, run: &TaskRun) -> rusqlite::Result<()> 
 /// tokens, cost unknown) is taken off the attempt so nothing is counted twice; it stays in the ledger. Returns None
 /// when no request went through Pygg, else (the priced entries' sum, how many had no price).
 fn link_gateway_usage(conn: &Connection, attempt: &str) -> rusqlite::Result<Option<(u64, u32)>> {
-    let started: i64 = conn.query_row("SELECT COALESCE(started_at, 0) FROM attempts WHERE id = ?1", [attempt], |r| r.get(0))?;
-    conn.execute("UPDATE usage_events SET attempt_id = ?1 WHERE attempt_id IS NULL AND session_key = ?1 \
-                  AND created_at >= ?2 AND COALESCE(route_mode, '') <> 'agent'", params![attempt, started])?;
+    let started: i64 =
+        conn.query_row("SELECT COALESCE(started_at, 0) FROM attempts WHERE id = ?1", [attempt], |r| r.get(0))?;
+    conn.execute(
+        "UPDATE usage_events SET attempt_id = ?1 WHERE attempt_id IS NULL AND session_key = ?1 \
+                  AND created_at >= ?2 AND COALESCE(route_mode, '') <> 'agent'",
+        params![attempt, started],
+    )?;
     let (count, known, unknown): (i64, i64, i64) = conn.query_row(
         "SELECT COUNT(*), COALESCE(SUM(CASE WHEN cost_status <> 'unknown' THEN cost_micro_usd END), 0), \
                 COALESCE(SUM(CASE WHEN cost_status = 'unknown' THEN 1 ELSE 0 END), 0) \
-         FROM usage_events WHERE attempt_id = ?1 AND COALESCE(route_mode, '') <> 'agent'", [attempt],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+         FROM usage_events WHERE attempt_id = ?1 AND COALESCE(route_mode, '') <> 'agent'",
+        [attempt],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
     if count == 0 {
         return Ok(None);
     }
-    conn.execute("UPDATE usage_events SET attempt_id = NULL, session_key = ?1 WHERE attempt_id = ?1 AND route_mode = 'agent'",
-        [attempt])?;
+    conn.execute(
+        "UPDATE usage_events SET attempt_id = NULL, session_key = ?1 WHERE attempt_id = ?1 AND route_mode = 'agent'",
+        [attempt],
+    )?;
     let cost = (unknown == 0).then_some(known.max(0));
-    conn.execute("UPDATE attempts SET agent_estimate_micro_usd = ?2, cost_source = 'pygg' WHERE id = ?1", params![attempt, cost])?;
+    conn.execute(
+        "UPDATE attempts SET agent_estimate_micro_usd = ?2, cost_source = 'pygg' WHERE id = ?1",
+        params![attempt, cost],
+    )?;
     Ok(Some((known.max(0) as u64, unknown as u32)))
 }
 
@@ -935,8 +1166,12 @@ fn forget_worktree(conn: &Connection, attempt: &str) -> rusqlite::Result<()> {
 
 /// What the next step is told about a failed check.
 fn handoff(check: &CheckResult) -> String {
-    format!("The check `{}` {} on that attempt's changes. The end of its output:\n{}", check.command, check.detail,
-        last_chars(&check.output_tail, HANDOFF_CHARS))
+    format!(
+        "The check `{}` {} on that attempt's changes. The end of its output:\n{}",
+        check.command,
+        check.detail,
+        last_chars(&check.output_tail, HANDOFF_CHARS)
+    )
 }
 
 fn handoff_of(attempt: &AttemptView) -> Option<String> {
@@ -948,12 +1183,24 @@ fn handoff_of(attempt: &AttemptView) -> Option<String> {
 
 /// H1's evidence block (handoff.rs) from a task's recorded attempts.
 fn evidence_of(attempts: &[AttemptView]) -> Option<String> {
-    let rows: Vec<crate::handoff::Attempt> = attempts.iter().map(|a| crate::handoff::Attempt {
-        number: a.number, label: &a.label, outcome: &a.outcome, detail: a.detail.as_deref(),
-        escalation_reason: a.escalation_reason.as_deref(),
-        failed_check: a.checks.iter().find(|c| !c.passed).map(|c| (c.command.as_str(), c.detail.as_str(), c.output_tail.as_str())),
-        summary: a.summary.as_deref(), changed_paths: a.changed_paths.clone(), no_changes: a.detail.as_deref() == Some(NO_CHANGES),
-    }).collect();
+    let rows: Vec<crate::handoff::Attempt> = attempts
+        .iter()
+        .map(|a| crate::handoff::Attempt {
+            number: a.number,
+            label: &a.label,
+            outcome: &a.outcome,
+            detail: a.detail.as_deref(),
+            escalation_reason: a.escalation_reason.as_deref(),
+            failed_check: a
+                .checks
+                .iter()
+                .find(|c| !c.passed)
+                .map(|c| (c.command.as_str(), c.detail.as_str(), c.output_tail.as_str())),
+            summary: a.summary.as_deref(),
+            changed_paths: a.changed_paths.clone(),
+            no_changes: a.detail.as_deref() == Some(NO_CHANGES),
+        })
+        .collect();
     crate::handoff::evidence(&rows)
 }
 
@@ -962,10 +1209,18 @@ fn evidence_of(attempts: &[AttemptView]) -> Option<String> {
 fn handoff_for(mode: &str, carried: Option<&str>, attempts: &[AttemptView]) -> Option<String> {
     match mode {
         "none" => None,
-        "evidence" => evidence_of(attempts).map(|e| format!("{e}\n\nYou start again from the original code. Use what was \
-            verified; treat the agents' own accounts as unconfirmed.")),
-        _ => carried.map(|why| format!("A previous attempt at this task, started from the same code, did not pass the \
-            workspace's checks. You start again from the original code.\n{why}")),
+        "evidence" => evidence_of(attempts).map(|e| {
+            format!(
+                "{e}\n\nYou start again from the original code. Use what was \
+            verified; treat the agents' own accounts as unconfirmed."
+            )
+        }),
+        _ => carried.map(|why| {
+            format!(
+                "A previous attempt at this task, started from the same code, did not pass the \
+            workspace's checks. You start again from the original code.\n{why}"
+            )
+        }),
     }
 }
 
@@ -981,8 +1236,10 @@ fn compose_with(prompt: &str, handoff: Option<&str>) -> String {
 pub fn compose(prompt: &str, handoff: Option<&str>) -> String {
     match handoff {
         None => prompt.to_string(),
-        Some(why) => format!("{prompt}\n\n---\nA previous attempt at this task, started from the same code, did not pass the \
-            workspace's checks. You start again from the original code.\n{why}"),
+        Some(why) => format!(
+            "{prompt}\n\n---\nA previous attempt at this task, started from the same code, did not pass the \
+            workspace's checks. You start again from the original code.\n{why}"
+        ),
     }
 }
 
@@ -997,19 +1254,26 @@ fn unresponsive(conn: &Connection, step: &Step) -> rusqlite::Result<Option<Strin
     let mut statement = conn.prepare(
         "SELECT a.detail, a.finished_at, (SELECT SUM(output_tokens) FROM usage_events u WHERE u.attempt_id = a.id) \
          FROM attempts a WHERE a.agent = ?1 AND a.model_ref = ?2 AND a.state IN ('failed', 'passed', 'done') \
-         ORDER BY a.finished_at DESC LIMIT 2")?;
+         ORDER BY a.finished_at DESC LIMIT 2",
+    )?;
     let last: Vec<(Option<String>, Option<i64>, Option<i64>)> = statement
         .query_map(params![step.agent, step_label(step)], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
         .collect::<rusqlite::Result<_>>()?;
-    let silent_timeout = |(detail, finished, output): &(Option<String>, Option<i64>, Option<i64>)|
-        detail.as_deref() == Some(m::TIMED_OUT) && finished.is_some_and(|f| f >= since) && output.unwrap_or(0) == 0;
+    let silent_timeout = |(detail, finished, output): &(Option<String>, Option<i64>, Option<i64>)| {
+        detail.as_deref() == Some(m::TIMED_OUT) && finished.is_some_and(|f| f >= since) && output.unwrap_or(0) == 0
+    };
     Ok((last.len() == 2 && last.iter().all(silent_timeout)).then(|| fill(m::SKIPPED, &[&step_label(step)])))
 }
 
 /// Records a step that was not run, so the task's history shows why the ladder moved on.
-fn skip_attempt(conn: &Connection, task_id: &str, stage_id: &str, index: usize, step: &Step, why: &str) -> rusqlite::Result<()> {
+fn skip_attempt(
+    conn: &Connection, task_id: &str, stage_id: &str, index: usize, step: &Step, why: &str,
+) -> rusqlite::Result<()> {
     let now = now_ms();
-    let number: u32 = conn.query_row("SELECT COALESCE(MAX(number), 0) + 1 FROM attempts WHERE stage_id = ?1", [stage_id], |r| r.get(0))?;
+    let number: u32 =
+        conn.query_row("SELECT COALESCE(MAX(number), 0) + 1 FROM attempts WHERE stage_id = ?1", [stage_id], |r| {
+            r.get(0)
+        })?;
     conn.execute("INSERT INTO attempts (id, stage_id, number, agent, model_ref, tier, billing, state, started_at, finished_at, \
                   escalation_reason, detail, rung) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'skipped', ?8, ?8, ?9, 'skipped', ?10)",
         params![new_id(), stage_id, number, step.agent, step_label(step), step.tier, step.billing, now, why, index as i64])?;
@@ -1062,9 +1326,15 @@ pub fn agent_executor() -> Executor {
     Arc::new(|request: ExecRequest, worktrees: PathBuf, cancel: Cancel| -> BoxFuture<'static, Result<TaskRun>> {
         Box::pin(async move {
             let request = agents::TaskRequest {
-                agent: request.agent, workspace: request.workspace, prompt: request.prompt, model: request.model,
-                allow_shell: request.allow_shell, timeout_secs: Some(request.timeout_secs), base: Some(request.base),
-                max_budget_usd: request.max_budget_usd, attempt_id: Some(request.attempt_id),
+                agent: request.agent,
+                workspace: request.workspace,
+                prompt: request.prompt,
+                model: request.model,
+                allow_shell: request.allow_shell,
+                timeout_secs: Some(request.timeout_secs),
+                base: Some(request.base),
+                max_budget_usd: request.max_budget_usd,
+                attempt_id: Some(request.attempt_id),
             };
             agents::run(&request, &worktrees, canceled(cancel)).await
         })
@@ -1173,7 +1443,9 @@ impl Runner {
     /// continues the task.
     ///
     /// A step that asks only because its workspace is sensitive is not paid, so it needs no cap.
-    pub fn decide(&self, id: &str, approve: bool, cap_micro_usd: Option<u64>) -> Result<Option<tokio::task::JoinHandle<()>>> {
+    pub fn decide(
+        &self, id: &str, approve: bool, cap_micro_usd: Option<u64>,
+    ) -> Result<Option<tokio::task::JoinHandle<()>>> {
         let cap = cap_micro_usd.filter(|c| *c > 0 && approve);
         self.with_db(|c| {
             let row = task_row(c, id)?;
@@ -1247,11 +1519,16 @@ impl Runner {
         let base = row.base_revision.clone().ok_or(m::NO_BASE)?;
         let attempts = self.with_db(|c| attempts_of(c, id))?;
         let Some((mut index, mut carried)) = resume_point(&attempts) else { return Ok(()) };
-        let mut last_failure = attempts.iter().rev().find(|a| a.outcome == "failed").and_then(|a| a.escalation_reason.clone());
-        let stop = |runner: &Runner| runner.with_db(|c| {
-            set_task(c, id, "canceled", None, Some(m::STOPPED))?;
-            signal(c, "cancelled", "task", id, true, "user")
-        }).map_err(err);
+        let mut last_failure =
+            attempts.iter().rev().find(|a| a.outcome == "failed").and_then(|a| a.escalation_reason.clone());
+        let stop = |runner: &Runner| {
+            runner
+                .with_db(|c| {
+                    set_task(c, id, "canceled", None, Some(m::STOPPED))?;
+                    signal(c, "cancelled", "task", id, true, "user")
+                })
+                .map_err(err)
+        };
         // Set when a paid step went over its cap: the ladder stops there instead of trying further steps.
         let mut halt: Option<String> = None;
 
@@ -1283,13 +1560,21 @@ impl Runner {
             self.with_db(|c| set_phase(c, id, "generating")).map_err(err)?;
             let cap = self.with_db(|c| approved_cap(c, &attempt)).map_err(err)?;
             // What this attempt is told about earlier ones, recorded as sent so the user can see it.
-            let earlier = if row.policy.handoff == "evidence" { self.with_db(|c| attempts_of(c, id))? } else { Vec::new() };
+            let earlier =
+                if row.policy.handoff == "evidence" { self.with_db(|c| attempts_of(c, id))? } else { Vec::new() };
             let given = handoff_for(&row.policy.handoff, carried.as_deref(), &earlier);
-            self.with_db(|c| c.execute("UPDATE attempts SET handoff_sent = ?2 WHERE id = ?1", params![attempt, given])).map_err(err)?;
+            self.with_db(|c| c.execute("UPDATE attempts SET handoff_sent = ?2 WHERE id = ?1", params![attempt, given]))
+                .map_err(err)?;
             let request = ExecRequest {
-                agent: step.agent.clone(), model: step.model.clone(), workspace: PathBuf::from(&row.workspace_path),
-                base: base.clone(), prompt: compose_with(&row.prompt, given.as_deref()), allow_shell: row.policy.allow_shell,
-                timeout_secs: row.policy.timeout_secs, max_budget_usd: cap.map(usd), attempt_id: attempt.clone(),
+                agent: step.agent.clone(),
+                model: step.model.clone(),
+                workspace: PathBuf::from(&row.workspace_path),
+                base: base.clone(),
+                prompt: compose_with(&row.prompt, given.as_deref()),
+                allow_shell: row.policy.allow_shell,
+                timeout_secs: row.policy.timeout_secs,
+                max_budget_usd: cap.map(usd),
+                attempt_id: attempt.clone(),
             };
             let name = agents::find(&step.agent).map(|a| a.name).unwrap_or(step.agent.as_str());
             let run = match (self.exec)(request, self.worktrees.clone(), cancel.clone()).await {
@@ -1300,7 +1585,8 @@ impl Runner {
                     self.with_db(|c| {
                         c.execute("UPDATE attempts SET detail = ?2 WHERE id = ?1", params![attempt, e])?;
                         close_attempt(c, &attempt, "failed", Some(&reason))
-                    }).map_err(err)?;
+                    })
+                    .map_err(err)?;
                     last_failure = Some(reason);
                     index += 1;
                     continue;
@@ -1317,26 +1603,35 @@ impl Runner {
             let (reported, whose) = match through_pygg {
                 Some((known, 0)) => (Some(known), m::PYGG_LEDGER.to_string()),
                 Some(_) => (None, String::new()),
-                None => (run.usage.estimate_usd.map(|u| (u * 1e6).round().max(0.0) as u64), fill(m::OWN_ESTIMATE, &[&name])),
+                None => {
+                    (run.usage.estimate_usd.map(|u| (u * 1e6).round().max(0.0) as u64), fill(m::OWN_ESTIMATE, &[&name]))
+                }
             };
             let over_cap = match (cap, reported) {
-                (Some(cap), Some(cost)) if cost > cap => Some(fill(m::OVER_CAP,
-                    &[&whose, &format!("{:.2}", usd(cost)), &format!("{:.2}", usd(cap))])),
+                (Some(cap), Some(cost)) if cost > cap => {
+                    Some(fill(m::OVER_CAP, &[&whose, &format!("{:.2}", usd(cost)), &format!("{:.2}", usd(cap))]))
+                }
                 _ => None,
             };
             let unchecked = match through_pygg {
                 Some((_, unpriced)) if unpriced > 0 => Some(fill(m::UNPRICED, &[&unpriced])),
-                _ => (reported.is_none() && !agents::enforces_budget(&step.agent))
-                    .then(|| fill(m::NO_COST, &[&name])),
+                _ => (reported.is_none() && !agents::enforces_budget(&step.agent)).then(|| fill(m::NO_COST, &[&name])),
             };
             let cost_note = over_cap.clone().or_else(|| unchecked.filter(|_| cap.is_some()));
             halt = over_cap;
-            let worktree = Worktree { repo: PathBuf::from(&row.workspace_path), path: PathBuf::from(&run.worktree), base: run.base.clone() };
+            let worktree = Worktree {
+                repo: PathBuf::from(&row.workspace_path),
+                path: PathBuf::from(&run.worktree),
+                base: run.base.clone(),
+            };
             // Which paths it changed, kept after a discarded worktree is gone, so a later step can be told (H1).
             if run.files_changed > 0 {
                 let changed = isolation::changed_files(&worktree).unwrap_or_default();
                 let json = serde_json::to_string(&changed).map_err(|e| e.to_string())?;
-                self.with_db(|c| c.execute("UPDATE attempts SET changed_paths_json = ?2 WHERE id = ?1", params![attempt, json])).map_err(err)?;
+                self.with_db(|c| {
+                    c.execute("UPDATE attempts SET changed_paths_json = ?2 WHERE id = ?1", params![attempt, json])
+                })
+                .map_err(err)?;
             }
             let drop_worktree = |runner: &Runner| {
                 let _ = isolation::discard(&worktree);
@@ -1364,24 +1659,36 @@ impl Runner {
                 self.with_db(|c| {
                     c.execute("UPDATE attempts SET detail = ?2 WHERE id = ?1", params![attempt, NO_CHANGES])?;
                     close_attempt(c, &attempt, "failed", Some(NO_CHANGES))
-                }).map_err(err)?;
+                })
+                .map_err(err)?;
                 carried = Some(NO_CHANGES_HANDOFF.into());
                 last_failure = Some(fill(m::LAST_FAILURE, &[&name, &NO_CHANGES]));
                 index += 1;
                 continue;
             }
             if row.policy.checks.is_empty() {
-                return self.with_db(|c| {
-                    close_attempt(c, &attempt, "done", None)?;
-                    set_task(c, id, "needs_review", None,
-                        Some(&match &cost_note { Some(note) => fill(m::NO_CHECKS_NOTE, &[note]), None => m::NO_CHECKS.to_string() }))
-                }).map_err(err);
+                return self
+                    .with_db(|c| {
+                        close_attempt(c, &attempt, "done", None)?;
+                        set_task(
+                            c,
+                            id,
+                            "needs_review",
+                            None,
+                            Some(&match &cost_note {
+                                Some(note) => fill(m::NO_CHECKS_NOTE, &[note]),
+                                None => m::NO_CHECKS.to_string(),
+                            }),
+                        )
+                    })
+                    .map_err(err);
             }
 
             self.with_db(|c| set_phase(c, id, "checking")).map_err(err)?;
             let mut results: Vec<CheckResult> = Vec::new();
             for check in &row.policy.checks {
-                let result = checks::run(&check.command, &worktree.path, CHECK_TIMEOUT, &[], canceled(cancel.clone())).await;
+                let result =
+                    checks::run(&check.command, &worktree.path, CHECK_TIMEOUT, &[], canceled(cancel.clone())).await;
                 let passed = result.passed;
                 results.push(result);
                 if !passed || *cancel.borrow() {
@@ -1389,7 +1696,10 @@ impl Runner {
                 }
             }
             let json = serde_json::to_string(&results).map_err(|e| e.to_string())?;
-            self.with_db(|c| c.execute("UPDATE attempts SET check_results_json = ?2 WHERE id = ?1", params![attempt, json])).map_err(err)?;
+            self.with_db(|c| {
+                c.execute("UPDATE attempts SET check_results_json = ?2 WHERE id = ?1", params![attempt, json])
+            })
+            .map_err(err)?;
             if *cancel.borrow() {
                 drop_worktree(self)?;
                 self.with_db(|c| close_attempt(c, &attempt, "canceled", None)).map_err(err)?;
@@ -1399,22 +1709,41 @@ impl Runner {
                 None => {
                     // An attempt that edits the file defining a check can make that check pass without doing the task.
                     let changed = isolation::changed_files(&worktree).unwrap_or_default();
-                    let mut touched: Vec<&str> = row.policy.checks.iter().map(|c| c.source.as_str())
-                        .filter(|s| *s != "user" && changed.iter().any(|p| p == s || p.ends_with(&format!("/{s}")))).collect();
+                    let mut touched: Vec<&str> = row
+                        .policy
+                        .checks
+                        .iter()
+                        .map(|c| c.source.as_str())
+                        .filter(|s| *s != "user" && changed.iter().any(|p| p == s || p.ends_with(&format!("/{s}"))))
+                        .collect();
                     touched.dedup();
-                    return self.with_db(|c| {
-                        close_attempt(c, &attempt, "passed", None)?;
-                        signal(c, "checks_passed", "attempt", &attempt, true, "check")?;
-                        if touched.is_empty() {
-                            set_task(c, id, "checks_passed", None, cost_note.as_ref().map(|n| fill(m::NOTE, &[n])).as_deref())
-                        } else {
-                            let files = touched.join(", ");
-                            set_task(c, id, "needs_review", None, Some(&match &cost_note {
-                                Some(note) => fill(m::CHANGED_DEFINITIONS_NOTE, &[&files, note]),
-                                None => fill(m::CHANGED_DEFINITIONS, &[&files]),
-                            }))
-                        }
-                    }).map_err(err);
+                    return self
+                        .with_db(|c| {
+                            close_attempt(c, &attempt, "passed", None)?;
+                            signal(c, "checks_passed", "attempt", &attempt, true, "check")?;
+                            if touched.is_empty() {
+                                set_task(
+                                    c,
+                                    id,
+                                    "checks_passed",
+                                    None,
+                                    cost_note.as_ref().map(|n| fill(m::NOTE, &[n])).as_deref(),
+                                )
+                            } else {
+                                let files = touched.join(", ");
+                                set_task(
+                                    c,
+                                    id,
+                                    "needs_review",
+                                    None,
+                                    Some(&match &cost_note {
+                                        Some(note) => fill(m::CHANGED_DEFINITIONS_NOTE, &[&files, note]),
+                                        None => fill(m::CHANGED_DEFINITIONS, &[&files]),
+                                    }),
+                                )
+                            }
+                        })
+                        .map_err(err);
                 }
                 Some(failed) => {
                     let reason = fill(m::CHECK_FAILED, &[&failed.command, &failed.detail]);
@@ -1423,7 +1752,8 @@ impl Runner {
                     self.with_db(|c| {
                         close_attempt(c, &attempt, "failed", Some(&reason))?;
                         signal(c, "checks_passed", "attempt", &attempt, false, "check")
-                    }).map_err(err)?;
+                    })
+                    .map_err(err)?;
                     last_failure = Some(fill(m::LAST_FAILURE, &[&name, &reason]));
                     index += 1;
                 }
@@ -1439,10 +1769,14 @@ fn result_attempt(conn: &Connection, id: &str) -> Result<(TaskRow, AttemptView, 
     if row.result.is_some() || !matches!(row.state.as_str(), "checks_passed" | "needs_review") {
         return Err(m::NO_RESULT.into());
     }
-    let attempt = attempts_of(conn, id)?.into_iter().rev().find(|a| a.open && (a.outcome == "passed" || a.outcome == "done"))
+    let attempt = attempts_of(conn, id)?
+        .into_iter()
+        .rev()
+        .find(|a| a.open && (a.outcome == "passed" || a.outcome == "done"))
         .ok_or(m::WORKTREE_GONE)?;
     let worktree = Worktree {
-        repo: PathBuf::from(&row.workspace_path), path: PathBuf::from(attempt.worktree.clone().unwrap_or_default()),
+        repo: PathBuf::from(&row.workspace_path),
+        path: PathBuf::from(attempt.worktree.clone().unwrap_or_default()),
         base: attempt.base.clone().or_else(|| row.base_revision.clone()).unwrap_or_default(),
     };
     Ok((row, attempt, worktree))
@@ -1459,7 +1793,10 @@ pub fn result_patch(conn: &Connection, id: &str) -> Result<(String, String)> {
     let (row, _, worktree) = result_attempt(conn, id)?;
     let diff = isolation::patch(&worktree).map_err(|e| e.to_string())?;
     let name = format!("{}.patch", isolation::branch_name(&row.title, id).trim_start_matches("str/"));
-    let header = format!("Pygg task: {}\nApplies to: {}\nApply in the repository with: git apply {name}\n\n", row.title, worktree.base);
+    let header = format!(
+        "Pygg task: {}\nApplies to: {}\nApply in the repository with: git apply {name}\n\n",
+        row.title, worktree.base
+    );
     Ok((name, header + &diff))
 }
 
@@ -1477,10 +1814,13 @@ pub fn keep(conn: &Connection, id: &str, title: Option<&str>) -> Result<String> 
     let _ = isolation::discard(&worktree);
     let tx = conn.unchecked_transaction().map_err(err)?;
     forget_worktree(&tx, &attempt.id).map_err(err)?;
-    tx.execute("UPDATE tasks SET result = 'kept', result_branch = ?2, \
+    tx.execute(
+        "UPDATE tasks SET result = 'kept', result_branch = ?2, \
                 state = CASE state WHEN 'needs_review' THEN 'manually_accepted' ELSE state END, \
                 reason = CASE state WHEN 'needs_review' THEN NULL ELSE reason END, updated_at = ?3 WHERE id = ?1",
-        params![id, branch, now_ms()]).map_err(err)?;
+        params![id, branch, now_ms()],
+    )
+    .map_err(err)?;
     signal(&tx, "result_kept", "task", id, true, "user").map_err(err)?;
     audit(&tx, "task.kept", id, serde_json::json!({"branch": branch})).map_err(err)?;
     tx.commit().map_err(err)?;
@@ -1493,10 +1833,13 @@ pub fn discard(conn: &Connection, id: &str) -> Result<()> {
     isolation::discard(&worktree).map_err(|e| e.to_string())?;
     let tx = conn.unchecked_transaction().map_err(err)?;
     forget_worktree(&tx, &attempt.id).map_err(err)?;
-    tx.execute("UPDATE tasks SET result = 'discarded', \
+    tx.execute(
+        "UPDATE tasks SET result = 'discarded', \
                 state = CASE state WHEN 'needs_review' THEN 'canceled' ELSE state END, \
                 reason = CASE state WHEN 'needs_review' THEN ?3 ELSE reason END, updated_at = ?2 WHERE id = ?1",
-        params![id, now_ms(), m::DISCARDED]).map_err(err)?;
+        params![id, now_ms(), m::DISCARDED],
+    )
+    .map_err(err)?;
     signal(&tx, "result_kept", "task", id, false, "user").map_err(err)?;
     audit(&tx, "task.discarded", id, serde_json::json!({})).map_err(err)?;
     tx.commit().map_err(err)
@@ -1506,8 +1849,8 @@ pub fn discard(conn: &Connection, id: &str) -> Result<()> {
 
 /// Refuses a client access to a task it did not start, in the same words as a task that does not exist.
 pub fn check_owner(conn: &Connection, id: &str, client_id: &str) -> Result<()> {
-    let owner: Option<Option<String>> = conn.query_row("SELECT client_id FROM tasks WHERE id = ?1", [id], |r| r.get(0))
-        .optional().map_err(err)?;
+    let owner: Option<Option<String>> =
+        conn.query_row("SELECT client_id FROM tasks WHERE id = ?1", [id], |r| r.get(0)).optional().map_err(err)?;
     match owner {
         Some(Some(owner)) if owner == client_id => Ok(()),
         _ => Err(m::TASK_GONE.into()),
@@ -1548,8 +1891,12 @@ pub fn tier_guess(agent: &str) -> u8 {
 /// Up to three installed agents in the strategy's order, with billing unknown: Pygg cannot see how each is
 /// signed in.
 pub fn default_steps(strategy: &str, installed: &[&str]) -> Vec<Step> {
-    strategy_order(strategy).into_iter().filter(|id| installed.contains(id)).take(3)
-        .map(|id| Step { agent: id.into(), model: None, tier: tier_guess(id), billing: "unknown".into() }).collect()
+    strategy_order(strategy)
+        .into_iter()
+        .filter(|id| installed.contains(id))
+        .take(3)
+        .map(|id| Step { agent: id.into(), model: None, tier: tier_guess(id), billing: "unknown".into() })
+        .collect()
 }
 
 /// The agents on this computer's PATH (no programs started).
@@ -1558,13 +1905,20 @@ pub fn installed_agents() -> Vec<&'static str> {
 }
 
 pub fn list_tasks_for(conn: &Connection, client_id: &str) -> Result<Vec<TaskSummary>> {
-    let ids: Vec<String> = conn.prepare("SELECT id FROM tasks WHERE client_id = ?1 ORDER BY updated_at DESC LIMIT 50").map_err(err)?
-        .query_map([client_id], |r| r.get(0)).map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
-    ids.iter().map(|id| {
-        let row = task_row(conn, id)?;
-        let attempts = attempts_of(conn, id)?;
-        summary_of(conn, id, &row, &attempts)
-    }).collect()
+    let ids: Vec<String> = conn
+        .prepare("SELECT id FROM tasks WHERE client_id = ?1 ORDER BY updated_at DESC LIMIT 50")
+        .map_err(err)?
+        .query_map([client_id], |r| r.get(0))
+        .map_err(err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(err)?;
+    ids.iter()
+        .map(|id| {
+            let row = task_row(conn, id)?;
+            let attempts = attempts_of(conn, id)?;
+            summary_of(conn, id, &row, &attempts)
+        })
+        .collect()
 }
 
 // ---------- Start-up ----------
@@ -1577,15 +1931,25 @@ pub fn recover(conn: &Connection, worktrees: &Path) -> Result<usize> {
     let tx = conn.unchecked_transaction().map_err(err)?;
     tx.execute("UPDATE attempts SET state = 'canceled', detail = COALESCE(detail, 'The app closed while it ran'), finished_at = ?1 \
                 WHERE state = 'running'", [now]).map_err(err)?;
-    let interrupted = tx.execute("UPDATE tasks SET state = 'interrupted', phase = NULL, reason = ?2, updated_at = ?1 \
-                WHERE state = 'running'", params![now, m::INTERRUPTED]).map_err(err)?;
+    let interrupted = tx
+        .execute(
+            "UPDATE tasks SET state = 'interrupted', phase = NULL, reason = ?2, updated_at = ?1 \
+                WHERE state = 'running'",
+            params![now, m::INTERRUPTED],
+        )
+        .map_err(err)?;
     tx.execute("UPDATE task_stages SET state = 'interrupted' WHERE state = 'running'", []).map_err(err)?;
     tx.commit().map_err(err)?;
 
     // Worktrees whose result still waits for the user stay; everything else in the app's folder is a leftover.
-    let keep: Vec<PathBuf> = conn.prepare("SELECT a.worktree_path FROM attempts a WHERE a.worktree_path IS NOT NULL").map_err(err)?
-        .query_map([], |r| r.get::<_, String>(0)).map_err(err)?
-        .filter_map(|p| p.ok()).map(PathBuf::from).collect();
+    let keep: Vec<PathBuf> = conn
+        .prepare("SELECT a.worktree_path FROM attempts a WHERE a.worktree_path IS NOT NULL")
+        .map_err(err)?
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(err)?
+        .filter_map(|p| p.ok())
+        .map(PathBuf::from)
+        .collect();
     if let Ok(entries) = std::fs::read_dir(worktrees) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -1594,10 +1958,18 @@ pub fn recover(conn: &Connection, worktrees: &Path) -> Result<usize> {
             }
         }
     }
-    conn.execute("UPDATE attempts SET worktree_path = NULL WHERE state NOT IN ('passed', 'done') AND worktree_path IS NOT NULL", [])
-        .map_err(err)?;
-    let repos: Vec<String> = conn.prepare("SELECT path FROM workspaces").map_err(err)?
-        .query_map([], |r| r.get(0)).map_err(err)?.filter_map(|p| p.ok()).collect();
+    conn.execute(
+        "UPDATE attempts SET worktree_path = NULL WHERE state NOT IN ('passed', 'done') AND worktree_path IS NOT NULL",
+        [],
+    )
+    .map_err(err)?;
+    let repos: Vec<String> = conn
+        .prepare("SELECT path FROM workspaces")
+        .map_err(err)?
+        .query_map([], |r| r.get(0))
+        .map_err(err)?
+        .filter_map(|p| p.ok())
+        .collect();
     for repo in repos {
         let _ = isolation::prune(Path::new(&repo));
     }
@@ -1647,68 +2019,113 @@ mod tests {
         for check in checks {
             add_check(&conn, &ws.id, check).unwrap();
         }
-        Rig { worktrees: dir.path().join("worktrees"), _dir: dir, db: Arc::new(Mutex::new(conn)), repo, workspace: ws.id,
-            prompts: Arc::default() }
+        Rig {
+            worktrees: dir.path().join("worktrees"),
+            _dir: dir,
+            db: Arc::new(Mutex::new(conn)),
+            repo,
+            workspace: ws.id,
+            prompts: Arc::default(),
+        }
     }
 
     /// An executor that does `acts` in order, one per attempt, in a real worktree.
     fn fake(acts: Vec<Act>, prompts: Arc<Mutex<Vec<String>>>) -> Executor {
         let acts = Arc::new(Mutex::new(std::collections::VecDeque::from(acts)));
-        Arc::new(move |request: ExecRequest, worktrees: PathBuf, cancel: Cancel| -> BoxFuture<'static, Result<TaskRun>> {
-            let act = acts.lock().unwrap().pop_front().unwrap_or(Act::Fail);
-            prompts.lock().unwrap().push(request.prompt.clone());
-            Box::pin(async move {
-                let id = new_id();
-                std::fs::create_dir_all(&worktrees).unwrap();
-                let worktree = isolation::create(&request.workspace, &request.base, &worktrees.join(&id[..12])).map_err(|e| e.to_string())?;
-                let mut outcome = "ok";
-                let mut estimate = None;
-                let mut output_tokens = Some(10);
-                match act {
-                    Act::TimeOut => {
-                        outcome = "timed_out";
-                        output_tokens = None;
+        Arc::new(
+            move |request: ExecRequest, worktrees: PathBuf, cancel: Cancel| -> BoxFuture<'static, Result<TaskRun>> {
+                let act = acts.lock().unwrap().pop_front().unwrap_or(Act::Fail);
+                prompts.lock().unwrap().push(request.prompt.clone());
+                Box::pin(async move {
+                    let id = new_id();
+                    std::fs::create_dir_all(&worktrees).unwrap();
+                    let worktree = isolation::create(&request.workspace, &request.base, &worktrees.join(&id[..12]))
+                        .map_err(|e| e.to_string())?;
+                    let mut outcome = "ok";
+                    let mut estimate = None;
+                    let mut output_tokens = Some(10);
+                    match act {
+                        Act::TimeOut => {
+                            outcome = "timed_out";
+                            output_tokens = None;
+                        }
+                        Act::Write(file, text) => std::fs::write(worktree.path.join(file), text).unwrap(),
+                        Act::Costly(file, text, usd) => {
+                            std::fs::write(worktree.path.join(file), text).unwrap();
+                            estimate = Some(usd);
+                        }
+                        Act::ThroughPygg(file, text, price, db) => {
+                            std::fs::write(worktree.path.join(file), text).unwrap();
+                            estimate = Some(0.0);
+                            use crate::gateway::pricing::Cost;
+                            let cost = match price {
+                                Some(micro_usd) => {
+                                    Cost::Estimated { micro_usd, source: "a price the user entered".into() }
+                                }
+                                None => Cost::Unknown { source: "no price recorded for this model".into() },
+                            };
+                            crate::gateway::store::record_usage(
+                                &lock(&db),
+                                &crate::gateway::store::UsageRecord {
+                                    client_id: None,
+                                    provider_id: "anthropic",
+                                    model_id: "claude-haiku-5-5",
+                                    requested_model: "anthropic/claude-haiku-5-5",
+                                    input_tokens: Some(1000),
+                                    output_tokens: Some(50),
+                                    cache_tokens: None,
+                                    cost: &cost,
+                                    outcome: "ok",
+                                    http_status: Some(200),
+                                    latency_ms: 5,
+                                    error: None,
+                                    cache_write_tokens: None,
+                                    session_key: Some(&request.attempt_id),
+                                    route_mode: Some("native"),
+                                    route_reason: None,
+                                    facts: None,
+                                    repeated_tokens: None,
+                                },
+                            )
+                            .unwrap();
+                        }
+                        Act::Fail => outcome = "failed",
+                        Act::Nothing => {}
+                        Act::WaitForStop => {
+                            canceled(cancel).await;
+                            outcome = "canceled";
+                        }
                     }
-                    Act::Write(file, text) => std::fs::write(worktree.path.join(file), text).unwrap(),
-                    Act::Costly(file, text, usd) => {
-                        std::fs::write(worktree.path.join(file), text).unwrap();
-                        estimate = Some(usd);
-                    }
-                    Act::ThroughPygg(file, text, price, db) => {
-                        std::fs::write(worktree.path.join(file), text).unwrap();
-                        estimate = Some(0.0);
-                        use crate::gateway::pricing::Cost;
-                        let cost = match price {
-                            Some(micro_usd) => Cost::Estimated { micro_usd, source: "a price the user entered".into() },
-                            None => Cost::Unknown { source: "no price recorded for this model".into() },
-                        };
-                        crate::gateway::store::record_usage(&lock(&db), &crate::gateway::store::UsageRecord {
-                            client_id: None, provider_id: "anthropic", model_id: "claude-haiku-5-5",
-                            requested_model: "anthropic/claude-haiku-5-5", input_tokens: Some(1000), output_tokens: Some(50),
-                            cache_tokens: None, cost: &cost, outcome: "ok", http_status: Some(200), latency_ms: 5, error: None,
-                            cache_write_tokens: None, session_key: Some(&request.attempt_id), route_mode: Some("native"),
-                            route_reason: None, facts: None, repeated_tokens: None,
-                        }).unwrap();
-                    }
-                    Act::Fail => outcome = "failed",
-                    Act::Nothing => {}
-                    Act::WaitForStop => {
-                        canceled(cancel).await;
-                        outcome = "canceled";
-                    }
-                }
-                let stat = isolation::changes(&worktree).unwrap();
-                Ok(TaskRun {
-                    id, agent: request.agent, model: request.model, workspace: request.workspace.to_string_lossy().into_owned(),
-                    worktree: worktree.path.to_string_lossy().into_owned(), base: worktree.base, outcome: outcome.into(),
-                    exit: match outcome { "ok" => "exit 0".into(), "timed_out" => "timed out".into(), _ => "exit 1".into() }, duration_ms: 5,
-                    files_changed: stat.files, insertions: stat.insertions, deletions: stat.deletions,
-                    usage: AgentUsage { input_tokens: Some(100), output_tokens, estimate_usd: estimate, ..AgentUsage::default() },
-                    // The attempt id the engine handed over, so a test can check it is the attempt's own.
-                    log_tail: request.attempt_id.clone(),
+                    let stat = isolation::changes(&worktree).unwrap();
+                    Ok(TaskRun {
+                        id,
+                        agent: request.agent,
+                        model: request.model,
+                        workspace: request.workspace.to_string_lossy().into_owned(),
+                        worktree: worktree.path.to_string_lossy().into_owned(),
+                        base: worktree.base,
+                        outcome: outcome.into(),
+                        exit: match outcome {
+                            "ok" => "exit 0".into(),
+                            "timed_out" => "timed out".into(),
+                            _ => "exit 1".into(),
+                        },
+                        duration_ms: 5,
+                        files_changed: stat.files,
+                        insertions: stat.insertions,
+                        deletions: stat.deletions,
+                        usage: AgentUsage {
+                            input_tokens: Some(100),
+                            output_tokens,
+                            estimate_usd: estimate,
+                            ..AgentUsage::default()
+                        },
+                        // The attempt id the engine handed over, so a test can check it is the attempt's own.
+                        log_tail: request.attempt_id.clone(),
+                    })
                 })
-            })
-        })
+            },
+        )
     }
 
     fn step(agent: &str, billing: &str, tier: u8) -> Step {
@@ -1716,14 +2133,26 @@ mod tests {
     }
 
     fn create(rig: &Rig, steps: Vec<Step>) -> String {
-        let new = NewTask { workspace_id: rig.workspace.clone(), title: None, prompt: "Make result.txt say good".into(),
-            strategy: "free_first".into(), steps, allow_shell: false, timeout_secs: None, handoff: None };
+        let new = NewTask {
+            workspace_id: rig.workspace.clone(),
+            title: None,
+            prompt: "Make result.txt say good".into(),
+            strategy: "free_first".into(),
+            steps,
+            allow_shell: false,
+            timeout_secs: None,
+            handoff: None,
+        };
         create_task(&lock(&rig.db), &new).unwrap()
     }
 
     /// A check that passes when result.txt contains "good".
     fn good_check() -> &'static str {
-        if cfg!(windows) { "findstr /c:good result.txt" } else { "grep -q good result.txt" }
+        if cfg!(windows) {
+            "findstr /c:good result.txt"
+        } else {
+            "grep -q good result.txt"
+        }
     }
 
     fn detail(rig: &Rig, id: &str) -> TaskDetail {
@@ -1732,13 +2161,25 @@ mod tests {
 
     #[tokio::test]
     async fn the_handoff_mode_decides_what_the_next_step_is_told_and_it_is_recorded_as_sent() {
-        for (mode, expect) in [("none", None), ("tail", Some("did not pass the")), ("evidence", Some(crate::handoff::VERSION))] {
+        for (mode, expect) in
+            [("none", None), ("tail", Some("did not pass the")), ("evidence", Some(crate::handoff::VERSION))]
+        {
             let rig = rig(&[good_check()]);
-            let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
-                fake(vec![Act::Write("result.txt", "bad\n"), Act::Write("result.txt", "good\n")], rig.prompts.clone()));
-            let new = NewTask { workspace_id: rig.workspace.clone(), title: None, prompt: "Make result.txt say good".into(),
-                strategy: "free_first".into(), steps: vec![step("opencode", "free", 1), step("codex", "subscription", 3)],
-                allow_shell: false, timeout_secs: None, handoff: Some(mode.into()) };
+            let runner = Runner::new(
+                rig.db.clone(),
+                rig.worktrees.clone(),
+                fake(vec![Act::Write("result.txt", "bad\n"), Act::Write("result.txt", "good\n")], rig.prompts.clone()),
+            );
+            let new = NewTask {
+                workspace_id: rig.workspace.clone(),
+                title: None,
+                prompt: "Make result.txt say good".into(),
+                strategy: "free_first".into(),
+                steps: vec![step("opencode", "free", 1), step("codex", "subscription", 3)],
+                allow_shell: false,
+                timeout_secs: None,
+                handoff: Some(mode.into()),
+            };
             let id = create_task(&lock(&rig.db), &new).unwrap();
             runner.start(&id).unwrap().await.unwrap();
 
@@ -1750,7 +2191,10 @@ mod tests {
             assert!(task.attempt_details[0].handoff_sent.is_none(), "the first step is given the task alone");
             assert_eq!(task.attempt_details[0].changed_paths, ["result.txt"], "kept after its worktree was removed");
             match expect {
-                None => { assert_eq!(second, "Make result.txt say good"); assert!(sent.is_none()); }
+                None => {
+                    assert_eq!(second, "Make result.txt say good");
+                    assert!(sent.is_none());
+                }
                 Some(marker) => {
                     let sent = sent.unwrap_or_else(|| panic!("{mode}: nothing recorded"));
                     assert!(sent.contains(marker), "{mode}: {sent}");
@@ -1764,8 +2208,16 @@ mod tests {
             }
         }
         let rig = rig(&[good_check()]);
-        let bad = NewTask { workspace_id: rig.workspace.clone(), title: None, prompt: "x".into(), strategy: "free_first".into(),
-            steps: vec![step("codex", "subscription", 3)], allow_shell: false, timeout_secs: None, handoff: Some("memory".into()) };
+        let bad = NewTask {
+            workspace_id: rig.workspace.clone(),
+            title: None,
+            prompt: "x".into(),
+            strategy: "free_first".into(),
+            steps: vec![step("codex", "subscription", 3)],
+            allow_shell: false,
+            timeout_secs: None,
+            handoff: Some("memory".into()),
+        };
         assert!(create_task(&lock(&rig.db), &bad).unwrap_err().contains("Unknown handoff"));
     }
 
@@ -1773,12 +2225,21 @@ mod tests {
     async fn a_step_that_twice_timed_out_without_answering_is_skipped_unless_it_is_the_last() {
         let rig = rig(&[good_check()]);
         let good = || Act::Write("result.txt", "good\n");
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(), fake(vec![
-            Act::TimeOut, good(),   // task 1
-            Act::TimeOut, good(),   // task 2
-            good(),                 // task 3: its first step is skipped, so the next act is step 2's
-            Act::TimeOut,           // task 4: a one-step ladder still tries its only step
-        ], rig.prompts.clone()));
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(
+                vec![
+                    Act::TimeOut,
+                    good(), // task 1
+                    Act::TimeOut,
+                    good(),       // task 2
+                    good(),       // task 3: its first step is skipped, so the next act is step 2's
+                    Act::TimeOut, // task 4: a one-step ladder still tries its only step
+                ],
+                rig.prompts.clone(),
+            ),
+        );
         let ladder = || vec![step("opencode", "free", 0), step("codex", "subscription", 3)];
         for expected in [["failed", "passed"], ["failed", "passed"]] {
             let id = create(&rig, ladder());
@@ -1808,8 +2269,11 @@ mod tests {
     #[tokio::test]
     async fn a_failed_check_moves_to_the_next_step_with_what_failed() {
         let rig = rig(&[good_check()]);
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
-            fake(vec![Act::Write("result.txt", "bad\n"), Act::Write("result.txt", "good\n")], rig.prompts.clone()));
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(vec![Act::Write("result.txt", "bad\n"), Act::Write("result.txt", "good\n")], rig.prompts.clone()),
+        );
         let id = create(&rig, vec![step("opencode", "free", 1), step("codex", "subscription", 3)]);
         runner.start(&id).unwrap().await.unwrap();
 
@@ -1817,11 +2281,21 @@ mod tests {
         assert_eq!(task.summary.state, "checks_passed", "{:?}", task.reason);
         let outcomes: Vec<&str> = task.attempt_details.iter().map(|a| a.outcome.as_str()).collect();
         assert_eq!(outcomes, ["failed", "passed"]);
-        assert!(!task.attempt_details[0].open && task.attempt_details[1].open, "the failed attempt's worktree is gone, the result's stays");
-        assert_eq!(task.attempt_details[0].escalation_reason.as_deref(), Some(format!("`{}` exited 1", good_check()).as_str()));
+        assert!(
+            !task.attempt_details[0].open && task.attempt_details[1].open,
+            "the failed attempt's worktree is gone, the result's stays"
+        );
+        assert_eq!(
+            task.attempt_details[0].escalation_reason.as_deref(),
+            Some(format!("`{}` exited 1", good_check()).as_str())
+        );
         let prompts = rig.prompts.lock().unwrap().clone();
         assert_eq!(prompts[0], "Make result.txt say good");
-        assert!(prompts[1].starts_with("Make result.txt say good\n\n---\n") && prompts[1].contains("did not pass"), "{}", prompts[1]);
+        assert!(
+            prompts[1].starts_with("Make result.txt say good\n\n---\n") && prompts[1].contains("did not pass"),
+            "{}",
+            prompts[1]
+        );
         // Each attempt has its own ledger entry, with an unknown cost.
         assert_eq!(task.summary.cost.unknown_calls, 2);
         // Each agent run was told which attempt it is (PYGG_ATTEMPT_ID), so a gateway can tie requests to it.
@@ -1840,16 +2314,30 @@ mod tests {
         // Quality signals (ROADMAP C4): one attempt failed its checks, one passed, and the result was kept.
         let q = quality(&lock(&rig.db), 0).unwrap();
         assert_eq!((q.tasks, q.checked_attempts, q.passed_attempts, q.kept, q.discarded), (1, 2, 1, 1, 0));
-        assert_eq!((q.unknown_entries, q.micro_usd_per_kept), (2, Some(0)), "agent runs cost unknown, never counted as $0 spent");
-        assert_eq!(std::fs::read_to_string(rig.repo.join("app.txt")).unwrap(), "one\n", "the user's checkout is untouched");
+        assert_eq!(
+            (q.unknown_entries, q.micro_usd_per_kept),
+            (2, Some(0)),
+            "agent runs cost unknown, never counted as $0 spent"
+        );
+        assert_eq!(
+            std::fs::read_to_string(rig.repo.join("app.txt")).unwrap(),
+            "one\n",
+            "the user's checkout is untouched"
+        );
     }
 
     #[tokio::test]
     async fn every_step_failing_ends_in_check_failed() {
         let rig = rig(&[good_check()]);
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
-            fake(vec![Act::Fail, Act::Nothing, Act::Write("result.txt", "bad\n")], rig.prompts.clone()));
-        let id = create(&rig, vec![step("opencode", "free", 1), step("opencode", "free", 1), step("codex", "subscription", 3)]);
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(vec![Act::Fail, Act::Nothing, Act::Write("result.txt", "bad\n")], rig.prompts.clone()),
+        );
+        let id = create(
+            &rig,
+            vec![step("opencode", "free", 1), step("opencode", "free", 1), step("codex", "subscription", 3)],
+        );
         runner.start(&id).unwrap().await.unwrap();
         let task = detail(&rig, &id);
         assert_eq!(task.summary.state, "check_failed");
@@ -1865,7 +2353,11 @@ mod tests {
     #[tokio::test]
     async fn without_checks_the_result_needs_review_and_keeping_it_accepts_it() {
         let rig = rig(&[]);
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(), fake(vec![Act::Write("new.txt", "x\n")], rig.prompts.clone()));
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(vec![Act::Write("new.txt", "x\n")], rig.prompts.clone()),
+        );
         let id = create(&rig, vec![step("codex", "subscription", 3)]);
         runner.start(&id).unwrap().await.unwrap();
         let task = detail(&rig, &id);
@@ -1882,8 +2374,11 @@ mod tests {
             conn.execute("INSERT INTO workspace_checks (id, workspace_id, command, source, approved) VALUES ('c', ?1, 'exit 0', 'package.json', 1)",
                 [&rig.workspace]).unwrap();
         }
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
-            fake(vec![Act::Write("package.json", "{\"scripts\":{\"test\":\"exit 0\"}}")], rig.prompts.clone()));
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(vec![Act::Write("package.json", "{\"scripts\":{\"test\":\"exit 0\"}}")], rig.prompts.clone()),
+        );
         let id = create(&rig, vec![step("codex", "subscription", 3)]);
         runner.start(&id).unwrap().await.unwrap();
         let task = detail(&rig, &id);
@@ -1897,8 +2392,11 @@ mod tests {
     #[tokio::test]
     async fn a_paid_step_waits_for_approval() {
         let rig = rig(&[good_check()]);
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
-            fake(vec![Act::Write("result.txt", "bad\n"), Act::Write("result.txt", "good\n")], rig.prompts.clone()));
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(vec![Act::Write("result.txt", "bad\n"), Act::Write("result.txt", "good\n")], rig.prompts.clone()),
+        );
         let id = create(&rig, vec![step("opencode", "free", 1), step("claude-code", "paid", 3)]);
         runner.start(&id).unwrap().await.unwrap();
         let task = detail(&rig, &id);
@@ -1910,7 +2408,10 @@ mod tests {
         let task = detail(&rig, &id);
         assert_eq!(task.summary.state, "checks_passed");
         assert_eq!(task.attempt_details.len(), 2, "the approved attempt is the one that ran");
-        assert!(rig.prompts.lock().unwrap()[1].contains("did not pass"), "the failure is still handed on after the wait");
+        assert!(
+            rig.prompts.lock().unwrap()[1].contains("did not pass"),
+            "the failure is still handed on after the wait"
+        );
     }
 
     #[tokio::test]
@@ -1918,9 +2419,12 @@ mod tests {
         let rig = rig(&[]);
         let seen: Arc<Mutex<Vec<String>>> = Arc::default();
         let log = seen.clone();
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
-            fake(vec![Act::Write("x.txt", "x")], rig.prompts.clone()))
-            .with_notify(Arc::new(move |_, state| log.lock().unwrap().push(state.to_string())));
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(vec![Act::Write("x.txt", "x")], rig.prompts.clone()),
+        )
+        .with_notify(Arc::new(move |_, state| log.lock().unwrap().push(state.to_string())));
         let paid = create(&rig, vec![step("claude-code", "paid", 3)]);
         runner.start(&paid).unwrap().await.unwrap();
         let free = create(&rig, vec![step("codex", "subscription", 3)]);
@@ -1931,13 +2435,20 @@ mod tests {
     #[tokio::test]
     async fn an_approval_needs_a_cap_and_shows_what_the_agent_cost_before() {
         let rig = rig(&[]);
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
-            fake(vec![Act::Costly("x.txt", "x", 0.12), Act::Costly("y.txt", "y", 0.30)], rig.prompts.clone()));
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(vec![Act::Costly("x.txt", "x", 0.12), Act::Costly("y.txt", "y", 0.30)], rig.prompts.clone()),
+        );
         let first = create(&rig, vec![step("claude-code", "paid", 3)]);
         runner.start(&first).unwrap().await.unwrap();
         let task = detail(&rig, &first);
         let approval = task.approval.unwrap();
-        assert_eq!((approval.estimate.runs, approval.estimate.high_micro_usd), (0, None), "no earlier run: no estimate");
+        assert_eq!(
+            (approval.estimate.runs, approval.estimate.high_micro_usd),
+            (0, None),
+            "no earlier run: no estimate"
+        );
         assert_eq!(approval.suggested_cap_usd, 0.5);
         assert!(approval.enforced_by_agent, "Claude Code stops at --max-budget-usd itself");
         assert_eq!(runner.decide(&first, true, None).unwrap_err(), "Set a spending cap for this paid step");
@@ -1949,17 +2460,29 @@ mod tests {
         let second = create(&rig, vec![step("claude-code", "paid", 3)]);
         runner.start(&second).unwrap().await.unwrap();
         let approval = detail(&rig, &second).approval.unwrap();
-        assert_eq!((approval.estimate.runs, approval.estimate.low_micro_usd, approval.estimate.high_micro_usd),
-            (1, Some(120_000), Some(120_000)));
+        assert_eq!(
+            (approval.estimate.runs, approval.estimate.low_micro_usd, approval.estimate.high_micro_usd),
+            (1, Some(120_000), Some(120_000))
+        );
         assert_eq!(approval.suggested_cap_usd, 0.2, "half again the highest, rounded up to 5 cents");
 
         // Another run of the same agent is recorded while the approval waits: the estimate it showed is stale.
-        lock(&rig.db).execute("UPDATE attempts SET agent_estimate_micro_usd = 900000 WHERE agent_estimate_micro_usd = 120000", []).unwrap();
+        lock(&rig.db)
+            .execute(
+                "UPDATE attempts SET agent_estimate_micro_usd = 900000 WHERE agent_estimate_micro_usd = 120000",
+                [],
+            )
+            .unwrap();
         assert!(runner.decide(&second, true, Some(200_000)).unwrap_err().contains("changed since you were asked"));
         let approval = detail(&rig, &second).approval.unwrap();
         assert_eq!(approval.estimate.high_micro_usd, Some(900_000), "a new approval is asked with the new estimate");
-        let states: Vec<String> = lock(&rig.db).prepare("SELECT state FROM approvals ORDER BY created_at").unwrap()
-            .query_map([], |r| r.get(0)).unwrap().map(|s| s.unwrap()).collect();
+        let states: Vec<String> = lock(&rig.db)
+            .prepare("SELECT state FROM approvals ORDER BY created_at")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|s| s.unwrap())
+            .collect();
         assert_eq!(states, ["approved", "invalidated", "pending"]);
         runner.decide(&second, true, Some(1_500_000)).unwrap().unwrap().await.unwrap();
         assert_eq!(detail(&rig, &second).summary.state, "needs_review");
@@ -1968,8 +2491,14 @@ mod tests {
     #[tokio::test]
     async fn a_paid_step_over_its_cap_stops_the_ladder() {
         let rig = rig(&[good_check()]);
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
-            fake(vec![Act::Costly("result.txt", "bad\n", 0.40), Act::Write("result.txt", "good\n")], rig.prompts.clone()));
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(
+                vec![Act::Costly("result.txt", "bad\n", 0.40), Act::Write("result.txt", "good\n")],
+                rig.prompts.clone(),
+            ),
+        );
         let id = create(&rig, vec![step("codex", "paid", 3), step("opencode", "free", 1)]);
         runner.start(&id).unwrap().await.unwrap();
         runner.decide(&id, true, Some(100_000)).unwrap().unwrap().await.unwrap();
@@ -1984,9 +2513,17 @@ mod tests {
     async fn a_step_through_pyggs_gateway_is_costed_and_capped_by_pyggs_ledger_not_by_the_agent() {
         // Priced: the ledger's $0.40 is the step's cost, over a $0.10 cap, though the agent estimated $0.
         let rig = rig(&[good_check()]);
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(), fake(vec![
-            Act::ThroughPygg("result.txt", "bad\n", Some(400_000), rig.db.clone()), Act::Write("result.txt", "good\n")],
-            rig.prompts.clone()));
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(
+                vec![
+                    Act::ThroughPygg("result.txt", "bad\n", Some(400_000), rig.db.clone()),
+                    Act::Write("result.txt", "good\n"),
+                ],
+                rig.prompts.clone(),
+            ),
+        );
         let id = create(&rig, vec![step("opencode", "paid", 2), step("opencode", "free", 1)]);
         runner.start(&id).unwrap().await.unwrap();
         runner.decide(&id, true, Some(100_000)).unwrap().unwrap().await.unwrap();
@@ -1995,26 +2532,41 @@ mod tests {
         let reason = task.reason.clone().unwrap();
         assert!(reason.contains("Pygg's ledger") && reason.contains("$0.40") && reason.contains("$0.10"), "{reason}");
         let a = &task.attempt_details[0];
-        assert_eq!((a.cost_source.as_deref(), a.agent_estimate_usd, a.unpriced_requests), (Some("pygg"), Some(0.40), 0));
+        assert_eq!(
+            (a.cost_source.as_deref(), a.agent_estimate_usd, a.unpriced_requests),
+            (Some("pygg"), Some(0.40), 0)
+        );
         assert_eq!(a.input_tokens, Some(1000), "the gateway's entry, not the agent's own as well");
         assert_eq!((task.summary.cost.estimated_usd, task.summary.cost.unknown_calls), (0.40, 0));
         // The agent's own entry for the run stays in the ledger, off the attempt.
-        let agent_rows: i64 = lock(&rig.db).query_row("SELECT COUNT(*) FROM usage_events WHERE route_mode = 'agent' \
-            AND attempt_id IS NULL AND session_key = ?1", [&a.id], |r| r.get(0)).unwrap();
+        let agent_rows: i64 = lock(&rig.db)
+            .query_row(
+                "SELECT COUNT(*) FROM usage_events WHERE route_mode = 'agent' \
+            AND attempt_id IS NULL AND session_key = ?1",
+                [&a.id],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(agent_rows, 1);
 
         // Unpriced: unknown, never $0; the cap could not be checked, and today's budget counts the whole cap.
         drop(rig);
         let rig = self::rig(&[good_check()]);
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
-            fake(vec![Act::ThroughPygg("result.txt", "good\n", None, rig.db.clone())], rig.prompts.clone()));
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(vec![Act::ThroughPygg("result.txt", "good\n", None, rig.db.clone())], rig.prompts.clone()),
+        );
         let id = create(&rig, vec![step("opencode", "paid", 2)]);
         runner.start(&id).unwrap().await.unwrap();
         runner.decide(&id, true, Some(100_000)).unwrap().unwrap().await.unwrap();
         let task = detail(&rig, &id);
         let reason = task.reason.clone().unwrap();
-        assert!(reason.contains("1 of this step's requests through Pygg had no price") && reason.contains("could not be checked"),
-            "{reason}");
+        assert!(
+            reason.contains("1 of this step's requests through Pygg had no price")
+                && reason.contains("could not be checked"),
+            "{reason}"
+        );
         let a = &task.attempt_details[0];
         assert_eq!((a.cost_source.as_deref(), a.agent_estimate_usd, a.unpriced_requests), (Some("pygg"), None, 1));
         assert_eq!(task.summary.cost.unknown_calls, 1);
@@ -2025,7 +2577,11 @@ mod tests {
     #[tokio::test]
     async fn a_cap_that_cannot_be_checked_is_said_so() {
         let rig = rig(&[]);
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(), fake(vec![Act::Write("x.txt", "x")], rig.prompts.clone()));
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(vec![Act::Write("x.txt", "x")], rig.prompts.clone()),
+        );
         let id = create(&rig, vec![step("codex", "paid", 3)]);
         runner.start(&id).unwrap().await.unwrap();
         runner.decide(&id, true, Some(100_000)).unwrap().unwrap().await.unwrap();
@@ -2036,8 +2592,14 @@ mod tests {
     #[tokio::test]
     async fn the_daily_budget_counts_paid_steps_and_bounds_approvals() {
         let rig = rig(&[]);
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
-            fake(vec![Act::Costly("x.txt", "x", 0.30), Act::Write("y.txt", "y"), Act::Write("z.txt", "z")], rig.prompts.clone()));
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(
+                vec![Act::Costly("x.txt", "x", 0.30), Act::Write("y.txt", "y"), Act::Write("z.txt", "z")],
+                rig.prompts.clone(),
+            ),
+        );
         set_daily_budget(&lock(&rig.db), Some(1_000_000)).unwrap();
 
         // A paid step that reported its cost counts at it; a free one does not count.
@@ -2046,15 +2608,20 @@ mod tests {
         runner.decide(&first, true, Some(500_000)).unwrap().unwrap().await.unwrap();
         let free = create(&rig, vec![step("opencode", "free", 1)]);
         runner.start(&free).unwrap().await.unwrap();
-        assert_eq!(day_budget(&lock(&rig.db)).unwrap(),
-            DayBudget { recorded_usd: 0.30, reserved_usd: 0.0, limit_usd: Some(1.0), unknown_calls: 0 });
+        assert_eq!(
+            day_budget(&lock(&rig.db)).unwrap(),
+            DayBudget { recorded_usd: 0.30, reserved_usd: 0.0, limit_usd: Some(1.0), unknown_calls: 0 }
+        );
 
         // A paid step that reported nothing counts at its whole cap.
         let second = create(&rig, vec![step("codex", "paid", 3)]);
         runner.start(&second).unwrap().await.unwrap();
         let approval = detail(&rig, &second).approval.unwrap();
         assert_eq!(approval.remaining_usd, Some(0.70));
-        assert!(runner.decide(&second, true, Some(800_000)).unwrap_err().contains("$0.70"), "a cap cannot pass what is left");
+        assert!(
+            runner.decide(&second, true, Some(800_000)).unwrap_err().contains("$0.70"),
+            "a cap cannot pass what is left"
+        );
         runner.decide(&second, true, Some(700_000)).unwrap().unwrap().await.unwrap();
         let budget = day_budget(&lock(&rig.db)).unwrap();
         assert_eq!((budget.recorded_usd, budget.unknown_calls), (1.0, 1));
@@ -2071,7 +2638,11 @@ mod tests {
     #[tokio::test]
     async fn changing_a_budget_invalidates_a_waiting_approval() {
         let rig = rig(&[]);
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(), fake(vec![Act::Write("x.txt", "x")], rig.prompts.clone()));
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(vec![Act::Write("x.txt", "x")], rig.prompts.clone()),
+        );
         let id = create(&rig, vec![step("claude-code", "paid", 3)]);
         runner.start(&id).unwrap().await.unwrap();
         set_workspace_budget(&lock(&rig.db), &rig.workspace, Some(2_000_000)).unwrap();
@@ -2085,7 +2656,11 @@ mod tests {
     #[tokio::test]
     async fn in_a_sensitive_workspace_every_step_asks_first() {
         let rig = rig(&[]);
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(), fake(vec![Act::Write("x.txt", "x")], rig.prompts.clone()));
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(vec![Act::Write("x.txt", "x")], rig.prompts.clone()),
+        );
         assert!(set_privacy(&lock(&rig.db), &rig.workspace, "secret").is_err());
         set_privacy(&lock(&rig.db), &rig.workspace, "sensitive").unwrap();
         let id = create(&rig, vec![step("opencode", "free", 1)]);
@@ -2104,8 +2679,11 @@ mod tests {
     #[tokio::test]
     async fn the_result_exports_as_a_patch_git_applies() {
         let rig = rig(&[]);
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(),
-            fake(vec![Act::Write("app.txt", "two\n")], rig.prompts.clone()));
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(vec![Act::Write("app.txt", "two\n")], rig.prompts.clone()),
+        );
         let id = create(&rig, vec![step("codex", "subscription", 3)]);
         runner.start(&id).unwrap().await.unwrap();
         let (name, patch) = result_patch(&lock(&rig.db), &id).unwrap();
@@ -2113,7 +2691,13 @@ mod tests {
         assert!(patch.starts_with("Pygg task: Make result.txt say good\n") && patch.contains("+two"), "{patch}");
         let file = rig.repo.parent().unwrap().join(&name);
         std::fs::write(&file, &patch).unwrap();
-        let apply = std::process::Command::new("git").arg("-C").arg(&rig.repo).args(["apply", "--check"]).arg(&file).output().unwrap();
+        let apply = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&rig.repo)
+            .args(["apply", "--check"])
+            .arg(&file)
+            .output()
+            .unwrap();
         assert!(apply.status.success(), "{}", String::from_utf8_lossy(&apply.stderr));
         assert_eq!(detail(&rig, &id).summary.state, "needs_review", "exporting leaves the result open");
     }
@@ -2133,7 +2717,8 @@ mod tests {
     #[tokio::test]
     async fn stopping_a_running_task_ends_its_attempt() {
         let rig = rig(&[]);
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(), fake(vec![Act::WaitForStop], rig.prompts.clone()));
+        let runner =
+            Runner::new(rig.db.clone(), rig.worktrees.clone(), fake(vec![Act::WaitForStop], rig.prompts.clone()));
         let id = create(&rig, vec![step("codex", "subscription", 3), step("opencode", "free", 1)]);
         let handle = runner.start(&id).unwrap();
         while rig.prompts.lock().unwrap().is_empty() {
@@ -2157,18 +2742,31 @@ mod tests {
         {
             let conn = lock(&rig.db);
             let row = task_row(&conn, &id).unwrap();
-            let Opened::Run(_) = open_attempt(&conn, &id, &row.stage_id, 0, &row.policy.steps[0]).unwrap() else { panic!() };
+            let Opened::Run(_) = open_attempt(&conn, &id, &row.stage_id, 0, &row.policy.steps[0]).unwrap() else {
+                panic!()
+            };
             assert_eq!(recover(&conn, &rig.worktrees).unwrap(), 1);
         }
         assert!(!leftover.exists(), "a worktree nobody needs is removed");
         let task = detail(&rig, &id);
-        assert_eq!((task.summary.state.as_str(), task.attempt_details[0].outcome.as_str()), ("interrupted", "canceled"));
+        assert_eq!(
+            (task.summary.state.as_str(), task.attempt_details[0].outcome.as_str()),
+            ("interrupted", "canceled")
+        );
 
-        let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(), fake(vec![Act::Write("x.txt", "x")], rig.prompts.clone()));
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(vec![Act::Write("x.txt", "x")], rig.prompts.clone()),
+        );
         runner.retry(&id).unwrap().unwrap().await.unwrap();
         let task = detail(&rig, &id);
         assert_eq!(task.summary.state, "needs_review");
-        assert_eq!(task.attempt_details.iter().map(|a| (a.number, a.step)).collect::<Vec<_>>(), [(1, 0), (2, 0)], "the same step runs again");
+        assert_eq!(
+            task.attempt_details.iter().map(|a| (a.number, a.step)).collect::<Vec<_>>(),
+            [(1, 0), (2, 0)],
+            "the same step runs again"
+        );
     }
 
     #[tokio::test]
@@ -2189,14 +2787,32 @@ mod tests {
     fn creating_a_task_checks_what_it_is_given() {
         let rig = rig(&[good_check()]);
         let conn = lock(&rig.db);
-        let base = NewTask { workspace_id: rig.workspace.clone(), title: None, prompt: "  ".into(), strategy: "free_first".into(),
-            steps: vec![step("codex", "subscription", 3)], allow_shell: false, timeout_secs: None, handoff: None };
+        let base = NewTask {
+            workspace_id: rig.workspace.clone(),
+            title: None,
+            prompt: "  ".into(),
+            strategy: "free_first".into(),
+            steps: vec![step("codex", "subscription", 3)],
+            allow_shell: false,
+            timeout_secs: None,
+            handoff: None,
+        };
         assert_eq!(create_task(&conn, &base).unwrap_err(), "Describe the task");
         let prompt = "Fix it".to_string();
         assert!(create_task(&conn, &NewTask { prompt: prompt.clone(), steps: vec![], ..base.clone() }).is_err());
-        assert!(create_task(&conn, &NewTask { prompt: prompt.clone(), steps: vec![step("cursor", "paid", 3)], ..base.clone() }).is_err());
-        assert!(create_task(&conn, &NewTask { prompt: prompt.clone(), steps: vec![step("codex", "paid", 7)], ..base.clone() }).is_err());
-        assert!(create_task(&conn, &NewTask { prompt: prompt.clone(), strategy: "yolo".into(), ..base.clone() }).is_err());
+        assert!(create_task(
+            &conn,
+            &NewTask { prompt: prompt.clone(), steps: vec![step("cursor", "paid", 3)], ..base.clone() }
+        )
+        .is_err());
+        assert!(create_task(
+            &conn,
+            &NewTask { prompt: prompt.clone(), steps: vec![step("codex", "paid", 7)], ..base.clone() }
+        )
+        .is_err());
+        assert!(
+            create_task(&conn, &NewTask { prompt: prompt.clone(), strategy: "yolo".into(), ..base.clone() }).is_err()
+        );
         let id = create_task(&conn, &NewTask { prompt: "Fix the timeout\nand more".into(), ..base.clone() }).unwrap();
         let task = task_detail(&conn, &id).unwrap();
         assert_eq!(task.summary.title, "Fix the timeout");
@@ -2215,14 +2831,20 @@ mod tests {
         std::fs::write(repo.join("Cargo.toml"), "[package]").unwrap();
         let ws = add_workspace(&conn, &format!("\"{}\"", repo.display()), None).unwrap();
         assert_eq!(ws.name, "repo");
-        assert_eq!(ws.checks.iter().map(|c| (c.command.as_str(), c.approved)).collect::<Vec<_>>(),
-            [("cargo check", false), ("cargo test", false)], "detected checks are suggestions");
+        assert_eq!(
+            ws.checks.iter().map(|c| (c.command.as_str(), c.approved)).collect::<Vec<_>>(),
+            [("cargo check", false), ("cargo test", false)],
+            "detected checks are suggestions"
+        );
         assert!(add_workspace(&conn, &repo.to_string_lossy(), None).unwrap_err().contains("already"));
         set_check(&conn, &ws.id, "cargo test", true).unwrap();
         add_check(&conn, &ws.id, "cargo clippy").unwrap();
         assert!(add_check(&conn, &ws.id, "a\nb").is_err());
         let ws = workspace(&conn, &ws.id).unwrap();
-        assert_eq!(ws.checks.iter().filter(|c| c.approved).map(|c| c.command.as_str()).collect::<Vec<_>>(), ["cargo test", "cargo clippy"]);
+        assert_eq!(
+            ws.checks.iter().filter(|c| c.approved).map(|c| c.command.as_str()).collect::<Vec<_>>(),
+            ["cargo test", "cargo clippy"]
+        );
         remove_workspace(&conn, &ws.id).unwrap();
         assert!(list_workspaces(&conn).unwrap().is_empty());
     }

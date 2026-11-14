@@ -1,0 +1,4 @@
+# The code is written to 120 columns; one line per call or signature while it fits.
+max_width = 120
+use_small_heuristics = "Max"
+fn_params_layout = "Compressed"

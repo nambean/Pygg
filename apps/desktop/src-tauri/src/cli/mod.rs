@@ -64,9 +64,11 @@ Exit codes: 0 done, 1 failed, 2 wrong usage, 3 a check found a problem; `run` re
 /// Where providers are connected and the gateway runs, on this platform: the desktop app on Windows; elsewhere, where
 /// no app is published yet, the headless gateway (ADR-037).
 #[cfg(windows)]
-pub(crate) const GET_STARTED: &str = "Connect providers in the Pygg desktop app, which also runs the gateway: https://github.com/nambean/Pygg";
+pub(crate) const GET_STARTED: &str =
+    "Connect providers in the Pygg desktop app, which also runs the gateway: https://github.com/nambean/Pygg";
 #[cfg(not(windows))]
-pub(crate) const GET_STARTED: &str = "The Pygg desktop app is Windows only for now. Here, connect a provider and run the gateway from the terminal:
+pub(crate) const GET_STARTED: &str =
+    "The Pygg desktop app is Windows only for now. Here, connect a provider and run the gateway from the terminal:
   pygg gateway add-connection --preset openrouter --key-env OPENROUTER_API_KEY
   pygg gateway serve";
 #[cfg(windows)]
@@ -83,8 +85,22 @@ pub(crate) const MAKE_STORE: &str = "open the Pygg desktop app once";
 pub(crate) const MAKE_STORE: &str = "run `pygg gateway list` once, which makes it";
 
 /// Every command `pygg` knows, for "did you mean" (`suggest`).
-const COMMANDS: &[&str] = &["setup", "run", "status", "doctor", "providers", "models", "logs", "usage", "gateway",
-    "diagnostics", "mcp", "agent", "help", "version"];
+const COMMANDS: &[&str] = &[
+    "setup",
+    "run",
+    "status",
+    "doctor",
+    "providers",
+    "models",
+    "logs",
+    "usage",
+    "gateway",
+    "diagnostics",
+    "mcp",
+    "agent",
+    "help",
+    "version",
+];
 
 /// The known command closest to a mistyped one, if it is a slip (at most two letters off) and not a guess.
 fn suggest(typed: &str) -> Option<&'static str> {
@@ -128,7 +144,10 @@ pub fn data_dir(env: impl Fn(&str) -> Option<std::ffi::OsString>, os: &str) -> O
     let base = match os {
         "windows" => env("APPDATA").map(PathBuf::from).or_else(|| home().map(|h| h.join("AppData").join("Roaming"))),
         "macos" => home().map(|h| h.join("Library").join("Application Support")),
-        _ => env("XDG_DATA_HOME").filter(|d| !d.is_empty()).map(PathBuf::from).or_else(|| home().map(|h| h.join(".local").join("share"))),
+        _ => env("XDG_DATA_HOME")
+            .filter(|d| !d.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| home().map(|h| h.join(".local").join("share"))),
     }?;
     Some(base.join(ID))
 }
@@ -140,8 +159,11 @@ pub(crate) fn flag(args: &[String], name: &str) -> Option<String> {
 /// The store's schema version, read without migrating it.
 fn schema_of(store: &Path) -> Result<u32, String> {
     use rusqlite::OpenFlags;
-    let conn = rusqlite::Connection::open_with_flags(store, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
-        .map_err(|e| e.to_string())?;
+    let conn = rusqlite::Connection::open_with_flags(
+        store,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(|e| e.to_string())?;
     conn.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(|e| e.to_string())
 }
 
@@ -159,7 +181,13 @@ pub(crate) async fn health_quick(port: u16) -> Result<(), String> {
 async fn health_within(port: u16, wait: Duration) -> Result<serde_json::Value, String> {
     let client = reqwest::Client::builder().timeout(wait).build().map_err(|e| e.to_string())?;
     let response = client.get(format!("http://127.0.0.1:{port}/health")).send().await.map_err(|e| {
-        if e.is_connect() { "nothing is listening".to_string() } else if e.is_timeout() { "no answer in time".to_string() } else { e.to_string() }
+        if e.is_connect() {
+            "nothing is listening".to_string()
+        } else if e.is_timeout() {
+            "no answer in time".to_string()
+        } else {
+            e.to_string()
+        }
     })?;
     if !response.status().is_success() {
         return Err(format!("an answer that is not Pygg's (HTTP {})", response.status().as_u16()));
@@ -198,42 +226,71 @@ async fn status_of(opts: &Opts) -> Result<(StoreOut, GatewayOut, bool), Fail> {
     let path = read::store_path(opts);
     let exists = path.as_ref().is_some_and(|p| p.is_file());
     let schema = path.as_ref().filter(|_| exists).and_then(|p| schema_of(p).ok());
-    let conn = path.as_ref().filter(|_| exists).and_then(|p| rusqlite::Connection::open_with_flags(p,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX).ok());
+    let conn = path.as_ref().filter(|_| exists).and_then(|p| {
+        rusqlite::Connection::open_with_flags(
+            p,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .ok()
+    });
     let port = read::gateway_port(opts, conn.as_ref())?;
     let url = format!("http://127.0.0.1:{port}");
     let gateway = match health(port).await {
-        Ok(h) => GatewayOut { url, answering: true, accounting: h["accounting"].as_str().map(String::from),
-            error: h["accountingError"].as_str().map(String::from) },
+        Ok(h) => GatewayOut {
+            url,
+            answering: true,
+            accounting: h["accounting"].as_str().map(String::from),
+            error: h["accountingError"].as_str().map(String::from),
+        },
         Err(e) => GatewayOut { url, answering: false, accounting: None, error: Some(e) },
     };
-    let ok = exists && schema == Some(crate::db::SCHEMA_VERSION) && gateway.answering && gateway.accounting.as_deref() == Some("ok");
-    let store = StoreOut { served: path.as_ref().is_some_and(|p| exists && crate::gateway::store_in_use(p)),
-        path: path.map(|p| p.display().to_string()), exists, schema, expected_schema: crate::db::SCHEMA_VERSION };
+    let ok = exists
+        && schema == Some(crate::db::SCHEMA_VERSION)
+        && gateway.answering
+        && gateway.accounting.as_deref() == Some("ok");
+    let store = StoreOut {
+        served: path.as_ref().is_some_and(|p| exists && crate::gateway::store_in_use(p)),
+        path: path.map(|p| p.display().to_string()),
+        exists,
+        schema,
+        expected_schema: crate::db::SCHEMA_VERSION,
+    };
     Ok((store, gateway, ok))
 }
 
 fn print_status(store: &StoreOut, gateway: &GatewayOut) {
     match (&store.path, store.exists) {
-        (Some(p), true) => println!("Store       {p} ({})", if store.served { "served by a running Pygg" } else { "not served" }),
+        (Some(p), true) => {
+            println!("Store       {p} ({})", if store.served { "served by a running Pygg" } else { "not served" })
+        }
         (Some(p), false) => println!("Store       {p} (not created yet: {MAKE_STORE})"),
         (None, _) => println!("Store       not found: pass --db PATH"),
     }
     match store.schema {
         Some(v) if v == store.expected_schema => println!("Schema      v{v}, as this program expects"),
-        Some(v) if v < store.expected_schema =>
-            println!("Schema      v{v}; this program knows v{}. To update it, {MAKE_STORE}.", store.expected_schema),
-        Some(v) => println!("Schema      v{v} is newer than this program (v{}): update @pygg/cli", store.expected_schema),
+        Some(v) if v < store.expected_schema => {
+            println!("Schema      v{v}; this program knows v{}. To update it, {MAKE_STORE}.", store.expected_schema)
+        }
+        Some(v) => {
+            println!("Schema      v{v} is newer than this program (v{}): update @pygg/cli", store.expected_schema)
+        }
         None => {}
     }
     if gateway.answering {
-        println!("Gateway     {} answers, accounting {}", gateway.url, gateway.accounting.as_deref().unwrap_or("unknown"));
+        println!(
+            "Gateway     {} answers, accounting {}",
+            gateway.url,
+            gateway.accounting.as_deref().unwrap_or("unknown")
+        );
         if let Some(e) = &gateway.error {
             println!("            {e}");
         }
     } else {
-        println!("Gateway     {}: {}. Next: {START_GATEWAY}.", gateway.url,
-            gateway.error.as_deref().unwrap_or("not answering"));
+        println!(
+            "Gateway     {}: {}. Next: {START_GATEWAY}.",
+            gateway.url,
+            gateway.error.as_deref().unwrap_or("not answering")
+        );
     }
 }
 
@@ -257,8 +314,12 @@ async fn status(args: &[String]) -> Result<i32, Fail> {
     let opts = Opts::parse("status", args, &["json"], &["db", "port"])?;
     let (store, gateway, ok) = status_of(&opts).await?;
     if opts.has("json") {
-        println!("{}", serde_json::to_string_pretty(&json!({ "schemaVersion": read::JSON_SCHEMA, "ok": ok, "store": store,
-            "gateway": gateway })).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({ "schemaVersion": read::JSON_SCHEMA, "ok": ok, "store": store,
+            "gateway": gateway }))
+            .unwrap_or_default()
+        );
     } else {
         print_status(&store, &gateway);
     }
@@ -269,15 +330,26 @@ async fn doctor(args: &[String]) -> Result<i32, Fail> {
     let opts = Opts::parse("doctor", args, &["json"], &["db", "port"])?;
     let (store, gateway, mut ok) = status_of(&opts).await?;
     let conn = read::open_read(&opts).ok();
-    let tools = match &conn { Some(c) => setup::tool_states(c).await, None => Vec::new() };
+    let tools = match &conn {
+        Some(c) => setup::tool_states(c).await,
+        None => Vec::new(),
+    };
     let agents = crate::agents::detect().await;
     let attention = conn.as_ref().map(read::attention).unwrap_or_default();
     ok &= attention.is_empty();
     if opts.has("json") {
-        let tools: Vec<_> = tools.iter().map(|t| json!({ "name": t.name, "installed": t.installed, "setUp": t.set_up, "state": t.state })).collect();
-        let agents: Vec<_> = agents.iter().map(|a| json!({ "id": a.id, "installed": a.installed, "version": a.version })).collect();
-        println!("{}", serde_json::to_string_pretty(&json!({ "schemaVersion": read::JSON_SCHEMA, "ok": ok, "store": store,
-            "gateway": gateway, "tools": tools, "agents": agents, "providersNeedingAttention": attention })).unwrap_or_default());
+        let tools: Vec<_> = tools
+            .iter()
+            .map(|t| json!({ "name": t.name, "installed": t.installed, "setUp": t.set_up, "state": t.state }))
+            .collect();
+        let agents: Vec<_> =
+            agents.iter().map(|a| json!({ "id": a.id, "installed": a.installed, "version": a.version })).collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({ "schemaVersion": read::JSON_SCHEMA, "ok": ok, "store": store,
+            "gateway": gateway, "tools": tools, "agents": agents, "providersNeedingAttention": attention }))
+            .unwrap_or_default()
+        );
         return Ok(if ok { 0 } else { 3 });
     }
     print_status(&store, &gateway);
@@ -289,7 +361,12 @@ async fn doctor(args: &[String]) -> Result<i32, Fail> {
     }
     println!("\nAgents found on this computer");
     for a in &agents {
-        println!("  {:<12} {:<10} {}", a.id, if a.installed { "installed" } else { "not found" }, a.version.clone().unwrap_or_default());
+        println!(
+            "  {:<12} {:<10} {}",
+            a.id,
+            if a.installed { "installed" } else { "not found" },
+            a.version.clone().unwrap_or_default()
+        );
     }
     if conn.is_some() {
         if attention.is_empty() {
@@ -307,18 +384,35 @@ async fn doctor(args: &[String]) -> Result<i32, Fail> {
 /// Writes the diagnostics bundle of the store to `--out`, reading the store without migrating it.
 async fn diagnostics(args: &[String]) -> Result<PathBuf, String> {
     let out = flag(args, "--out").map(PathBuf::from).ok_or("pass --out PATH, the zip to write")?;
-    let store = flag(args, "--db").map(PathBuf::from).or_else(default_store).filter(|p| p.is_file())
+    let store = flag(args, "--db")
+        .map(PathBuf::from)
+        .or_else(default_store)
+        .filter(|p| p.is_file())
         .ok_or("no store found: pass --db")?;
     let port: u16 = flag(args, "--port").and_then(|p| p.parse().ok()).unwrap_or(crate::gateway::DEFAULT_PORT);
     let (gateway_state, gateway_error) = match health(port).await {
-        Ok(h) => (format!("answers: {}, accounting {}", h["app"].as_str().unwrap_or("unknown"),
-            h["accounting"].as_str().unwrap_or("unknown")), h["accountingError"].as_str().map(String::from)),
+        Ok(h) => (
+            format!(
+                "answers: {}, accounting {}",
+                h["app"].as_str().unwrap_or("unknown"),
+                h["accounting"].as_str().unwrap_or("unknown")
+            ),
+            h["accountingError"].as_str().map(String::from),
+        ),
         Err(e) => ("not answering".to_string(), Some(e)),
     };
-    let context = crate::diagnostics::Context { made_by: "cli", gateway_state, gateway_port: port, gateway_error,
-        log_lines: Vec::new() };
-    let conn = rusqlite::Connection::open_with_flags(&store, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX)
-        .map_err(|e| format!("could not open {}: {e}", store.display()))?;
+    let context = crate::diagnostics::Context {
+        made_by: "cli",
+        gateway_state,
+        gateway_port: port,
+        gateway_error,
+        log_lines: Vec::new(),
+    };
+    let conn = rusqlite::Connection::open_with_flags(
+        &store,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(|e| format!("could not open {}: {e}", store.display()))?;
     conn.busy_timeout(Duration::from_secs(5)).map_err(|e| e.to_string())?;
     let zip = crate::diagnostics::bundle(&conn, &context, crate::db::now_ms())?;
     std::fs::write(&out, zip).map_err(|e| format!("could not write {}: {e}", out.display()))?;
@@ -332,9 +426,15 @@ pub async fn run(mut args: Vec<String>) -> i32 {
     }
     let command = args.remove(0);
     // A command's own --help, before anything is opened.
-    let help = |text: &str| { println!("{text}"); 0 };
+    let help = |text: &str| {
+        println!("{text}");
+        0
+    };
     match command.as_str() {
-        "-V" | "--version" | "version" => { println!("pygg-cli {}", env!("CARGO_PKG_VERSION")); 0 }
+        "-V" | "--version" | "version" => {
+            println!("pygg-cli {}", env!("CARGO_PKG_VERSION"));
+            0
+        }
         "status" if wants_help(&args) => help(STATUS_HELP),
         "status" => read::finish(status(&args).await),
         "doctor" if wants_help(&args) => help(DOCTOR_HELP),
@@ -350,17 +450,35 @@ pub async fn run(mut args: Vec<String>) -> i32 {
         // `pygg mcp setup …` registers the server; a bare `pygg mcp` is started by the program before its runtime
         // (bin/pygg-cli.rs), since the MCP server runs its own.
         "mcp" if args.first().map(String::as_str) == Some("setup") => setup::run_mcp(args[1..].to_vec()).await,
-        "mcp" => { eprintln!("pygg: start the MCP server as `pygg mcp`; register it with `pygg mcp setup`."); 2 }
-        "gateway" => { gateway::run(args).await; 0 }
-        "agent" => { agent::run(args).await; 0 }
+        "mcp" => {
+            eprintln!("pygg: start the MCP server as `pygg mcp`; register it with `pygg mcp setup`.");
+            2
+        }
+        "gateway" => {
+            gateway::run(args).await;
+            0
+        }
+        "agent" => {
+            agent::run(args).await;
+            0
+        }
         "setup" => setup::run(args).await,
         "run" => run::run(args).await,
         "diagnostics" if wants_help(&args) => help(DIAGNOSTICS_HELP),
         "diagnostics" => match diagnostics(&args).await {
-            Ok(path) => { println!("Saved {} (no keys, tokens, prompts or agent output; see README.txt inside)", path.display()); 0 }
-            Err(e) => { eprintln!("pygg: {e}"); 1 }
+            Ok(path) => {
+                println!("Saved {} (no keys, tokens, prompts or agent output; see README.txt inside)", path.display());
+                0
+            }
+            Err(e) => {
+                eprintln!("pygg: {e}");
+                1
+            }
         },
-        "-h" | "--help" | "help" => { println!("{HELP}\n\n{GET_STARTED}"); 0 }
+        "-h" | "--help" | "help" => {
+            println!("{HELP}\n\n{GET_STARTED}");
+            0
+        }
         other => {
             match suggest(other) {
                 Some(close) => eprintln!("pygg: unknown command {other}. Did you mean `pygg {close}`?"),
@@ -399,7 +517,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = dir.path().join("store.sqlite3");
         let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port().to_string();
-        let args = |extra: &[&str]| ["--db", store.to_str().unwrap()].iter().chain(extra).map(|s| s.to_string()).collect::<Vec<_>>();
+        let args = |extra: &[&str]| {
+            ["--db", store.to_str().unwrap()].iter().chain(extra).map(|s| s.to_string()).collect::<Vec<_>>()
+        };
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         assert_eq!(rt.block_on(status(&args(&["--port", &port]))), Ok(3), "no store, no gateway: a problem found");
         assert_eq!(rt.block_on(status(&args(&["--port", "nonsense"]))).unwrap_err().code, 2);
@@ -410,17 +530,31 @@ mod tests {
     #[test]
     fn the_store_is_where_the_app_keeps_it_on_each_platform() {
         use std::ffi::OsString;
-        let env = |pairs: &'static [(&'static str, &'static str)]| move |name: &str|
-            pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| OsString::from(v));
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| OsString::from(v))
+        };
         let id = "app.smarttaskrouter.desktop";
-        assert_eq!(data_dir(env(&[("APPDATA", "C:/Users/a/AppData/Roaming")]), "windows").unwrap(),
-            PathBuf::from("C:/Users/a/AppData/Roaming").join(id));
-        assert_eq!(data_dir(env(&[("HOME", "/Users/a")]), "macos").unwrap(),
-            PathBuf::from("/Users/a/Library/Application Support").join(id));
-        assert_eq!(data_dir(env(&[("HOME", "/home/a")]), "linux").unwrap(), PathBuf::from("/home/a/.local/share").join(id));
-        assert_eq!(data_dir(env(&[("HOME", "/home/a"), ("XDG_DATA_HOME", "/data")]), "linux").unwrap(), PathBuf::from("/data").join(id));
+        assert_eq!(
+            data_dir(env(&[("APPDATA", "C:/Users/a/AppData/Roaming")]), "windows").unwrap(),
+            PathBuf::from("C:/Users/a/AppData/Roaming").join(id)
+        );
+        assert_eq!(
+            data_dir(env(&[("HOME", "/Users/a")]), "macos").unwrap(),
+            PathBuf::from("/Users/a/Library/Application Support").join(id)
+        );
+        assert_eq!(
+            data_dir(env(&[("HOME", "/home/a")]), "linux").unwrap(),
+            PathBuf::from("/home/a/.local/share").join(id)
+        );
+        assert_eq!(
+            data_dir(env(&[("HOME", "/home/a"), ("XDG_DATA_HOME", "/data")]), "linux").unwrap(),
+            PathBuf::from("/data").join(id)
+        );
         // PYGG_DATA_DIR is the folder itself, as the app reads it.
-        assert_eq!(data_dir(env(&[("HOME", "/home/a"), ("PYGG_DATA_DIR", "/tmp/try")]), "linux").unwrap(), PathBuf::from("/tmp/try"));
+        assert_eq!(
+            data_dir(env(&[("HOME", "/home/a"), ("PYGG_DATA_DIR", "/tmp/try")]), "linux").unwrap(),
+            PathBuf::from("/tmp/try")
+        );
         assert_eq!(data_dir(env(&[]), "linux"), None);
     }
 
@@ -445,7 +579,9 @@ mod tests {
         let out = dir.path().join("bundle.zip");
         let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port().to_string();
         let args: Vec<String> = ["--db", store.to_str().unwrap(), "--out", out.to_str().unwrap(), "--port", &port]
-            .iter().map(|s| s.to_string()).collect();
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         assert_eq!(rt.block_on(diagnostics(&args)).unwrap(), out);
         let bytes = std::fs::read(&out).unwrap();

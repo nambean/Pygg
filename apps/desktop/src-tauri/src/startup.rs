@@ -11,8 +11,15 @@ use std::path::Path;
 pub fn store_failed(dir: &Path, path: &Path, e: &rusqlite::Error) -> Result<Connection, Box<dyn std::error::Error>> {
     let copies = backup::list(dir);
     let problem = db::problem(e);
-    applog::line("error", &format!("could not open {}: {e} ({problem:?}); {} daily copies in {}", path.display(), copies.len(),
-        backup::folder(dir).display()));
+    applog::line(
+        "error",
+        &format!(
+            "could not open {}: {e} ({problem:?}); {} daily copies in {}",
+            path.display(),
+            copies.len(),
+            backup::folder(dir).display()
+        ),
+    );
     let newest = copies.last().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned());
     match (problem, newest) {
         (db::Problem::Damaged, Some(newest)) => {
@@ -25,21 +32,36 @@ pub fn store_failed(dir: &Path, path: &Path, e: &rusqlite::Error) -> Result<Conn
                 return Err(e.to_string().into());
             }
             let (copy, aside) = backup::restore_newest(dir, db::now_ms())?;
-            applog::warn(&format!("restored {} over the store; the damaged store is {}", copy.display(), aside.display()));
+            applog::warn(&format!(
+                "restored {} over the store; the damaged store is {}",
+                copy.display(),
+                aside.display()
+            ));
             let conn = db::open(path)?;
             db::check(&conn)?;
             Ok(conn)
         }
         (problem, _) => {
             tell(&match problem {
-                db::Problem::Damaged => format!("Pygg's store is damaged and cannot be opened:\n{e}\n\nThere is no daily copy \
-                    to restore yet. The store is {}; report the problem with that file kept.", path.display()),
+                db::Problem::Damaged => format!(
+                    "Pygg's store is damaged and cannot be opened:\n{e}\n\nThere is no daily copy \
+                    to restore yet. The store is {}; report the problem with that file kept.",
+                    path.display()
+                ),
                 db::Problem::Busy => "Another Pygg process holds the store (a `pygg gateway serve`, or a Pygg that is \
-                    closing). Stop it and open Pygg again.".to_string(),
-                db::Problem::Newer => "This store was written by a newer version of Pygg. Install that version again; an \
-                    older one does not write a newer store.".to_string(),
-                db::Problem::Full => "The disk holding Pygg's data is full. Free some space and open Pygg again.".to_string(),
-                db::Problem::Other => format!("Pygg could not open its store:\n{e}\n\nThe store is {}.", path.display()),
+                    closing). Stop it and open Pygg again."
+                    .to_string(),
+                db::Problem::Newer => {
+                    "This store was written by a newer version of Pygg. Install that version again; an \
+                    older one does not write a newer store."
+                        .to_string()
+                }
+                db::Problem::Full => {
+                    "The disk holding Pygg's data is full. Free some space and open Pygg again.".to_string()
+                }
+                db::Problem::Other => {
+                    format!("Pygg could not open its store:\n{e}\n\nThe store is {}.", path.display())
+                }
             });
             Err(e.to_string().into())
         }
@@ -47,11 +69,15 @@ pub fn store_failed(dir: &Path, path: &Path, e: &rusqlite::Error) -> Result<Conn
 }
 
 #[cfg(windows)]
-fn message(text: &str, buttons: windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE) -> windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_RESULT {
+fn message(
+    text: &str, buttons: windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE,
+) -> windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_RESULT {
     use windows::core::{HSTRING, PCWSTR};
     use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_SETFOREGROUND};
     let (text, title) = (HSTRING::from(text), HSTRING::from("Pygg"));
-    unsafe { MessageBoxW(None, PCWSTR(text.as_ptr()), PCWSTR(title.as_ptr()), buttons | MB_ICONERROR | MB_SETFOREGROUND) }
+    unsafe {
+        MessageBoxW(None, PCWSTR(text.as_ptr()), PCWSTR(title.as_ptr()), buttons | MB_ICONERROR | MB_SETFOREGROUND)
+    }
 }
 
 #[cfg(windows)]

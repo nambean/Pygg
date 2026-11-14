@@ -13,8 +13,8 @@
 //!
 //! The server forwards to the gateway's task API (gateway/task_api.rs); it holds no state of its own.
 
-use serde_json::{json, Value};
 use crate::gateway::DEFAULT_PORT;
+use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -38,15 +38,22 @@ impl Gateway {
         if let Some(body) = body {
             request = request.json(&body);
         }
-        let response = request.send().await.map_err(|e| if e.is_connect() {
-            format!("Pygg is not reachable at {}. Open the Pygg app (its gateway must be running).", self.base)
-        } else { e.to_string() })?;
+        let response = request.send().await.map_err(|e| {
+            if e.is_connect() {
+                format!("Pygg is not reachable at {}. Open the Pygg app (its gateway must be running).", self.base)
+            } else {
+                e.to_string()
+            }
+        })?;
         let status = response.status();
         let value: Value = response.json().await.unwrap_or(Value::Null);
         if status.is_success() {
             Ok(value)
         } else {
-            Err(value["error"]["message"].as_str().map(String::from).unwrap_or_else(|| format!("Pygg answered {status}")))
+            Err(value["error"]["message"]
+                .as_str()
+                .map(String::from)
+                .unwrap_or_else(|| format!("Pygg answered {status}")))
         }
     }
 }
@@ -139,18 +146,30 @@ fn wait_of(args: &Value) -> u64 {
 fn task_id(args: &Value) -> Result<String, String> {
     let id = args["task_id"].as_str().unwrap_or("").trim();
     let ok = !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric());
-    if ok { Ok(id.to_string()) } else { Err("task_id must be the id pygg_run_task returned".into()) }
+    if ok {
+        Ok(id.to_string())
+    } else {
+        Err("task_id must be the id pygg_run_task returned".into())
+    }
 }
 
 async fn call_tool(gateway: &Gateway, name: &str, args: &Value) -> Result<String, String> {
     use reqwest::Method;
     match name {
         "pygg_run_task" => {
-            let workspace = args["workspace"].as_str().map(String::from)
-                .unwrap_or_else(|| std::env::current_dir().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default());
-            let steps = args["steps"].as_array().map(|steps| steps.iter().map(|s| json!({
-                "agent": s["agent"], "model": s["model"].as_str(),
-            })).collect::<Vec<_>>());
+            let workspace = args["workspace"].as_str().map(String::from).unwrap_or_else(|| {
+                std::env::current_dir().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default()
+            });
+            let steps = args["steps"].as_array().map(|steps| {
+                steps
+                    .iter()
+                    .map(|s| {
+                        json!({
+                            "agent": s["agent"], "model": s["model"].as_str(),
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            });
             let body = json!({"workspace": workspace, "prompt": args["prompt"], "title": args["title"].as_str(),
                 "strategy": args["strategy"].as_str(), "steps": steps, "allowShell": args["allow_shell"].as_bool().unwrap_or(false)});
             let created = gateway.call(Method::POST, "/pygg/v1/tasks", Some(body)).await?;
@@ -159,7 +178,9 @@ async fn call_tool(gateway: &Gateway, name: &str, args: &Value) -> Result<String
             Ok(describe(&task))
         }
         "pygg_task_status" => {
-            let task = gateway.call(Method::GET, &format!("/pygg/v1/tasks/{}?wait={}", task_id(args)?, wait_of(args)), None).await?;
+            let task = gateway
+                .call(Method::GET, &format!("/pygg/v1/tasks/{}?wait={}", task_id(args)?, wait_of(args)), None)
+                .await?;
             Ok(describe(&task))
         }
         "pygg_task_diff" => {
@@ -167,10 +188,17 @@ async fn call_tool(gateway: &Gateway, name: &str, args: &Value) -> Result<String
             Ok(diff["diff"].as_str().unwrap_or("").to_string())
         }
         "pygg_keep_result" => {
-            let kept = gateway.call(Method::POST, &format!("/pygg/v1/tasks/{}/keep", task_id(args)?),
-                Some(json!({"title": args["title"].as_str()}))).await?;
-            Ok(format!("Kept as branch {}. Your checkout was not changed; merge or check out the branch to use it.",
-                kept["branch"].as_str().unwrap_or("")))
+            let kept = gateway
+                .call(
+                    Method::POST,
+                    &format!("/pygg/v1/tasks/{}/keep", task_id(args)?),
+                    Some(json!({"title": args["title"].as_str()})),
+                )
+                .await?;
+            Ok(format!(
+                "Kept as branch {}. Your checkout was not changed; merge or check out the branch to use it.",
+                kept["branch"].as_str().unwrap_or("")
+            ))
         }
         "pygg_discard_result" => {
             gateway.call(Method::POST, &format!("/pygg/v1/tasks/{}/discard", task_id(args)?), None).await?;
@@ -182,15 +210,37 @@ async fn call_tool(gateway: &Gateway, name: &str, args: &Value) -> Result<String
         }
         "pygg_list_tasks" => {
             let list = gateway.call(Method::GET, "/pygg/v1/tasks", None).await?;
-            let lines: Vec<String> = list["tasks"].as_array().into_iter().flatten().map(|t| format!("{} {} — {}",
-                t["id"].as_str().unwrap_or(""), t["state"].as_str().unwrap_or(""), t["title"].as_str().unwrap_or(""))).collect();
+            let lines: Vec<String> = list["tasks"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|t| {
+                    format!(
+                        "{} {} — {}",
+                        t["id"].as_str().unwrap_or(""),
+                        t["state"].as_str().unwrap_or(""),
+                        t["title"].as_str().unwrap_or("")
+                    )
+                })
+                .collect();
             Ok(if lines.is_empty() { "No tasks yet.".into() } else { lines.join("\n") })
         }
         "pygg_agents" => {
             let agents = gateway.call(Method::GET, "/pygg/v1/agents", None).await?;
-            Ok(agents["agents"].as_array().into_iter().flatten().map(|a| format!("{} ({}): {}", a["id"].as_str().unwrap_or(""),
-                if a["installed"] == true { "installed" } else { "not installed" }, a["signIn"].as_str().unwrap_or("")))
-                .collect::<Vec<_>>().join("\n"))
+            Ok(agents["agents"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|a| {
+                    format!(
+                        "{} ({}): {}",
+                        a["id"].as_str().unwrap_or(""),
+                        if a["installed"] == true { "installed" } else { "not installed" },
+                        a["signIn"].as_str().unwrap_or("")
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n"))
         }
         other => Err(format!("Unknown tool {other}")),
     }
@@ -234,7 +284,9 @@ pub fn run() {
 
 async fn serve() {
     let gateway = Gateway {
-        base: std::env::var("PYGG_URL").ok().map(|u| u.trim_end_matches('/').to_string())
+        base: std::env::var("PYGG_URL")
+            .ok()
+            .map(|u| u.trim_end_matches('/').to_string())
             .unwrap_or_else(|| format!("http://127.0.0.1:{DEFAULT_PORT}")),
         token: std::env::var("PYGG_TOKEN").ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()),
         http: reqwest::Client::builder().timeout(Duration::from_secs(660)).build().expect("HTTP client"),

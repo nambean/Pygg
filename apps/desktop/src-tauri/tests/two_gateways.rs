@@ -40,8 +40,10 @@ fn wait_listening(child: &mut Child) -> Result<(), String> {
 fn a_second_process_is_refused_and_a_killed_owner_leaves_no_stale_lock() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("store.sqlite3");
-    let created = Command::new(GATEWAY).args(["--db", db.to_str().unwrap(), "create-client", "--name", "Tests"])
-        .output().unwrap();
+    let created = Command::new(GATEWAY)
+        .args(["--db", db.to_str().unwrap(), "create-client", "--name", "Tests"])
+        .output()
+        .unwrap();
     assert!(created.status.success());
 
     let mut first = serve(&db);
@@ -68,14 +70,20 @@ fn a_second_process_is_refused_and_a_killed_owner_leaves_no_stale_lock() {
         let mut next = serve(&db);
         match wait_listening(&mut next) {
             Ok(()) => break next,
-            Err(e) if Instant::now() < deadline => { let _ = e; std::thread::sleep(Duration::from_millis(200)); }
+            Err(e) if Instant::now() < deadline => {
+                let _ = e;
+                std::thread::sleep(Duration::from_millis(200));
+            }
             Err(e) => panic!("the store stayed locked after its owner died: {e}"),
         }
     };
 
     let conn = rusqlite::Connection::open(&db).unwrap();
-    let (outcome, at_risk): (String, Option<i64>) = conn.query_row(
-        "SELECT outcome, at_risk_micro_usd FROM usage_events WHERE model = 'fast'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    let (outcome, at_risk): (String, Option<i64>) = conn
+        .query_row("SELECT outcome, at_risk_micro_usd FROM usage_events WHERE model = 'fast'", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .unwrap();
     assert_eq!((outcome.as_str(), at_risk), ("interrupted", Some(2500)));
     let journal: i64 = conn.query_row("SELECT COUNT(*) FROM budget_reservations", [], |r| r.get(0)).unwrap();
     assert_eq!(journal, 0);

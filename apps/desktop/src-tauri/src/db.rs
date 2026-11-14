@@ -129,10 +129,7 @@ fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
 
 /// Unix milliseconds now.
 pub fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -144,8 +141,12 @@ mod tests {
         let conn = open_in_memory().unwrap();
         assert_eq!(version(&conn).unwrap(), SCHEMA_VERSION);
         let tables: i64 = conn
-            .query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN \
-                ('workspaces','tasks','attempts','usage_events','approvals')", [], |r| r.get(0))
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN \
+                ('workspaces','tasks','attempts','usage_events','approvals')",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(tables, 5);
     }

@@ -30,7 +30,8 @@ pub struct TestResult {
 
 fn test_client(shared: &Shared) -> Result<store::Client, String> {
     shared.with_db(|db| {
-        if let Some(client) = store::list_clients(db)?.into_iter().find(|c| c.name == CLIENT && c.revoked_at.is_none()) {
+        if let Some(client) = store::list_clients(db)?.into_iter().find(|c| c.name == CLIENT && c.revoked_at.is_none())
+        {
             return Ok(client);
         }
         store::create_client(db, CLIENT, None).map(|(client, _token)| client)
@@ -39,9 +40,14 @@ fn test_client(shared: &Shared) -> Result<store::Client, String> {
 
 /// The answer's text in either format.
 fn text_of(body: &Value) -> String {
-    body["choices"][0]["message"]["content"].as_str()
+    body["choices"][0]["message"]["content"]
+        .as_str()
         .map(String::from)
-        .or_else(|| body["content"].as_array().map(|blocks| blocks.iter().filter_map(|b| b["text"].as_str()).collect::<Vec<_>>().join("")))
+        .or_else(|| {
+            body["content"]
+                .as_array()
+                .map(|blocks| blocks.iter().filter_map(|b| b["text"].as_str()).collect::<Vec<_>>().join(""))
+        })
         .unwrap_or_default()
 }
 
@@ -58,12 +64,29 @@ pub async fn run_requested(shared: &Shared, requested: &str) -> Result<TestResul
     let body = json!({ "model": requested, "max_tokens": 16,
         "messages": [{ "role": "user", "content": "Reply with exactly: ok" }] });
     let headers = HeaderMap::new();
-    let incoming = Incoming { surface: Surface::OpenAi, body: &body, headers: &headers, requested: &requested, session: None, stream: false };
+    let incoming = Incoming {
+        surface: Surface::OpenAi,
+        body: &body,
+        headers: &headers,
+        requested: &requested,
+        session: None,
+        stream: false,
+    };
     let started = std::time::Instant::now();
     let forwarded = match forward(shared, &client, &incoming).await {
         Ok(forwarded) => forwarded,
-        Err(refusal) => return Ok(TestResult { ok: false, text: refusal.message, latency_ms: started.elapsed().as_millis() as u64,
-            input_tokens: None, output_tokens: None, route: String::new(), answered_by: String::new(), attempts: 0 }),
+        Err(refusal) => {
+            return Ok(TestResult {
+                ok: false,
+                text: refusal.message,
+                latency_ms: started.elapsed().as_millis() as u64,
+                input_tokens: None,
+                output_tokens: None,
+                route: String::new(),
+                answered_by: String::new(),
+                attempts: 0,
+            })
+        }
     };
     let route = forwarded.mode.label().to_string();
     let answered_by = format!("{}/{}", forwarded.provider.id, forwarded.model_id);
@@ -74,13 +97,22 @@ pub async fn run_requested(shared: &Shared, requested: &str) -> Result<TestResul
     let response = std::mem::replace(&mut forwarded.response, super::status_only(status));
     let bytes = response.bytes().await.map_err(|e| e.to_string())?;
     let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-    let usage = if anthropic_answer { Usage::from_anthropic(&parsed["usage"]) } else { Usage::from_json(&parsed["usage"]) };
+    let usage =
+        if anthropic_answer { Usage::from_anthropic(&parsed["usage"]) } else { Usage::from_json(&parsed["usage"]) };
     let text: String = text_of(&parsed).chars().take(200).collect();
     let latency_ms = started.elapsed().as_millis() as u64;
     let (input_tokens, output_tokens) = (usage.as_ref().map(|u| u.prompt), usage.as_ref().map(|u| u.completion));
     record_success(shared, forwarded, usage.as_ref(), "ok", None);
-    Ok(TestResult { ok: !text.trim().is_empty(), text: if text.trim().is_empty() { "The model answered with no text".into() } else { text },
-        latency_ms, input_tokens, output_tokens, route, answered_by, attempts })
+    Ok(TestResult {
+        ok: !text.trim().is_empty(),
+        text: if text.trim().is_empty() { "The model answered with no text".into() } else { text },
+        latency_ms,
+        input_tokens,
+        output_tokens,
+        route,
+        answered_by,
+        attempts,
+    })
 }
 
 #[cfg(test)]
@@ -90,7 +122,10 @@ mod tests {
     #[test]
     fn reads_the_answer_in_either_format() {
         assert_eq!(text_of(&json!({"choices": [{"message": {"content": "ok"}}]})), "ok");
-        assert_eq!(text_of(&json!({"content": [{"type": "thinking", "thinking": "x"}, {"type": "text", "text": "ok"}]})), "ok");
+        assert_eq!(
+            text_of(&json!({"content": [{"type": "thinking", "thinking": "x"}, {"type": "text", "text": "ok"}]})),
+            "ok"
+        );
         assert_eq!(text_of(&json!({})), "");
     }
 }

@@ -17,8 +17,10 @@
 //!   translated. A block Pygg signed is never sent to Anthropic, which checks signatures.
 
 use super::pricing::Usage;
-use super::{authenticate, forward, parse_body, provider_headers, pump, record_success, route_headers, session_key,
-    status_only, stream_response, Incoming, Mode, Refusal, Shared, Surface};
+use super::{
+    authenticate, forward, parse_body, provider_headers, pump, record_success, route_headers, session_key, status_only,
+    stream_response, Incoming, Mode, Refusal, Shared, Surface,
+};
 use axum::body::{Body, Bytes};
 use axum::extract::State;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
@@ -74,7 +76,10 @@ fn refusal_response(refusal: Refusal) -> Response {
 pub const REASONING_SIGNATURE: &str = "pygg-reasoning-v1";
 
 fn blocks_of<'a>(request: &'a Value, kind: &'a str) -> impl Iterator<Item = &'a Value> + 'a {
-    request["messages"].as_array().into_iter().flatten()
+    request["messages"]
+        .as_array()
+        .into_iter()
+        .flatten()
         .flat_map(|m| m["content"].as_array().into_iter().flatten())
         .filter(move |b| b["type"] == kind)
 }
@@ -113,9 +118,13 @@ pub fn untranslated(request: &Value, takes_reasoning: bool) -> Vec<String> {
         add("redacted_thinking".into());
     }
     let carried = ["text", "image", "tool_use", "tool_result", "thinking", "redacted_thinking"];
-    let blocks = request["system"].as_array().into_iter().flatten()
-        .chain(request["messages"].as_array().into_iter().flatten()
-            .flat_map(|m| m["content"].as_array().into_iter().flatten()));
+    let blocks = request["system"].as_array().into_iter().flatten().chain(
+        request["messages"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|m| m["content"].as_array().into_iter().flatten()),
+    );
     for block in blocks {
         if let Some(kind) = block["type"].as_str().filter(|k| !carried.contains(k)) {
             add(kind.to_string());
@@ -204,11 +213,16 @@ fn text_part(block: &Value, keep_cache: bool) -> Value {
 /// one string, which would lose the markers.
 pub fn to_openai(request: &Value, keep_cache: bool, takes_reasoning: bool) -> Value {
     let mut messages = Vec::new();
-    let system_marked = keep_cache
-        && request["system"].as_array().is_some_and(|a| a.iter().any(|b| b.get("cache_control").is_some()));
+    let system_marked =
+        keep_cache && request["system"].as_array().is_some_and(|a| a.iter().any(|b| b.get("cache_control").is_some()));
     if system_marked {
-        let parts: Vec<Value> = request["system"].as_array().into_iter().flatten()
-            .filter(|b| b["type"] == "text").map(|b| text_part(b, true)).collect();
+        let parts: Vec<Value> = request["system"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|b| b["type"] == "text")
+            .map(|b| text_part(b, true))
+            .collect();
         messages.push(json!({ "role": "system", "content": parts }));
     } else {
         let system = text_of(&request["system"]);
@@ -232,12 +246,13 @@ pub fn to_openai(request: &Value, keep_cache: bool, takes_reasoning: bool) -> Va
                 .map(|b| json!({ "id": b["id"], "type": "function", "function": {
                     "name": b["name"], "arguments": serde_json::to_string(&b["input"]).unwrap_or_else(|_| "{}".into()) } }))
                 .collect();
-            let mut out = json!({ "role": "assistant", "content": if text.is_empty() { Value::Null } else { json!(text) } });
+            let mut out =
+                json!({ "role": "assistant", "content": if text.is_empty() { Value::Null } else { json!(text) } });
             if !calls.is_empty() {
                 out["tool_calls"] = json!(calls);
             }
-            let reasoning: String = blocks.iter().filter(|b| b["type"] == "thinking")
-                .filter_map(|b| b["thinking"].as_str()).collect();
+            let reasoning: String =
+                blocks.iter().filter(|b| b["type"] == "thinking").filter_map(|b| b["thinking"].as_str()).collect();
             if takes_reasoning && !reasoning.is_empty() {
                 out["reasoning_content"] = json!(reasoning);
             }
@@ -272,8 +287,13 @@ pub fn to_openai(request: &Value, keep_cache: bool, takes_reasoning: bool) -> Va
     }
 
     let mut out = json!({ "model": request["model"], "messages": messages });
-    for (from, to) in [("max_tokens", "max_tokens"), ("temperature", "temperature"), ("top_p", "top_p"),
-        ("stop_sequences", "stop"), ("stream", "stream")] {
+    for (from, to) in [
+        ("max_tokens", "max_tokens"),
+        ("temperature", "temperature"),
+        ("top_p", "top_p"),
+        ("stop_sequences", "stop"),
+        ("stream", "stream"),
+    ] {
         if !request[from].is_null() {
             out[to] = request[from].clone();
         }
@@ -398,16 +418,27 @@ fn event(kind: &str, data: Value) -> String {
 
 impl StreamTranslator {
     pub fn new(model: &str) -> StreamTranslator {
-        StreamTranslator { model: model.into(), started: false, open: None, next_index: 0, finish: None, usage: None,
-            any_tool_call: false, tool: None }
+        StreamTranslator {
+            model: model.into(),
+            started: false,
+            open: None,
+            next_index: 0,
+            finish: None,
+            usage: None,
+            any_tool_call: false,
+            tool: None,
+        }
     }
 
     fn start(&mut self, out: &mut Vec<String>) {
         if !self.started {
             self.started = true;
-            out.push(event("message_start", json!({ "type": "message_start", "message": { "id": message_id(),
+            out.push(event(
+                "message_start",
+                json!({ "type": "message_start", "message": { "id": message_id(),
                 "type": "message", "role": "assistant", "model": self.model, "content": [], "stop_reason": null,
-                "stop_sequence": null, "usage": { "input_tokens": 0, "output_tokens": 0 } } })));
+                "stop_sequence": null, "usage": { "input_tokens": 0, "output_tokens": 0 } } }),
+            ));
         }
     }
 
@@ -416,8 +447,11 @@ impl StreamTranslator {
         self.tool = None;
         if let Some((index, kind)) = self.open.take() {
             if kind == Block::Thinking {
-                out.push(event("content_block_delta", json!({ "type": "content_block_delta", "index": index,
-                    "delta": { "type": "signature_delta", "signature": REASONING_SIGNATURE } })));
+                out.push(event(
+                    "content_block_delta",
+                    json!({ "type": "content_block_delta", "index": index,
+                    "delta": { "type": "signature_delta", "signature": REASONING_SIGNATURE } }),
+                ));
             }
             out.push(event("content_block_stop", json!({ "type": "content_block_stop", "index": index })));
         }
@@ -437,12 +471,18 @@ impl StreamTranslator {
                 let index = self.next_index;
                 self.next_index += 1;
                 self.open = Some((index, Block::Thinking));
-                out.push(event("content_block_start", json!({ "type": "content_block_start", "index": index,
-                    "content_block": { "type": "thinking", "thinking": "", "signature": "" } })));
+                out.push(event(
+                    "content_block_start",
+                    json!({ "type": "content_block_start", "index": index,
+                    "content_block": { "type": "thinking", "thinking": "", "signature": "" } }),
+                ));
             }
             let index = self.open.as_ref().map(|(i, _)| *i).unwrap_or(0);
-            out.push(event("content_block_delta", json!({ "type": "content_block_delta", "index": index,
-                "delta": { "type": "thinking_delta", "thinking": reasoning } })));
+            out.push(event(
+                "content_block_delta",
+                json!({ "type": "content_block_delta", "index": index,
+                "delta": { "type": "thinking_delta", "thinking": reasoning } }),
+            ));
         }
         if let Some(text) = delta["content"].as_str().filter(|t| !t.is_empty()) {
             if !matches!(self.open, Some((_, Block::Text))) {
@@ -450,16 +490,24 @@ impl StreamTranslator {
                 let index = self.next_index;
                 self.next_index += 1;
                 self.open = Some((index, Block::Text));
-                out.push(event("content_block_start", json!({ "type": "content_block_start", "index": index,
-                    "content_block": { "type": "text", "text": "" } })));
+                out.push(event(
+                    "content_block_start",
+                    json!({ "type": "content_block_start", "index": index,
+                    "content_block": { "type": "text", "text": "" } }),
+                ));
             }
             let index = self.open.as_ref().map(|(i, _)| *i).unwrap_or(0);
-            out.push(event("content_block_delta", json!({ "type": "content_block_delta", "index": index,
-                "delta": { "type": "text_delta", "text": text } })));
+            out.push(event(
+                "content_block_delta",
+                json!({ "type": "content_block_delta", "index": index,
+                "delta": { "type": "text_delta", "text": text } }),
+            ));
         }
         for (position, call) in delta["tool_calls"].as_array().into_iter().flatten().enumerate() {
             // Some providers omit `index`; then each call that carries an id is a new one.
-            let key = call["index"].as_u64().map(|i| i.to_string())
+            let key = call["index"]
+                .as_u64()
+                .map(|i| i.to_string())
                 .or_else(|| call["id"].as_str().map(String::from))
                 .unwrap_or_else(|| position.to_string());
             // An empty id or name is the same as none.
@@ -500,13 +548,19 @@ impl StreamTranslator {
                 current.id = Some(id.clone());
                 self.open = Some((index, Block::Tool(key)));
                 self.any_tool_call = true;
-                out.push(event("content_block_start", json!({ "type": "content_block_start", "index": index,
-                    "content_block": { "type": "tool_use", "id": id, "name": name, "input": {} } })));
+                out.push(event(
+                    "content_block_start",
+                    json!({ "type": "content_block_start", "index": index,
+                    "content_block": { "type": "tool_use", "id": id, "name": name, "input": {} } }),
+                ));
             }
             if let (Some(index), false) = (current.index, current.held.is_empty()) {
                 let partial = std::mem::take(&mut current.held);
-                out.push(event("content_block_delta", json!({ "type": "content_block_delta", "index": index,
-                    "delta": { "type": "input_json_delta", "partial_json": partial } })));
+                out.push(event(
+                    "content_block_delta",
+                    json!({ "type": "content_block_delta", "index": index,
+                    "delta": { "type": "input_json_delta", "partial_json": partial } }),
+                ));
             }
         }
         if let Some(finish) = choice["finish_reason"].as_str() {
@@ -525,8 +579,11 @@ impl StreamTranslator {
             reason = "tool_use";
         }
         let usage = usage_json(self.usage.as_ref());
-        out.push(event("message_delta", json!({ "type": "message_delta",
-            "delta": { "stop_reason": reason, "stop_sequence": null }, "usage": usage })));
+        out.push(event(
+            "message_delta",
+            json!({ "type": "message_delta",
+            "delta": { "stop_reason": reason, "stop_sequence": null }, "usage": usage }),
+        ));
         out.push(event("message_stop", json!({ "type": "message_stop" })));
         out
     }
@@ -545,8 +602,14 @@ pub async fn messages(State(shared): State<Shared>, headers: HeaderMap, body: By
     };
     let stream = request["stream"] == true;
     let session = session_key(&headers);
-    let incoming = Incoming { surface: Surface::Anthropic, body: &request, headers: &headers, requested: &requested,
-        session: session.as_deref(), stream };
+    let incoming = Incoming {
+        surface: Surface::Anthropic,
+        body: &request,
+        headers: &headers,
+        requested: &requested,
+        session: session.as_deref(),
+        stream,
+    };
     let forwarded = match forward(&shared, &client, &incoming).await {
         Ok(forwarded) => forwarded,
         Err(refusal) => return refusal_response(refusal),
@@ -582,7 +645,11 @@ async fn native(shared: Shared, mut forwarded: super::Forwarded, stream: bool) -
             Err(e) => {
                 let message = crate::redact::redact(&e.to_string(), &[]);
                 record_success(&shared, forwarded, None, "stream_error", Some(&message));
-                anthropic_error(StatusCode::BAD_GATEWAY, "api_error", &format!("The provider's response broke off: {message}"))
+                anthropic_error(
+                    StatusCode::BAD_GATEWAY,
+                    "api_error",
+                    &format!("The provider's response broke off: {message}"),
+                )
             }
         };
     }
@@ -621,7 +688,11 @@ async fn translated(shared: Shared, mut forwarded: super::Forwarded, stream: boo
             Err(e) => {
                 let message = crate::redact::redact(&e.to_string(), &[]);
                 record_success(&shared, forwarded, None, "stream_error", Some(&message));
-                anthropic_error(StatusCode::BAD_GATEWAY, "api_error", &format!("The provider's response broke off: {message}"))
+                anthropic_error(
+                    StatusCode::BAD_GATEWAY,
+                    "api_error",
+                    &format!("The provider's response broke off: {message}"),
+                )
             }
         };
     }
@@ -687,9 +758,15 @@ async fn translated(shared: Shared, mut forwarded: super::Forwarded, stream: boo
         // A stream that ends without [DONE] is still finished cleanly if the provider closed it normally.
         if outcome != "client_disconnected" {
             if outcome == "stream_error" {
-                let message = if error.as_deref() == Some(EMPTY_ANSWER) { EMPTY_ANSWER } else { "The provider's stream broke off" };
-                let event = format!("event: error\ndata: {}\n\n",
-                    json!({ "type": "error", "error": { "type": "api_error", "message": message } }));
+                let message = if error.as_deref() == Some(EMPTY_ANSWER) {
+                    EMPTY_ANSWER
+                } else {
+                    "The provider's stream broke off"
+                };
+                let event = format!(
+                    "event: error\ndata: {}\n\n",
+                    json!({ "type": "error", "error": { "type": "api_error", "message": message } })
+                );
                 let _ = super::deliver(&tx, Ok(Bytes::from(event))).await;
             } else {
                 for event in translator.finish() {
@@ -719,9 +796,15 @@ pub const EMPTY_ANSWER: &str = "The provider ended its answer without any conten
 /// it is set.
 fn capture_file(session: Option<&str>, model: &str) -> Option<std::io::BufWriter<std::fs::File>> {
     let dir = std::env::var_os("PYGG_CAPTURE_DIR")?;
-    let safe = |s: &str| s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect::<String>();
-    let name = format!("{}-{}-{}-{}.txt", crate::db::now_ms(), safe(session.unwrap_or("none")), safe(model),
-        &uuid::Uuid::new_v4().simple().to_string()[..6]);
+    let safe =
+        |s: &str| s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect::<String>();
+    let name = format!(
+        "{}-{}-{}-{}.txt",
+        crate::db::now_ms(),
+        safe(session.unwrap_or("none")),
+        safe(model),
+        &uuid::Uuid::new_v4().simple().to_string()[..6]
+    );
     std::fs::create_dir_all(&dir).ok()?;
     std::fs::File::create(std::path::Path::new(&dir).join(name)).ok().map(std::io::BufWriter::new)
 }
@@ -739,14 +822,22 @@ pub async fn count_tokens(State(shared): State<Shared>, headers: HeaderMap, body
     };
     let requested = request["model"].as_str().unwrap_or("").to_string();
     // Counting sends the prompt to the provider too, so the client's connection list applies (review FR-01).
-    let target = shared.with_db(|db| super::store::resolve(db, &requested)).ok().into_iter().flatten()
+    let target = shared
+        .with_db(|db| super::store::resolve(db, &requested))
+        .ok()
+        .into_iter()
+        .flatten()
         .find(|(provider, _)| provider.wire == "anthropic" && client.allows(provider).is_ok());
     if let Some((provider, model_id)) = target {
         let key = provider.credential_ref.as_deref().and_then(|r| shared.secrets.read(r).ok().flatten());
         request["model"] = json!(model_id);
-        let mut call = shared.http.post(format!("{}/messages/count_tokens", provider.endpoint)).json(&request)
-            .header("anthropic-version", headers.get("anthropic-version").cloned()
-                .unwrap_or_else(|| HeaderValue::from_static(super::ANTHROPIC_VERSION)));
+        let mut call = shared.http.post(format!("{}/messages/count_tokens", provider.endpoint)).json(&request).header(
+            "anthropic-version",
+            headers
+                .get("anthropic-version")
+                .cloned()
+                .unwrap_or_else(|| HeaderValue::from_static(super::ANTHROPIC_VERSION)),
+        );
         if let Some(key) = &key {
             call = call.header("x-api-key", key);
         }
@@ -760,7 +851,9 @@ pub async fn count_tokens(State(shared): State<Shared>, headers: HeaderMap, body
             }
         }
     }
-    let chars = request["system"].to_string().len() + request["messages"].to_string().len() + request["tools"].to_string().len();
+    let chars = request["system"].to_string().len()
+        + request["messages"].to_string().len()
+        + request["tools"].to_string().len();
     let mut out = Json(json!({ "input_tokens": chars.div_ceil(4) })).into_response();
     out.headers_mut().insert("x-pygg-estimate", HeaderValue::from_static("characters/4"));
     out
@@ -809,7 +902,10 @@ mod tests {
             "messages": [{ "role": "user", "content": [
                 { "type": "document", "source": { "type": "text", "data": "x" }, "citations": { "enabled": true } },
                 { "type": "text", "text": "hi" }] }] });
-        assert_eq!(untranslated(&request, false), ["thinking", "document", "citations", "server_tools", "top_k", "metadata"]);
+        assert_eq!(
+            untranslated(&request, false),
+            ["thinking", "document", "citations", "server_tools", "top_k", "metadata"]
+        );
         assert!(untranslated(&json!({ "messages": [{ "role": "user", "content": "plain" }] }), false).is_empty());
     }
 
@@ -820,10 +916,17 @@ mod tests {
         let response = json!({ "choices": [{ "finish_reason": "tool_calls", "message": { "reasoning_content": "Need the file.",
             "content": "", "tool_calls": [{ "id": "c1", "type": "function", "function": { "name": "read", "arguments": "{}" } }] } }] });
         let out = from_openai(&response, "m");
-        assert_eq!(out["content"][0], json!({ "type": "thinking", "thinking": "Need the file.", "signature": REASONING_SIGNATURE }));
+        assert_eq!(
+            out["content"][0],
+            json!({ "type": "thinking", "thinking": "Need the file.", "signature": REASONING_SIGNATURE })
+        );
         assert_eq!(out["content"][1]["type"], "tool_use");
-        let openrouter = from_openai(&json!({ "choices": [{ "message": { "reasoning": "Hmm.", "content": "Hi" } }] }), "m");
-        assert_eq!((openrouter["content"][0]["thinking"].as_str(), openrouter["content"][1]["text"].as_str()), (Some("Hmm."), Some("Hi")));
+        let openrouter =
+            from_openai(&json!({ "choices": [{ "message": { "reasoning": "Hmm.", "content": "Hi" } }] }), "m");
+        assert_eq!(
+            (openrouter["content"][0]["thinking"].as_str(), openrouter["content"][1]["text"].as_str()),
+            (Some("Hmm."), Some("Hi"))
+        );
 
         let request = json!({ "model": "m", "messages": [
             { "role": "user", "content": "Open a.txt" },
@@ -838,10 +941,17 @@ mod tests {
 
         // To Anthropic itself the block Pygg signed is left out; Anthropic's own blocks stay.
         let mut mixed = request.clone();
-        mixed["messages"][1]["content"].as_array_mut().unwrap().insert(0,
-            json!({ "type": "thinking", "thinking": "real", "signature": "EqQBCkYIBxgCKkA" }));
+        mixed["messages"][1]["content"]
+            .as_array_mut()
+            .unwrap()
+            .insert(0, json!({ "type": "thinking", "thinking": "real", "signature": "EqQBCkYIBxgCKkA" }));
         let cleaned = without_pygg_reasoning(&mixed).unwrap();
-        let kinds: Vec<&str> = cleaned["messages"][1]["content"].as_array().unwrap().iter().map(|b| b["signature"].as_str().unwrap_or("-")).collect();
+        let kinds: Vec<&str> = cleaned["messages"][1]["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["signature"].as_str().unwrap_or("-"))
+            .collect();
         assert_eq!(kinds, ["EqQBCkYIBxgCKkA", "-"]);
         assert!(without_pygg_reasoning(&cleaned).is_none());
     }
@@ -854,9 +964,22 @@ mod tests {
         events.extend(t.push(&json!({ "choices": [{ "delta": { "reasoning_content": "ing." } }] })));
         events.extend(t.push(&json!({ "choices": [{ "delta": { "content": "ok" }, "finish_reason": "stop" }] })));
         events.extend(t.finish());
-        assert_eq!(kinds(&events), ["message_start", "content_block_start", "content_block_delta", "content_block_delta",
-            "content_block_delta", "content_block_stop", "content_block_start", "content_block_delta", "content_block_stop",
-            "message_delta", "message_stop"]);
+        assert_eq!(
+            kinds(&events),
+            [
+                "message_start",
+                "content_block_start",
+                "content_block_delta",
+                "content_block_delta",
+                "content_block_delta",
+                "content_block_stop",
+                "content_block_start",
+                "content_block_delta",
+                "content_block_stop",
+                "message_delta",
+                "message_stop"
+            ]
+        );
         assert!(events[1].contains("\"type\":\"thinking\""));
         assert!(events[2].contains("thinking_delta") && events[3].contains("ing."));
         assert!(events[4].contains("signature_delta") && events[4].contains(REASONING_SIGNATURE));
@@ -892,9 +1015,22 @@ mod tests {
             "function": { "arguments": "th\":1}" } }] }, "finish_reason": "tool_calls" }] })));
         events.extend(t.push(&json!({ "choices": [], "usage": { "prompt_tokens": 5, "completion_tokens": 2 } })));
         events.extend(t.finish());
-        assert_eq!(kinds(&events), ["message_start", "content_block_start", "content_block_delta", "content_block_delta",
-            "content_block_stop", "content_block_start", "content_block_delta", "content_block_delta",
-            "content_block_stop", "message_delta", "message_stop"]);
+        assert_eq!(
+            kinds(&events),
+            [
+                "message_start",
+                "content_block_start",
+                "content_block_delta",
+                "content_block_delta",
+                "content_block_stop",
+                "content_block_start",
+                "content_block_delta",
+                "content_block_delta",
+                "content_block_stop",
+                "message_delta",
+                "message_stop"
+            ]
+        );
         assert!(events[5].contains("\"index\":1") && events[5].contains("\"name\":\"read\""));
         assert!(events[9].contains("\"stop_reason\":\"tool_use\"") && events[9].contains("\"output_tokens\":2"));
     }
@@ -916,7 +1052,8 @@ mod tests {
     #[test]
     fn a_tool_call_whose_name_comes_later_starts_once_with_it() {
         let mut t = StreamTranslator::new("m");
-        let mut events = t.push(&json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0, "id": "", "type": "function",
+        let mut events = t
+            .push(&json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0, "id": "", "type": "function",
             "function": { "arguments": "{\"pa" } }] } }] }));
         assert!(!events.iter().any(|e| e.starts_with("event: content_block_start")), "no block before the name");
         events.extend(t.push(&json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0, "id": "call_7",
@@ -927,9 +1064,17 @@ mod tests {
         let starts: Vec<&String> = events.iter().filter(|e| e.starts_with("event: content_block_start")).collect();
         assert_eq!(starts.len(), 1);
         assert!(starts[0].contains("\"id\":\"call_7\"") && starts[0].contains("\"name\":\"read\""), "{}", starts[0]);
-        let partial: String = events.iter().filter(|e| e.contains("input_json_delta"))
-            .map(|e| serde_json::from_str::<Value>(e.lines().nth(1).unwrap().trim_start_matches("data: ")).unwrap()
-                ["delta"]["partial_json"].as_str().unwrap().to_string()).collect();
+        let partial: String = events
+            .iter()
+            .filter(|e| e.contains("input_json_delta"))
+            .map(|e| {
+                serde_json::from_str::<Value>(e.lines().nth(1).unwrap().trim_start_matches("data: ")).unwrap()["delta"]
+                    ["partial_json"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
         assert_eq!(partial, "{\"path\":1}");
         // A call that never gets a name opens no block.
         let mut nameless = StreamTranslator::new("m");

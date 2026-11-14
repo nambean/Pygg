@@ -109,16 +109,25 @@ impl Needs {
         let image_part = |part: &Value| matches!(part["type"].as_str(), Some("image_url" | "image" | "input_image"));
         // Chat Completions and Messages carry `messages`; the Responses API carries `input` items.
         let turns = body["messages"].as_array().or_else(|| body["input"].as_array());
-        let vision = turns.is_some_and(|messages| messages.iter().any(|m| {
-            m["content"].as_array().is_some_and(|parts| parts.iter().any(image_part))
-        }));
-        let max_tokens = ["max_tokens", "max_completion_tokens", "max_output_tokens"].iter().find_map(|k| body[*k].as_u64());
+        let vision = turns.is_some_and(|messages| {
+            messages.iter().any(|m| m["content"].as_array().is_some_and(|parts| parts.iter().any(image_part)))
+        });
+        let max_tokens =
+            ["max_tokens", "max_completion_tokens", "max_output_tokens"].iter().find_map(|k| body[*k].as_u64());
         let anthropic = surface == Surface::Anthropic;
         // Any type the request names: Anthropic's list has adaptive, enabled, disabled and between_tools, and a model
         // answers 400 to one it does not list (Claude Opus 5.5 refuses disabled).
         let thinking = body["thinking"]["type"].as_str().filter(|t| anthropic && !t.is_empty()).map(String::from);
         let effort = body["output_config"]["effort"].as_str().filter(|_| anthropic).map(String::from);
-        Needs { surface_anthropic: anthropic, tools, vision, input_tokens: estimate_input_tokens(body), max_tokens, thinking, effort }
+        Needs {
+            surface_anthropic: anthropic,
+            tools,
+            vision,
+            input_tokens: estimate_input_tokens(body),
+            max_tokens,
+            thinking,
+            effort,
+        }
     }
 
     fn output_tokens(&self) -> u64 {
@@ -181,20 +190,35 @@ pub struct Plan {
 impl Plan {
     /// A one-line summary for the response header: which model answered, its place in the order, and why.
     pub fn header(&self, chosen: &Ranked) -> String {
-        let rank = self.ranked.iter().position(|r| r.provider_id == chosen.provider_id && r.model_id == chosen.model_id)
-            .map(|i| i + 1).unwrap_or(0);
+        let rank = self
+            .ranked
+            .iter()
+            .position(|r| r.provider_id == chosen.provider_id && r.model_id == chosen.model_id)
+            .map(|i| i + 1)
+            .unwrap_or(0);
         let order = match self.strategy {
             Strategy::Tier => "lowest eligible tier first",
             Strategy::Cheap => "lowest estimated cost first",
         };
-        let held: Vec<String> = self.excluded.iter().filter(|e| e.reason.starts_with(HELD))
-            .map(|e| format!("{}/{}", e.provider_id, e.model_id)).collect();
+        let held: Vec<String> = self
+            .excluded
+            .iter()
+            .filter(|e| e.reason.starts_with(HELD))
+            .map(|e| format!("{}/{}", e.provider_id, e.model_id))
+            .collect();
         let held = match held.len() {
             0 => String::new(),
             n => format!(", {n} held after 429: {}", held.join(", ")),
         };
-        format!("{}; {}/{} ranked {rank} of {} ({order}): {}; {} excluded{held}", self.alias, chosen.provider_id, chosen.model_id,
-            self.ranked.len(), chosen.reason, self.excluded.len())
+        format!(
+            "{}; {}/{} ranked {rank} of {} ({order}): {}; {} excluded{held}",
+            self.alias,
+            chosen.provider_id,
+            chosen.model_id,
+            self.ranked.len(),
+            chosen.reason,
+            self.excluded.len()
+        )
     }
 }
 
@@ -231,15 +255,18 @@ fn hold_key(provider_id: &str, model_id: &str) -> String {
 
 /// The hold a model is under, if its time has not passed.
 pub fn hold(conn: &Connection, provider_id: &str, model_id: &str, now: i64) -> Option<Hold> {
-    let hold: Hold = store::setting(conn, &hold_key(provider_id, model_id)).ok().flatten()
+    let hold: Hold = store::setting(conn, &hold_key(provider_id, model_id))
+        .ok()
+        .flatten()
         .and_then(|s| serde_json::from_str(&s).ok())?;
     (hold.until_ms.is_some_and(|until| until > now)).then_some(hold)
 }
 
 /// Records a 429 on the model: a strike, and a hold where the strike is the second in a row or the provider stated
 /// no reset the route could wait for. Returns the hold now in force, if one is.
-pub fn strike(conn: &Connection, provider_id: &str, model_id: &str, reset: Option<Duration>, reason: &str, now: i64)
-    -> store::Result<Option<Hold>> {
+pub fn strike(
+    conn: &Connection, provider_id: &str, model_id: &str, reset: Option<Duration>, reason: &str, now: i64,
+) -> store::Result<Option<Hold>> {
     let key = hold_key(provider_id, model_id);
     let previous: Option<Hold> = store::setting(conn, &key)?.and_then(|s| serde_json::from_str(&s).ok());
     let strikes = previous.map_or(0, |h| h.strikes) + 1;
@@ -278,7 +305,11 @@ fn tier_rank(tier: &str) -> u8 {
 
 fn money(micro: u64) -> String {
     // Under a hundredth of a cent, four decimals would read as $0.0000, which is not what it costs.
-    if micro > 0 && micro < 100 { "under $0.0001".into() } else { format!("${:.4}", micro as f64 / 1e6) }
+    if micro > 0 && micro < 100 {
+        "under $0.0001".into()
+    } else {
+        format!("${:.4}", micro as f64 / 1e6)
+    }
 }
 
 /// Builds the plan for a request. Nothing is sent; the same function serves the simulator in the app.
@@ -299,14 +330,17 @@ pub fn plan(conn: &Connection, client: &Client, alias: &str, strategy: Strategy,
                 let b = billing_rank(&model.billing);
                 // The facts it was ranked on; its place in the order is in the header.
                 let reason = match strategy {
-                    Strategy::Tier => format!("tier {}{} (minimum {}); {}; {reason_cost}",
+                    Strategy::Tier => format!(
+                        "tier {}{} (minimum {}); {}; {reason_cost}",
                         tier.as_deref().unwrap_or("?"),
                         match model.capabilities.tier_source.as_deref() {
                             Some(store::CURATED) => " from Pygg's table",
                             Some(super::reference::TIER_SOURCE) => " from its list price",
                             _ => "",
                         },
-                        min_tier.as_deref().unwrap_or("?"), model.billing),
+                        min_tier.as_deref().unwrap_or("?"),
+                        model.billing
+                    ),
                     Strategy::Cheap => format!("{}; {reason_cost}", model.billing),
                 };
                 // Tier: lowest tier, then billing (local, free, subscription, paid), then estimated cost.
@@ -315,11 +349,24 @@ pub fn plan(conn: &Connection, client: &Client, alias: &str, strategy: Strategy,
                     Strategy::Tier => (estimate, t, b, 0),
                     Strategy::Cheap => (estimate, 0, b, 4 - t),
                 };
-                ranked.push((Ranked { provider_id: model.provider_id.clone(), model_id: model.model_id.clone(), tier,
-                    billing: model.billing.clone(), estimate_micro_usd: estimate, reason }, key));
+                ranked.push((
+                    Ranked {
+                        provider_id: model.provider_id.clone(),
+                        model_id: model.model_id.clone(),
+                        tier,
+                        billing: model.billing.clone(),
+                        estimate_micro_usd: estimate,
+                        reason,
+                    },
+                    key,
+                ));
             }
-            Err((kind, reason)) => excluded.push(Excluded { provider_id: model.provider_id.clone(), model_id: model.model_id.clone(),
-                reason, kind }),
+            Err((kind, reason)) => excluded.push(Excluded {
+                provider_id: model.provider_id.clone(),
+                model_id: model.model_id.clone(),
+                reason,
+                kind,
+            }),
         }
     }
     ranked.sort_by(|(a, ka), (b, kb)| {
@@ -334,8 +381,10 @@ pub fn plan(conn: &Connection, client: &Client, alias: &str, strategy: Strategy,
 }
 
 /// Whether one model may serve the request: its estimated cost and how it was stated, or why not.
-fn judge(conn: &Connection, client: &Client, provider: &Provider, model: &Model, strategy: Strategy,
-    min_tier: Option<&str>, needs: &Needs) -> store::Result<Result<(u64, String), (&'static str, String)>> {
+fn judge(
+    conn: &Connection, client: &Client, provider: &Provider, model: &Model, strategy: Strategy, min_tier: Option<&str>,
+    needs: &Needs,
+) -> store::Result<Result<(u64, String), (&'static str, String)>> {
     let caps = &model.capabilities;
     let no = |kind: &'static str, reason: String| Ok(Err((kind, reason)));
     // A web session (ADR-035) is slow, unofficial and, for an agent like Muse, acts as the signed-in user: it serves
@@ -349,14 +398,20 @@ fn judge(conn: &Connection, client: &Client, provider: &Provider, model: &Model,
     let now = crate::db::now_ms();
     if let Some(held) = hold(conn, &provider.id, &model.model_id, now) {
         let until = store::iso_utc(held.until_ms.unwrap_or(now)).replace('T', " ")[..16].to_string();
-        return no(UNAVAILABLE, format!("{HELD} until {until} UTC: it answered 429 {} in a row ({})", held.strikes, held.reason));
+        return no(
+            UNAVAILABLE,
+            format!("{HELD} until {until} UTC: it answered 429 {} in a row ({})", held.strikes, held.reason),
+        );
     }
     // Both formats reach both kinds of target since ROADMAP B5: OpenAI → Anthropic is translated too.
     if let Some(health) = store::blocking_health(conn, &provider.id, &model.model_id)? {
         return no(UNAVAILABLE, format!("{} ({})", health.state.replace('_', " "), health.reason));
     }
     if let Some((holder, hold)) = store::group_hold(conn, provider, &model.model_id)? {
-        return no(UNAVAILABLE, format!("shares limits with {}, which is {}", holder.label, hold.state.replace('_', " ")));
+        return no(
+            UNAVAILABLE,
+            format!("shares limits with {}, which is {}", holder.label, hold.state.replace('_', " ")),
+        );
     }
     if let Some(why) = super::quota::exhausted(conn, provider, model, now)? {
         return no(UNAVAILABLE, why);
@@ -388,26 +443,44 @@ fn judge(conn: &Connection, client: &Client, provider: &Provider, model: &Model,
             match &caps.thinking_types {
                 Some(types) if types.contains(kind) => {}
                 Some(_) => return no(POLICY, format!("does not take thinking: {kind}")),
-                None => return no(FACTS, format!("unknown whether it takes thinking: {kind} (refresh its model list, or set it)")),
+                None => {
+                    return no(
+                        FACTS,
+                        format!("unknown whether it takes thinking: {kind} (refresh its model list, or set it)"),
+                    )
+                }
             }
         }
         if let Some(level) = &needs.effort {
             match &caps.effort_levels {
                 Some(levels) if levels.contains(level) => {}
                 Some(_) => return no(POLICY, format!("does not take effort: {level}")),
-                None => return no(FACTS, format!("unknown whether it takes effort: {level} (refresh its model list, or set it)")),
+                None => {
+                    return no(
+                        FACTS,
+                        format!("unknown whether it takes effort: {level} (refresh its model list, or set it)"),
+                    )
+                }
             }
         }
     }
     let Some(context) = caps.context_tokens else { return no(FACTS, "context size unknown".into()) };
     let wanted = needs.input_tokens + needs.output_tokens();
     if wanted > context {
-        return no(POLICY, format!("about {} prompt and {} output tokens do not fit its {context}-token context",
-            needs.input_tokens, needs.output_tokens()));
+        return no(
+            POLICY,
+            format!(
+                "about {} prompt and {} output tokens do not fit its {context}-token context",
+                needs.input_tokens,
+                needs.output_tokens()
+            ),
+        );
     }
     if let Some(limit) = needs.max_tokens {
         match caps.max_output_tokens {
-            Some(max) if limit > max => return no(POLICY, format!("the request allows {limit} output tokens; it gives at most {max}")),
+            Some(max) if limit > max => {
+                return no(POLICY, format!("the request allows {limit} output tokens; it gives at most {max}"))
+            }
             Some(_) => {}
             None => return no(FACTS, "maximum output unknown, and the request sets one".into()),
         }
@@ -418,20 +491,22 @@ fn judge(conn: &Connection, client: &Client, provider: &Provider, model: &Model,
         // ranks after free and before paid. Its quota is not tracked yet; when it runs out, the provider's 429
         // cools it down and the route moves on.
         "subscription" => Ok(Ok((0, "the plan's quota, not money; quota left not tracked".into()))),
-        _ => match &model.price {
-            Some(price) => {
-                // A strict limit holds the most the request could cost, as the gateway's admission does.
-                let strict = client.strict_budget && client.monthly_budget_micro_usd.is_some();
-                let estimate = match (strict, needs.max_tokens, caps.max_output_tokens) {
+        _ => {
+            match &model.price {
+                Some(price) => {
+                    // A strict limit holds the most the request could cost, as the gateway's admission does.
+                    let strict = client.strict_budget && client.monthly_budget_micro_usd.is_some();
+                    let estimate = match (strict, needs.max_tokens, caps.max_output_tokens) {
                     (true, None, Some(most)) => Needs { max_tokens: Some(most), ..needs.clone() }.estimate_micro(price),
                     (true, None, None) => return no(FACTS, "this client's limit is strict, and neither the request nor the model states a maximum output".into()),
                     _ => needs.estimate_micro(price),
                 };
-                let which = if price.source == "user" { "your price" } else { "the provider's list price" };
-                Ok(Ok((estimate, format!("about {} at {which}", money(estimate)))))
+                    let which = if price.source == "user" { "your price" } else { "the provider's list price" };
+                    Ok(Ok((estimate, format!("about {} at {which}", money(estimate)))))
+                }
+                None => no(FACTS, "price unknown".into()),
             }
-            None => no(FACTS, "price unknown".into()),
-        },
+        }
     }
 }
 
@@ -452,10 +527,14 @@ pub fn summarize(excluded: &[Excluded], groups: usize) -> String {
         }
     }
     found.sort_by_key(|g| std::cmp::Reverse(g.3));
-    let mut parts: Vec<String> = found.iter().take(groups).map(|(connection, _, example, count)| match count {
-        1 => example.clone(),
-        n => format!("{example} (and {} more on {connection} for the same reason)", n - 1),
-    }).collect();
+    let mut parts: Vec<String> = found
+        .iter()
+        .take(groups)
+        .map(|(connection, _, example, count)| match count {
+            1 => example.clone(),
+            n => format!("{example} (and {} more on {connection} for the same reason)", n - 1),
+        })
+        .collect();
     let rest: usize = found.iter().skip(groups).map(|g| g.3).sum();
     if rest > 0 {
         parts.push(format!("{rest} more for other reasons"));
@@ -467,12 +546,28 @@ pub fn summarize(excluded: &[Excluded], groups: usize) -> String {
 mod tests {
     #[test]
     fn a_route_spans_connections_and_still_fills_from_one() {
-        let r = |p: &str, m: &str| super::Ranked { provider_id: p.into(), model_id: m.into(), tier: None, billing: "free".into(),
-            estimate_micro_usd: 0, reason: String::new() };
-        let names = |route: Vec<super::Ranked>| route.iter().map(|x| format!("{}/{}", x.provider_id, x.model_id)).collect::<Vec<_>>();
+        let r = |p: &str, m: &str| super::Ranked {
+            provider_id: p.into(),
+            model_id: m.into(),
+            tier: None,
+            billing: "free".into(),
+            estimate_micro_usd: 0,
+            reason: String::new(),
+        };
+        let names = |route: Vec<super::Ranked>| {
+            route.iter().map(|x| format!("{}/{}", x.provider_id, x.model_id)).collect::<Vec<_>>()
+        };
         // Five models of one connection ranked first, then another connection's.
-        let ranked = vec![r("sf", "a"), r("sf", "b"), r("sf", "c"), r("sf", "d"), r("sf", "e"), r("qwen", "plus"), r("qwen", "flash"),
-            r("or", "x")];
+        let ranked = vec![
+            r("sf", "a"),
+            r("sf", "b"),
+            r("sf", "c"),
+            r("sf", "d"),
+            r("sf", "e"),
+            r("qwen", "plus"),
+            r("qwen", "flash"),
+            r("or", "x"),
+        ];
         assert_eq!(names(super::route(&ranked)), ["sf/a", "sf/b", "qwen/plus", "qwen/flash", "or/x"]);
         // One connection only: the route is still five long, in rank order.
         assert_eq!(names(super::route(&ranked[..5])), ["sf/a", "sf/b", "sf/c", "sf/d", "sf/e"]);
@@ -486,10 +581,22 @@ mod tests {
 
     #[test]
     fn a_refusal_groups_its_reasons_by_connection_largest_first() {
-        let ex = |p: &str, m: &str, r: &str| Excluded { provider_id: p.into(), model_id: m.into(), reason: r.into(), kind: FACTS };
-        let mut excluded = vec![ex("claude", "opus", "tool support unknown"), ex("claude", "haiku", "tier T1 is below this client's minimum T2")];
+        let ex = |p: &str, m: &str, r: &str| Excluded {
+            provider_id: p.into(),
+            model_id: m.into(),
+            reason: r.into(),
+            kind: FACTS,
+        };
+        let mut excluded = vec![
+            ex("claude", "opus", "tool support unknown"),
+            ex("claude", "haiku", "tier T1 is below this client's minimum T2"),
+        ];
         for i in 0..5 {
-            excluded.push(ex("openrouter", &format!("m{i}"), &format!("payment required (you can only afford {} tokens)", 100 + i)));
+            excluded.push(ex(
+                "openrouter",
+                &format!("m{i}"),
+                &format!("payment required (you can only afford {} tokens)", 100 + i),
+            ));
         }
         excluded.push(ex("cohere", "embed", "no tier set"));
         let text = summarize(&excluded, 3);
@@ -500,13 +607,25 @@ mod tests {
     }
 
     fn price(input: u64, output: u64) -> Price {
-        Price { input_micro_per_mtok: input, output_micro_per_mtok: output, cached_input_micro_per_mtok: None,
-            cache_write_micro_per_mtok: None, source: "user".into(), observed_at: 0 }
+        Price {
+            input_micro_per_mtok: input,
+            output_micro_per_mtok: output,
+            cached_input_micro_per_mtok: None,
+            cache_write_micro_per_mtok: None,
+            source: "user".into(),
+            observed_at: 0,
+        }
     }
 
     fn caps(tier: Option<&str>, context: u64, tools: Option<bool>) -> Capabilities {
-        Capabilities { tier: tier.map(String::from), context_tokens: Some(context), max_output_tokens: Some(8192),
-            supports_tools: tools, supports_vision: Some(false), ..Capabilities::default() }
+        Capabilities {
+            tier: tier.map(String::from),
+            context_tokens: Some(context),
+            max_output_tokens: Some(8192),
+            supports_tools: tools,
+            supports_vision: Some(false),
+            ..Capabilities::default()
+        }
     }
 
     struct World {
@@ -516,8 +635,20 @@ mod tests {
 
     fn world() -> World {
         let conn = crate::db::open_in_memory().unwrap();
-        let add = |label: &str, billing: &str| store::add_provider(&conn, &NewProvider { kind: "custom", label,
-            endpoint: "http://x.test", credential_ref: None, default_billing: billing, wire: "openai" }).unwrap();
+        let add = |label: &str, billing: &str| {
+            store::add_provider(
+                &conn,
+                &NewProvider {
+                    kind: "custom",
+                    label,
+                    endpoint: "http://x.test",
+                    credential_ref: None,
+                    default_billing: billing,
+                    wire: "openai",
+                },
+            )
+            .unwrap()
+        };
         let paid = add("Paid", "paid");
         let free = add("Free", "free");
         store::update_provider(&conn, &free.id, None, None, Some(true)).unwrap();
@@ -613,15 +744,32 @@ mod tests {
     #[test]
     fn thinking_and_effort_go_only_to_anthropic_models_known_to_take_them() {
         let w = world();
-        let claude = store::add_provider(&w.conn, &NewProvider { kind: "anthropic", label: "Claude", endpoint: "http://a.test",
-            credential_ref: None, default_billing: "paid", wire: "anthropic" }).unwrap();
+        let claude = store::add_provider(
+            &w.conn,
+            &NewProvider {
+                kind: "anthropic",
+                label: "Claude",
+                endpoint: "http://a.test",
+                credential_ref: None,
+                default_billing: "paid",
+                wire: "anthropic",
+            },
+        )
+        .unwrap();
         let model = |m: &str, thinking: Option<Vec<&str>>, effort: Option<Vec<&str>>| {
             store::add_model(&w.conn, &claude.id, m).unwrap();
             store::update_model(&w.conn, &claude.id, m, None, None, Some(Some(price(100_000, 500_000)))).unwrap();
-            store::set_capabilities(&w.conn, &claude.id, m, &Capabilities {
-                thinking_types: thinking.map(|t| t.into_iter().map(String::from).collect()),
-                effort_levels: effort.map(|e| e.into_iter().map(String::from).collect()),
-                ..caps(Some("T3"), 200_000, Some(true)) }).unwrap();
+            store::set_capabilities(
+                &w.conn,
+                &claude.id,
+                m,
+                &Capabilities {
+                    thinking_types: thinking.map(|t| t.into_iter().map(String::from).collect()),
+                    effort_levels: effort.map(|e| e.into_iter().map(String::from).collect()),
+                    ..caps(Some("T3"), 200_000, Some(true))
+                },
+            )
+            .unwrap();
         };
         model("new", Some(vec!["adaptive"]), Some(vec!["low", "high"]));
         model("old", Some(vec!["enabled"]), Some(vec![]));
@@ -638,7 +786,8 @@ mod tests {
         // OpenAI-format targets get a translation that drops both, so they stay eligible.
         assert!(names(&first).contains(&"paid/mid".to_string()));
 
-        let effort_only = Needs { surface_anthropic: true, effort: Some("max".into()), input_tokens: 1000, ..Needs::default() };
+        let effort_only =
+            Needs { surface_anthropic: true, effort: Some("max".into()), input_tokens: 1000, ..Needs::default() };
         let second = plan(&w.conn, &w.client, "auto", Strategy::Tier, &effort_only).unwrap();
         assert_eq!(reason(&second, "new"), "does not take effort: max");
         assert_eq!(reason(&second, "old"), "does not take effort: max");
@@ -651,14 +800,40 @@ mod tests {
     #[test]
     fn a_free_connection_does_not_make_a_priced_model_free() {
         let conn = crate::db::open_in_memory().unwrap();
-        let p = store::add_provider(&conn, &NewProvider { kind: "openrouter", label: "OpenRouter", endpoint: "http://o.test",
-            credential_ref: None, default_billing: "free", wire: "openai" }).unwrap();
-        let price = |input: u64, output: u64| Price { input_micro_per_mtok: input, output_micro_per_mtok: output,
-            cached_input_micro_per_mtok: None, cache_write_micro_per_mtok: None, source: "provider: openrouter /models".into(), observed_at: 1 };
+        let p = store::add_provider(
+            &conn,
+            &NewProvider {
+                kind: "openrouter",
+                label: "OpenRouter",
+                endpoint: "http://o.test",
+                credential_ref: None,
+                default_billing: "free",
+                wire: "openai",
+            },
+        )
+        .unwrap();
+        let price = |input: u64, output: u64| Price {
+            input_micro_per_mtok: input,
+            output_micro_per_mtok: output,
+            cached_input_micro_per_mtok: None,
+            cache_write_micro_per_mtok: None,
+            source: "provider: openrouter /models".into(),
+            observed_at: 1,
+        };
         let listed = |id: &str, p: Option<Price>| store::Listed { id: id.into(), price: p, ..store::Listed::default() };
-        store::import_listed(&conn, &p.id, &[listed("deepseek/deepseek-chat", Some(price(270_000, 1_100_000))),
-            listed("x/model:free", Some(price(0, 0))), listed("y/unpriced", None)], Some("provider: openrouter /models")).unwrap();
-        let billing = |m: &str| store::list_models(&conn, None).unwrap().into_iter().find(|x| x.model_id == m).unwrap().billing;
+        store::import_listed(
+            &conn,
+            &p.id,
+            &[
+                listed("deepseek/deepseek-chat", Some(price(270_000, 1_100_000))),
+                listed("x/model:free", Some(price(0, 0))),
+                listed("y/unpriced", None),
+            ],
+            Some("provider: openrouter /models"),
+        )
+        .unwrap();
+        let billing =
+            |m: &str| store::list_models(&conn, None).unwrap().into_iter().find(|x| x.model_id == m).unwrap().billing;
         assert_eq!(billing("deepseek/deepseek-chat"), "paid", "listed at a price, so charged");
         assert_eq!(billing("x/model:free"), "free");
         assert_eq!(billing("y/unpriced"), "unknown", "only a $0 listing makes a model free here");
@@ -666,7 +841,8 @@ mod tests {
         store::update_model(&conn, &p.id, "deepseek/deepseek-chat", None, Some("free"), None).unwrap();
         assert_eq!(billing("deepseek/deepseek-chat"), "free");
         // And the ledger follows: a paid model's success is priced, not "connection marked free".
-        let model = store::list_models(&conn, None).unwrap().into_iter().find(|x| x.model_id == "x/model:free").unwrap();
+        let model =
+            store::list_models(&conn, None).unwrap().into_iter().find(|x| x.model_id == "x/model:free").unwrap();
         assert_eq!(model.billing, "free");
         let provider = store::get_provider(&conn, &p.id).unwrap().unwrap();
         store::update_model(&conn, &p.id, "deepseek/deepseek-chat", None, Some("unknown"), None).unwrap();
@@ -674,9 +850,25 @@ mod tests {
         assert_eq!(store::pricing_for(&conn, &provider, "x/model:free").unwrap().0, "free");
 
         // Where the account itself is free (a trial key), a list price does not make a call paid.
-        let trial = store::add_provider(&conn, &NewProvider { kind: "cohere", label: "Cohere", endpoint: "http://c.test",
-            credential_ref: None, default_billing: "free", wire: "openai" }).unwrap();
-        store::import_listed(&conn, &trial.id, &[listed("command-a", Some(price(2_500_000, 10_000_000)))], Some("models.dev")).unwrap();
+        let trial = store::add_provider(
+            &conn,
+            &NewProvider {
+                kind: "cohere",
+                label: "Cohere",
+                endpoint: "http://c.test",
+                credential_ref: None,
+                default_billing: "free",
+                wire: "openai",
+            },
+        )
+        .unwrap();
+        store::import_listed(
+            &conn,
+            &trial.id,
+            &[listed("command-a", Some(price(2_500_000, 10_000_000)))],
+            Some("models.dev"),
+        )
+        .unwrap();
         let command = store::list_models(&conn, Some(&trial.id)).unwrap().remove(0);
         assert_eq!((command.billing.as_str(), command.enabled), ("free", true));
     }
@@ -684,19 +876,55 @@ mod tests {
     #[test]
     fn a_connection_used_for_its_free_models_starts_with_its_paid_models_off() {
         let conn = crate::db::open_in_memory().unwrap();
-        let p = store::add_provider(&conn, &NewProvider { kind: "openrouter", label: "OpenRouter", endpoint: "http://o.test",
-            credential_ref: None, default_billing: "free", wire: "openai" }).unwrap();
-        let price = |output: u64| Price { input_micro_per_mtok: output / 4, output_micro_per_mtok: output,
-            cached_input_micro_per_mtok: None, cache_write_micro_per_mtok: None, source: "provider: openrouter /models".into(), observed_at: 1 };
+        let p = store::add_provider(
+            &conn,
+            &NewProvider {
+                kind: "openrouter",
+                label: "OpenRouter",
+                endpoint: "http://o.test",
+                credential_ref: None,
+                default_billing: "free",
+                wire: "openai",
+            },
+        )
+        .unwrap();
+        let price = |output: u64| Price {
+            input_micro_per_mtok: output / 4,
+            output_micro_per_mtok: output,
+            cached_input_micro_per_mtok: None,
+            cache_write_micro_per_mtok: None,
+            source: "provider: openrouter /models".into(),
+            observed_at: 1,
+        };
         let listed = |id: &str, p: Option<Price>| store::Listed { id: id.into(), price: p, ..store::Listed::default() };
-        store::import_listed(&conn, &p.id, &[listed("a/paid", Some(price(1_000_000))), listed("b/chosen", Some(price(2_000_000))),
-            listed("c/model:free", Some(price(0))), listed("d/unpriced", None)], Some("provider: openrouter /models")).unwrap();
-        let state = |m: &str| store::list_models(&conn, None).unwrap().into_iter().find(|x| x.model_id == m)
-            .map(|x| (x.enabled, x.enabled_source)).unwrap();
+        store::import_listed(
+            &conn,
+            &p.id,
+            &[
+                listed("a/paid", Some(price(1_000_000))),
+                listed("b/chosen", Some(price(2_000_000))),
+                listed("c/model:free", Some(price(0))),
+                listed("d/unpriced", None),
+            ],
+            Some("provider: openrouter /models"),
+        )
+        .unwrap();
+        let state = |m: &str| {
+            store::list_models(&conn, None)
+                .unwrap()
+                .into_iter()
+                .find(|x| x.model_id == m)
+                .map(|x| (x.enabled, x.enabled_source))
+                .unwrap()
+        };
         let off = (false, Some(store::OFF_ON_FREE_CONNECTION.to_string()));
         assert_eq!(state("a/paid"), off);
         assert_eq!(state("c/model:free"), (true, None));
-        assert_eq!(state("d/unpriced"), off, "not listed at $0: OpenRouter's own routers list no price and may pick a paid model");
+        assert_eq!(
+            state("d/unpriced"),
+            off,
+            "not listed at $0: OpenRouter's own routers list no price and may pick a paid model"
+        );
 
         // The user turns a paid one on: it stays on, and is billed as paid.
         store::update_model(&conn, &p.id, "b/chosen", Some(true), None, None).unwrap();
@@ -715,12 +943,12 @@ mod tests {
         assert_eq!(state("d/unpriced"), (true, None));
         store::update_model(&conn, &p.id, "d/unpriced", None, None, Some(Some(price(500_000)))).unwrap();
         assert_eq!(state("d/unpriced"), off);
-
     }
 
     #[test]
     fn the_free_model_kinds_in_the_billing_rule_are_the_presets_that_say_so() {
-        let kinds: Vec<&str> = crate::gateway::presets::PRESETS.iter().filter(|p| p.free_models).map(|p| p.id).collect();
+        let kinds: Vec<&str> =
+            crate::gateway::presets::PRESETS.iter().filter(|p| p.free_models).map(|p| p.id).collect();
         assert_eq!(kinds, ["openrouter", "zai", "zai-anthropic"]);
         let listed = store::FREE_MODELS_CONNECTION.split("IN (").nth(1).unwrap().split(')').next().unwrap();
         assert_eq!(listed.split(", ").map(|k| k.trim_matches('\'')).collect::<Vec<_>>(), kinds);
@@ -732,33 +960,67 @@ mod tests {
     #[test]
     fn the_tier_table_fills_only_what_nobody_set_and_auto_says_so() {
         let conn = crate::db::open_in_memory().unwrap();
-        let p = store::add_provider(&conn, &NewProvider { kind: "gemini", label: "Gemini", endpoint: "http://g.test",
-            credential_ref: None, default_billing: "free", wire: "openai" }).unwrap();
+        let p = store::add_provider(
+            &conn,
+            &NewProvider {
+                kind: "gemini",
+                label: "Gemini",
+                endpoint: "http://g.test",
+                credential_ref: None,
+                default_billing: "free",
+                wire: "openai",
+            },
+        )
+        .unwrap();
         for m in ["gemini-2.5-flash", "gemini-2.5-pro", "mystery-1"] {
             store::add_model(&conn, &p.id, m).unwrap();
         }
-        let tier = |m: &str| store::list_models(&conn, None).unwrap().into_iter().find(|x| x.model_id == m).unwrap().capabilities;
+        let tier = |m: &str| {
+            store::list_models(&conn, None).unwrap().into_iter().find(|x| x.model_id == m).unwrap().capabilities
+        };
         let flash = tier("gemini-2.5-flash");
         assert_eq!((flash.tier.as_deref(), flash.tier_source.as_deref()), (Some("T2"), Some(store::CURATED)));
         assert!(flash.tier_note.unwrap().contains("Flash"));
         assert_eq!(tier("mystery-1").tier, None, "a line the table does not know stays unset");
 
         // The user's tier, and a tier the user cleared, are theirs.
-        store::set_capabilities(&conn, &p.id, "gemini-2.5-pro", &Capabilities { tier: Some("T4".into()), ..tier("gemini-2.5-pro") }).unwrap();
-        store::set_capabilities(&conn, &p.id, "gemini-2.5-flash", &Capabilities { tier: None, ..tier("gemini-2.5-flash") }).unwrap();
+        store::set_capabilities(
+            &conn,
+            &p.id,
+            "gemini-2.5-pro",
+            &Capabilities { tier: Some("T4".into()), ..tier("gemini-2.5-pro") },
+        )
+        .unwrap();
+        store::set_capabilities(
+            &conn,
+            &p.id,
+            "gemini-2.5-flash",
+            &Capabilities { tier: None, ..tier("gemini-2.5-flash") },
+        )
+        .unwrap();
         store::fill_curated_tiers(&conn).unwrap();
         assert_eq!(tier("gemini-2.5-pro").tier.as_deref(), Some("T4"));
-        assert_eq!((tier("gemini-2.5-flash").tier, tier("gemini-2.5-flash").tier_source.as_deref()), (None, Some("user")));
+        assert_eq!(
+            (tier("gemini-2.5-flash").tier, tier("gemini-2.5-flash").tier_source.as_deref()),
+            (None, Some("user"))
+        );
 
         // auto names where a tier came from.
         store::add_model(&conn, &p.id, "gemini-3.1-flash-lite").unwrap();
         let lite = tier("gemini-3.1-flash-lite");
-        store::set_capabilities(&conn, &p.id, "gemini-3.1-flash-lite", &Capabilities { context_tokens: Some(1_000_000), ..lite.clone() }).unwrap();
+        store::set_capabilities(
+            &conn,
+            &p.id,
+            "gemini-3.1-flash-lite",
+            &Capabilities { context_tokens: Some(1_000_000), ..lite.clone() },
+        )
+        .unwrap();
         // That save made it the user's; give the table a fresh model to show the reason on.
         store::add_model(&conn, &p.id, "gemini-3.5-flash").unwrap();
         conn.execute("UPDATE models SET context_tokens = 1000000 WHERE model_id = 'gemini-3.5-flash'", []).unwrap();
         let client = store::create_client(&conn, "T", None).unwrap().0;
-        let plan = plan(&conn, &client, "auto", Strategy::Tier, &Needs { input_tokens: 100, ..Needs::default() }).unwrap();
+        let plan =
+            plan(&conn, &client, "auto", Strategy::Tier, &Needs { input_tokens: 100, ..Needs::default() }).unwrap();
         let ranked = plan.ranked.iter().find(|r| r.model_id == "gemini-3.5-flash").unwrap();
         assert!(ranked.reason.starts_with("tier T2 from Pygg's table (minimum T2)"), "{}", ranked.reason);
     }
@@ -766,21 +1028,68 @@ mod tests {
     #[test]
     fn claude_models_take_tools_from_pyggs_table_unless_the_user_said_otherwise() {
         let conn = crate::db::open_in_memory().unwrap();
-        let p = store::add_provider(&conn, &NewProvider { kind: "anthropic", label: "Claude", endpoint: "https://api.anthropic.com/v1",
-            credential_ref: None, default_billing: "paid", wire: "anthropic" }).unwrap();
-        let other = store::add_provider(&conn, &NewProvider { kind: "gemini", label: "Gemini", endpoint: "https://g",
-            credential_ref: None, default_billing: "paid", wire: "openai" }).unwrap();
-        let listed = |id: &str| store::Listed { id: id.into(), context_tokens: Some(200_000), max_output_tokens: Some(64_000),
-            ..store::Listed::default() };
-        store::import_listed(&conn, &p.id, &[listed("claude-sonnet-5-5"), listed("claude-haiku-5-5")], Some("provider: anthropic /models")).unwrap();
+        let p = store::add_provider(
+            &conn,
+            &NewProvider {
+                kind: "anthropic",
+                label: "Claude",
+                endpoint: "https://api.anthropic.com/v1",
+                credential_ref: None,
+                default_billing: "paid",
+                wire: "anthropic",
+            },
+        )
+        .unwrap();
+        let other = store::add_provider(
+            &conn,
+            &NewProvider {
+                kind: "gemini",
+                label: "Gemini",
+                endpoint: "https://g",
+                credential_ref: None,
+                default_billing: "paid",
+                wire: "openai",
+            },
+        )
+        .unwrap();
+        let listed = |id: &str| store::Listed {
+            id: id.into(),
+            context_tokens: Some(200_000),
+            max_output_tokens: Some(64_000),
+            ..store::Listed::default()
+        };
+        store::import_listed(
+            &conn,
+            &p.id,
+            &[listed("claude-sonnet-5-5"), listed("claude-haiku-5-5")],
+            Some("provider: anthropic /models"),
+        )
+        .unwrap();
         store::import_listed(&conn, &other.id, &[listed("gemini-x")], Some("provider: gemini /models")).unwrap();
         // The user says one does not take tools; that stays.
-        let caps = |pid: &str, m: &str| store::list_models(&conn, Some(pid)).unwrap().into_iter().find(|x| x.model_id == m).unwrap().capabilities;
-        store::set_capabilities(&conn, &p.id, "claude-haiku-5-5", &Capabilities { supports_tools: Some(false), ..caps(&p.id, "claude-haiku-5-5") }).unwrap();
-        store::import_listed(&conn, &p.id, &[listed("claude-sonnet-5-5"), listed("claude-haiku-5-5")], Some("provider: anthropic /models")).unwrap();
+        let caps = |pid: &str, m: &str| {
+            store::list_models(&conn, Some(pid)).unwrap().into_iter().find(|x| x.model_id == m).unwrap().capabilities
+        };
+        store::set_capabilities(
+            &conn,
+            &p.id,
+            "claude-haiku-5-5",
+            &Capabilities { supports_tools: Some(false), ..caps(&p.id, "claude-haiku-5-5") },
+        )
+        .unwrap();
+        store::import_listed(
+            &conn,
+            &p.id,
+            &[listed("claude-sonnet-5-5"), listed("claude-haiku-5-5")],
+            Some("provider: anthropic /models"),
+        )
+        .unwrap();
         let sonnet = caps(&p.id, "claude-sonnet-5-5");
         assert_eq!((sonnet.supports_tools, sonnet.context_tokens), (Some(true), Some(200_000)));
-        assert_eq!(sonnet.source.as_deref(), Some(format!("provider: anthropic /models; tools: {}", store::CURATED_TOOLS).as_str()));
+        assert_eq!(
+            sonnet.source.as_deref(),
+            Some(format!("provider: anthropic /models; tools: {}", store::CURATED_TOOLS).as_str())
+        );
         assert_eq!(caps(&p.id, "claude-haiku-5-5").supports_tools, Some(false), "the user's word stands");
         assert_eq!(caps(&other.id, "gemini-x").supports_tools, None, "only Anthropic's are filled");
     }
@@ -811,7 +1120,9 @@ mod tests {
         assert_eq!(reason(&plan, "untiered"), "no tier set");
         assert_eq!(reason(&plan, "unpriced"), "price unknown");
         assert!(plan.ranked[0].reason.starts_with("tier T2 (minimum T2); free"));
-        assert!(plan.header(&plan.ranked[0]).starts_with("auto; free/gift ranked 1 of 4 (lowest eligible tier first): tier T2"));
+        assert!(plan
+            .header(&plan.ranked[0])
+            .starts_with("auto; free/gift ranked 1 of 4 (lowest eligible tier first): tier T2"));
     }
 
     #[test]
@@ -846,7 +1157,8 @@ mod tests {
     fn a_plan_with_a_quota_ranks_after_free_and_before_paid() {
         let w = world();
         store::update_model(&w.conn, "paid", "unpriced", None, Some("subscription"), None).unwrap();
-        let plan = plan(&w.conn, &w.client, "auto", Strategy::Tier, &Needs { input_tokens: 1000, ..Needs::default() }).unwrap();
+        let plan = plan(&w.conn, &w.client, "auto", Strategy::Tier, &Needs { input_tokens: 1000, ..Needs::default() })
+            .unwrap();
         assert_eq!(names(&plan), ["free/gift", "paid/unpriced", "paid/notools", "paid/mid", "paid/big"]);
         assert!(plan.ranked[1].reason.contains("the plan's quota, not money"));
     }

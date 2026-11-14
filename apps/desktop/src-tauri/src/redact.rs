@@ -5,7 +5,8 @@ pub const MASK: &str = "[redacted]";
 
 /// Key prefixes used by common providers. A token starting with one of these and long enough to be a key
 /// is masked even when it is not one of the known secrets.
-const KEY_PREFIXES: &[&str] = &["sk-", "sk_", "rk_", "pk_live_", "ghp_", "gho_", "github_pat_", "xoxb-", "xoxp-", "AIza"];
+const KEY_PREFIXES: &[&str] =
+    &["sk-", "sk_", "rk_", "pk_live_", "ghp_", "gho_", "github_pat_", "xoxb-", "xoxp-", "AIza"];
 const MIN_KEY_LEN: usize = 20;
 
 pub fn redact(text: &str, known_secrets: &[&str]) -> String {
@@ -66,7 +67,10 @@ mod tests {
     #[test]
     fn leaves_short_and_embedded_tokens() {
         // Too short to be a key, and "task-" is not a prefix match at a boundary.
-        assert_eq!(redact("sk-short and task-sk-0123456789abcdefghij", &[]), "sk-short and task-sk-0123456789abcdefghij");
+        assert_eq!(
+            redact("sk-short and task-sk-0123456789abcdefghij", &[]),
+            "sk-short and task-sk-0123456789abcdefghij"
+        );
     }
 
     #[test]

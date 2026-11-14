@@ -80,27 +80,48 @@ fn asked(request: &Value) -> Asked {
     let mut a = Asked { want: None, fields: Vec::new(), off: Vec::new(), unknown: Vec::new() };
     let level = match request["reasoning_effort"].as_str() {
         None => None,
-        Some("none") => { a.off.push("reasoning_effort (none)".into()); None }
+        Some("none") => {
+            a.off.push("reasoning_effort (none)".into());
+            None
+        }
         Some("minimal" | "low") => Some("low"),
         Some("medium") => Some("medium"),
         Some("high") => Some("high"),
         Some("xhigh") => Some("xhigh"),
         Some("max") => Some("max"),
-        Some(_) => { a.unknown.push("reasoning_effort".into()); None }
+        Some(_) => {
+            a.unknown.push("reasoning_effort".into());
+            None
+        }
     };
     if level.is_some() {
         a.fields.push("reasoning_effort");
     }
     // DeepSeek (and GLM): `thinking: {"type": "enabled" | "disabled"}`.
     let switch = match request["thinking"]["type"].as_str() {
-        Some("enabled") => { a.fields.push("thinking"); Some(true) }
-        Some("disabled") => { a.off.push("thinking (disabled)".into()); Some(false) }
-        Some(_) => { a.unknown.push("thinking".into()); None }
-        None if !request["thinking"].is_null() => { a.unknown.push("thinking".into()); None }
+        Some("enabled") => {
+            a.fields.push("thinking");
+            Some(true)
+        }
+        Some("disabled") => {
+            a.off.push("thinking (disabled)".into());
+            Some(false)
+        }
+        Some(_) => {
+            a.unknown.push("thinking".into());
+            None
+        }
+        None if !request["thinking"].is_null() => {
+            a.unknown.push("thinking".into());
+            None
+        }
         None => None,
     };
     a.want = match (level, switch) {
-        (Some(_), Some(false)) => { a.off.push("reasoning_effort (thinking disabled)".into()); None }
+        (Some(_), Some(false)) => {
+            a.off.push("reasoning_effort (thinking disabled)".into());
+            None
+        }
         (_, Some(false)) => None,
         (Some(level), _) => Some(Some(level)),
         (None, Some(true)) if request["reasoning_effort"] != "none" => Some(None),
@@ -113,7 +134,9 @@ fn asked(request: &Value) -> Asked {
 }
 
 /// Sets `thinking` (and `output_config.effort`) on a Messages request, or names why not.
-fn apply_thinking(request: &Value, out: &mut Value, support: &ThinkingSupport, client_max: Option<u64>, dropped: &mut Vec<String>) {
+fn apply_thinking(
+    request: &Value, out: &mut Value, support: &ThinkingSupport, client_max: Option<u64>, dropped: &mut Vec<String>,
+) {
     let a = asked(request);
     dropped.extend(a.off);
     dropped.extend(a.unknown);
@@ -171,9 +194,11 @@ fn apply_thinking(request: &Value, out: &mut Value, support: &ThinkingSupport, c
 fn text_of(content: &Value) -> String {
     match content {
         Value::String(s) => s.clone(),
-        Value::Array(parts) => parts.iter()
+        Value::Array(parts) => parts
+            .iter()
             .filter_map(|p| if p["type"] == "text" { p["text"].as_str().map(String::from) } else { None })
-            .collect::<Vec<_>>().join("\n"),
+            .collect::<Vec<_>>()
+            .join("\n"),
         _ => String::new(),
     }
 }
@@ -190,11 +215,16 @@ fn image_block(part: &Value) -> Option<Value> {
 fn user_blocks(content: &Value) -> Vec<Value> {
     match content {
         Value::String(s) if !s.is_empty() => vec![json!({ "type": "text", "text": s })],
-        Value::Array(parts) => parts.iter().filter_map(|p| match p["type"].as_str() {
-            Some("text") => p["text"].as_str().filter(|t| !t.is_empty()).map(|t| json!({ "type": "text", "text": t })),
-            Some("image_url") => image_block(p),
-            _ => None,
-        }).collect(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|p| match p["type"].as_str() {
+                Some("text") => {
+                    p["text"].as_str().filter(|t| !t.is_empty()).map(|t| json!({ "type": "text", "text": t }))
+                }
+                Some("image_url") => image_block(p),
+                _ => None,
+            })
+            .collect(),
         _ => Vec::new(),
     }
 }
@@ -233,7 +263,9 @@ pub fn to_anthropic(request: &Value, thinking: &ThinkingSupport) -> (Value, Vec<
             }
             "assistant" => {
                 // Without its signature a thinking block is refused, so earlier reasoning stays behind.
-                if message["reasoning_content"].as_str().is_some_and(|r| !r.is_empty()) && !dropped.iter().any(|d| d == "reasoning_content") {
+                if message["reasoning_content"].as_str().is_some_and(|r| !r.is_empty())
+                    && !dropped.iter().any(|d| d == "reasoning_content")
+                {
                     dropped.push("reasoning_content".into());
                 }
                 let mut blocks = Vec::new();
@@ -264,7 +296,8 @@ pub fn to_anthropic(request: &Value, thinking: &ThinkingSupport) -> (Value, Vec<
             blocks.sort_by_key(|b| if b["type"] == "tool_result" { 0 } else { 1 });
         }
     }
-    let messages: Vec<Value> = turns.into_iter().map(|(role, content)| json!({ "role": role, "content": content })).collect();
+    let messages: Vec<Value> =
+        turns.into_iter().map(|(role, content)| json!({ "role": role, "content": content })).collect();
     let client_max = request["max_completion_tokens"].as_u64().or_else(|| request["max_tokens"].as_u64());
     let max_tokens = client_max.unwrap_or_else(|| default_max_tokens(request, thinking.max_output));
     let mut out = json!({ "model": request["model"], "max_tokens": max_tokens, "messages": messages });
@@ -296,15 +329,32 @@ pub fn to_anthropic(request: &Value, thinking: &ThinkingSupport) -> (Value, Vec<
             match &request["tool_choice"] {
                 Value::String(s) if s == "required" => out["tool_choice"] = json!({ "type": "any" }),
                 Value::String(s) if s == "none" => out["tool_choice"] = json!({ "type": "none" }),
-                Value::Object(o) if o.get("function").is_some() =>
-                    out["tool_choice"] = json!({ "type": "tool", "name": o["function"]["name"] }),
+                Value::Object(o) if o.get("function").is_some() => {
+                    out["tool_choice"] = json!({ "type": "tool", "name": o["function"]["name"] })
+                }
                 _ => {}
             }
         }
     }
-    for field in ["n", "logprobs", "top_logprobs", "presence_penalty", "frequency_penalty", "logit_bias", "seed",
-        "response_format", "modalities", "audio", "prediction", "web_search_options", "user",
-        "service_tier", "store", "metadata", "parallel_tool_calls"] {
+    for field in [
+        "n",
+        "logprobs",
+        "top_logprobs",
+        "presence_penalty",
+        "frequency_penalty",
+        "logit_bias",
+        "seed",
+        "response_format",
+        "modalities",
+        "audio",
+        "prediction",
+        "web_search_options",
+        "user",
+        "service_tier",
+        "store",
+        "metadata",
+        "parallel_tool_calls",
+    ] {
         if request.get(field).is_some_and(|v| !v.is_null()) {
             dropped.push(field.to_string());
         }
@@ -392,8 +442,18 @@ pub struct ChunkTranslator {
 
 impl ChunkTranslator {
     pub fn new(model: &str, include_usage: bool) -> ChunkTranslator {
-        ChunkTranslator { id: completion_id(), model: model.into(), created: now_secs(), tool_index: Default::default(),
-            next_tool: 0, include_usage, usage: None, finish: None, thought: false, new_thought: false }
+        ChunkTranslator {
+            id: completion_id(),
+            model: model.into(),
+            created: now_secs(),
+            tool_index: Default::default(),
+            next_tool: 0,
+            include_usage,
+            usage: None,
+            finish: None,
+            thought: false,
+            new_thought: false,
+        }
     }
 
     fn chunk(&self, delta: Value, finish: Option<&str>) -> String {
@@ -410,14 +470,19 @@ impl ChunkTranslator {
                 self.usage = Usage::from_anthropic(&event["message"]["usage"]);
                 out.push(self.chunk(json!({ "role": "assistant", "content": "" }), None));
             }
-            Some("content_block_start") if event["content_block"]["type"] == "thinking" => self.new_thought = self.thought,
+            Some("content_block_start") if event["content_block"]["type"] == "thinking" => {
+                self.new_thought = self.thought
+            }
             Some("content_block_start") if event["content_block"]["type"] == "tool_use" => {
                 let index = self.next_tool;
                 self.next_tool += 1;
                 self.tool_index.insert(event["index"].as_u64().unwrap_or(0), index);
                 let block = &event["content_block"];
-                out.push(self.chunk(json!({ "tool_calls": [{ "index": index, "id": block["id"], "type": "function",
-                    "function": { "name": block["name"], "arguments": "" } }] }), None));
+                out.push(self.chunk(
+                    json!({ "tool_calls": [{ "index": index, "id": block["id"], "type": "function",
+                    "function": { "name": block["name"], "arguments": "" } }] }),
+                    None,
+                ));
             }
             Some("content_block_delta") => {
                 let delta = &event["delta"];
@@ -426,14 +491,21 @@ impl ChunkTranslator {
                     Some("thinking_delta") if delta["thinking"].as_str().is_some_and(|t| !t.is_empty()) => {
                         let thought = delta["thinking"].as_str().unwrap_or("");
                         // A later thinking block (between tool calls) starts on its own line, as when not streamed.
-                        let text = if std::mem::take(&mut self.new_thought) { format!("\n{thought}") } else { thought.to_string() };
+                        let text = if std::mem::take(&mut self.new_thought) {
+                            format!("\n{thought}")
+                        } else {
+                            thought.to_string()
+                        };
                         self.thought = true;
                         out.push(self.chunk(json!({ "reasoning_content": text }), None));
                     }
                     Some("input_json_delta") => {
                         let index = self.tool_index.get(&event["index"].as_u64().unwrap_or(0)).copied().unwrap_or(0);
-                        out.push(self.chunk(json!({ "tool_calls": [{ "index": index,
-                            "function": { "arguments": delta["partial_json"] } }] }), None));
+                        out.push(self.chunk(
+                            json!({ "tool_calls": [{ "index": index,
+                            "function": { "arguments": delta["partial_json"] } }] }),
+                            None,
+                        ));
                     }
                     _ => {}
                 }
@@ -491,8 +563,14 @@ mod tests {
         assert_eq!(dropped, ["seed"]);
         let m = out["messages"].as_array().unwrap();
         assert_eq!(m.len(), 3, "user, assistant, then one user turn with both results and the text: {m:?}");
-        assert_eq!(m[0]["content"][1]["source"], json!({ "type": "base64", "media_type": "image/png", "data": "QUJD" }));
-        assert_eq!(m[1]["content"][0], json!({ "type": "tool_use", "id": "c1", "name": "read", "input": { "path": "a.txt" } }));
+        assert_eq!(
+            m[0]["content"][1]["source"],
+            json!({ "type": "base64", "media_type": "image/png", "data": "QUJD" })
+        );
+        assert_eq!(
+            m[1]["content"][0],
+            json!({ "type": "tool_use", "id": "c1", "name": "read", "input": { "path": "a.txt" } })
+        );
         assert_eq!(m[2]["content"][0]["type"], "tool_result");
         assert_eq!(m[2]["content"][1]["tool_use_id"], "c2");
         assert_eq!(m[2]["content"][2], json!({ "type": "text", "text": "Thanks" }));
@@ -514,8 +592,11 @@ mod tests {
     }
 
     fn support(types: &[&str], efforts: Option<&[&str]>) -> ThinkingSupport {
-        ThinkingSupport { types: Some(types.iter().map(|t| t.to_string()).collect()),
-            efforts: efforts.map(|e| e.iter().map(|l| l.to_string()).collect()), max_output: None }
+        ThinkingSupport {
+            types: Some(types.iter().map(|t| t.to_string()).collect()),
+            efforts: efforts.map(|e| e.iter().map(|l| l.to_string()).collect()),
+            max_output: None,
+        }
     }
 
     /// ROADMAP B5: a model that takes only `budget_tokens` (Haiku 4.5) gets a budget for the level, inside
@@ -526,11 +607,16 @@ mod tests {
         let request = json!({ "model": "m", "reasoning_effort": "high", "top_p": 0.5, "messages": [{ "role": "user", "content": "hi" }] });
         let (out, dropped) = to_anthropic(&request, &old);
         assert_eq!(out["thinking"], json!({ "type": "enabled", "budget_tokens": 16_384 }));
-        assert_eq!(out["max_tokens"], DEFAULT_MAX_TOKENS + 16_384, "no client limit: the answer keeps its default room");
+        assert_eq!(
+            out["max_tokens"],
+            DEFAULT_MAX_TOKENS + 16_384,
+            "no client limit: the answer keeps its default room"
+        );
         assert!(out.get("output_config").is_none() && out.get("top_p").is_none());
         assert_eq!(dropped, ["top_p (with thinking)"]);
 
-        let limited = json!({ "model": "m", "reasoning_effort": "high", "max_completion_tokens": 3000, "messages": [] });
+        let limited =
+            json!({ "model": "m", "reasoning_effort": "high", "max_completion_tokens": 3000, "messages": [] });
         let (out, _) = to_anthropic(&limited, &old);
         assert_eq!((out["max_tokens"].as_u64(), out["thinking"]["budget_tokens"].as_u64()), (Some(3000), Some(1976)));
         let tiny = json!({ "model": "m", "reasoning_effort": "low", "max_tokens": 1500, "messages": [] });
@@ -544,7 +630,8 @@ mod tests {
         assert_eq!(out["top_p"], 0.5, "kept when no thinking is asked for");
         assert_eq!(dropped, ["reasoning_effort (the model does not think)"]);
 
-        let off = json!({ "model": "m", "reasoning_effort": "high", "thinking": { "type": "disabled" }, "messages": [] });
+        let off =
+            json!({ "model": "m", "reasoning_effort": "high", "thinking": { "type": "disabled" }, "messages": [] });
         let (out, dropped) = to_anthropic(&off, &support(&["adaptive"], Some(&["high"])));
         assert!(out["thinking"].is_null());
         assert_eq!(dropped, ["thinking (disabled)", "reasoning_effort (thinking disabled)"]);
@@ -557,7 +644,10 @@ mod tests {
             { "type": "thinking", "thinking": "Second.", "signature": "s3" }, { "type": "text", "text": "Done." }],
             "stop_reason": "end_turn", "usage": { "input_tokens": 1, "output_tokens": 2 } });
         let (out, _) = from_anthropic(&response, "m");
-        assert_eq!(out["choices"][0]["message"], json!({ "role": "assistant", "content": "Done.", "reasoning_content": "First.\nSecond." }));
+        assert_eq!(
+            out["choices"][0]["message"],
+            json!({ "role": "assistant", "content": "Done.", "reasoning_content": "First.\nSecond." })
+        );
 
         let mut t = ChunkTranslator::new("m", false);
         let events = [
@@ -569,9 +659,12 @@ mod tests {
             json!({ "type": "content_block_start", "index": 2, "content_block": { "type": "thinking", "thinking": "", "signature": "" } }),
             json!({ "type": "content_block_delta", "index": 2, "delta": { "type": "thinking_delta", "thinking": "Second." } }),
         ];
-        let reasoning: Vec<String> = events.iter().flat_map(|e| t.push(e))
+        let reasoning: Vec<String> = events
+            .iter()
+            .flat_map(|e| t.push(e))
             .filter_map(|c| serde_json::from_str::<Value>(c.strip_prefix("data: ")?.trim()).ok())
-            .filter_map(|d| d["choices"][0]["delta"]["reasoning_content"].as_str().map(String::from)).collect();
+            .filter_map(|d| d["choices"][0]["delta"]["reasoning_content"].as_str().map(String::from))
+            .collect();
         assert_eq!(reasoning, ["First.", "\nSecond."]);
     }
 
@@ -604,11 +697,19 @@ mod tests {
         ];
         let mut chunks: Vec<String> = events.iter().flat_map(|e| t.push(e)).collect();
         chunks.extend(t.finish());
-        let data: Vec<Value> = chunks.iter().filter_map(|c| c.strip_prefix("data: ")).map(str::trim)
-            .filter(|d| *d != "[DONE]").map(|d| serde_json::from_str(d).unwrap()).collect();
+        let data: Vec<Value> = chunks
+            .iter()
+            .filter_map(|c| c.strip_prefix("data: "))
+            .map(str::trim)
+            .filter(|d| *d != "[DONE]")
+            .map(|d| serde_json::from_str(d).unwrap())
+            .collect();
         assert_eq!(data[1]["choices"][0]["delta"]["content"], "Hi");
         assert_eq!(data[2]["choices"][0]["delta"]["tool_calls"][0]["function"]["name"], "read");
-        let args: String = data.iter().filter_map(|d| d["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"].as_str()).collect();
+        let args: String = data
+            .iter()
+            .filter_map(|d| d["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"].as_str())
+            .collect();
         assert_eq!(args, "{\"p\":1}");
         assert_eq!(data[5]["choices"][0]["finish_reason"], "tool_calls");
         assert_eq!(data[6]["usage"]["completion_tokens"], 7);

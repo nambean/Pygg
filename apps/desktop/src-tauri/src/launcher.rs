@@ -43,8 +43,13 @@ fn record(conn: &Connection) -> Option<Record> {
 pub fn state(conn: &Connection) -> State {
     let installed = crate::agents::locate("claude").is_some();
     match record(conn) {
-        Some(r) => State { set_up: true, client_id: Some(r.client_id), client_name: Some(CLIENT_NAME.into()),
-            set_up_at: Some(r.set_up_at), installed },
+        Some(r) => State {
+            set_up: true,
+            client_id: Some(r.client_id),
+            client_name: Some(CLIENT_NAME.into()),
+            set_up_at: Some(r.set_up_at),
+            installed,
+        },
         None => State { set_up: false, client_id: None, client_name: None, set_up_at: None, installed },
     }
 }
@@ -94,11 +99,14 @@ pub fn launch_session() -> String {
 /// The variables Claude Code is started with: the gateway, the key, `model` for every model slot, and a fresh session
 /// so the whole session stays on one model (and one prompt cache).
 pub fn environment(base_url: &str, token: &str, model: &str, session: &str) -> Vec<(String, String)> {
-    let mut env: Vec<(String, String)> = vec![
-        ("ANTHROPIC_BASE_URL".into(), base_url.into()),
-        ("ANTHROPIC_AUTH_TOKEN".into(), token.into()),
-    ];
-    for slot in ["ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"] {
+    let mut env: Vec<(String, String)> =
+        vec![("ANTHROPIC_BASE_URL".into(), base_url.into()), ("ANTHROPIC_AUTH_TOKEN".into(), token.into())];
+    for slot in [
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    ] {
         env.push((slot.into(), model.into()));
     }
     env.push(("ANTHROPIC_CUSTOM_HEADERS".into(), format!("x-pygg-session: {session}")));
@@ -108,7 +116,8 @@ pub fn environment(base_url: &str, token: &str, model: &str, session: &str) -> V
 /// Variables removed from Claude Code's environment at launch: another key would be sent to the gateway instead
 /// of Pygg's, and a host session's variables would make it act as that session's child.
 pub fn removed_variables() -> impl Iterator<Item = &'static str> {
-    ["ANTHROPIC_API_KEY", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"].into_iter()
+    ["ANTHROPIC_API_KEY", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"]
+        .into_iter()
         .chain(crate::process::HOST_SESSION_VARS.iter().copied())
 }
 

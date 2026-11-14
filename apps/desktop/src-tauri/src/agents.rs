@@ -97,7 +97,8 @@ fn read_npm_shim(shim: &Path) -> Option<Launch> {
     let text = std::fs::read_to_string(shim).ok()?;
     let dir = shim.parent()?;
     // The shim also names `%dp0%\node.exe` (the Node it prefers); the target is the other quoted path.
-    let path = text.split('"')
+    let path = text
+        .split('"')
         .filter(|part| part.starts_with("%dp0%\\") && !part.ends_with("\\node.exe"))
         .filter(|part| [".js", ".cjs", ".mjs", ".exe"].iter().any(|ext| part.ends_with(ext)))
         .map(|part| dir.join(part.trim_start_matches("%dp0%\\")))
@@ -126,13 +127,22 @@ pub struct Detected {
 }
 
 fn command(launch: &Launch, args: Vec<String>, cwd: &Path, timeout: Duration) -> Spec {
-    Spec { program: launch.program.clone(), args, raw_tail: None, cwd: cwd.to_path_buf(), env: Vec::new(), timeout,
-        output_limit: 2 * 1024 * 1024 }
+    Spec {
+        program: launch.program.clone(),
+        args,
+        raw_tail: None,
+        cwd: cwd.to_path_buf(),
+        env: Vec::new(),
+        timeout,
+        output_limit: 2 * 1024 * 1024,
+    }
 }
 
 async fn quick(launch: &Launch, args: &[&str]) -> Option<String> {
     let args = launch.prefix.iter().cloned().chain(args.iter().map(|a| a.to_string())).collect();
-    let out = process::run(&command(launch, args, &std::env::temp_dir(), Duration::from_secs(20)), std::future::pending()).await;
+    let out =
+        process::run(&command(launch, args, &std::env::temp_dir(), Duration::from_secs(20)), std::future::pending())
+            .await;
     let text = format!("{}{}", out.stdout, out.stderr);
     let line = text.lines().map(str::trim).find(|l| !l.is_empty())?;
     Some(crate::redact::redact(line, &[]).chars().take(120).collect())
@@ -141,7 +151,9 @@ async fn quick(launch: &Launch, args: &[&str]) -> Option<String> {
 /// Claude Code's own `auth status` (JSON), as one line. Only whether and how it is signed in, never an account.
 async fn claude_login(launch: &Launch) -> Option<String> {
     let args = launch.prefix.iter().cloned().chain(["auth".to_string(), "status".to_string()]).collect();
-    let out = process::run(&command(launch, args, &std::env::temp_dir(), Duration::from_secs(20)), std::future::pending()).await;
+    let out =
+        process::run(&command(launch, args, &std::env::temp_dir(), Duration::from_secs(20)), std::future::pending())
+            .await;
     let status: Value = serde_json::from_str(out.stdout.trim()).ok()?;
     Some(if status["loggedIn"] == true {
         format!("Signed in ({})", status["authMethod"].as_str().unwrap_or("unknown method"))
@@ -157,19 +169,30 @@ pub async fn detect() -> Vec<Detected> {
     futures_util::future::join_all(AGENTS.iter().map(|spec| async move {
         let launch = spec.programs.iter().find_map(|p| locate(p));
         let (version, login) = match &launch {
-            Some(launch) => futures_util::future::join(quick(launch, &["--version"]), async {
-                match spec.id {
-                    "codex" => quick(launch, &["login", "status"]).await,
-                    "claude-code" => claude_login(launch).await,
-                    _ => None,
-                }
-            }).await,
+            Some(launch) => {
+                futures_util::future::join(quick(launch, &["--version"]), async {
+                    match spec.id {
+                        "codex" => quick(launch, &["login", "status"]).await,
+                        "claude-code" => claude_login(launch).await,
+                        _ => None,
+                    }
+                })
+                .await
+            }
             None => (None, None),
         };
-        Detected { id: spec.id.into(), name: spec.name.into(), installed: launch.is_some(),
-            program: launch.map(|l| l.prefix.last().cloned().unwrap_or(l.program)), version, login,
-            sign_in: spec.sign_in.into(), install: spec.install.into() }
-    })).await
+        Detected {
+            id: spec.id.into(),
+            name: spec.name.into(),
+            installed: launch.is_some(),
+            program: launch.map(|l| l.prefix.last().cloned().unwrap_or(l.program)),
+            version,
+            login,
+            sign_in: spec.sign_in.into(),
+            install: spec.install.into(),
+        }
+    }))
+    .await
 }
 
 /// A task for an agent.
@@ -246,12 +269,28 @@ pub fn arguments(agent: &str, prompt: &str, model: Option<&str>, allow_shell: bo
     match agent {
         "claude-code" => {
             let tools = if allow_shell { "Read,Write,Edit,Glob,Grep,Bash" } else { "Read,Write,Edit,Glob,Grep" };
-            args.extend([s("-p"), s(prompt), s("--output-format"), s("json"), s("--permission-mode"), s("acceptEdits"),
-                s("--allowedTools"), s(tools)]);
+            args.extend([
+                s("-p"),
+                s(prompt),
+                s("--output-format"),
+                s("json"),
+                s("--permission-mode"),
+                s("acceptEdits"),
+                s("--allowedTools"),
+                s(tools),
+            ]);
         }
-        "codex" => args.extend([s("exec"), s("--json"), s("--sandbox"), s("workspace-write"), s("--ephemeral"), s(prompt)]),
-        "gemini-cli" => args.extend([s("-p"), s(prompt), s("--output-format"), s("json"), s("--approval-mode"),
-            s(if allow_shell { "yolo" } else { "auto_edit" })]),
+        "codex" => {
+            args.extend([s("exec"), s("--json"), s("--sandbox"), s("workspace-write"), s("--ephemeral"), s(prompt)])
+        }
+        "gemini-cli" => args.extend([
+            s("-p"),
+            s(prompt),
+            s("--output-format"),
+            s("json"),
+            s("--approval-mode"),
+            s(if allow_shell { "yolo" } else { "auto_edit" }),
+        ]),
         "opencode" => args.extend([s("run"), s("--format"), s("json"), s(prompt)]),
         other => return Err(format!("unknown agent {other}")),
     }
@@ -316,13 +355,17 @@ pub fn read_usage(agent: &str, stdout: &str) -> AgentUsage {
                     }
                     Some("turn.completed") => {
                         let usage = &event["usage"];
-                        let add = |acc: Option<u64>, v: Option<u64>| match (acc, v) { (Some(a), Some(b)) => Some(a + b), (a, b) => a.or(b) };
+                        let add = |acc: Option<u64>, v: Option<u64>| match (acc, v) {
+                            (Some(a), Some(b)) => Some(a + b),
+                            (a, b) => a.or(b),
+                        };
                         u.input_tokens = add(u.input_tokens, n(&usage["input_tokens"]));
                         u.output_tokens = add(u.output_tokens, n(&usage["output_tokens"]));
                         u.cache_read_tokens = add(u.cache_read_tokens, n(&usage["cached_input_tokens"]));
                     }
                     Some("turn.failed") | Some("error") => {
-                        u.error = event["error"]["message"].as_str().or_else(|| event["message"].as_str()).map(String::from);
+                        u.error =
+                            event["error"]["message"].as_str().or_else(|| event["message"].as_str()).map(String::from);
                     }
                     _ => {}
                 }
@@ -362,19 +405,25 @@ pub fn claude_session_headers(agent: &str, attempt: &str, var: impl Fn(&str) -> 
         return None;
     }
     let header = format!("{}: {attempt}", crate::gateway::SESSION_HEADER);
-    let kept: Vec<String> = var("ANTHROPIC_CUSTOM_HEADERS").unwrap_or_default().lines()
+    let kept: Vec<String> = var("ANTHROPIC_CUSTOM_HEADERS")
+        .unwrap_or_default()
+        .lines()
         .filter(|l| {
             let l = l.trim().to_ascii_lowercase();
-            !l.is_empty() && !l.starts_with(crate::gateway::SESSION_HEADER) && !l.starts_with(crate::gateway::LEGACY_SESSION_HEADER)
+            !l.is_empty()
+                && !l.starts_with(crate::gateway::SESSION_HEADER)
+                && !l.starts_with(crate::gateway::LEGACY_SESSION_HEADER)
         })
-        .map(String::from).collect();
+        .map(String::from)
+        .collect();
     Some(kept.into_iter().chain(std::iter::once(header)).collect::<Vec<_>>().join("\n"))
 }
 
 /// Runs a task: a worktree of the workspace's current commit under `worktrees`, the agent started in it, and
 /// the result measured. The worktree is kept for the user to keep as a branch or discard.
-pub async fn run(request: &TaskRequest, worktrees: &Path, cancel: impl std::future::Future<Output = ()>)
-    -> Result<TaskRun, String> {
+pub async fn run(
+    request: &TaskRequest, worktrees: &Path, cancel: impl std::future::Future<Output = ()>,
+) -> Result<TaskRun, String> {
     use crate::messages::{self as m, fill};
     let spec = find(&request.agent).ok_or_else(|| fill(m::UNKNOWN_AGENT, &[&request.agent]))?;
     if request.prompt.trim().is_empty() {
@@ -383,7 +432,10 @@ pub async fn run(request: &TaskRequest, worktrees: &Path, cancel: impl std::futu
     if !isolation::is_repository(&request.workspace) {
         return Err(m::NOT_A_REPOSITORY_WORKSPACE.into());
     }
-    let launch = spec.programs.iter().find_map(|p| locate(p))
+    let launch = spec
+        .programs
+        .iter()
+        .find_map(|p| locate(p))
         .ok_or_else(|| fill(m::NOT_INSTALLED, &[&spec.name, &spec.install]))?;
     let id = uuid::Uuid::new_v4().simple().to_string();
     let base = match request.base.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
@@ -425,10 +477,19 @@ pub async fn run(request: &TaskRequest, worktrees: &Path, cancel: impl std::futu
     };
     let tail = |text: &str| text.chars().rev().take(1500).collect::<Vec<_>>().into_iter().rev().collect::<String>();
     Ok(TaskRun {
-        id, agent: spec.id.into(), model: request.model.clone().filter(|m| !m.trim().is_empty()), workspace: request.workspace.to_string_lossy().into_owned(),
-        worktree: worktree.path.to_string_lossy().into_owned(), base, outcome: status.into(), exit,
-        duration_ms: outcome.duration.as_millis() as u64, files_changed: stat.files, insertions: stat.insertions,
-        deletions: stat.deletions, usage,
+        id,
+        agent: spec.id.into(),
+        model: request.model.clone().filter(|m| !m.trim().is_empty()),
+        workspace: request.workspace.to_string_lossy().into_owned(),
+        worktree: worktree.path.to_string_lossy().into_owned(),
+        base,
+        outcome: status.into(),
+        exit,
+        duration_ms: outcome.duration.as_millis() as u64,
+        files_changed: stat.files,
+        insertions: stat.insertions,
+        deletions: stat.deletions,
+        usage,
         log_tail: crate::redact::redact(&tail(&format!("{}\n{}", outcome.stdout, outcome.stderr)), &[]),
     })
 }
@@ -451,18 +512,32 @@ pub fn record_for(conn: &Connection, run: &TaskRun, attempt_id: Option<&str>) ->
     let model = run.usage.model.clone().or_else(|| run.model.clone()).unwrap_or_else(|| "default".into());
     let error = run.usage.error.clone().or_else(|| (run.outcome != "ok").then(|| run.exit.clone()));
     let record = UsageRecord {
-        client_id: None, provider_id: &format!("agent:{}", run.agent), model_id: &model, requested_model: "task",
-        input_tokens: run.usage.input_tokens, output_tokens: run.usage.output_tokens, cache_tokens: run.usage.cache_read_tokens,
-        cost: &cost, outcome: if run.outcome == "ok" { "ok" } else { "error" }, http_status: None,
-        latency_ms: run.duration_ms, error: error.as_deref(), cache_write_tokens: run.usage.cache_write_tokens,
-        session_key: None, route_mode: Some("agent"), route_reason: None, facts: None, repeated_tokens: None,
+        client_id: None,
+        provider_id: &format!("agent:{}", run.agent),
+        model_id: &model,
+        requested_model: "task",
+        input_tokens: run.usage.input_tokens,
+        output_tokens: run.usage.output_tokens,
+        cache_tokens: run.usage.cache_read_tokens,
+        cost: &cost,
+        outcome: if run.outcome == "ok" { "ok" } else { "error" },
+        http_status: None,
+        latency_ms: run.duration_ms,
+        error: error.as_deref(),
+        cache_write_tokens: run.usage.cache_write_tokens,
+        session_key: None,
+        route_mode: Some("agent"),
+        route_reason: None,
+        facts: None,
+        repeated_tokens: None,
     };
     let Some(attempt_id) = attempt_id else { return store::record_usage(conn, &record) };
     // The entry and its attempt link land together or not at all.
     conn.execute_batch("SAVEPOINT agent_usage").map_err(|e| e.to_string())?;
     let linked = store::record_usage(conn, &record).and_then(|()| {
         conn.execute("UPDATE usage_events SET attempt_id = ?1 WHERE rowid = last_insert_rowid()", [attempt_id])
-            .map(|_| ()).map_err(|e| e.to_string())
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     });
     let end = if linked.is_ok() { "RELEASE agent_usage" } else { "ROLLBACK TO agent_usage; RELEASE agent_usage" };
     conn.execute_batch(end).map_err(|e| e.to_string())?;
@@ -471,7 +546,8 @@ pub fn record_for(conn: &Connection, run: &TaskRun, attempt_id: Option<&str>) ->
 
 /// Keeps a run's result as a branch of the workspace, or discards it; either way the worktree is removed.
 pub fn finish(run: &TaskRun, keep: Option<&str>) -> Result<Option<String>, String> {
-    let worktree = Worktree { repo: PathBuf::from(&run.workspace), path: PathBuf::from(&run.worktree), base: run.base.clone() };
+    let worktree =
+        Worktree { repo: PathBuf::from(&run.workspace), path: PathBuf::from(&run.worktree), base: run.base.clone() };
     let kept = match keep {
         Some(title) => {
             let branch = isolation::branch_name(title, &run.id);
@@ -485,7 +561,8 @@ pub fn finish(run: &TaskRun, keep: Option<&str>) -> Result<Option<String>, Strin
 }
 
 pub fn diff(run: &TaskRun) -> Result<String, String> {
-    let worktree = Worktree { repo: PathBuf::from(&run.workspace), path: PathBuf::from(&run.worktree), base: run.base.clone() };
+    let worktree =
+        Worktree { repo: PathBuf::from(&run.workspace), path: PathBuf::from(&run.worktree), base: run.base.clone() };
     isolation::diff(&worktree).map_err(|e| e.to_string())
 }
 
@@ -495,22 +572,53 @@ mod tests {
 
     #[test]
     fn builds_each_agents_headless_command() {
-        assert_eq!(arguments("claude-code", "fix it", None, false).unwrap(),
-            ["-p", "fix it", "--output-format", "json", "--permission-mode", "acceptEdits", "--allowedTools", "Read,Write,Edit,Glob,Grep"]);
-        assert_eq!(arguments("codex", "fix it", Some("gpt-x"), false).unwrap(),
-            ["exec", "--json", "--sandbox", "workspace-write", "--ephemeral", "--model", "gpt-x", "fix it"]);
-        assert_eq!(arguments("gemini-cli", "fix it", None, true).unwrap(),
-            ["-p", "fix it", "--output-format", "json", "--approval-mode", "yolo"]);
-        assert_eq!(arguments("opencode", "fix it", Some("p/m"), false).unwrap(), ["run", "--format", "json", "fix it", "--model", "p/m"]);
+        assert_eq!(
+            arguments("claude-code", "fix it", None, false).unwrap(),
+            [
+                "-p",
+                "fix it",
+                "--output-format",
+                "json",
+                "--permission-mode",
+                "acceptEdits",
+                "--allowedTools",
+                "Read,Write,Edit,Glob,Grep"
+            ]
+        );
+        assert_eq!(
+            arguments("codex", "fix it", Some("gpt-x"), false).unwrap(),
+            ["exec", "--json", "--sandbox", "workspace-write", "--ephemeral", "--model", "gpt-x", "fix it"]
+        );
+        assert_eq!(
+            arguments("gemini-cli", "fix it", None, true).unwrap(),
+            ["-p", "fix it", "--output-format", "json", "--approval-mode", "yolo"]
+        );
+        assert_eq!(
+            arguments("opencode", "fix it", Some("p/m"), false).unwrap(),
+            ["run", "--format", "json", "fix it", "--model", "p/m"]
+        );
         assert!(arguments("cursor", "x", None, false).is_err());
         assert_eq!(budget_arguments("claude-code", Some(0.5)), ["--max-budget-usd", "0.50"]);
-        let env = |pairs: &'static [(&'static str, &'static str)]| move |name: &str|
-            pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| v.to_string());
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| v.to_string())
+        };
         assert_eq!(claude_session_headers("claude-code", "a1", env(&[])), None, "straight to Anthropic: no header");
-        assert_eq!(claude_session_headers("codex", "a1", env(&[("ANTHROPIC_BASE_URL", "http://127.0.0.1:8741")])), None);
-        assert_eq!(claude_session_headers("claude-code", "a1", env(&[("ANTHROPIC_BASE_URL", "http://127.0.0.1:8741"),
-            ("ANTHROPIC_CUSTOM_HEADERS", "x-team: blue\nX-SmartTaskRouter-Session: older\nx-pygg-session: old")])).as_deref(),
-            Some("x-team: blue\nx-pygg-session: a1"));
+        assert_eq!(
+            claude_session_headers("codex", "a1", env(&[("ANTHROPIC_BASE_URL", "http://127.0.0.1:8741")])),
+            None
+        );
+        assert_eq!(
+            claude_session_headers(
+                "claude-code",
+                "a1",
+                env(&[
+                    ("ANTHROPIC_BASE_URL", "http://127.0.0.1:8741"),
+                    ("ANTHROPIC_CUSTOM_HEADERS", "x-team: blue\nX-SmartTaskRouter-Session: older\nx-pygg-session: old")
+                ])
+            )
+            .as_deref(),
+            Some("x-team: blue\nx-pygg-session: a1")
+        );
         assert!(budget_arguments("codex", Some(0.5)).is_empty() && budget_arguments("claude-code", None).is_empty());
     }
 
@@ -520,17 +628,29 @@ mod tests {
             "usage":{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":300,"cache_creation_input_tokens":40},
             "modelUsage":{"claude-sonnet-x":{}}}"#;
         let u = read_usage("claude-code", claude);
-        assert_eq!((u.input_tokens, u.output_tokens, u.cache_read_tokens, u.cache_write_tokens), (Some(10), Some(20), Some(300), Some(40)));
-        assert_eq!((u.estimate_usd, u.model.as_deref(), u.result.as_deref(), u.error), (Some(0.0123), Some("claude-sonnet-x"), Some("Done."), None));
+        assert_eq!(
+            (u.input_tokens, u.output_tokens, u.cache_read_tokens, u.cache_write_tokens),
+            (Some(10), Some(20), Some(300), Some(40))
+        );
+        assert_eq!(
+            (u.estimate_usd, u.model.as_deref(), u.result.as_deref(), u.error),
+            (Some(0.0123), Some("claude-sonnet-x"), Some("Done."), None)
+        );
 
         let codex = "{\"type\":\"thread.started\"}\n{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"Fixed.\"}}\n\
             {\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":100,\"cached_input_tokens\":60,\"output_tokens\":7}}";
         let u = read_usage("codex", codex);
-        assert_eq!((u.input_tokens, u.cache_read_tokens, u.output_tokens, u.result.as_deref()), (Some(100), Some(60), Some(7), Some("Fixed.")));
+        assert_eq!(
+            (u.input_tokens, u.cache_read_tokens, u.output_tokens, u.result.as_deref()),
+            (Some(100), Some(60), Some(7), Some("Fixed."))
+        );
 
         let gemini = "Loaded cached credentials.\n{\"response\":\"Ok\",\"stats\":{\"models\":{\"gemini-x\":{\"tokens\":{\"prompt\":50,\"candidates\":5,\"cached\":0}}}}}";
         let u = read_usage("gemini-cli", gemini);
-        assert_eq!((u.input_tokens, u.output_tokens, u.model.as_deref(), u.result.as_deref()), (Some(50), Some(5), Some("gemini-x"), Some("Ok")));
+        assert_eq!(
+            (u.input_tokens, u.output_tokens, u.model.as_deref(), u.result.as_deref()),
+            (Some(50), Some(5), Some("gemini-x"), Some("Ok"))
+        );
     }
 
     // An npm shim is a Windows `.cmd` file; elsewhere npm links the script itself.
@@ -542,8 +662,12 @@ mod tests {
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
         std::fs::write(&target, "").unwrap();
         let shim = dir.path().join("tool.cmd");
-        std::fs::write(&shim, "@ECHO off\r\nIF EXIST \"%dp0%\\node.exe\" (\r\n  SET \"_prog=%dp0%\\node.exe\"\r\n)\r\n\
-            \"%_prog%\"  \"%dp0%\\node_modules\\tool\\cli.js\" %*\r\n").unwrap();
+        std::fs::write(
+            &shim,
+            "@ECHO off\r\nIF EXIST \"%dp0%\\node.exe\" (\r\n  SET \"_prog=%dp0%\\node.exe\"\r\n)\r\n\
+            \"%_prog%\"  \"%dp0%\\node_modules\\tool\\cli.js\" %*\r\n",
+        )
+        .unwrap();
         let launch = read_npm_shim(&shim).unwrap();
         assert_eq!(launch.program, "node");
         assert_eq!(launch.prefix, [target.to_string_lossy().into_owned()]);

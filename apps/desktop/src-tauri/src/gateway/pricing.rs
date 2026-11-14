@@ -42,8 +42,13 @@ impl Usage {
         }
         let n = |key: &str| usage[key].as_u64().unwrap_or(0);
         let (read, write) = (n("cache_read_input_tokens"), n("cache_creation_input_tokens"));
-        Some(Usage { prompt: n("input_tokens") + read + write, completion: n("output_tokens"), cached: read,
-            cache_write: write, provider_cost_usd: None })
+        Some(Usage {
+            prompt: n("input_tokens") + read + write,
+            completion: n("output_tokens"),
+            cached: read,
+            cache_write: write,
+            provider_cost_usd: None,
+        })
     }
 
     /// Adds a later Anthropic stream event's usage (`message_delta` carries the final output count and may
@@ -69,8 +74,13 @@ impl Usage {
             return None;
         }
         let n = |v: &serde_json::Value| v.as_u64().unwrap_or(0);
-        Some(Usage { prompt: n(&usage["input_tokens"]), completion: n(&usage["output_tokens"]),
-            cached: n(&usage["input_tokens_details"]["cached_tokens"]), cache_write: 0, provider_cost_usd: None })
+        Some(Usage {
+            prompt: n(&usage["input_tokens"]),
+            completion: n(&usage["output_tokens"]),
+            cached: n(&usage["input_tokens_details"]["cached_tokens"]),
+            cache_write: 0,
+            provider_cost_usd: None,
+        })
     }
 
     pub fn from_json(usage: &serde_json::Value) -> Option<Usage> {
@@ -170,8 +180,14 @@ mod tests {
     use super::*;
 
     fn price() -> Price {
-        Price { input_micro_per_mtok: 100_000, output_micro_per_mtok: 400_000, cached_input_micro_per_mtok: Some(25_000),
-            cache_write_micro_per_mtok: None, source: "user".into(), observed_at: 0 }
+        Price {
+            input_micro_per_mtok: 100_000,
+            output_micro_per_mtok: 400_000,
+            cached_input_micro_per_mtok: Some(25_000),
+            cache_write_micro_per_mtok: None,
+            source: "user".into(),
+            observed_at: 0,
+        }
     }
 
     #[test]
@@ -185,16 +201,29 @@ mod tests {
     #[test]
     fn reads_anthropic_usage_and_prices_cache_writes() {
         // Anthropic reports uncached input apart from cache reads and writes.
-        let mut usage = Usage::from_anthropic(&serde_json::json!({"input_tokens": 100_000, "cache_read_input_tokens": 600_000,
-            "cache_creation_input_tokens": 300_000, "output_tokens": 1})).unwrap();
+        let mut usage =
+            Usage::from_anthropic(&serde_json::json!({"input_tokens": 100_000, "cache_read_input_tokens": 600_000,
+            "cache_creation_input_tokens": 300_000, "output_tokens": 1}))
+            .unwrap();
         usage.merge_anthropic(&serde_json::json!({"output_tokens": 500_000}));
-        assert_eq!((usage.prompt, usage.cached, usage.cache_write, usage.completion), (1_000_000, 600_000, 300_000, 500_000));
+        assert_eq!(
+            (usage.prompt, usage.cached, usage.cache_write, usage.completion),
+            (1_000_000, 600_000, 300_000, 500_000)
+        );
         // Without a cache-write price, writes are priced as input and the source says so.
         let cost = resolve("paid", Some(&price()), Some(&usage));
-        assert_eq!(cost, Cost::Estimated { micro_usd: 10_000 + 15_000 + 30_000 + 200_000,
-            source: "price: user; cache writes at input price".into() });
+        assert_eq!(
+            cost,
+            Cost::Estimated {
+                micro_usd: 10_000 + 15_000 + 30_000 + 200_000,
+                source: "price: user; cache writes at input price".into()
+            }
+        );
         let with_write = Price { cache_write_micro_per_mtok: Some(125_000), ..price() };
-        assert_eq!(resolve("paid", Some(&with_write), Some(&usage)).micro_usd(), Some(10_000 + 15_000 + 37_500 + 200_000));
+        assert_eq!(
+            resolve("paid", Some(&with_write), Some(&usage)).micro_usd(),
+            Some(10_000 + 15_000 + 37_500 + 200_000)
+        );
     }
 
     #[test]
@@ -210,9 +239,13 @@ mod tests {
     #[test]
     fn provider_figures_win() {
         let usage = Usage::from_json(&serde_json::json!({"prompt_tokens": 5, "completion_tokens": 7,
-            "prompt_tokens_details": {"cached_tokens": 2}, "cost": 0.00123})).unwrap();
+            "prompt_tokens_details": {"cached_tokens": 2}, "cost": 0.00123}))
+        .unwrap();
         assert_eq!((usage.prompt, usage.completion, usage.cached), (5, 7, 2));
-        assert_eq!(resolve("paid", None, Some(&usage)), Cost::Actual { micro_usd: 1230, source: "provider response".into() });
+        assert_eq!(
+            resolve("paid", None, Some(&usage)),
+            Cost::Actual { micro_usd: 1230, source: "provider response".into() }
+        );
         assert_eq!(resolve("local", None, Some(&Usage::default())).micro_usd(), Some(0));
         assert_eq!(resolve_failure(Some(429)).micro_usd(), Some(0));
     }

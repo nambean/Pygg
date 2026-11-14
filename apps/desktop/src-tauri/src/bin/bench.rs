@@ -58,7 +58,10 @@ fn parse() -> Args {
         match flag.as_str() {
             "--cases" => cases = Some(PathBuf::from(value())),
             "--agent" => agent = Some(value()),
-            "--rung" => rungs.push(Rung::parse(&value()).unwrap_or_else(|e| { eprintln!("{e}"); usage() })),
+            "--rung" => rungs.push(Rung::parse(&value()).unwrap_or_else(|e| {
+                eprintln!("{e}");
+                usage()
+            })),
             "--mode" => mode = value(),
             "--only" => only = Some(value()),
             "--out" => out = PathBuf::from(value()),
@@ -66,16 +69,24 @@ fn parse() -> Args {
             "--check-timeout" => check_timeout = Duration::from_secs(value().parse().unwrap_or_else(|_| usage())),
             "--budget-usd" => {
                 let usd: f64 = value().parse().unwrap_or_else(|_| usage());
-                if !(usd.is_finite() && usd > 0.0) { usage() }
+                if !(usd.is_finite() && usd > 0.0) {
+                    usage()
+                }
                 budget_micro_usd = Some((usd * 1_000_000.0).round() as u64);
             }
             "--gateway-db" => gateway_db = Some(PathBuf::from(value())),
             "--engine" => engine = Some(value()),
             "--allow-unknown" => allow_unknown = value() == "yes",
-            "--handoff" => handoff = Some(value()).filter(|h| ["none", "tail", "evidence"].contains(&h.as_str())).or_else(|| usage()),
+            "--handoff" => {
+                handoff =
+                    Some(value()).filter(|h| ["none", "tail", "evidence"].contains(&h.as_str())).or_else(|| usage())
+            }
             "--repeat" => repeat = value().parse().ok().filter(|n| (1..=10).contains(n)).unwrap_or_else(|| usage()),
             "-h" | "--help" => usage(),
-            other => { eprintln!("unknown argument {other}"); usage() }
+            other => {
+                eprintln!("unknown argument {other}");
+                usage()
+            }
         }
     }
     if !matches!(mode.as_str(), "all" | "single" | "cascade") || rungs.is_empty() {
@@ -84,14 +95,28 @@ fn parse() -> Args {
     Args {
         cases: cases.unwrap_or_else(|| usage()),
         agent: agent.or_else(|| engine.as_ref().map(|_| String::new())).unwrap_or_else(|| usage()),
-        rungs, mode, only, out, agent_timeout, check_timeout, budget_micro_usd, gateway_db, engine, repeat, allow_unknown, handoff,
+        rungs,
+        mode,
+        only,
+        out,
+        agent_timeout,
+        check_timeout,
+        budget_micro_usd,
+        gateway_db,
+        engine,
+        repeat,
+        allow_unknown,
+        handoff,
     }
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args = parse();
-    let mut cases = bench::load_cases(&args.cases).unwrap_or_else(|e| { eprintln!("{e}"); std::process::exit(1) });
+    let mut cases = bench::load_cases(&args.cases).unwrap_or_else(|e| {
+        eprintln!("{e}");
+        std::process::exit(1)
+    });
     if let Some(only) = &args.only {
         cases.retain(|c| &c.file.id == only);
     }
@@ -112,9 +137,16 @@ async fn main() {
     }
 
     let scratch = std::env::temp_dir().join(format!("str-bench-{}", uuid::Uuid::new_v4().simple()));
-    let config = Config { agent: args.agent.clone(), agent_timeout: args.agent_timeout,
-        check_timeout: args.check_timeout, scratch: scratch.clone(), budget_micro_usd: args.budget_micro_usd,
-        gateway_db: args.gateway_db.clone(), allow_unknown: args.allow_unknown, handoff: args.handoff.clone() };
+    let config = Config {
+        agent: args.agent.clone(),
+        agent_timeout: args.agent_timeout,
+        check_timeout: args.check_timeout,
+        scratch: scratch.clone(),
+        budget_micro_usd: args.budget_micro_usd,
+        gateway_db: args.gateway_db.clone(),
+        allow_unknown: args.allow_unknown,
+        handoff: args.handoff.clone(),
+    };
     let mut ledger = bench::Ledger::default();
     std::fs::create_dir_all(&args.out).expect("cannot create the output folder");
     let stamp = pygg_desktop_lib::db::now_ms();
@@ -123,42 +155,54 @@ async fn main() {
 
     let mut records: Vec<CaseRecord> = Vec::new();
     let label_of = |rungs: &[bench::Rung], cascade: bool| match &args.engine {
-        Some(_) => format!("engine:{}{}", bench::run_label(rungs, cascade),
-            args.handoff.as_deref().map(|h| format!(":handoff={h}")).unwrap_or_default()),
+        Some(_) => format!(
+            "engine:{}{}",
+            bench::run_label(rungs, cascade),
+            args.handoff.as_deref().map(|h| format!(":handoff={h}")).unwrap_or_default()
+        ),
         None => bench::run_label(rungs, cascade),
     };
     for (run_rungs, cascade) in &runs {
         let label = label_of(run_rungs, *cascade);
         for case in &cases {
-          for round in 1..=args.repeat {
-            let tag = if args.repeat > 1 { format!("{} #{round}", case.file.id) } else { case.file.id.clone() };
-            eprint!("{label:<52} {tag:<36} ");
-            let result = match &args.engine {
-                Some(agent) => bench::run_case_engine(case, run_rungs, *cascade, agent, &config, &mut ledger).await,
-                None => bench::run_case(case, run_rungs, *cascade, &config, &mut ledger).await,
-            };
-            // Each round gets fresh folders: the engine's store and worktrees are per case and label. BENCH_KEEP_SCRATCH
-            // keeps them, to read an attempt's log when a run goes wrong.
-            if std::env::var_os("BENCH_KEEP_SCRATCH").is_none() {
-                let _ = std::fs::remove_dir_all(&scratch);
-            }
-            match result {
-                Ok(mut record) => {
-                    // The record carries the arm's whole label, the handoff mode included, so arms stay apart.
-                    record.run = label.clone();
-                    let cost = record.cost_micro_usd().map(bench::usd).unwrap_or_else(|| "cost unknown".into());
-                    let outcome = if record.passed { "passed" }
-                        else if record.stopped.is_some() { "STOPPED" }
-                        else if record.had_agent_error() { "AGENT ERROR" }
-                        else { "FAILED" };
-                    eprintln!("{outcome} ({} attempt{}, {:.1}s, {cost})", record.attempts.len(),
-                        if record.attempts.len() == 1 { "" } else { "s" }, record.total_ms as f64 / 1000.0);
-                    writeln!(out, "{}", serde_json::to_string(&record).unwrap()).expect("cannot write results");
-                    records.push(record);
+            for round in 1..=args.repeat {
+                let tag = if args.repeat > 1 { format!("{} #{round}", case.file.id) } else { case.file.id.clone() };
+                eprint!("{label:<52} {tag:<36} ");
+                let result = match &args.engine {
+                    Some(agent) => bench::run_case_engine(case, run_rungs, *cascade, agent, &config, &mut ledger).await,
+                    None => bench::run_case(case, run_rungs, *cascade, &config, &mut ledger).await,
+                };
+                // Each round gets fresh folders: the engine's store and worktrees are per case and label. BENCH_KEEP_SCRATCH
+                // keeps them, to read an attempt's log when a run goes wrong.
+                if std::env::var_os("BENCH_KEEP_SCRATCH").is_none() {
+                    let _ = std::fs::remove_dir_all(&scratch);
                 }
-                Err(e) => eprintln!("ERROR {e}"),
+                match result {
+                    Ok(mut record) => {
+                        // The record carries the arm's whole label, the handoff mode included, so arms stay apart.
+                        record.run = label.clone();
+                        let cost = record.cost_micro_usd().map(bench::usd).unwrap_or_else(|| "cost unknown".into());
+                        let outcome = if record.passed {
+                            "passed"
+                        } else if record.stopped.is_some() {
+                            "STOPPED"
+                        } else if record.had_agent_error() {
+                            "AGENT ERROR"
+                        } else {
+                            "FAILED"
+                        };
+                        eprintln!(
+                            "{outcome} ({} attempt{}, {:.1}s, {cost})",
+                            record.attempts.len(),
+                            if record.attempts.len() == 1 { "" } else { "s" },
+                            record.total_ms as f64 / 1000.0
+                        );
+                        writeln!(out, "{}", serde_json::to_string(&record).unwrap()).expect("cannot write results");
+                        records.push(record);
+                    }
+                    Err(e) => eprintln!("ERROR {e}"),
+                }
             }
-          }
         }
     }
     if std::env::var_os("BENCH_KEEP_SCRATCH").is_none() {
@@ -172,9 +216,16 @@ async fn main() {
         let label = label_of(run_rungs, *cascade);
         let summary = bench::summarize(records.iter().filter(|r| r.run == label));
         let show = |v: Option<u64>| v.map(bench::usd).unwrap_or_else(|| "unknown".into());
-        println!("{label:<52} {:>3}/{:<4} {:>8}   {:>7.1}s  {:>10}   {:>11}   {}", summary.passed, summary.cases,
-            summary.attempts, summary.total_ms as f64 / 1000.0, show(summary.cost_micro_usd),
-            show(summary.cost_per_success()), summary.agent_errors);
+        println!(
+            "{label:<52} {:>3}/{:<4} {:>8}   {:>7.1}s  {:>10}   {:>11}   {}",
+            summary.passed,
+            summary.cases,
+            summary.attempts,
+            summary.total_ms as f64 / 1000.0,
+            show(summary.cost_micro_usd),
+            show(summary.cost_per_success()),
+            summary.agent_errors
+        );
     }
     let source = if config.gateway_db.is_some() {
         "Attempts sent through the gateway are costed from its ledger at its prices; others from the agent's own \
@@ -182,7 +233,10 @@ async fn main() {
     } else {
         "Costs are the agent's own estimates at catalog list price, not provider bills"
     };
-    println!("\nEstimated total: {}. {source}; \"unknown\" means no cost could be read.", bench::usd(ledger.spent_micro_usd));
+    println!(
+        "\nEstimated total: {}. {source}; \"unknown\" means no cost could be read.",
+        bench::usd(ledger.spent_micro_usd)
+    );
     if let Some(reason) = ledger.stop_reason(&config) {
         println!("Stopped early: {reason}.");
     }

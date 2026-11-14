@@ -23,7 +23,11 @@ const LINES: &[(&[&str], &str, &str)] = &[
     (&["claude", "sonnet"], "T3", "Anthropic's Sonnet line, the middle of Haiku, Sonnet and Opus"),
     // Measured, not only named: with OpenCode and with Claude Code, Haiku 5.5 solved as many of the P0 benchmark's
     // 12 harder coding tasks as Sonnet 5.5 (benchmark/reports/2026-11-12-p0-optimization.md).
-    (&["claude", "haiku-5"], "T2", "Anthropic's Haiku 5 line; on Pygg's P0 coding benchmark it solved as many tasks as Sonnet 5.5"),
+    (
+        &["claude", "haiku-5"],
+        "T2",
+        "Anthropic's Haiku 5 line; on Pygg's P0 coding benchmark it solved as many tasks as Sonnet 5.5",
+    ),
     (&["claude", "haiku"], "T1", "Anthropic's Haiku line, the smallest of its three"),
     // Google Gemini: Flash-Lite, Flash, Pro.
     (&["gemini", "flash-lite"], "T1", "Google's Flash-Lite line, the smallest Gemini"),

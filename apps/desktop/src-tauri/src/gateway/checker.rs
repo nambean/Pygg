@@ -59,7 +59,12 @@ pub async fn check_api(shared: &Shared, provider: &store::Provider) -> store::Ch
     let _held = turn.lock().await;
     match check_now(shared, &provider.id).await {
         Some((check, _)) => check,
-        None => store::Check { at: crate::db::now_ms(), ok: false, kind: "models".into(), detail: "Connection not found".into() },
+        None => store::Check {
+            at: crate::db::now_ms(),
+            ok: false,
+            kind: "models".into(),
+            detail: "Connection not found".into(),
+        },
     }
 }
 
@@ -87,9 +92,8 @@ pub async fn check_many(shared: &Shared, providers: Vec<store::Provider>) -> Vec
 pub async fn check_due(shared: &Shared) -> usize {
     let due = shared.with_db(|db| store::checks_due(db, CHECK_EVERY_MS, crate::db::now_ms())).unwrap_or_default();
     let providers = shared.with_db(store::list_providers).unwrap_or_default();
-    let due: Vec<String> = due.into_iter()
-        .filter(|id| providers.iter().any(|p| p.id == *id && !presets::is_web(&p.kind)))
-        .collect();
+    let due: Vec<String> =
+        due.into_iter().filter(|id| providers.iter().any(|p| p.id == *id && !presets::is_web(&p.kind))).collect();
     futures_util::stream::iter(due)
         .map(|id| async move {
             let turn = turn(&id);

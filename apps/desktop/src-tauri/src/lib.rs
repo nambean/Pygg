@@ -17,6 +17,8 @@ pub mod cli;
 pub mod commands;
 pub mod db;
 pub mod diagnostics;
+#[cfg(test)]
+mod faults;
 pub mod gateway;
 pub mod handoff;
 pub mod integrations;
@@ -33,8 +35,6 @@ pub mod shell;
 pub mod snap;
 #[cfg(feature = "app")]
 mod startup;
-#[cfg(test)]
-mod faults;
 pub mod tasks;
 pub mod vault;
 pub mod websession;
@@ -130,7 +130,9 @@ pub fn run() {
             // Web-session profile folders whose connection is gone are deleted before any window opens (ADR-035).
             let web_root = dir.join("websessions");
             match gateway::store::web_profiles(&conn) {
-                Ok(keep) => { websession::sweep(&web_root, &keep); }
+                Ok(keep) => {
+                    websession::sweep(&web_root, &keep);
+                }
                 Err(e) => applog::warn(&format!("web sessions: {e}")),
             }
             let worktrees = dir.join("worktrees");
@@ -158,11 +160,16 @@ pub fn run() {
             // behind a token that lives only in this process.
             let web_listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
             web_listener.set_nonblocking(true)?;
-            let web_link = websession::Link { base: format!("http://{}", web_listener.local_addr()?),
-                token: format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple()) };
-            let web = Arc::new(websession::Service::new(db.clone(),
-                websession::window::AppWindows::new(app.handle().clone(), web_root), web_link.token.clone(),
-                websession::Timing::default()));
+            let web_link = websession::Link {
+                base: format!("http://{}", web_listener.local_addr()?),
+                token: format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple()),
+            };
+            let web = Arc::new(websession::Service::new(
+                db.clone(),
+                websession::window::AppWindows::new(app.handle().clone(), web_root),
+                web_link.token.clone(),
+                websession::Timing::default(),
+            ));
             {
                 let web = web.clone();
                 tauri::async_runtime::spawn(async move {
@@ -172,11 +179,18 @@ pub fn run() {
                     }
                 });
             }
-            let shared = gateway::Shared::for_store(db, Arc::new(gateway::OsSecrets), &path).with_tasks(runner.clone())
+            let shared = gateway::Shared::for_store(db, Arc::new(gateway::OsSecrets), &path)
+                .with_tasks(runner.clone())
                 .with_web(web_link);
-            let state = AppState { shared, server: tokio::sync::Mutex::new(None), last_error: Mutex::new(None),
-                data_dir: dir.clone(), runs: Mutex::new(Default::default()),
-                tasks: runner, web: Some(web) };
+            let state = AppState {
+                shared,
+                server: tokio::sync::Mutex::new(None),
+                last_error: Mutex::new(None),
+                data_dir: dir.clone(),
+                runs: Mutex::new(Default::default()),
+                tasks: runner,
+                web: Some(web),
+            };
             // Facts the providers' lists leave out are looked up in the reference catalog (ADR-031), at most once a
             // day, in the background; the cached copy serves offline.
             {
@@ -241,8 +255,10 @@ pub fn run() {
         .on_page_load(|webview, payload| {
             // Opened at sign-in, Pygg stays in the tray until the user opens it.
             // Only the main window: a web session's window stays hidden until the user opens it.
-            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished
-                && !shell::started_in_background() {
+            if webview.label() == "main"
+                && payload.event() == tauri::webview::PageLoadEvent::Finished
+                && !shell::started_in_background()
+            {
                 let _ = webview.window().show();
             }
         })

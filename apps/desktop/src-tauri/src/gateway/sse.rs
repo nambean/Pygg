@@ -70,11 +70,17 @@ impl UsageScanner {
                 }
                 Some("response.failed") if self.error.is_none() => {
                     self.usage = Usage::from_responses(&event["response"]["usage"]);
-                    self.error = Some(event["response"]["error"]["message"].as_str().unwrap_or("response failed").to_string());
+                    self.error =
+                        Some(event["response"]["error"]["message"].as_str().unwrap_or("response failed").to_string());
                 }
                 Some("error") if self.error.is_none() => {
-                    self.error = Some(event["message"].as_str().or_else(|| event["error"]["message"].as_str())
-                        .unwrap_or("stream error").to_string());
+                    self.error = Some(
+                        event["message"]
+                            .as_str()
+                            .or_else(|| event["error"]["message"].as_str())
+                            .unwrap_or("stream error")
+                            .to_string(),
+                    );
                 }
                 _ => {}
             }
@@ -134,7 +140,8 @@ mod tests {
             "\"cache_read_input_tokens\":900,\"cache_creation_input_tokens\":90,\"output_tokens\":1}}}\n\n",
             "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"hi\"}}\n\n",
             "event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":42}}\n\n",
-            "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n");
+            "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+        );
         let mut scanner = UsageScanner::anthropic();
         for piece in stream.as_bytes().chunks(5) {
             scanner.feed(piece);

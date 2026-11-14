@@ -95,7 +95,13 @@ async fn status_of(state: &AppState) -> GatewayStatus {
     let server = state.server.lock().await;
     let error = state.last_error.lock().unwrap_or_else(|p| p.into_inner()).clone();
     GatewayStatus {
-        state: if server.is_some() { "running" } else if error.is_some() { "failed" } else { "stopped" },
+        state: if server.is_some() {
+            "running"
+        } else if error.is_some() {
+            "failed"
+        } else {
+            "stopped"
+        },
         port: server.as_ref().map(|s| s.addr.port()).unwrap_or_else(|| state.port()),
         base_url: server.as_ref().map(|s| format!("http://{}", s.addr)),
         error,
@@ -222,14 +228,24 @@ fn web_guard_view(state: &AppState, provider: &Provider) -> Option<WebGuardView>
     let (hour_units, hour_requests) = account.hour(now);
     let limits = guard::limits(&provider.kind);
     let limit = limits.daily_limit(provider.web_daily_limit.unwrap_or(crate::websession::DEFAULT_DAILY_LIMIT));
-    Some(WebGuardView { hour_units, hour_requests, hour_units_cap: limits.hour_units, hour_requests_cap: limits.hour_requests,
-        today_units: account.today(now), today_units_cap: limit * guard::DAY_UNITS_PER_REQUEST, max_prompt_chars: limits.max_prompt_chars,
-        burst_requests: account.burst(now, limits.burst_window_ms), burst_requests_cap: limits.burst_requests,
-        burst_window_min: (limits.burst_window_ms / 60_000) as u32, daily_limit_max: limits.max_daily_limit,
-        rest_base_secs: (limits.rest_base_ms / 1000) as u32, site_note: limits.note.map(str::to_string),
+    Some(WebGuardView {
+        hour_units,
+        hour_requests,
+        hour_units_cap: limits.hour_units,
+        hour_requests_cap: limits.hour_requests,
+        today_units: account.today(now),
+        today_units_cap: limit * guard::DAY_UNITS_PER_REQUEST,
+        max_prompt_chars: limits.max_prompt_chars,
+        burst_requests: account.burst(now, limits.burst_window_ms),
+        burst_requests_cap: limits.burst_requests,
+        burst_window_min: (limits.burst_window_ms / 60_000) as u32,
+        daily_limit_max: limits.max_daily_limit,
+        rest_base_secs: (limits.rest_base_ms / 1000) as u32,
+        site_note: limits.note.map(str::to_string),
         resting_until: account.next_at.filter(|at| *at > now),
         backoff_until: account.backoff_until.filter(|at| *at > now),
-        backoff_reason: account.backoff_until.filter(|at| *at > now).and(account.backoff_reason) })
+        backoff_reason: account.backoff_until.filter(|at| *at > now).and(account.backoff_reason),
+    })
 }
 
 fn view(state: &AppState, provider: Provider) -> ConnectionView {
@@ -237,23 +253,41 @@ fn view(state: &AppState, provider: Provider) -> ConnectionView {
     let has_key = provider.credential_ref.as_deref().map(|r| matches!(vault::read(r), Ok(Some(_)))).unwrap_or(false);
     let models = state.shared.with_db(|db| store::list_models(db, Some(&provider.id))).map(|m| m.len()).unwrap_or(0);
     let health = state.shared.with_db(|db| store::list_health(db, Some(&provider.id))).unwrap_or_default();
-    let shares_quota_with = state.shared.with_db(store::list_providers).unwrap_or_default().into_iter()
-        .filter(|p| p.id != provider.id && p.quota_group == provider.quota_group).map(|p| p.label).collect();
+    let shares_quota_with = state
+        .shared
+        .with_db(store::list_providers)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|p| p.id != provider.id && p.quota_group == provider.quota_group)
+        .map(|p| p.label)
+        .collect();
     let limits = state.shared.with_db(|db| store::list_limits(db, &provider.id)).unwrap_or_default();
     let account = state.shared.with_db(|db| gateway::quota::saved_account(db, &provider.id));
     let web = presets::is_web(&provider.kind);
     ConnectionView {
         web,
         web_ack_current: web && provider.web_ack_version == Some(crate::websession::WARNING_VERSION),
-        web_daily_limit: web.then(|| crate::websession::guard::limits(&provider.kind)
-            .daily_limit(provider.web_daily_limit.unwrap_or(crate::websession::DEFAULT_DAILY_LIMIT))),
-        web_requests_today: if web { state.shared.with_db(|db| store::web_requests_today(db, &provider.id, crate::db::now_ms())).ok() } else { None },
+        web_daily_limit: web.then(|| {
+            crate::websession::guard::limits(&provider.kind)
+                .daily_limit(provider.web_daily_limit.unwrap_or(crate::websession::DEFAULT_DAILY_LIMIT))
+        }),
+        web_requests_today: if web {
+            state.shared.with_db(|db| store::web_requests_today(db, &provider.id, crate::db::now_ms())).ok()
+        } else {
+            None
+        },
         web_guard: if web { web_guard_view(state, &provider) } else { None },
         last_check: state.shared.with_db(|db| store::last_check(db, &provider.id)).ok().flatten(),
-        health_strip: state.shared.with_db(|db| store::health_strip(db, &provider.id, crate::db::now_ms())).unwrap_or_default(),
+        health_strip: state
+            .shared
+            .with_db(|db| store::health_strip(db, &provider.id, crate::db::now_ms()))
+            .unwrap_or_default(),
         web_acts: preset.is_some_and(|p| p.web_acts),
         keys: state.shared.with_db(|db| gateway::keys::views(db, &provider, crate::db::now_ms())).unwrap_or_default(),
-        key_strategy: state.shared.with_db(|db| gateway::keys::strategy(db, &provider.id)).unwrap_or_else(|_| "in_order".into()),
+        key_strategy: state
+            .shared
+            .with_db(|db| gateway::keys::strategy(db, &provider.id))
+            .unwrap_or_else(|_| "in_order".into()),
         keys_refused: gateway::keys::can_have_keys(&provider).err(),
         limits,
         account,
@@ -314,8 +348,14 @@ fn add_connection(state: &AppState, connection: NewConnection) -> Res<Connection
         let provider = state.shared.with_db(|db| store::add_web_provider(db, preset.id, &connection.label, ack))?;
         return Ok(view(state, provider));
     }
-    let endpoint = connection.endpoint.as_deref().map(str::trim).filter(|e| !e.is_empty())
-        .or(preset.endpoint).ok_or("Enter the endpoint URL")?.to_string();
+    let endpoint = connection
+        .endpoint
+        .as_deref()
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .or(preset.endpoint)
+        .ok_or("Enter the endpoint URL")?
+        .to_string();
     let label = if connection.label.trim().is_empty() { preset.name } else { connection.label.trim() };
     let key = connection.api_key.as_deref().map(str::trim).filter(|k| !k.is_empty());
     if preset.needs_key && key.is_none() {
@@ -329,10 +369,19 @@ fn add_connection(state: &AppState, connection: NewConnection) -> Res<Connection
         }
         None => None,
     };
-    let added = state.shared.with_db(|db| store::add_provider(db, &NewProvider {
-        kind: preset.id, label, endpoint: &endpoint, credential_ref: reference.as_deref(),
-        default_billing: &connection.billing, wire: preset.wire,
-    }));
+    let added = state.shared.with_db(|db| {
+        store::add_provider(
+            db,
+            &NewProvider {
+                kind: preset.id,
+                label,
+                endpoint: &endpoint,
+                credential_ref: reference.as_deref(),
+                default_billing: &connection.billing,
+                wire: preset.wire,
+            },
+        )
+    });
     match added {
         Ok(provider) => Ok(view(state, provider)),
         Err(e) => {
@@ -345,8 +394,10 @@ fn add_connection(state: &AppState, connection: NewConnection) -> Res<Connection
 }
 
 #[tauri::command]
-pub fn connection_update(state: State<'_, AppState>, id: String, enabled: Option<bool>, billing: Option<String>,
-    separate_quota: Option<bool>) -> Res<ConnectionView> {
+pub fn connection_update(
+    state: State<'_, AppState>, id: String, enabled: Option<bool>, billing: Option<String>,
+    separate_quota: Option<bool>,
+) -> Res<ConnectionView> {
     state.shared.with_db(|db| store::update_provider(db, &id, enabled, billing.as_deref(), separate_quota))?;
     sync_opencode(&state);
     let provider = state.shared.with_db(|db| store::get_provider(db, &id))?.ok_or("Connection not found")?;
@@ -365,8 +416,10 @@ pub fn connection_set_key(state: State<'_, AppState>, id: String, api_key: Strin
         None => {
             let reference = vault::new_reference();
             vault::store(&reference, key).map_err(|e| e.to_string())?;
-            state.shared.with_db(|db| db.execute("UPDATE providers SET credential_ref = ?2 WHERE id = ?1",
-                rusqlite::params![id, reference]).map_err(|e| e.to_string()))?;
+            state.shared.with_db(|db| {
+                db.execute("UPDATE providers SET credential_ref = ?2 WHERE id = ?1", rusqlite::params![id, reference])
+                    .map_err(|e| e.to_string())
+            })?;
         }
     }
     // A new key deserves a fresh start: earlier rejections were about the old one.
@@ -385,9 +438,16 @@ pub fn connection_clear_health(state: State<'_, AppState>, id: String) -> Res<Co
 
 /// Records what the provider's terms say about training on what is sent (`no_training` needs a source).
 #[tauri::command]
-pub fn connection_set_terms(state: State<'_, AppState>, id: String, terms: String, source: Option<String>) -> Res<ConnectionView> {
+pub fn connection_set_terms(
+    state: State<'_, AppState>, id: String, terms: String, source: Option<String>,
+) -> Res<ConnectionView> {
     state.shared.with_db(|db| store::set_provider_terms(db, &id, &terms, source.as_deref()))?;
-    let provider = state.shared.with_db(store::list_providers)?.into_iter().find(|p| p.id == id).ok_or("That connection no longer exists")?;
+    let provider = state
+        .shared
+        .with_db(store::list_providers)?
+        .into_iter()
+        .find(|p| p.id == id)
+        .ok_or("That connection no longer exists")?;
     Ok(view(&state, provider))
 }
 
@@ -399,7 +459,9 @@ pub fn connection_remove(state: State<'_, AppState>, id: String) -> Res<()> {
     if let Some(profile) = profile {
         match &state.web {
             Some(web) => web.forget(&id, &profile),
-            None => { crate::websession::remove_profile(&state.data_dir.join("websessions"), &profile); }
+            None => {
+                crate::websession::remove_profile(&state.data_dir.join("websessions"), &profile);
+            }
         }
     }
     sync_opencode(&state);
@@ -432,7 +494,10 @@ pub async fn connection_refresh_models(state: State<'_, AppState>, id: String) -
     // What the provider's list left out is looked up (ADR-031): the user only enters a key.
     let cache = gateway::reference::cache_path(&state.data_dir.join("store.sqlite3"));
     if let Some(catalog) = gateway::reference::current(&state.shared.http, &cache).await {
-        state.shared.with_db(|db| { let _ = gateway::reference::apply(db, &catalog); gateway::reference::mark_applied(db); });
+        state.shared.with_db(|db| {
+            let _ = gateway::reference::apply(db, &catalog);
+            gateway::reference::mark_applied(db);
+        });
     }
     sync_opencode(&state);
     if let Ok(Some(account)) = gateway::quota::fetch_account(&state.shared, &provider).await {
@@ -485,8 +550,11 @@ pub struct LauncherInfo {
 }
 
 fn launcher_info(state: crate::launcher::State) -> LauncherInfo {
-    let cli_path = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("pygg-cli.exe")))
-        .filter(|p| p.is_file()).map(|p| p.to_string_lossy().into_owned());
+    let cli_path = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("pygg-cli.exe")))
+        .filter(|p| p.is_file())
+        .map(|p| p.to_string_lossy().into_owned());
     LauncherInfo { state, cli_path }
 }
 
@@ -527,7 +595,9 @@ pub async fn web_session_check(state: State<'_, AppState>, id: String) -> Res<Co
 /// A web session's sign-in check, kept as the connection's check: it loads the site's page and sends no prompt. A check
 /// the web guard or a running request held back is not one, and returns why (Codex's fourth review, A6).
 async fn check_web(state: &AppState, id: &str) -> Res<Option<String>> {
-    if let crate::websession::Checked::Skipped(why) = state.web.as_ref().ok_or(crate::websession::APP_ONLY)?.check(id).await? {
+    if let crate::websession::Checked::Skipped(why) =
+        state.web.as_ref().ok_or(crate::websession::APP_ONLY)?.check(id).await?
+    {
         return Ok(Some(why));
     }
     let provider = state.shared.with_db(|db| store::get_provider(db, id))?.ok_or("Connection not found")?;
@@ -568,7 +638,8 @@ pub struct CheckAllResult {
 /// left out; each has its own Check Sign-In.
 #[tauri::command]
 pub async fn connections_check_all(state: State<'_, AppState>) -> Res<CheckAllResult> {
-    let providers: Vec<store::Provider> = state.shared.with_db(store::list_providers)?.into_iter().filter(|p| p.enabled).collect();
+    let providers: Vec<store::Provider> =
+        state.shared.with_db(store::list_providers)?.into_iter().filter(|p| p.enabled).collect();
     let web_skipped = providers.iter().filter(|p| presets::is_web(&p.kind)).count();
     let api: Vec<store::Provider> = providers.into_iter().filter(|p| !presets::is_web(&p.kind)).collect();
     let checks = gateway::checker::check_many(&state.shared, api).await;
@@ -595,7 +666,9 @@ pub fn connection_reliability(state: State<'_, AppState>, id: String) -> Res<Vec
 
 /// Sends one short request to a model through the gateway's own routing and ledger (Test Model, SCREENS §6.2).
 #[tauri::command]
-pub async fn model_test(state: State<'_, AppState>, provider_id: String, model_id: String) -> Res<gateway::model_test::TestResult> {
+pub async fn model_test(
+    state: State<'_, AppState>, provider_id: String, model_id: String,
+) -> Res<gateway::model_test::TestResult> {
     gateway::model_test::run(&state.shared, &provider_id, &model_id).await
 }
 
@@ -611,8 +684,9 @@ pub async fn combo_test(state: State<'_, AppState>, name: String) -> Res<gateway
 /// Adds a key from another account to the connection's key ring. The secret goes to the system's credential store;
 /// the store keeps only its reference. A key already on the connection is refused (compared in memory, never logged).
 #[tauri::command]
-pub fn connection_key_add(state: State<'_, AppState>, id: String, label: String, api_key: String, separate_account: bool)
-    -> Res<ConnectionView> {
+pub fn connection_key_add(
+    state: State<'_, AppState>, id: String, label: String, api_key: String, separate_account: bool,
+) -> Res<ConnectionView> {
     let key = api_key.trim();
     if key.is_empty() {
         return Err("Enter the API key".into());
@@ -629,7 +703,9 @@ pub fn connection_key_add(state: State<'_, AppState>, id: String, label: String,
     }
     let reference = vault::new_reference();
     vault::store(&reference, key).map_err(|e| e.to_string())?;
-    if let Err(e) = state.shared.with_db(|db| gateway::keys::add(db, &id, &label, &reference, true, crate::db::now_ms())) {
+    if let Err(e) =
+        state.shared.with_db(|db| gateway::keys::add(db, &id, &label, &reference, true, crate::db::now_ms()))
+    {
         let _ = vault::remove(&reference);
         return Err(e);
     }
@@ -695,8 +771,9 @@ pub fn models_list(state: State<'_, AppState>, provider_id: Option<String>) -> R
 
 /// Sets what auto routing knows about a model, as the user's statement.
 #[tauri::command]
-pub fn model_set_capabilities(state: State<'_, AppState>, provider_id: String, model_id: String,
-    capabilities: store::Capabilities) -> Res<()> {
+pub fn model_set_capabilities(
+    state: State<'_, AppState>, provider_id: String, model_id: String, capabilities: store::Capabilities,
+) -> Res<()> {
     state.shared.with_db(|db| store::set_capabilities(db, &provider_id, &model_id, &capabilities))?;
     sync_opencode(&state);
     Ok(())
@@ -705,19 +782,37 @@ pub fn model_set_capabilities(state: State<'_, AppState>, provider_id: String, m
 /// What `auto` or `auto/cheap` would choose for a request with these needs, from a client's point of view,
 /// with every excluded model and why. Sends nothing (ROADMAP P0-5).
 #[tauri::command]
-pub fn auto_simulate(state: State<'_, AppState>, client_id: Option<String>, alias: String, needs: gateway::auto::Needs)
-    -> Res<gateway::auto::Plan> {
+pub fn auto_simulate(
+    state: State<'_, AppState>, client_id: Option<String>, alias: String, needs: gateway::auto::Needs,
+) -> Res<gateway::auto::Plan> {
     let strategy = gateway::auto::strategy(&alias).ok_or_else(|| format!("{alias} is not an automatic route"))??;
     state.shared.with_db(|db| {
         let clients = store::list_clients(db)?;
         let client = match &client_id {
             Some(id) => clients.into_iter().find(|c| &c.id == id).ok_or("Client not found")?,
             // No client chosen: the defaults a new client gets.
-            None => Client { id: String::new(), name: String::new(), token_prefix: String::new(), monthly_budget_micro_usd: None,
-                created_at: 0, last_used_at: None, revoked_at: None, month_spend_micro_usd: 0, month_unknown_requests: 0,
-                max_concurrency: 8, unknown_cost_policy: "block".into(), reserved_micro_usd: 0, month_at_risk_micro_usd: 0,
-                allowed_connections: None, paid_retries: 0, auto_min_tier: "T2".into(), may_run_tasks: false, require_no_training: false, strict_budget: false,
-                token_viewable: false },
+            None => Client {
+                id: String::new(),
+                name: String::new(),
+                token_prefix: String::new(),
+                monthly_budget_micro_usd: None,
+                created_at: 0,
+                last_used_at: None,
+                revoked_at: None,
+                month_spend_micro_usd: 0,
+                month_unknown_requests: 0,
+                max_concurrency: 8,
+                unknown_cost_policy: "block".into(),
+                reserved_micro_usd: 0,
+                month_at_risk_micro_usd: 0,
+                allowed_connections: None,
+                paid_retries: 0,
+                auto_min_tier: "T2".into(),
+                may_run_tasks: false,
+                require_no_training: false,
+                strict_budget: false,
+                token_viewable: false,
+            },
         };
         gateway::auto::plan(db, &client, &alias, strategy, &needs)
     })
@@ -748,8 +843,10 @@ fn micro(usd: f64) -> Res<u64> {
 }
 
 #[tauri::command]
-pub fn model_update(state: State<'_, AppState>, provider_id: String, model_id: String, enabled: Option<bool>,
-    billing: Option<String>, price: Option<PriceInput>, clear_price: Option<bool>) -> Res<()> {
+pub fn model_update(
+    state: State<'_, AppState>, provider_id: String, model_id: String, enabled: Option<bool>, billing: Option<String>,
+    price: Option<PriceInput>, clear_price: Option<bool>,
+) -> Res<()> {
     let price = match (price, clear_price) {
         (_, Some(true)) => Some(None),
         (Some(p), _) => Some(Some(Price {
@@ -836,9 +933,11 @@ pub fn client_create(state: State<'_, AppState>, name: String, monthly_budget_us
 /// The token of a key, from its copy in the credential store (Endpoint → API Keys → Show).
 #[tauri::command]
 pub fn client_token(state: State<'_, AppState>, id: String) -> Res<String> {
-    let reference = state.shared.with_db(|db| store::client_token_ref(db, &id))?
-        .ok_or("This key was made before Pygg kept a copy, or it was revoked, so it can't be shown. Create a new one.")?;
-    crate::vault::read(&reference).map_err(|e| e.to_string())?
+    let reference = state.shared.with_db(|db| store::client_token_ref(db, &id))?.ok_or(
+        "This key was made before Pygg kept a copy, or it was revoked, so it can't be shown. Create a new one.",
+    )?;
+    crate::vault::read(&reference)
+        .map_err(|e| e.to_string())?
         .ok_or_else(|| "The key's copy is missing from the credential store. Create a new key.".into())
 }
 
@@ -884,9 +983,12 @@ pub fn client_set_budget(state: State<'_, AppState>, id: String, monthly_budget_
 /// Requests allowed in flight at once, and whether a target with an unknown price may be used while the
 /// client has a limit (`block` or `allow`).
 #[tauri::command]
-pub fn client_set_policy(state: State<'_, AppState>, id: String, max_concurrency: Option<u32>,
-    unknown_cost_policy: Option<String>, restrict_connections: Option<bool>, allowed_connections: Option<Vec<String>>,
-    paid_retries: Option<u32>, auto_min_tier: Option<String>, may_run_tasks: Option<bool>, require_no_training: Option<bool>, strict_budget: Option<bool>) -> Res<()> {
+pub fn client_set_policy(
+    state: State<'_, AppState>, id: String, max_concurrency: Option<u32>, unknown_cost_policy: Option<String>,
+    restrict_connections: Option<bool>, allowed_connections: Option<Vec<String>>, paid_retries: Option<u32>,
+    auto_min_tier: Option<String>, may_run_tasks: Option<bool>, require_no_training: Option<bool>,
+    strict_budget: Option<bool>,
+) -> Res<()> {
     state.shared.with_db(|db| -> store::Result<()> {
         store::set_client_policy(db, &id, max_concurrency, unknown_cost_policy.as_deref())?;
         if let Some(tier) = &auto_min_tier {
@@ -924,10 +1026,13 @@ pub fn usage_summary(state: State<'_, AppState>, days: u32) -> Res<UsageSummary>
 
 /// Usage → Requests, a page at a time: `limit` requests of the last `days` from `offset`, newest first.
 #[tauri::command]
-pub fn usage_requests_matching(state: State<'_, AppState>, days: u32, filter: store::RequestFilter, offset: u32, limit: u32)
-    -> Res<store::RequestPage> {
+pub fn usage_requests_matching(
+    state: State<'_, AppState>, days: u32, filter: store::RequestFilter, offset: u32, limit: u32,
+) -> Res<store::RequestPage> {
     let since = crate::db::now_ms() - days.clamp(1, 366) as i64 * 86_400_000;
-    state.shared.with_db(|db| store::usage_requests_matching(db, since, &filter, offset as usize, limit.clamp(1, 500) as usize))
+    state
+        .shared
+        .with_db(|db| store::usage_requests_matching(db, since, &filter, offset as usize, limit.clamp(1, 500) as usize))
 }
 
 /// A page of the period's requests, newest first.
@@ -1013,8 +1118,11 @@ pub async fn usage_export(app: tauri::AppHandle, state: State<'_, AppState>, day
     let csv = format!("\u{feff}{}", state.shared.with_db(|db| store::usage_csv(db, now - days * 86_400_000))?);
     let name = format!("pygg-usage-{}.csv", &store::iso_utc(now)[..10]);
     let (tx, rx) = tokio::sync::oneshot::channel();
-    app.dialog().file().set_title("Export Usage").set_file_name(&name).add_filter("CSV", &["csv"])
-        .save_file(move |file| { let _ = tx.send(file); });
+    app.dialog().file().set_title("Export Usage").set_file_name(&name).add_filter("CSV", &["csv"]).save_file(
+        move |file| {
+            let _ = tx.send(file);
+        },
+    );
     let Some(file) = rx.await.map_err(|e| e.to_string())? else { return Ok(None) };
     let path = file.into_path().map_err(|e| e.to_string())?;
     std::fs::write(&path, csv).map_err(|e| format!("Could not write {}: {e}", path.display()))?;
@@ -1027,12 +1135,23 @@ pub async fn diagnostics_export(app: tauri::AppHandle, state: State<'_, AppState
     use tauri_plugin_dialog::DialogExt;
     let now = crate::db::now_ms();
     let gateway = status_of(&state).await;
-    let context = crate::diagnostics::Context { made_by: "app", gateway_state: gateway.state.to_string(),
-        gateway_port: gateway.port, gateway_error: gateway.error.or(gateway.accounting_error), log_lines: crate::applog::tail(200) };
+    let context = crate::diagnostics::Context {
+        made_by: "app",
+        gateway_state: gateway.state.to_string(),
+        gateway_port: gateway.port,
+        gateway_error: gateway.error.or(gateway.accounting_error),
+        log_lines: crate::applog::tail(200),
+    };
     let zip = state.shared.with_db(|db| crate::diagnostics::bundle(db, &context, now))?;
     let (tx, rx) = tokio::sync::oneshot::channel();
-    app.dialog().file().set_title("Save Diagnostics").set_file_name(crate::diagnostics::file_name(now)).add_filter("Zip", &["zip"])
-        .save_file(move |file| { let _ = tx.send(file); });
+    app.dialog()
+        .file()
+        .set_title("Save Diagnostics")
+        .set_file_name(crate::diagnostics::file_name(now))
+        .add_filter("Zip", &["zip"])
+        .save_file(move |file| {
+            let _ = tx.send(file);
+        });
     let Some(file) = rx.await.map_err(|e| e.to_string())? else { return Ok(None) };
     let path = file.into_path().map_err(|e| e.to_string())?;
     std::fs::write(&path, zip).map_err(|e| format!("Could not write {}: {e}", path.display()))?;
@@ -1069,7 +1188,13 @@ pub async fn agent_run(state: State<'_, AppState>, request: crate::agents::TaskR
 }
 
 fn run_by_id(state: &AppState, id: &str) -> Res<crate::agents::TaskRun> {
-    state.runs.lock().unwrap_or_else(|p| p.into_inner()).get(id).cloned().ok_or_else(|| "That run is no longer open".into())
+    state
+        .runs
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(id)
+        .cloned()
+        .ok_or_else(|| "That run is no longer open".into())
 }
 
 #[tauri::command]
@@ -1151,16 +1276,24 @@ pub struct McpSetup {
 #[tauri::command]
 pub fn mcp_setup(state: State<'_, AppState>) -> Res<McpSetup> {
     let path = std::env::current_exe().map_err(|e| e.to_string())?;
-    Ok(McpSetup { exists: path.is_file(), path: path.to_string_lossy().into_owned(), args: vec!["mcp".into()],
-        url: format!("http://127.0.0.1:{}", state.port()) })
+    Ok(McpSetup {
+        exists: path.is_file(),
+        path: path.to_string_lossy().into_owned(),
+        args: vec!["mcp".into()],
+        url: format!("http://127.0.0.1:{}", state.port()),
+    })
 }
 
 fn mcp_server(state: &AppState) -> Res<crate::integrations::Server> {
     let path = std::env::current_exe().map_err(|e| e.to_string())?;
     let port = state.port();
-    Ok(crate::integrations::Server { program: path.to_string_lossy().into_owned(), args: vec!["mcp".into()],
+    Ok(crate::integrations::Server {
+        program: path.to_string_lossy().into_owned(),
+        args: vec!["mcp".into()],
         url: (port != gateway::DEFAULT_PORT).then(|| format!("http://127.0.0.1:{port}")),
-        gateway_url: format!("http://127.0.0.1:{port}"), models: state.shared.with_db(crate::integrations::gateway_models) })
+        gateway_url: format!("http://127.0.0.1:{port}"),
+        models: state.shared.with_db(crate::integrations::gateway_models),
+    })
 }
 
 fn integration_backups(state: &AppState) -> std::path::PathBuf {
@@ -1184,20 +1317,38 @@ pub async fn integrations_list(state: State<'_, AppState>) -> Res<Vec<crate::int
 /// What setting one up would change, shown before the user agrees.
 #[tauri::command]
 pub fn integration_plan(state: State<'_, AppState>, id: String) -> Res<crate::integrations::Plan> {
-    crate::integrations::plan(&id, &mcp_server(&state)?, &crate::integrations::Homes::from_env(), &integration_backups(&state))
+    crate::integrations::plan(
+        &id,
+        &mcp_server(&state)?,
+        &crate::integrations::Homes::from_env(),
+        &integration_backups(&state),
+    )
 }
 
 #[tauri::command]
 pub async fn integration_apply(state: State<'_, AppState>, id: String) -> Res<crate::integrations::Integration> {
     let server = mcp_server(&state)?;
-    crate::integrations::apply(&id, &server, &crate::integrations::Homes::from_env(), &integration_backups(&state),
-        &state.shared, crate::db::now_ms()).await
+    crate::integrations::apply(
+        &id,
+        &server,
+        &crate::integrations::Homes::from_env(),
+        &integration_backups(&state),
+        &state.shared,
+        crate::db::now_ms(),
+    )
+    .await
 }
 
 #[tauri::command]
 pub async fn integration_remove(state: State<'_, AppState>, id: String) -> Res<crate::integrations::Integration> {
-    crate::integrations::remove(&id, &crate::integrations::Homes::from_env(), &integration_backups(&state), &state.shared,
-        crate::db::now_ms()).await
+    crate::integrations::remove(
+        &id,
+        &crate::integrations::Homes::from_env(),
+        &integration_backups(&state),
+        &state.shared,
+        crate::db::now_ms(),
+    )
+    .await
 }
 
 fn budget_micro(usd: Option<f64>) -> Option<u64> {
@@ -1207,7 +1358,10 @@ fn budget_micro(usd: Option<f64>) -> Option<u64> {
 /// `standard` or `sensitive` (every step asks before it runs).
 #[tauri::command]
 pub fn workspace_set_privacy(state: State<'_, AppState>, id: String, class: String) -> Res<WorkspaceView> {
-    state.shared.with_db(|db| { tasks::set_privacy(db, &id, &class)?; tasks::workspace(db, &id) })
+    state.shared.with_db(|db| {
+        tasks::set_privacy(db, &id, &class)?;
+        tasks::workspace(db, &id)
+    })
 }
 
 /// The system's folder picker; `None` when the user cancels. Shown from the core, so the interface needs no
@@ -1216,7 +1370,9 @@ pub fn workspace_set_privacy(state: State<'_, AppState>, id: String, class: Stri
 pub async fn pick_folder(app: tauri::AppHandle) -> Res<Option<String>> {
     use tauri_plugin_dialog::DialogExt;
     let (tx, rx) = tokio::sync::oneshot::channel();
-    app.dialog().file().set_title("Choose a Git repository").pick_folder(move |folder| { let _ = tx.send(folder); });
+    app.dialog().file().set_title("Choose a Git repository").pick_folder(move |folder| {
+        let _ = tx.send(folder);
+    });
     let folder = rx.await.map_err(|e| e.to_string())?;
     Ok(folder.and_then(|f| f.into_path().ok()).map(|p| p.to_string_lossy().into_owned()))
 }
@@ -1228,8 +1384,14 @@ pub async fn task_export_patch(app: tauri::AppHandle, state: State<'_, AppState>
     use tauri_plugin_dialog::DialogExt;
     let (name, patch) = state.shared.with_db(|db| tasks::result_patch(db, &id))?;
     let (tx, rx) = tokio::sync::oneshot::channel();
-    app.dialog().file().set_title("Export Patch").set_file_name(&name).add_filter("Patch", &["patch", "diff"])
-        .save_file(move |file| { let _ = tx.send(file); });
+    app.dialog()
+        .file()
+        .set_title("Export Patch")
+        .set_file_name(&name)
+        .add_filter("Patch", &["patch", "diff"])
+        .save_file(move |file| {
+            let _ = tx.send(file);
+        });
     let Some(file) = rx.await.map_err(|e| e.to_string())? else { return Ok(None) };
     let path = file.into_path().map_err(|e| e.to_string())?;
     std::fs::write(&path, patch).map_err(|e| format!("Could not write {}: {e}", path.display()))?;
@@ -1254,12 +1416,18 @@ pub fn tasks_quality(state: State<'_, AppState>, days: u32) -> Res<tasks::Qualit
 /// Sets the daily budget for paid steps (`None`: no limit).
 #[tauri::command]
 pub fn task_set_budget(state: State<'_, AppState>, daily_usd: Option<f64>) -> Res<tasks::DayBudget> {
-    state.shared.with_db(|db| { tasks::set_daily_budget(db, budget_micro(daily_usd))?; tasks::day_budget(db) })
+    state.shared.with_db(|db| {
+        tasks::set_daily_budget(db, budget_micro(daily_usd))?;
+        tasks::day_budget(db)
+    })
 }
 
 #[tauri::command]
 pub fn workspace_set_budget(state: State<'_, AppState>, id: String, daily_usd: Option<f64>) -> Res<WorkspaceView> {
-    state.shared.with_db(|db| { tasks::set_workspace_budget(db, &id, budget_micro(daily_usd))?; tasks::workspace(db, &id) })
+    state.shared.with_db(|db| {
+        tasks::set_workspace_budget(db, &id, budget_micro(daily_usd))?;
+        tasks::workspace(db, &id)
+    })
 }
 
 /// Creates a task and starts it in the background. Returns its id.
@@ -1293,7 +1461,14 @@ pub async fn task_diff(state: State<'_, AppState>, id: String) -> Res<String> {
 
 /// Keeps the task's result as a branch (`title` names it) or discards it. Returns the branch when kept.
 #[tauri::command]
-pub async fn task_finish(state: State<'_, AppState>, id: String, keep: bool, title: Option<String>) -> Res<Option<String>> {
-    state.shared.with_db(|db| if keep { tasks::keep(db, &id, title.as_deref()).map(Some) } else { tasks::discard(db, &id).map(|()| None) })
+pub async fn task_finish(
+    state: State<'_, AppState>, id: String, keep: bool, title: Option<String>,
+) -> Res<Option<String>> {
+    state.shared.with_db(|db| {
+        if keep {
+            tasks::keep(db, &id, title.as_deref()).map(Some)
+        } else {
+            tasks::discard(db, &id).map(|()| None)
+        }
+    })
 }
-

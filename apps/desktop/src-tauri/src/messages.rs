@@ -18,8 +18,10 @@ pub const DECLINED_TASK: &str = "You declined the step it was waiting on";
 pub const HALTED: &str = "{0}. Pygg stopped before trying another step.";
 pub const ALL_FAILED: &str = "Every step failed. Last: {0}";
 pub const NO_ATTEMPT: &str = "no attempt ran";
-pub const NO_CHECKS: &str = "No checks are approved for this workspace, so nothing confirmed the result. Review the changes yourself.";
-pub const NO_CHECKS_NOTE: &str = "No checks are approved for this workspace, so nothing confirmed the result. Review the changes yourself. {0}.";
+pub const NO_CHECKS: &str =
+    "No checks are approved for this workspace, so nothing confirmed the result. Review the changes yourself.";
+pub const NO_CHECKS_NOTE: &str =
+    "No checks are approved for this workspace, so nothing confirmed the result. Review the changes yourself. {0}.";
 pub const CHANGED_DEFINITIONS: &str = "The checks passed, but this attempt changed {0}, which defines them. Review the changes before trusting the result.";
 pub const CHANGED_DEFINITIONS_NOTE: &str = "The checks passed, but this attempt changed {0}, which defines them. Review the changes before trusting the result. {1}.";
 pub const NOTE: &str = "{0}.";
@@ -54,7 +56,8 @@ pub const AGENT_ERROR: &str = "the agent reported an error";
 // ---------- Why an agent could not start ----------
 pub const UNKNOWN_AGENT: &str = "unknown agent {0}";
 pub const DESCRIBE: &str = "Describe the task";
-pub const NOT_A_REPOSITORY_WORKSPACE: &str = "The workspace must be a Git repository: the agent works on a separate copy of it.";
+pub const NOT_A_REPOSITORY_WORKSPACE: &str =
+    "The workspace must be a Git repository: the agent works on a separate copy of it.";
 pub const NOT_INSTALLED: &str = "{0} is not installed, or not on PATH. See {1}";
 pub const NOT_A_REPOSITORY: &str = "{0} is not a Git repository";
 pub const GIT_MISSING: &str = "Git was not found on this computer";
@@ -83,7 +86,8 @@ pub const CANNOT_STOP: &str = "Only a running or waiting task can be stopped";
 pub const NOT_WAITING: &str = "This task is not waiting for an approval";
 pub const STEP_NOT_IN_POLICY: &str = "The waiting step is not in the task's policy";
 pub const SET_CAP: &str = "Set a spending cap for this paid step";
-pub const APPROVAL_STALE: &str = "This step's estimate or your budget changed since you were asked. Check the new estimate and approve again.";
+pub const APPROVAL_STALE: &str =
+    "This step's estimate or your budget changed since you were asked. Check the new estimate and approve again.";
 pub const CAP_OVER_BUDGET: &str = "The cap is more than what is left of today's budget for paid steps (${0})";
 pub const CANNOT_RETRY: &str = "Only an interrupted task can be retried";
 pub const NO_BASE: &str = "The task has no base commit";
@@ -95,12 +99,79 @@ pub const DEFAULT_MODEL: &str = "default model";
 pub const LABEL: &str = "{0} · {1}";
 
 /// Every template, for the test that compares them with the app's list.
-pub const ALL: &[&str] = &[BUDGET_USED, WAITS_PAID, WAITS_SENSITIVE, STOPPED, DECLINED_TASK, HALTED, ALL_FAILED, NO_ATTEMPT,
-    NO_CHECKS, NO_CHECKS_NOTE, CHANGED_DEFINITIONS, CHANGED_DEFINITIONS_NOTE, NOTE, DISCARDED, INTERRUPTED, OVER_CAP,
-    PYGG_LEDGER, OWN_ESTIMATE, UNPRICED, NO_COST, SKIPPED, DECLINED_STEP, COULD_NOT_RUN, DID_NOT_FINISH, NO_CHANGES,
-    CHECK_FAILED, LAST_FAILURE, EXIT, EXITED, ABNORMAL, TIMED_OUT, CANCELED, COULD_NOT_START, AGENT_ERROR, UNKNOWN_AGENT,
-    DESCRIBE, NOT_A_REPOSITORY_WORKSPACE, NOT_INSTALLED, NOT_A_REPOSITORY, GIT_MISSING, BRANCH_EXISTS, GIT_FAILED,
-    DEFAULT_MODEL, LABEL, CHOOSE_FOLDER, NOT_A_FOLDER, WORKSPACE_NOT_REPOSITORY, WORKSPACE_GONE, CHECK_GONE, TYPE_COMMAND, CHECK_TOO_LONG, UNKNOWN_PRIVACY, WORKSPACE_HAS_HISTORY, UNKNOWN_STRATEGY, ADD_STEP, TOO_MANY_STEPS, UNKNOWN_STEP_AGENT, STEP_TIER, UNKNOWN_BILLING, UNKNOWN_HANDOFF, TASK_GONE, CANNOT_STOP, NOT_WAITING, STEP_NOT_IN_POLICY, SET_CAP, APPROVAL_STALE, CAP_OVER_BUDGET, CANNOT_RETRY, NO_BASE, NO_RESULT, WORKTREE_GONE];
+pub const ALL: &[&str] = &[
+    BUDGET_USED,
+    WAITS_PAID,
+    WAITS_SENSITIVE,
+    STOPPED,
+    DECLINED_TASK,
+    HALTED,
+    ALL_FAILED,
+    NO_ATTEMPT,
+    NO_CHECKS,
+    NO_CHECKS_NOTE,
+    CHANGED_DEFINITIONS,
+    CHANGED_DEFINITIONS_NOTE,
+    NOTE,
+    DISCARDED,
+    INTERRUPTED,
+    OVER_CAP,
+    PYGG_LEDGER,
+    OWN_ESTIMATE,
+    UNPRICED,
+    NO_COST,
+    SKIPPED,
+    DECLINED_STEP,
+    COULD_NOT_RUN,
+    DID_NOT_FINISH,
+    NO_CHANGES,
+    CHECK_FAILED,
+    LAST_FAILURE,
+    EXIT,
+    EXITED,
+    ABNORMAL,
+    TIMED_OUT,
+    CANCELED,
+    COULD_NOT_START,
+    AGENT_ERROR,
+    UNKNOWN_AGENT,
+    DESCRIBE,
+    NOT_A_REPOSITORY_WORKSPACE,
+    NOT_INSTALLED,
+    NOT_A_REPOSITORY,
+    GIT_MISSING,
+    BRANCH_EXISTS,
+    GIT_FAILED,
+    DEFAULT_MODEL,
+    LABEL,
+    CHOOSE_FOLDER,
+    NOT_A_FOLDER,
+    WORKSPACE_NOT_REPOSITORY,
+    WORKSPACE_GONE,
+    CHECK_GONE,
+    TYPE_COMMAND,
+    CHECK_TOO_LONG,
+    UNKNOWN_PRIVACY,
+    WORKSPACE_HAS_HISTORY,
+    UNKNOWN_STRATEGY,
+    ADD_STEP,
+    TOO_MANY_STEPS,
+    UNKNOWN_STEP_AGENT,
+    STEP_TIER,
+    UNKNOWN_BILLING,
+    UNKNOWN_HANDOFF,
+    TASK_GONE,
+    CANNOT_STOP,
+    NOT_WAITING,
+    STEP_NOT_IN_POLICY,
+    SET_CAP,
+    APPROVAL_STALE,
+    CAP_OVER_BUDGET,
+    CANNOT_RETRY,
+    NO_BASE,
+    NO_RESULT,
+    WORKTREE_GONE,
+];
 
 /// The template with `{0}`, `{1}` … replaced by the arguments, in one pass (an argument's own braces stay).
 pub fn fill(template: &str, args: &[&dyn Display]) -> String {
@@ -130,7 +201,10 @@ mod tests {
 
     #[test]
     fn fill_replaces_numbered_placeholders_once() {
-        assert_eq!(fill(OVER_CAP, &[&PYGG_LEDGER, &"0.12", &"0.10"]), "Pygg's ledger for this step, $0.12, is over your cap of $0.10");
+        assert_eq!(
+            fill(OVER_CAP, &[&PYGG_LEDGER, &"0.12", &"0.10"]),
+            "Pygg's ledger for this step, $0.12, is over your cap of $0.10"
+        );
         assert_eq!(fill(LAST_FAILURE, &[&"Codex", &"{0} stays"]), "Codex: {0} stays");
         assert_eq!(fill("{x} {1}", &[&"a"]), "{x} {1}");
     }
@@ -141,9 +215,14 @@ mod tests {
     fn the_app_knows_every_template_and_no_other() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib/engineText.ts");
         let source = std::fs::read_to_string(&path).unwrap();
-        let block = source.split("// templates: start").nth(1).and_then(|s| s.split("// templates: end").next()).unwrap();
-        let listed: Vec<String> = block.lines().map(str::trim).filter(|l| l.starts_with('"'))
-            .map(|l| serde_json::from_str(l.trim_end_matches(',')).unwrap()).collect();
+        let block =
+            source.split("// templates: start").nth(1).and_then(|s| s.split("// templates: end").next()).unwrap();
+        let listed: Vec<String> = block
+            .lines()
+            .map(str::trim)
+            .filter(|l| l.starts_with('"'))
+            .map(|l| serde_json::from_str(l.trim_end_matches(',')).unwrap())
+            .collect();
         let mut ours: Vec<String> = ALL.iter().map(|s| s.to_string()).collect();
         let mut theirs = listed.clone();
         ours.sort();

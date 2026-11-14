@@ -26,8 +26,10 @@
 
 use super::openai_to_anthropic;
 use super::pricing::Usage;
-use super::{authenticate, forward, openai_error, parse_body, provider_headers, pump, record_success, route_headers,
-    session_key, status_only, stream_response, Forwarded, Incoming, Mode, Shared, Surface};
+use super::{
+    authenticate, forward, openai_error, parse_body, provider_headers, pump, record_success, route_headers,
+    session_key, status_only, stream_response, Forwarded, Incoming, Mode, Shared, Surface,
+};
 use axum::body::{Body, Bytes};
 use axum::extract::State;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
@@ -106,23 +108,43 @@ impl Tools {
             _ => return,
         };
         let Some(name) = tool["name"].as_str() else { return };
-        self.by_upstream_name.insert(upstream_name(namespace, name),
-            ToolName { kind, name: name.to_string(), namespace: namespace.filter(|n| !n.is_empty()).map(String::from) });
+        self.by_upstream_name.insert(
+            upstream_name(namespace, name),
+            ToolName { kind, name: name.to_string(), namespace: namespace.filter(|n| !n.is_empty()).map(String::from) },
+        );
     }
 
     /// The client's tool for a function name the provider called; a name the request did not define is taken
     /// as a plain function of that name.
     pub fn lookup(&self, upstream: &str) -> ToolName {
-        self.by_upstream_name.get(upstream).cloned()
-            .unwrap_or(ToolName { kind: ToolKind::Function, name: upstream.to_string(), namespace: None })
+        self.by_upstream_name.get(upstream).cloned().unwrap_or(ToolName {
+            kind: ToolKind::Function,
+            name: upstream.to_string(),
+            namespace: None,
+        })
     }
 }
 
 // ---------- Request: Responses → Chat Completions ----------
 
 /// The fields `to_chat` carries or deliberately leaves out without loss; any other top-level field is named.
-const HANDLED: &[&str] = &["model", "input", "instructions", "tools", "tool_choice", "stream", "store", "include",
-    "reasoning", "text", "parallel_tool_calls", "max_output_tokens", "temperature", "top_p", "stream_options"];
+const HANDLED: &[&str] = &[
+    "model",
+    "input",
+    "instructions",
+    "tools",
+    "tool_choice",
+    "stream",
+    "store",
+    "include",
+    "reasoning",
+    "text",
+    "parallel_tool_calls",
+    "max_output_tokens",
+    "temperature",
+    "top_p",
+    "stream_options",
+];
 
 struct Dropped(Vec<String>);
 
@@ -207,9 +229,14 @@ fn output_text(output: &Value, dropped: &mut Dropped) -> String {
 
 /// A reasoning item's readable text: its reasoning text, else its summary.
 fn reasoning_text(item: &Value) -> String {
-    let join = |key: &str| item[key].as_array().into_iter().flatten().filter_map(part_text).collect::<Vec<_>>().join("\n");
+    let join =
+        |key: &str| item[key].as_array().into_iter().flatten().filter_map(part_text).collect::<Vec<_>>().join("\n");
     let content = join("content");
-    if content.is_empty() { join("summary") } else { content }
+    if content.is_empty() {
+        join("summary")
+    } else {
+        content
+    }
 }
 
 /// The assistant message new assistant content goes into: the last message when it is an assistant's, else a new
@@ -235,7 +262,11 @@ fn custom_description(tool: &Value) -> String {
     let format = &tool["format"];
     if format["type"] == "grammar" {
         if let Some(definition) = format["definition"].as_str() {
-            text.push_str(&format!(" It must match this {} grammar:\n{}", format["syntax"].as_str().unwrap_or(""), definition.trim()));
+            text.push_str(&format!(
+                " It must match this {} grammar:\n{}",
+                format["syntax"].as_str().unwrap_or(""),
+                definition.trim()
+            ));
         }
     }
     text
@@ -255,10 +286,12 @@ fn chat_tools(request: &Value, dropped: &mut Dropped) -> Vec<Value> {
                 out.push(json!({ "type": "function", "function": { "name": upstream_name(namespace, name),
                     "description": tool["description"].as_str().unwrap_or(""), "parameters": parameters } }));
             }
-            Some("custom") => out.push(json!({ "type": "function", "function": { "name": upstream_name(namespace, name),
+            Some("custom") => {
+                out.push(json!({ "type": "function", "function": { "name": upstream_name(namespace, name),
                 "description": custom_description(tool), "parameters": { "type": "object",
                     "properties": { CUSTOM_INPUT: { "type": "string", "description": "The tool's free-form input." } },
-                    "required": [CUSTOM_INPUT] } } })),
+                    "required": [CUSTOM_INPUT] } } }))
+            }
             Some("namespace") if namespace.is_none() => {
                 for nested in tool["tools"].as_array().into_iter().flatten() {
                     one(nested, Some(name), out, dropped);
@@ -322,7 +355,8 @@ pub fn to_chat(request: &Value, takes_reasoning: bool) -> (Value, Vec<String>) {
                     if !text.is_empty() {
                         let message = assistant(&mut messages, &mut reasoning);
                         let earlier = message["content"].as_str().unwrap_or("").to_string();
-                        message["content"] = json!(if earlier.is_empty() { text } else { format!("{earlier}\n{text}") });
+                        message["content"] =
+                            json!(if earlier.is_empty() { text } else { format!("{earlier}\n{text}") });
                     }
                 }
                 _ => {
@@ -352,7 +386,10 @@ pub fn to_chat(request: &Value, takes_reasoning: bool) -> (Value, Vec<String>) {
             "reasoning" => {
                 let text = reasoning_text(item);
                 if takes_reasoning && !text.is_empty() {
-                    reasoning = Some(match reasoning.take() { Some(r) => format!("{r}\n{text}"), None => text });
+                    reasoning = Some(match reasoning.take() {
+                        Some(r) => format!("{r}\n{text}"),
+                        None => text,
+                    });
                 } else if !text.is_empty() || item["encrypted_content"].is_string() {
                     // Another provider's encrypted reasoning, or reasoning this provider does not take back.
                     dropped.add("reasoning");
@@ -393,7 +430,8 @@ pub fn to_chat(request: &Value, takes_reasoning: bool) -> (Value, Vec<String>) {
     let format = &request["text"]["format"];
     match format["type"].as_str() {
         Some("json_schema") => {
-            let mut schema = json!({ "name": format["name"].as_str().unwrap_or("response"), "schema": format["schema"] });
+            let mut schema =
+                json!({ "name": format["name"].as_str().unwrap_or("response"), "schema": format["schema"] });
             if let Some(strict) = format["strict"].as_bool() {
                 schema["strict"] = json!(strict);
             }
@@ -423,12 +461,17 @@ pub fn to_chat(request: &Value, takes_reasoning: bool) -> (Value, Vec<String>) {
 pub fn stateful(request: &Value) -> Option<String> {
     for field in ["previous_response_id", "conversation"] {
         if request.get(field).is_some_and(|v| !v.is_null()) {
-            return Some(format!("Pygg does not store responses, so \"{field}\" cannot be used. Send the whole \
-                conversation in \"input\" with \"store\": false (Codex does)."));
+            return Some(format!(
+                "Pygg does not store responses, so \"{field}\" cannot be used. Send the whole \
+                conversation in \"input\" with \"store\": false (Codex does)."
+            ));
         }
     }
-    (request["background"] == true).then(|| "Pygg does not run responses in the background; send the request \
-        without \"background\".".to_string())
+    (request["background"] == true).then(|| {
+        "Pygg does not run responses in the background; send the request \
+        without \"background\"."
+            .to_string()
+    })
 }
 
 // ---------- Response: Chat Completions → Responses ----------
@@ -456,10 +499,15 @@ fn new_id(prefix: &str) -> String {
 
 impl Context {
     pub fn new(request: &Value, model: &str) -> Context {
-        Context { id: new_id("resp"), model: model.to_string(), created: now_secs(), tools: Tools::of(request),
+        Context {
+            id: new_id("resp"),
+            model: model.to_string(),
+            created: now_secs(),
+            tools: Tools::of(request),
             summary: request["reasoning"]["summary"].as_str().is_some_and(|s| s != "none"),
             tool_choice: if request["tool_choice"].is_null() { json!("auto") } else { request["tool_choice"].clone() },
-            parallel_tool_calls: request["parallel_tool_calls"] != false }
+            parallel_tool_calls: request["parallel_tool_calls"] != false,
+        }
     }
 
     /// The response object, as `response.created` and the final event carry it and a non-streamed answer is.
@@ -598,7 +646,16 @@ pub struct Stream {
 
 impl Stream {
     pub fn new(ctx: Context) -> Stream {
-        Stream { ctx, sequence: 0, started: false, output: Vec::new(), open: None, finish: None, any_call: false, usage: None }
+        Stream {
+            ctx,
+            sequence: 0,
+            started: false,
+            output: Vec::new(),
+            open: None,
+            finish: None,
+            any_call: false,
+            usage: None,
+        }
     }
 
     fn event(&mut self, kind: &str, mut data: Value) -> String {
@@ -630,15 +687,24 @@ impl Stream {
                 };
                 out.push(self.event("response.output_item.added", json!({ "output_index": index, "item": added })));
                 if self.ctx.summary {
-                    out.push(self.event("response.reasoning_summary_part.added", json!({ "item_id": item.id,
-                        "output_index": index, "summary_index": 0, "part": { "type": "summary_text", "text": "" } })));
+                    out.push(self.event(
+                        "response.reasoning_summary_part.added",
+                        json!({ "item_id": item.id,
+                        "output_index": index, "summary_index": 0, "part": { "type": "summary_text", "text": "" } }),
+                    ));
                 }
             }
             Open::Text => {
-                out.push(self.event("response.output_item.added", json!({ "output_index": index, "item": {
-                    "id": item.id, "type": "message", "status": "in_progress", "role": "assistant", "content": [] } })));
-                out.push(self.event("response.content_part.added", json!({ "item_id": item.id, "output_index": index,
-                    "content_index": 0, "part": { "type": "output_text", "text": "", "annotations": [] } })));
+                out.push(self.event(
+                    "response.output_item.added",
+                    json!({ "output_index": index, "item": {
+                    "id": item.id, "type": "message", "status": "in_progress", "role": "assistant", "content": [] } }),
+                ));
+                out.push(self.event(
+                    "response.content_part.added",
+                    json!({ "item_id": item.id, "output_index": index,
+                    "content_index": 0, "part": { "type": "output_text", "text": "", "annotations": [] } }),
+                ));
             }
             Open::Call(_) => {
                 let call_id = item.call_id.clone().unwrap_or_else(|| new_id("call"));
@@ -653,10 +719,14 @@ impl Stream {
     fn delta(&mut self, item: &Item, delta: &str, out: &mut Vec<String>) {
         let Some(index) = item.index else { return };
         let (kind, extra) = match &item.kind {
-            Open::Reasoning if self.ctx.summary => ("response.reasoning_summary_text.delta", json!({ "summary_index": 0 })),
+            Open::Reasoning if self.ctx.summary => {
+                ("response.reasoning_summary_text.delta", json!({ "summary_index": 0 }))
+            }
             Open::Reasoning => ("response.reasoning_text.delta", json!({ "content_index": 0 })),
             Open::Text => ("response.output_text.delta", json!({ "content_index": 0, "logprobs": [] })),
-            Open::Call(_) if self.ctx.tools.lookup(item.name.as_deref().unwrap_or("")).kind == ToolKind::Custom => return,
+            Open::Call(_) if self.ctx.tools.lookup(item.name.as_deref().unwrap_or("")).kind == ToolKind::Custom => {
+                return
+            }
             Open::Call(_) => ("response.function_call_arguments.delta", json!({})),
         };
         let mut data = json!({ "item_id": item.id, "output_index": index, "delta": delta });
@@ -677,38 +747,66 @@ impl Stream {
                 let mut done = self.ctx.reasoning_item(&item.text);
                 done["id"] = json!(id);
                 if self.ctx.summary {
-                    out.push(self.event("response.reasoning_summary_text.done", json!({ "item_id": id, "output_index": index,
-                        "summary_index": 0, "text": item.text })));
-                    out.push(self.event("response.reasoning_summary_part.done", json!({ "item_id": id, "output_index": index,
-                        "summary_index": 0, "part": { "type": "summary_text", "text": item.text } })));
+                    out.push(self.event(
+                        "response.reasoning_summary_text.done",
+                        json!({ "item_id": id, "output_index": index,
+                        "summary_index": 0, "text": item.text }),
+                    ));
+                    out.push(self.event(
+                        "response.reasoning_summary_part.done",
+                        json!({ "item_id": id, "output_index": index,
+                        "summary_index": 0, "part": { "type": "summary_text", "text": item.text } }),
+                    ));
                 } else {
-                    out.push(self.event("response.reasoning_text.done", json!({ "item_id": id, "output_index": index,
-                        "content_index": 0, "text": item.text })));
+                    out.push(self.event(
+                        "response.reasoning_text.done",
+                        json!({ "item_id": id, "output_index": index,
+                        "content_index": 0, "text": item.text }),
+                    ));
                 }
                 done
             }
             Open::Text => {
                 let part = json!({ "type": "output_text", "text": item.text, "annotations": [] });
-                out.push(self.event("response.output_text.done", json!({ "item_id": id, "output_index": index,
-                    "content_index": 0, "text": item.text, "logprobs": [] })));
-                out.push(self.event("response.content_part.done", json!({ "item_id": id, "output_index": index,
-                    "content_index": 0, "part": part })));
+                out.push(self.event(
+                    "response.output_text.done",
+                    json!({ "item_id": id, "output_index": index,
+                    "content_index": 0, "text": item.text, "logprobs": [] }),
+                ));
+                out.push(self.event(
+                    "response.content_part.done",
+                    json!({ "item_id": id, "output_index": index,
+                    "content_index": 0, "part": part }),
+                ));
                 json!({ "id": id, "type": "message", "status": "completed", "role": "assistant", "content": [part] })
             }
             Open::Call(_) => {
                 let arguments = item.text.clone();
-                let mut done = self.ctx.call_item(item.call_id.as_deref().unwrap_or(""), item.name.as_deref().unwrap_or(""),
-                    &arguments, "completed");
+                let mut done = self.ctx.call_item(
+                    item.call_id.as_deref().unwrap_or(""),
+                    item.name.as_deref().unwrap_or(""),
+                    &arguments,
+                    "completed",
+                );
                 done["id"] = json!(id);
                 if done["type"] == "custom_tool_call" {
                     let input = done["input"].clone();
-                    out.push(self.event("response.custom_tool_call_input.delta", json!({ "item_id": id, "output_index": index,
-                        "delta": input })));
-                    out.push(self.event("response.custom_tool_call_input.done", json!({ "item_id": id, "output_index": index,
-                        "input": input })));
+                    out.push(self.event(
+                        "response.custom_tool_call_input.delta",
+                        json!({ "item_id": id, "output_index": index,
+                        "delta": input }),
+                    ));
+                    out.push(self.event(
+                        "response.custom_tool_call_input.done",
+                        json!({ "item_id": id, "output_index": index,
+                        "input": input }),
+                    ));
                 } else {
-                    out.push(self.event("response.function_call_arguments.done", json!({ "item_id": id, "output_index": index,
-                        "arguments": arguments })));
+                    out.push(self.event(
+                        "response.function_call_arguments.done",
+                        json!({ "item_id": id, "output_index": index,
+                        "arguments": arguments }),
+                    ));
                 }
                 done
             }
@@ -723,9 +821,20 @@ impl Stream {
             return;
         }
         self.close(out);
-        let prefix = match kind { Open::Reasoning => "rs", Open::Text => "msg", Open::Call(_) => "fc" };
-        let mut item = Item { kind, index: None, id: new_id(prefix), text: String::new(), call_id: None, name: None,
-            held: String::new() };
+        let prefix = match kind {
+            Open::Reasoning => "rs",
+            Open::Text => "msg",
+            Open::Call(_) => "fc",
+        };
+        let mut item = Item {
+            kind,
+            index: None,
+            id: new_id(prefix),
+            text: String::new(),
+            call_id: None,
+            name: None,
+            held: String::new(),
+        };
         if !matches!(item.kind, Open::Call(_)) {
             self.begin(&mut item, out);
         }
@@ -757,7 +866,9 @@ impl Stream {
             self.append(text, &mut out);
         }
         for (position, call) in delta["tool_calls"].as_array().into_iter().flatten().enumerate() {
-            let key = call["index"].as_u64().map(|i| i.to_string())
+            let key = call["index"]
+                .as_u64()
+                .map(|i| i.to_string())
                 .or_else(|| call["id"].as_str().filter(|s| !s.is_empty()).map(String::from))
                 .unwrap_or_else(|| position.to_string());
             let id = call["id"].as_str().filter(|s| !s.is_empty());
@@ -773,8 +884,15 @@ impl Stream {
             };
             if !continues {
                 self.close(&mut out);
-                self.open = Some(Item { kind: Open::Call(key), index: None, id: new_id("fc"), text: String::new(),
-                    call_id: None, name: None, held: String::new() });
+                self.open = Some(Item {
+                    kind: Open::Call(key),
+                    index: None,
+                    id: new_id("fc"),
+                    text: String::new(),
+                    call_id: None,
+                    name: None,
+                    held: String::new(),
+                });
             }
             let fragment = match &call["function"]["arguments"] {
                 Value::String(s) => s.clone(),
@@ -850,8 +968,14 @@ pub async fn responses(State(shared): State<Shared>, headers: HeaderMap, body: B
     }
     let stream = request["stream"] == true;
     let session = session_key(&headers);
-    let incoming = Incoming { surface: Surface::Responses, body: &request, headers: &headers, requested: &requested,
-        session: session.as_deref(), stream };
+    let incoming = Incoming {
+        surface: Surface::Responses,
+        body: &request,
+        headers: &headers,
+        requested: &requested,
+        session: session.as_deref(),
+        stream,
+    };
     let forwarded = match forward(&shared, &client, &incoming).await {
         Ok(forwarded) => forwarded,
         Err(refusal) => return refusal.openai(),
@@ -985,7 +1109,11 @@ async fn from_chat_upstream(shared: Shared, mut forwarded: Forwarded, stream: bo
         'read: while let Some(chunk) = bytes.next().await {
             let chunk = match chunk {
                 Ok(chunk) => chunk,
-                Err(e) => { outcome = "stream_error"; error = Some(crate::redact::redact(&e.to_string(), &[])); break; }
+                Err(e) => {
+                    outcome = "stream_error";
+                    error = Some(crate::redact::redact(&e.to_string(), &[]));
+                    break;
+                }
             };
             for data in lines.feed(&chunk) {
                 if data == "[DONE]" {
@@ -1006,10 +1134,20 @@ async fn from_chat_upstream(shared: Shared, mut forwarded: Forwarded, stream: bo
             error = Some(super::anthropic::EMPTY_ANSWER.to_string());
         }
         match outcome {
-            "ok" => { send_all(&tx, translator.finish()).await; }
+            "ok" => {
+                send_all(&tx, translator.finish()).await;
+            }
             "stream_error" => {
-                send_all(&tx, translator.fail(error.as_deref().filter(|e| *e == super::anthropic::EMPTY_ANSWER)
-                    .unwrap_or("The provider's stream broke off"))).await;
+                send_all(
+                    &tx,
+                    translator.fail(
+                        error
+                            .as_deref()
+                            .filter(|e| *e == super::anthropic::EMPTY_ANSWER)
+                            .unwrap_or("The provider's stream broke off"),
+                    ),
+                )
+                .await;
             }
             _ => {}
         }
@@ -1021,8 +1159,13 @@ async fn from_chat_upstream(shared: Shared, mut forwarded: Forwarded, stream: bo
 
 /// The Chat Completions chunks a `ChunkTranslator` wrote, as values.
 fn chunks(lines: Vec<String>) -> Vec<Value> {
-    lines.iter().filter_map(|l| l.strip_prefix("data: ")).map(str::trim).filter(|d| *d != "[DONE]")
-        .filter_map(|d| serde_json::from_str(d).ok()).collect()
+    lines
+        .iter()
+        .filter_map(|l| l.strip_prefix("data: "))
+        .map(str::trim)
+        .filter(|d| *d != "[DONE]")
+        .filter_map(|d| serde_json::from_str(d).ok())
+        .collect()
 }
 
 /// Translated to Anthropic Messages through Chat Completions: the answer comes back the same two steps.
@@ -1052,7 +1195,11 @@ async fn from_anthropic_upstream(shared: Shared, mut forwarded: Forwarded, strea
         'read: while let Some(chunk) = bytes.next().await {
             let chunk = match chunk {
                 Ok(chunk) => chunk,
-                Err(e) => { outcome = "stream_error"; error = Some(crate::redact::redact(&e.to_string(), &[])); break; }
+                Err(e) => {
+                    outcome = "stream_error";
+                    error = Some(crate::redact::redact(&e.to_string(), &[]));
+                    break;
+                }
             };
             for data in lines.feed(&chunk) {
                 let Ok(event) = serde_json::from_str::<Value>(&data) else { continue };
@@ -1061,7 +1208,8 @@ async fn from_anthropic_upstream(shared: Shared, mut forwarded: Forwarded, strea
                     error = Some(event["error"]["message"].as_str().unwrap_or("stream error").to_string());
                     break 'read;
                 }
-                let events: Vec<String> = chunks(to_chat.push(&event)).iter().flat_map(|c| translator.push(c)).collect();
+                let events: Vec<String> =
+                    chunks(to_chat.push(&event)).iter().flat_map(|c| translator.push(c)).collect();
                 if !send_all(&tx, events).await {
                     outcome = "client_disconnected";
                     break 'read;
@@ -1070,7 +1218,8 @@ async fn from_anthropic_upstream(shared: Shared, mut forwarded: Forwarded, strea
         }
         match outcome {
             "ok" => {
-                let mut events: Vec<String> = chunks(to_chat.finish()).iter().flat_map(|c| translator.push(c)).collect();
+                let mut events: Vec<String> =
+                    chunks(to_chat.finish()).iter().flat_map(|c| translator.push(c)).collect();
                 events.extend(translator.finish());
                 send_all(&tx, events).await;
             }
@@ -1126,10 +1275,20 @@ mod tests {
     fn translates_a_codex_request_to_chat_completions() {
         let (out, dropped) = to_chat(&codex_request(), false);
         let m = out["messages"].as_array().unwrap();
-        assert_eq!(m[0], json!({ "role": "system", "content": "Be precise.\n\nYou are Codex." }), "leading system text is one message");
+        assert_eq!(
+            m[0],
+            json!({ "role": "system", "content": "Be precise.\n\nYou are Codex." }),
+            "leading system text is one message"
+        );
         assert_eq!(m[1], json!({ "role": "user", "content": "<environment_context/>" }));
-        assert_eq!(m[2]["content"][1], json!({ "type": "image_url", "image_url": { "url": "data:image/png;base64,QUJD" } }));
-        assert_eq!(m[3]["tool_calls"][0]["function"], json!({ "name": "exec_command", "arguments": "{\"cmd\":\"cat a.py\"}" }));
+        assert_eq!(
+            m[2]["content"][1],
+            json!({ "type": "image_url", "image_url": { "url": "data:image/png;base64,QUJD" } })
+        );
+        assert_eq!(
+            m[3]["tool_calls"][0]["function"],
+            json!({ "name": "exec_command", "arguments": "{\"cmd\":\"cat a.py\"}" })
+        );
         assert!(m[3].get("reasoning_content").is_none(), "not to a provider that does not take it");
         assert_eq!(m[4], json!({ "role": "tool", "tool_call_id": "call_1", "content": "def add(a, b): return a - b" }));
         // Parallel calls are one assistant message; the custom call's input is the `input` argument.
@@ -1195,32 +1354,49 @@ mod tests {
                 { "id": "c3", "type": "function", "function": { "name": "exec_command", "arguments": "{\"cmd\":\"ls\"}" } }] } }],
             "usage": { "prompt_tokens": 100, "completion_tokens": 20, "prompt_tokens_details": { "cached_tokens": 60 } } });
         let (out, usage) = from_chat(&response, &ctx);
-        assert_eq!((out["object"].as_str(), out["status"].as_str(), out["model"].as_str()), (Some("response"), Some("completed"), Some("auto")));
+        assert_eq!(
+            (out["object"].as_str(), out["status"].as_str(), out["model"].as_str()),
+            (Some("response"), Some("completed"), Some("auto"))
+        );
         let output = out["output"].as_array().unwrap();
         assert_eq!(output[0]["type"], "reasoning");
         assert_eq!(output[0]["summary"][0], json!({ "type": "summary_text", "text": "Look first." }));
         assert_eq!(output[1]["content"][0]["text"], "Patching.");
-        assert_eq!((output[2]["type"].as_str(), output[2]["input"].as_str(), output[2]["call_id"].as_str()),
-            (Some("custom_tool_call"), Some("*** Begin Patch"), Some("c1")));
-        assert_eq!((output[3]["name"].as_str(), output[3]["namespace"].as_str()), (Some("close_agent"), Some("multi_agent_v1")));
+        assert_eq!(
+            (output[2]["type"].as_str(), output[2]["input"].as_str(), output[2]["call_id"].as_str()),
+            (Some("custom_tool_call"), Some("*** Begin Patch"), Some("c1"))
+        );
+        assert_eq!(
+            (output[3]["name"].as_str(), output[3]["namespace"].as_str()),
+            (Some("close_agent"), Some("multi_agent_v1"))
+        );
         assert_eq!(output[4]["arguments"], "{\"cmd\":\"ls\"}");
-        assert_eq!(out["usage"], json!({ "input_tokens": 100, "input_tokens_details": { "cached_tokens": 60 },
-            "output_tokens": 20, "output_tokens_details": { "reasoning_tokens": 0 }, "total_tokens": 120 }));
+        assert_eq!(
+            out["usage"],
+            json!({ "input_tokens": 100, "input_tokens_details": { "cached_tokens": 60 },
+            "output_tokens": 20, "output_tokens_details": { "reasoning_tokens": 0 }, "total_tokens": 120 })
+        );
         assert_eq!(usage.unwrap().cached, 60);
 
         let cut = json!({ "choices": [{ "finish_reason": "length", "message": { "content": "Partial" } }] });
         let (out, _) = from_chat(&cut, &Context::new(&json!({}), "m"));
-        assert_eq!((out["status"].as_str(), out["incomplete_details"]["reason"].as_str()), (Some("incomplete"), Some("max_output_tokens")));
+        assert_eq!(
+            (out["status"].as_str(), out["incomplete_details"]["reason"].as_str()),
+            (Some("incomplete"), Some("max_output_tokens"))
+        );
     }
 
     fn parse(events: &[String]) -> Vec<Value> {
-        events.iter().map(|e| {
-            let mut lines = e.lines();
-            let kind = lines.next().unwrap().trim_start_matches("event: ").to_string();
-            let data: Value = serde_json::from_str(lines.next().unwrap().trim_start_matches("data: ")).unwrap();
-            assert_eq!(data["type"], kind.as_str());
-            data
-        }).collect()
+        events
+            .iter()
+            .map(|e| {
+                let mut lines = e.lines();
+                let kind = lines.next().unwrap().trim_start_matches("event: ").to_string();
+                let data: Value = serde_json::from_str(lines.next().unwrap().trim_start_matches("data: ")).unwrap();
+                assert_eq!(data["type"], kind.as_str());
+                data
+            })
+            .collect()
     }
 
     fn kinds(events: &[Value]) -> Vec<&str> {
@@ -1231,7 +1407,9 @@ mod tests {
     fn streams_reasoning_text_and_a_function_call() {
         let mut t = Stream::new(Context::new(&codex_request(), "auto"));
         let mut events = Vec::new();
-        events.extend(t.push(&json!({ "choices": [{ "delta": { "role": "assistant", "reasoning_content": "Think" } }] })));
+        events.extend(
+            t.push(&json!({ "choices": [{ "delta": { "role": "assistant", "reasoning_content": "Think" } }] })),
+        );
         events.extend(t.push(&json!({ "choices": [{ "delta": { "reasoning_content": "ing." } }] })));
         events.extend(t.push(&json!({ "choices": [{ "delta": { "content": "Run" } }] })));
         events.extend(t.push(&json!({ "choices": [{ "delta": { "content": "ning." } }] })));
@@ -1242,20 +1420,44 @@ mod tests {
         events.extend(t.push(&json!({ "choices": [], "usage": { "prompt_tokens": 9, "completion_tokens": 4 } })));
         events.extend(t.finish());
         let events = parse(&events);
-        assert_eq!(kinds(&events), ["response.created", "response.in_progress",
-            "response.output_item.added", "response.reasoning_summary_part.added", "response.reasoning_summary_text.delta",
-            "response.reasoning_summary_text.delta", "response.reasoning_summary_text.done", "response.reasoning_summary_part.done",
-            "response.output_item.done",
-            "response.output_item.added", "response.content_part.added", "response.output_text.delta", "response.output_text.delta",
-            "response.output_text.done", "response.content_part.done", "response.output_item.done",
-            "response.output_item.added", "response.function_call_arguments.delta", "response.function_call_arguments.done",
-            "response.output_item.done", "response.completed"]);
+        assert_eq!(
+            kinds(&events),
+            [
+                "response.created",
+                "response.in_progress",
+                "response.output_item.added",
+                "response.reasoning_summary_part.added",
+                "response.reasoning_summary_text.delta",
+                "response.reasoning_summary_text.delta",
+                "response.reasoning_summary_text.done",
+                "response.reasoning_summary_part.done",
+                "response.output_item.done",
+                "response.output_item.added",
+                "response.content_part.added",
+                "response.output_text.delta",
+                "response.output_text.delta",
+                "response.output_text.done",
+                "response.content_part.done",
+                "response.output_item.done",
+                "response.output_item.added",
+                "response.function_call_arguments.delta",
+                "response.function_call_arguments.done",
+                "response.output_item.done",
+                "response.completed"
+            ]
+        );
         let sequence: Vec<u64> = events.iter().map(|e| e["sequence_number"].as_u64().unwrap()).collect();
         assert_eq!(sequence, (0..events.len() as u64).collect::<Vec<_>>());
         assert_eq!(events[8]["item"]["summary"][0]["text"], "Thinking.");
         assert_eq!(events[15]["item"]["content"][0]["text"], "Running.");
-        assert_eq!((events[16]["output_index"].as_u64(), events[16]["item"]["call_id"].as_str(), events[16]["item"]["name"].as_str()),
-            (Some(2), Some("call_7"), Some("exec_command")));
+        assert_eq!(
+            (
+                events[16]["output_index"].as_u64(),
+                events[16]["item"]["call_id"].as_str(),
+                events[16]["item"]["name"].as_str()
+            ),
+            (Some(2), Some("call_7"), Some("exec_command"))
+        );
         assert_eq!(events[17]["delta"], "{\"cmd\":\"ls\"}", "held arguments are sent once the call starts");
         assert_eq!(events[19]["item"]["arguments"], "{\"cmd\":\"ls\"}");
         let done = &events[20]["response"];
@@ -1275,13 +1477,28 @@ mod tests {
             "function": { "name": "multi_agent_v1__close_agent", "arguments": "{}" } }] }, "finish_reason": "stop" }] })));
         events.extend(t.finish());
         let events = parse(&events);
-        assert_eq!(kinds(&events), ["response.created", "response.in_progress", "response.output_item.added",
-            "response.custom_tool_call_input.delta", "response.custom_tool_call_input.done", "response.output_item.done",
-            "response.output_item.added", "response.function_call_arguments.delta", "response.function_call_arguments.done",
-            "response.output_item.done", "response.completed"]);
+        assert_eq!(
+            kinds(&events),
+            [
+                "response.created",
+                "response.in_progress",
+                "response.output_item.added",
+                "response.custom_tool_call_input.delta",
+                "response.custom_tool_call_input.done",
+                "response.output_item.done",
+                "response.output_item.added",
+                "response.function_call_arguments.delta",
+                "response.function_call_arguments.done",
+                "response.output_item.done",
+                "response.completed"
+            ]
+        );
         assert_eq!(events[2]["item"]["type"], "custom_tool_call");
         assert_eq!(events[5]["item"]["input"], "*** Begin Patch");
-        assert_eq!((events[9]["item"]["name"].as_str(), events[9]["item"]["namespace"].as_str()), (Some("close_agent"), Some("multi_agent_v1")));
+        assert_eq!(
+            (events[9]["item"]["name"].as_str(), events[9]["item"]["namespace"].as_str()),
+            (Some("close_agent"), Some("multi_agent_v1"))
+        );
         assert_eq!(events[10]["response"]["status"], "completed", "a call that finished with stop is complete");
     }
 
@@ -1295,15 +1512,20 @@ mod tests {
         assert!(kinds(&parsed).contains(&"response.reasoning_text.delta"));
         assert_eq!(parsed[2]["item"]["content"], json!([]));
         let last = parsed.last().unwrap();
-        assert_eq!((last["type"].as_str(), last["response"]["incomplete_details"]["reason"].as_str()),
-            (Some("response.incomplete"), Some("max_output_tokens")));
+        assert_eq!(
+            (last["type"].as_str(), last["response"]["incomplete_details"]["reason"].as_str()),
+            (Some("response.incomplete"), Some("max_output_tokens"))
+        );
 
         let mut broken = Stream::new(Context::new(&json!({ "model": "m" }), "m"));
         let mut events = broken.push(&json!({ "choices": [{ "delta": { "content": "Hi" } }] }));
         events.extend(broken.fail("The provider's stream broke off"));
         let parsed = parse(&events);
         let last = parsed.last().unwrap();
-        assert_eq!((last["type"].as_str(), last["response"]["status"].as_str()), (Some("response.failed"), Some("failed")));
+        assert_eq!(
+            (last["type"].as_str(), last["response"]["status"].as_str()),
+            (Some("response.failed"), Some("failed"))
+        );
         assert_eq!(last["response"]["error"]["message"], "The provider's stream broke off");
     }
 
@@ -1317,13 +1539,20 @@ mod tests {
             json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": "{\"input\":\"x\"}" } }),
             json!({ "type": "message_delta", "delta": { "stop_reason": "tool_use" }, "usage": { "output_tokens": 7 } }),
         ];
-        let mut events: Vec<String> = anthropic.iter().flat_map(|e| chunks(to_chat.push(e))).flat_map(|c| t.push(&c)).collect();
+        let mut events: Vec<String> =
+            anthropic.iter().flat_map(|e| chunks(to_chat.push(e))).flat_map(|c| t.push(&c)).collect();
         events.extend(chunks(to_chat.finish()).iter().flat_map(|c| t.push(c)));
         events.extend(t.finish());
         let parsed = parse(&events);
         let done = &parsed.last().unwrap()["response"];
-        assert_eq!(done["output"][0], json!({ "id": done["output"][0]["id"], "type": "custom_tool_call", "status": "completed",
-            "call_id": "toolu_1", "name": "apply_patch", "input": "x" }));
-        assert_eq!((done["usage"]["input_tokens"].as_u64(), done["usage"]["output_tokens"].as_u64()), (Some(12), Some(7)));
+        assert_eq!(
+            done["output"][0],
+            json!({ "id": done["output"][0]["id"], "type": "custom_tool_call", "status": "completed",
+            "call_id": "toolu_1", "name": "apply_patch", "input": "x" })
+        );
+        assert_eq!(
+            (done["usage"]["input_tokens"].as_u64(), done["usage"]["output_tokens"].as_u64()),
+            (Some(12), Some(7))
+        );
     }
 }

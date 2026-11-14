@@ -38,8 +38,10 @@ mod sign_in {
     const VALUE: &str = "Pygg";
 
     pub fn enabled() -> bool {
-        RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(RUN, KEY_READ)
-            .and_then(|key| key.get_value::<String, _>(VALUE)).is_ok_and(|v| !v.trim().is_empty())
+        RegKey::predef(HKEY_CURRENT_USER)
+            .open_subkey_with_flags(RUN, KEY_READ)
+            .and_then(|key| key.get_value::<String, _>(VALUE))
+            .is_ok_and(|v| !v.trim().is_empty())
     }
 
     pub fn set(on: bool) -> Result<(), String> {
@@ -67,7 +69,10 @@ mod tests {
         super::sign_in::set(true).unwrap();
         assert!(super::sign_in::enabled());
         let value: String = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
-            .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run").unwrap().get_value("Pygg").unwrap();
+            .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run")
+            .unwrap()
+            .get_value("Pygg")
+            .unwrap();
         let exe = std::env::current_exe().unwrap();
         assert_eq!(value, format!("\"{}\" --background", exe.display()));
         super::sign_in::set(false).unwrap();
@@ -82,8 +87,12 @@ mod tests {
 /// Elsewhere it is not offered yet (ADR-001: Windows first).
 #[cfg(not(windows))]
 mod sign_in {
-    pub fn enabled() -> bool { false }
-    pub fn set(_on: bool) -> Result<(), String> { Err("Opening at sign-in is available on Windows only".into()) }
+    pub fn enabled() -> bool {
+        false
+    }
+    pub fn set(_on: bool) -> Result<(), String> {
+        Err("Opening at sign-in is available on Windows only".into())
+    }
 }
 
 /// The tray's and the notifications' words in the user's language. The interface sends them when its language
@@ -174,9 +183,14 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
     if !shown {
         let _ = state.shared.with_db(|db| store::set_setting(db, TRAY_HINT_SHOWN, "true"));
         let s = app.state::<Strings>();
-        let _ = app.notification().builder()
+        let _ = app
+            .notification()
+            .builder()
             .title(s.get("tray.hint.title", "Pygg is still running"))
-            .body(s.get("tray.hint.body", "The gateway and your tasks keep running. Open Pygg or quit it from the tray icon."))
+            .body(s.get(
+                "tray.hint.body",
+                "The gateway and your tasks keep running. Open Pygg or quit it from the tray icon.",
+            ))
             .show();
     }
 }
@@ -194,8 +208,11 @@ pub fn spending_notifications(app: &AppHandle) {
     let day = now / 86_400_000;
     let (alerts, mut notified) = state.shared.with_db(|db| {
         let alerts = store::usage_alerts(db, now).unwrap_or_default();
-        let notified: HashMap<String, i64> = store::setting(db, SPENDING_NOTIFIED).ok().flatten()
-            .and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        let notified: HashMap<String, i64> = store::setting(db, SPENDING_NOTIFIED)
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
         (alerts, notified)
     });
     notified.retain(|_, d| *d == day);
@@ -206,14 +223,31 @@ pub fn spending_notifications(app: &AppHandle) {
             continue;
         }
         let (title, body) = match alert.kind.as_str() {
-            "over_limit" => (s.get("notify.over_limit.title", "A client has reached its monthly limit"),
-                s.get("notify.over_limit.body", "Its requests are refused until next month or a higher limit. Open Pygg to see Usage.")),
-            "near_limit" => (s.get("notify.near_limit.title", "A client is near its monthly limit"),
-                s.get("notify.near_limit.body", "It has used 80% or more of it. Open Pygg to see Usage.")),
-            "spend_spike" => (s.get("notify.spike.title", "Spending is up"),
-                s.get("notify.spike.body", "The last 24 hours cost three times the week's daily average or more. Open Pygg to see Usage.")),
-            "failures" => (s.get("notify.failures.title", "Many requests are failing"),
-                s.get("notify.failures.body", "Half or more of the last hour's requests failed. Open Pygg to see Usage.")),
+            "over_limit" => (
+                s.get("notify.over_limit.title", "A client has reached its monthly limit"),
+                s.get(
+                    "notify.over_limit.body",
+                    "Its requests are refused until next month or a higher limit. Open Pygg to see Usage.",
+                ),
+            ),
+            "near_limit" => (
+                s.get("notify.near_limit.title", "A client is near its monthly limit"),
+                s.get("notify.near_limit.body", "It has used 80% or more of it. Open Pygg to see Usage."),
+            ),
+            "spend_spike" => (
+                s.get("notify.spike.title", "Spending is up"),
+                s.get(
+                    "notify.spike.body",
+                    "The last 24 hours cost three times the week's daily average or more. Open Pygg to see Usage.",
+                ),
+            ),
+            "failures" => (
+                s.get("notify.failures.title", "Many requests are failing"),
+                s.get(
+                    "notify.failures.body",
+                    "Half or more of the last hour's requests failed. Open Pygg to see Usage.",
+                ),
+            ),
             _ => continue,
         };
         let _ = app.notification().builder().title(title).body(body).show();
@@ -230,14 +264,22 @@ pub fn task_stopped(app: &AppHandle, state: &str) {
     }
     let s = app.state::<Strings>();
     let (title, body) = match state {
-        "waiting_approval" => (s.get("notify.approval.title", "A task is waiting for your approval"),
-            s.get("notify.approval.body", "Open Pygg to approve or decline its paid step.")),
-        "checks_passed" => (s.get("notify.passed.title", "A task is ready"),
-            s.get("notify.passed.body", "Its checks passed. Open Pygg to keep or discard the result.")),
-        "needs_review" => (s.get("notify.review.title", "A task needs your review"),
-            s.get("notify.review.body", "It finished, but no check confirmed it. Open Pygg to review the changes.")),
-        "check_failed" | "blocked" => (s.get("notify.failed.title", "A task did not finish"),
-            s.get("notify.failed.body", "Open Pygg to see why each step stopped.")),
+        "waiting_approval" => (
+            s.get("notify.approval.title", "A task is waiting for your approval"),
+            s.get("notify.approval.body", "Open Pygg to approve or decline its paid step."),
+        ),
+        "checks_passed" => (
+            s.get("notify.passed.title", "A task is ready"),
+            s.get("notify.passed.body", "Its checks passed. Open Pygg to keep or discard the result."),
+        ),
+        "needs_review" => (
+            s.get("notify.review.title", "A task needs your review"),
+            s.get("notify.review.body", "It finished, but no check confirmed it. Open Pygg to review the changes."),
+        ),
+        "check_failed" | "blocked" => (
+            s.get("notify.failed.title", "A task did not finish"),
+            s.get("notify.failed.body", "Open Pygg to see why each step stopped."),
+        ),
         // Stopped by the user: they know.
         _ => return,
     };
@@ -257,9 +299,12 @@ pub struct Preferences {
 
 #[tauri::command]
 pub fn app_preferences(app: AppHandle) -> Preferences {
-    Preferences { keep_in_tray: preference(&app, KEEP_IN_TRAY), notify_tasks: preference(&app, NOTIFY_TASKS),
+    Preferences {
+        keep_in_tray: preference(&app, KEEP_IN_TRAY),
+        notify_tasks: preference(&app, NOTIFY_TASKS),
         notify_spending: preference(&app, NOTIFY_SPENDING),
-        open_at_sign_in: sign_in::enabled() }
+        open_at_sign_in: sign_in::enabled(),
+    }
 }
 
 #[tauri::command]

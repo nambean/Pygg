@@ -41,20 +41,23 @@ pub async fn fetch_list(shared: &Shared, provider: &Provider) -> Result<Vec<List
         };
     }
     let secrets: Vec<&str> = key.as_deref().into_iter().collect();
-    let response = request
-        .send()
-        .await
-        .map_err(|e| fail(None, crate::redact::redact(&format!("Could not reach {}: {e}", provider.endpoint), &secrets)))?;
+    let response = request.send().await.map_err(|e| {
+        fail(None, crate::redact::redact(&format!("Could not reach {}: {e}", provider.endpoint), &secrets))
+    })?;
     let status = response.status();
     let text = response.text().await.map_err(|e| fail(None, e.to_string()))?;
     if !status.is_success() {
         let detail: String = crate::redact::redact(&super::upstream_message(text.as_bytes()), &secrets);
-        return Err(fail(Some(status.as_u16()), match status.as_u16() {
-            401 | 403 => format!("The provider refused the key (HTTP {}): {detail}", status.as_u16()),
-            _ => format!("The provider answered HTTP {}: {detail}", status.as_u16()),
-        }));
+        return Err(fail(
+            Some(status.as_u16()),
+            match status.as_u16() {
+                401 | 403 => format!("The provider refused the key (HTTP {}): {detail}", status.as_u16()),
+                _ => format!("The provider answered HTTP {}: {detail}", status.as_u16()),
+            },
+        ));
     }
-    let parsed: Value = serde_json::from_str(&text).map_err(|_| fail(None, "The provider's model list is not JSON".into()))?;
+    let parsed: Value =
+        serde_json::from_str(&text).map_err(|_| fail(None, "The provider's model list is not JSON".into()))?;
     // An answer without a list is not one, even an empty JSON object (Codex's fourth review, A11).
     if parsed["data"].as_array().or_else(|| parsed["models"].as_array()).is_none() {
         return Err(fail(None, "The provider's answer is not a model list".into()));
@@ -101,7 +104,8 @@ fn listed(id: &str, m: &Value) -> Listed {
     // Anthropic reports the input limit (`max_input_tokens`) apart from the output limit; taking the input limit
     // as the context is the stricter reading, since auto checks prompt plus output against it.
     // Mistral writes `max_context_length`; Moonshot and xAI `context_length`; DeepSeek and Groq `context_window`.
-    let context_tokens = positive(&m["context_length"]).or_else(|| positive(&m["context_window"]))
+    let context_tokens = positive(&m["context_length"])
+        .or_else(|| positive(&m["context_window"]))
         .or_else(|| positive(&m["max_context_length"]))
         .or_else(|| positive(&m["max_input_tokens"]));
     let max_output_tokens = positive(&m["top_provider"]["max_completion_tokens"])
@@ -109,11 +113,13 @@ fn listed(id: &str, m: &Value) -> Listed {
         .or_else(|| positive(&m["max_output_tokens"]))
         .or_else(|| positive(&m["max_tokens"]));
     // Only an explicit field counts: Anthropic's list has none for tool use, so that stays unknown there.
-    let supports_tools = m["supported_parameters"].as_array()
+    let supports_tools = m["supported_parameters"]
+        .as_array()
         .map(|p| p.iter().any(|v| v.as_str() == Some("tools")))
         // Mistral: `capabilities.function_calling`.
         .or_else(|| m["capabilities"]["function_calling"].as_bool());
-    let supports_vision = m["architecture"]["input_modalities"].as_array()
+    let supports_vision = m["architecture"]["input_modalities"]
+        .as_array()
         .map(|p| p.iter().any(|v| v.as_str() == Some("image")))
         .or_else(|| m["capabilities"]["image_input"]["supported"].as_bool())
         // Mistral: `capabilities.vision`; Moonshot: `supports_image_in`.
@@ -134,14 +140,29 @@ fn listed(id: &str, m: &Value) -> Listed {
     // Anthropic: `capabilities.thinking.types.<type>.supported` and `capabilities.effort.<level>.supported`.
     let thinking_types = supported_keys(&m["capabilities"]["thinking"]["types"]);
     let effort_levels = supported_keys(&m["capabilities"]["effort"]);
-    Listed { id: id.to_string(), context_tokens, max_output_tokens, supports_tools, supports_vision, thinking_types, effort_levels, price }
+    Listed {
+        id: id.to_string(),
+        context_tokens,
+        max_output_tokens,
+        supports_tools,
+        supports_vision,
+        thinking_types,
+        effort_levels,
+        price,
+    }
 }
 
 /// The keys of an object whose `supported` is true (`{"adaptive": {"supported": true}, ...}`); `None` when the
 /// object is not there, so that what the provider did not say stays unknown.
 fn supported_keys(v: &Value) -> Option<Vec<String>> {
     let object = v.as_object()?;
-    Some(object.iter().filter(|(k, v)| k.as_str() != "supported" && v["supported"] == true).map(|(k, _)| k.clone()).collect())
+    Some(
+        object
+            .iter()
+            .filter(|(k, v)| k.as_str() != "supported" && v["supported"] == true)
+            .map(|(k, _)| k.clone())
+            .collect(),
+    )
 }
 
 #[cfg(test)]
@@ -160,11 +181,15 @@ mod tests {
         ] });
         let out = parse_list(&list, None);
         let big = out.iter().find(|m| m.id == "vendor/big").unwrap();
-        assert_eq!((big.context_tokens, big.max_output_tokens, big.supports_tools, big.supports_vision),
-            (Some(200_000), Some(64_000), Some(true), Some(true)));
+        assert_eq!(
+            (big.context_tokens, big.max_output_tokens, big.supports_tools, big.supports_vision),
+            (Some(200_000), Some(64_000), Some(true), Some(true))
+        );
         let price = big.price.as_ref().unwrap();
-        assert_eq!((price.input_micro_per_mtok, price.output_micro_per_mtok, price.cached_input_micro_per_mtok),
-            (3_000_000, 15_000_000, Some(300_000)));
+        assert_eq!(
+            (price.input_micro_per_mtok, price.output_micro_per_mtok, price.cached_input_micro_per_mtok),
+            (3_000_000, 15_000_000, Some(300_000))
+        );
         assert!(out.iter().find(|m| m.id == "openrouter/auto").unwrap().price.is_none(), "router models have no price");
         assert_eq!(out.iter().find(|m| m.id == "plain").unwrap(), &Listed { id: "plain".into(), ..Listed::default() });
     }
@@ -179,12 +204,17 @@ mod tests {
                 "adaptive": { "supported": false } } }, "effort": { "supported": false } } }] });
         let out = parse_list(&list, None);
         let m = out.iter().find(|m| m.id == "claude-x").unwrap();
-        assert_eq!((m.context_tokens, m.max_output_tokens, m.supports_vision, m.supports_tools),
-            (Some(1_000_000), Some(128_000), Some(true), None));
+        assert_eq!(
+            (m.context_tokens, m.max_output_tokens, m.supports_vision, m.supports_tools),
+            (Some(1_000_000), Some(128_000), Some(true), None)
+        );
         assert_eq!(m.thinking_types.as_deref(), Some(&["adaptive".to_string()][..]));
         assert_eq!(m.effort_levels.as_deref(), Some(&["low".to_string(), "high".to_string()][..]));
         let old = out.iter().find(|m| m.id == "claude-old").unwrap();
-        assert_eq!((old.thinking_types.as_deref(), old.effort_levels.as_deref()), (Some(&["enabled".to_string()][..]), Some(&[][..])));
+        assert_eq!(
+            (old.thinking_types.as_deref(), old.effort_levels.as_deref()),
+            (Some(&["enabled".to_string()][..]), Some(&[][..]))
+        );
     }
 
     #[test]
@@ -193,8 +223,14 @@ mod tests {
             { "id": "mistral-small", "max_context_length": 32768, "capabilities": { "function_calling": true, "vision": false } },
             { "id": "kimi-k2", "context_length": 262144, "supports_image_in": true } ] });
         let out = parse_list(&list, None);
-        assert_eq!((out[1].context_tokens, out[1].supports_tools, out[1].supports_vision), (Some(32_768), Some(true), Some(false)));
-        assert_eq!((out[0].context_tokens, out[0].supports_tools, out[0].supports_vision), (Some(262_144), None, Some(true)));
+        assert_eq!(
+            (out[1].context_tokens, out[1].supports_tools, out[1].supports_vision),
+            (Some(32_768), Some(true), Some(false))
+        );
+        assert_eq!(
+            (out[0].context_tokens, out[0].supports_tools, out[0].supports_vision),
+            (Some(262_144), None, Some(true))
+        );
     }
 
     #[test]

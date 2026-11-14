@@ -107,15 +107,19 @@ pub fn files(conn: &Connection, context: &Context, now_ms: i64) -> Result<Vec<(S
     });
 
     // Connections: no label (people put e-mail addresses there), no credential reference, only whether one is set.
-    let mut connections = rows(conn,
+    let mut connections = rows(
+        conn,
         "SELECT id, kind, wire, endpoint, enabled, default_billing, data_use_terms, quota_group, \
          credential_ref IS NOT NULL AS has_credential, created_at, \
          (SELECT count(*) FROM models m WHERE m.provider_id = p.id) AS models, \
          (SELECT count(*) FROM models m WHERE m.provider_id = p.id AND m.enabled = 1) AS models_enabled \
-         FROM providers p ORDER BY created_at")?;
-    let health = rows(conn,
+         FROM providers p ORDER BY created_at",
+    )?;
+    let health = rows(
+        conn,
         "SELECT provider_id, model_id, state, reason, http_status, until_ms, updated_at, strikes \
-         FROM connection_health ORDER BY updated_at DESC")?;
+         FROM connection_health ORDER BY updated_at DESC",
+    )?;
     for connection in &mut connections {
         if let Some(Value::String(endpoint)) = connection.get("endpoint").cloned() {
             connection["endpoint"] = Value::String(clean_endpoint(&endpoint));
@@ -132,7 +136,8 @@ pub fn files(conn: &Connection, context: &Context, now_ms: i64) -> Result<Vec<(S
          FROM gateway_clients ORDER BY created_at")?;
 
     let tables: Vec<String> = {
-        let mut stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
             .map_err(|e| e.to_string())?;
         let names = stmt.query_map([], |r| r.get(0)).map_err(|e| e.to_string())?;
         names.collect::<rusqlite::Result<_>>().map_err(|e| e.to_string())?
@@ -140,7 +145,8 @@ pub fn files(conn: &Connection, context: &Context, now_ms: i64) -> Result<Vec<(S
     let mut counts = Map::new();
     for table in tables {
         // Names come from sqlite_master; quoted all the same.
-        let n: i64 = conn.query_row(&format!("SELECT count(*) FROM \"{}\"", table.replace('"', "\"\"")), [], |r| r.get(0))
+        let n: i64 = conn
+            .query_row(&format!("SELECT count(*) FROM \"{}\"", table.replace('"', "\"\"")), [], |r| r.get(0))
             .map_err(|e| e.to_string())?;
         counts.insert(table, json!(n));
     }
@@ -153,13 +159,15 @@ pub fn files(conn: &Connection, context: &Context, now_ms: i64) -> Result<Vec<(S
          FROM usage_events ORDER BY created_at DESC LIMIT {LEDGER_ROWS}"))?;
 
     // Tasks: states only. Titles, prompts and reasons (which quote agent and check output) stay out.
-    let tasks = rows(conn,
+    let tasks = rows(
+        conn,
         "SELECT t.id, t.workspace_id, t.strategy, t.state, t.phase, t.result, t.client_id IS NOT NULL AS from_client, \
          t.created_at, t.updated_at, \
          (SELECT count(*) FROM attempts a JOIN task_stages s ON s.id = a.stage_id WHERE s.task_id = t.id) AS attempts, \
          (SELECT group_concat(a.state || ':' || a.billing || ':T' || a.tier, ' ') FROM attempts a JOIN task_stages s \
             ON s.id = a.stage_id WHERE s.task_id = t.id) AS attempt_states \
-         FROM tasks t ORDER BY t.updated_at DESC")?;
+         FROM tasks t ORDER BY t.updated_at DESC",
+    )?;
 
     let log = context.log_lines.iter().rev().take(LOG_LINES).rev().map(|l| clean(l)).collect::<Vec<_>>();
 
@@ -304,14 +312,27 @@ mod tests {
             "INSERT INTO connection_health (provider_id, model_id, state, reason, http_status, until_ms, updated_at) VALUES \
              ('p1', '', 'invalid_credentials', 'rejected key {FAKE_KEY}', 401, NULL, 2)"), []).unwrap();
         // A client whose token prefix and hash are the token itself, to prove neither column is read.
-        conn.execute(&format!(
-            "INSERT INTO gateway_clients (id, name, token_hash, token_prefix, created_at) VALUES \
-             ('c1', 'OpenCode', '{FAKE_TOKEN}', '{FAKE_TOKEN}', 3)"), []).unwrap();
-        conn.execute("INSERT INTO workspaces (id, name, path, created_at) VALUES ('w1', 'repo', 'C:/src/zanzibar', 1)", []).unwrap();
+        conn.execute(
+            &format!(
+                "INSERT INTO gateway_clients (id, name, token_hash, token_prefix, created_at) VALUES \
+             ('c1', 'OpenCode', '{FAKE_TOKEN}', '{FAKE_TOKEN}', 3)"
+            ),
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO workspaces (id, name, path, created_at) VALUES ('w1', 'repo', 'C:/src/zanzibar', 1)",
+            [],
+        )
+        .unwrap();
         conn.execute(&format!(
             "INSERT INTO tasks (id, workspace_id, title, prompt, strategy, state, reason, created_at, updated_at) VALUES \
              ('t1', 'w1', '{PROMPT}', '{PROMPT} using {FAKE_KEY}', 'free_first', 'check_failed', 'agent said: {PROMPT}', 4, 5)"), []).unwrap();
-        conn.execute("INSERT INTO task_stages (id, task_id, position, name, state) VALUES ('s1', 't1', 0, 'main', 'done')", []).unwrap();
+        conn.execute(
+            "INSERT INTO task_stages (id, task_id, position, name, state) VALUES ('s1', 't1', 0, 'main', 'done')",
+            [],
+        )
+        .unwrap();
         conn.execute(&format!(
             "INSERT INTO attempts (id, stage_id, number, agent, model_ref, tier, billing, state, summary, log_tail) VALUES \
              ('a1', 's1', 1, 'codex', 'x', 1, 'free', 'failed', '{PROMPT}', 'diff --git a/x b/x {FAKE_TOKEN}')"), []).unwrap();
@@ -326,18 +347,41 @@ mod tests {
     #[test]
     fn a_bundle_holds_no_key_token_or_prompt() {
         let conn = store_with_secrets();
-        let context = Context { made_by: "app", gateway_state: "running".into(), gateway_port: 8741,
-            gateway_error: Some(format!("upstream said {FAKE_KEY}")), log_lines: vec![format!("Bearer {FAKE_KEY}")] };
+        let context = Context {
+            made_by: "app",
+            gateway_state: "running".into(),
+            gateway_port: 8741,
+            gateway_error: Some(format!("upstream said {FAKE_KEY}")),
+            log_lines: vec![format!("Bearer {FAKE_KEY}")],
+        };
         let bytes = bundle(&conn, &context, 1_700_000_000_000).unwrap();
         // Entries are stored uncompressed, so a search of the bytes is a search of every file.
         let text = String::from_utf8_lossy(&bytes);
-        for needle in [FAKE_KEY, "FAKEKEYdiag", FAKE_TOKEN, "FAKEtokenDiag", "Zanzibar", "payroll", "me@example.com", "diff --git"] {
+        for needle in [
+            FAKE_KEY,
+            "FAKEKEYdiag",
+            FAKE_TOKEN,
+            "FAKEtokenDiag",
+            "Zanzibar",
+            "payroll",
+            "me@example.com",
+            "diff --git",
+        ] {
             assert!(!text.contains(needle), "the bundle holds {needle}");
         }
         // What it is for is still there.
-        for expected in ["\"kind\": \"openrouter\"", "https://openrouter.ai/api/v1", "\"has_credential\": 1",
-            "invalid_credentials", "\"name\": \"OpenCode\"", "\"state\": \"check_failed\"", "\"tasks\": 1", "8741",
-            "\"schemaVersion\"", "log.txt"] {
+        for expected in [
+            "\"kind\": \"openrouter\"",
+            "https://openrouter.ai/api/v1",
+            "\"has_credential\": 1",
+            "invalid_credentials",
+            "\"name\": \"OpenCode\"",
+            "\"state\": \"check_failed\"",
+            "\"tasks\": 1",
+            "8741",
+            "\"schemaVersion\"",
+            "log.txt",
+        ] {
             assert!(text.contains(expected), "the bundle lacks {expected}");
         }
     }

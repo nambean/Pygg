@@ -43,9 +43,8 @@ impl ProviderError {
         // Gemini's OpenAI-compatible endpoint answers with an array of one error.
         let root = parsed.as_ref().map(|v| if v.is_array() { &v[0] } else { v });
         let error = root.map(|v| &v["error"]);
-        let code = error.and_then(|e| {
-            ["code", "type", "status"].iter().find_map(|k| e[*k].as_str().map(str::to_string))
-        });
+        let code =
+            error.and_then(|e| ["code", "type", "status"].iter().find_map(|k| e[*k].as_str().map(str::to_string)));
         let retry_after = retry_after(headers, SystemTime::now()).or_else(|| error.and_then(gemini_retry_delay));
         let message = error.and_then(|e| e["message"].as_str()).map(|m| m.chars().take(300).collect());
         ProviderError { status, code, retry_after, message }
@@ -54,16 +53,18 @@ impl ProviderError {
     /// A rejected key sent as 400: Gemini answers an invalid key with `400 INVALID_ARGUMENT` and `Please pass a valid
     /// API key` (captured 2026-11-11, tests/fixtures/provider-errors/gemini-401.json).
     fn is_rejected_key(&self) -> bool {
-        self.status == 400 && self.message.as_deref().is_some_and(|m| {
-            let m = m.to_ascii_lowercase();
-            m.contains("api key") && (m.contains("valid") || m.contains("expired"))
-        })
+        self.status == 400
+            && self.message.as_deref().is_some_and(|m| {
+                let m = m.to_ascii_lowercase();
+                m.contains("api key") && (m.contains("valid") || m.contains("expired"))
+            })
     }
 
     /// Anthropic answers an account out of credit with HTTP 400 ("Your credit balance is too low to access the
     /// Anthropic API"), not 402. Found by the P0 benchmark on 2026-11-12.
     fn is_out_of_credit(&self) -> bool {
-        self.status == 400 && self.message.as_deref().is_some_and(|m| m.to_ascii_lowercase().contains("credit balance is too low"))
+        self.status == 400
+            && self.message.as_deref().is_some_and(|m| m.to_ascii_lowercase().contains("credit balance is too low"))
     }
 
     /// Anthropic answers HTTP 400 "This model does not support assistant message prefill. The conversation must end
@@ -71,7 +72,8 @@ impl ProviderError {
     /// Haiku 5.5 to OpenCode, CCHT benchmark 2026-11-13, tests/fixtures/provider-errors/anthropic-400-prefill.json).
     /// That is this model's refusal of the request's shape, not a malformed request: another model may answer it.
     fn is_prefill_refused(&self) -> bool {
-        self.status == 400 && self.message.as_deref().is_some_and(|m| m.to_ascii_lowercase().contains("assistant message prefill"))
+        self.status == 400
+            && self.message.as_deref().is_some_and(|m| m.to_ascii_lowercase().contains("assistant message prefill"))
     }
 
     fn code_is(&self, codes: &[&str]) -> bool {
@@ -131,11 +133,17 @@ pub fn decide(failure: &Failure) -> Decision {
             let wait = |default: Duration| Some(e.retry_after.unwrap_or(default).min(COOLDOWN_CAP));
             match e.status {
                 401 => decision(Next::OtherGroups, mark(false, "invalid_credentials", None), false),
-                400 if e.is_rejected_key() => decision(Next::OtherGroups, mark(false, "invalid_credentials", None), false),
+                400 if e.is_rejected_key() => {
+                    decision(Next::OtherGroups, mark(false, "invalid_credentials", None), false)
+                }
                 // As a 402: ten minutes, since the same words also come back for a request sent with another account's
                 // session (seen when Claude Code inherited the Claude desktop app's variables).
-                400 if e.is_out_of_credit() => decision(Next::OtherGroups, mark(false, "payment_required", wait(Duration::from_secs(600))), false),
-                402 => decision(Next::OtherGroups, mark(false, "payment_required", wait(Duration::from_secs(600))), false),
+                400 if e.is_out_of_credit() => {
+                    decision(Next::OtherGroups, mark(false, "payment_required", wait(Duration::from_secs(600))), false)
+                }
+                402 => {
+                    decision(Next::OtherGroups, mark(false, "payment_required", wait(Duration::from_secs(600))), false)
+                }
                 // A model that takes no assistant-message prefill: the next target may, and nothing was run. No mark:
                 // the model is well; it is this request's last turn it refuses.
                 400 if e.is_prefill_refused() => decision(Next::Any, None, false),
@@ -187,7 +195,9 @@ pub fn retry_after(headers: &HeaderMap, now: SystemTime) -> Option<Duration> {
 
 /// Gemini's `google.rpc.RetryInfo` detail: `{"@type": "...RetryInfo", "retryDelay": "37s"}`.
 fn gemini_retry_delay(error: &Value) -> Option<Duration> {
-    error["details"].as_array()?.iter()
+    error["details"]
+        .as_array()?
+        .iter()
         .filter(|d| d["@type"].as_str().is_some_and(|t| t.ends_with("RetryInfo")))
         .find_map(|d| d["retryDelay"].as_str()?.strip_suffix('s')?.parse::<f64>().ok())
         .filter(|s| s.is_finite() && *s >= 0.0)
@@ -232,7 +242,10 @@ mod tests {
         let e = ProviderError::from_response(429, &HeaderMap::new(), body);
         assert_eq!(e.code.as_deref(), Some("insufficient_quota"));
         let mark = decide(&Failure::Http(e)).mark.unwrap();
-        assert_eq!((mark.model_scope, mark.state, mark.cooldown), (false, "payment_required", Some(Duration::from_secs(3600))));
+        assert_eq!(
+            (mark.model_scope, mark.state, mark.cooldown),
+            (false, "payment_required", Some(Duration::from_secs(3600)))
+        );
         let anthropic = br#"{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."}}"#;
         let e = ProviderError::from_response(400, &HeaderMap::new(), anthropic);
         let decision = decide(&Failure::Http(e));
@@ -251,7 +264,11 @@ mod tests {
         let d = decide(&Failure::Http(e));
         assert_eq!((d.next, d.mark, d.maybe_billed), (Next::Any, None, false));
         // Any other 400 is still the request's own fault.
-        let other = ProviderError::from_response(400, &HeaderMap::new(), br#"{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: Field required"}}"#);
+        let other = ProviderError::from_response(
+            400,
+            &HeaderMap::new(),
+            br#"{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: Field required"}}"#,
+        );
         assert_eq!(decide(&Failure::Http(other)).next, Next::Stop);
     }
 
@@ -266,17 +283,32 @@ mod tests {
             h
         };
         assert_eq!(retry_after(&headers(&[("retry-after", "120")]), now), Some(Duration::from_secs(120)));
-        assert_eq!(retry_after(&headers(&[("retry-after", "120"), ("retry-after-ms", "1500")]), now),
-            Some(Duration::from_millis(1500)));
+        assert_eq!(
+            retry_after(&headers(&[("retry-after", "120"), ("retry-after-ms", "1500")]), now),
+            Some(Duration::from_millis(1500))
+        );
         // An HTTP date, 24 hours ahead.
-        assert_eq!(retry_after(&headers(&[("retry-after", "Thu, 12 Nov 2026 03:00:00 GMT")]), now),
-            Some(Duration::from_secs(86_400)));
+        assert_eq!(
+            retry_after(&headers(&[("retry-after", "Thu, 12 Nov 2026 03:00:00 GMT")]), now),
+            Some(Duration::from_secs(86_400))
+        );
         // Measured against the provider's Date, not a local clock that is an hour behind.
         let skewed = now - Duration::from_secs(3600);
-        assert_eq!(retry_after(&headers(&[("retry-after", "Wed, 11 Nov 2026 03:05:00 GMT"),
-            ("date", "Wed, 11 Nov 2026 03:00:00 GMT")]), skewed), Some(Duration::from_secs(300)));
+        assert_eq!(
+            retry_after(
+                &headers(&[
+                    ("retry-after", "Wed, 11 Nov 2026 03:05:00 GMT"),
+                    ("date", "Wed, 11 Nov 2026 03:00:00 GMT")
+                ]),
+                skewed
+            ),
+            Some(Duration::from_secs(300))
+        );
         // A date in the past means now; a malformed value means no stated reset.
-        assert_eq!(retry_after(&headers(&[("retry-after", "Tue, 10 Nov 2026 03:00:00 GMT")]), now), Some(Duration::ZERO));
+        assert_eq!(
+            retry_after(&headers(&[("retry-after", "Tue, 10 Nov 2026 03:00:00 GMT")]), now),
+            Some(Duration::ZERO)
+        );
         assert_eq!(retry_after(&headers(&[("retry-after", "soon")]), now), None);
         assert_eq!(retry_after(&headers(&[("retry-after", "-5")]), now), None);
     }
@@ -285,7 +317,8 @@ mod tests {
     fn a_long_stated_reset_is_honoured_not_cut_to_hours() {
         let day = ProviderError { retry_after: Some(Duration::from_secs(30 * 3600)), ..ProviderError::new(429) };
         assert_eq!(decide(&Failure::Http(day)).mark.unwrap().cooldown, Some(Duration::from_secs(30 * 3600)));
-        let absurd = ProviderError { retry_after: Some(Duration::from_secs(10 * 365 * 86_400)), ..ProviderError::new(429) };
+        let absurd =
+            ProviderError { retry_after: Some(Duration::from_secs(10 * 365 * 86_400)), ..ProviderError::new(429) };
         assert_eq!(decide(&Failure::Http(absurd)).mark.unwrap().cooldown, Some(COOLDOWN_CAP));
     }
 

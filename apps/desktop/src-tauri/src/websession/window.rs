@@ -59,8 +59,14 @@ impl<R: Runtime> AppWindows<R> {
     }
 
     fn close_idle(&self) {
-        let idle: Vec<String> = self.last_used.lock().unwrap_or_else(|p| p.into_inner()).iter()
-            .filter(|(_, at)| at.elapsed() > IDLE).map(|(id, _)| id.clone()).collect();
+        let idle: Vec<String> = self
+            .last_used
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .filter(|(_, at)| at.elapsed() > IDLE)
+            .map(|(id, _)| id.clone())
+            .collect();
         for id in idle {
             if let Some(window) = self.app.get_webview_window(&label(&id)) {
                 if !window.is_visible().unwrap_or(true) {
@@ -77,7 +83,10 @@ impl<R: Runtime> AppWindows<R> {
         if let Some(window) = self.app.get_webview_window(&label(&provider.id)) {
             return Ok(window);
         }
-        let profile = provider.web_profile.as_deref().and_then(|p| super::profile_dir(&self.root, p))
+        let profile = provider
+            .web_profile
+            .as_deref()
+            .and_then(|p| super::profile_dir(&self.root, p))
             .ok_or("This connection has no profile folder")?;
         std::fs::create_dir_all(&profile).map_err(|e| format!("Could not create the profile folder: {e}"))?;
         let url = recipe.site.parse().map_err(|_| "The site's address is not valid")?;
@@ -99,19 +108,31 @@ impl<R: Runtime> AppWindows<R> {
             // Only the site and its sign-in hosts; a blocked address is not loaded. Its host (only) is kept on the connection.
             .on_navigation(move |url| {
                 let user_driving = signing_in.lock().unwrap_or_else(|p| p.into_inner()).contains(&provider_id);
-                let allowed = if user_driving { url.scheme() == "https" || url.as_str() == "about:blank" }
-                    else { host_allowed(recipe, url.as_str()) };
+                let allowed = if user_driving {
+                    url.scheme() == "https" || url.as_str() == "about:blank"
+                } else {
+                    host_allowed(recipe, url.as_str())
+                };
                 // The host it refused, kept on the connection, so a stalled sign-in says why (nothing else of the address).
                 if !allowed && url.scheme() != "about" {
                     // An https address by its host; any other kind (http, data, a custom scheme) by its scheme only.
-                    let what = if url.scheme() == "https" { url.host_str().unwrap_or("").to_string() } else { format!("a {}: address", url.scheme()) };
+                    let what = if url.scheme() == "https" {
+                        url.host_str().unwrap_or("").to_string()
+                    } else {
+                        format!("a {}: address", url.scheme())
+                    };
                     if let Some(state) = app.try_state::<crate::commands::AppState>() {
-                        let _ = state.shared.with_db(|db| crate::gateway::store::set_web_blocked(db, &provider_id, &what));
+                        let _ =
+                            state.shared.with_db(|db| crate::gateway::store::set_web_blocked(db, &provider_id, &what));
                     }
                 }
                 // Debug builds, when asked: which addresses the window was refused (the address only, nothing from the page).
                 if cfg!(debug_assertions) && std::env::var_os("PYGG_WEB_DEVTOOLS").is_some() {
-                    eprintln!("web-session navigation {} -> {}", url.as_str(), if allowed { "allowed" } else { "blocked" });
+                    eprintln!(
+                        "web-session navigation {} -> {}",
+                        url.as_str(),
+                        if allowed { "allowed" } else { "blocked" }
+                    );
                 }
                 allowed
             })
@@ -172,7 +193,9 @@ impl<R: Runtime> Windows for AppWindows<R> {
         // start, before any window opens (`sweep`).
         let root = self.root.clone();
         let profile = profile.to_string();
-        std::thread::spawn(move || { super::remove_profile(&root, &profile); });
+        std::thread::spawn(move || {
+            super::remove_profile(&root, &profile);
+        });
     }
 }
 
@@ -182,7 +205,9 @@ struct WindowPage<R: Runtime> {
 
 impl<R: Runtime> Page for WindowPage<R> {
     fn navigate(&self, url: &str) -> BoxFuture<'_, Result<(), WebError>> {
-        let result = url.parse().map_err(|_| WebError::Unavailable(NO_WINDOW))
+        let result = url
+            .parse()
+            .map_err(|_| WebError::Unavailable(NO_WINDOW))
             .and_then(|url| self.window.navigate(url).map_err(|_| WebError::Unavailable(NO_WINDOW)));
         Box::pin(async move { result })
     }
@@ -197,7 +222,8 @@ impl<R: Runtime> Page for WindowPage<R> {
         });
         Box::pin(async move {
             sent.map_err(|_| WebError::Unavailable(NO_WINDOW))?;
-            let text = tokio::time::timeout(EVAL, rx).await
+            let text = tokio::time::timeout(EVAL, rx)
+                .await
                 .map_err(|_| WebError::PageChanged(super::NO_PROMPT_BOX))?
                 .map_err(|_| WebError::Unavailable(NO_WINDOW))?;
             Ok(serde_json::from_str(&text).unwrap_or(Value::Null))

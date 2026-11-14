@@ -53,12 +53,16 @@ impl SignatureCache {
 
     /// The tool-call ids in a request whose signature is not in memory.
     pub fn missing(&self, body: &Value) -> Vec<String> {
-        body["messages"].as_array().into_iter().flatten()
+        body["messages"]
+            .as_array()
+            .into_iter()
+            .flatten()
             .flat_map(|m| m["tool_calls"].as_array().into_iter().flatten())
             .filter(|c| c["extra_content"]["google"]["thought_signature"].is_null())
             .filter_map(|c| c["id"].as_str())
             .filter(|id| !id.is_empty() && self.get(id).is_none())
-            .map(String::from).collect()
+            .map(String::from)
+            .collect()
     }
 
     /// Prepares a request body for one target: Gemini gets every tool call signed, others get no
@@ -75,7 +79,8 @@ impl SignatureCache {
                     call.remove("extra_content");
                     continue;
                 }
-                let signed = call.get("extra_content").and_then(|e| e["google"]["thought_signature"].as_str()).is_some();
+                let signed =
+                    call.get("extra_content").and_then(|e| e["google"]["thought_signature"].as_str()).is_some();
                 if !signed {
                     let id = call.get("id").and_then(Value::as_str).unwrap_or("");
                     let signature = self.get(id).unwrap_or(PLACEHOLDER).to_string();
@@ -93,8 +98,10 @@ pub const KEEP_MS: i64 = 30 * 86_400_000;
 pub fn store(conn: &rusqlite::Connection, pairs: &[(String, String)]) -> rusqlite::Result<()> {
     let now = crate::db::now_ms();
     for (id, signature) in pairs {
-        conn.execute("INSERT OR IGNORE INTO tool_signatures (call_id, signature, created_at) VALUES (?1, ?2, ?3)",
-            rusqlite::params![id, signature, now])?;
+        conn.execute(
+            "INSERT OR IGNORE INTO tool_signatures (call_id, signature, created_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params![id, signature, now],
+        )?;
     }
     conn.execute("DELETE FROM tool_signatures WHERE created_at < ?1", [now - KEEP_MS])?;
     Ok(())
@@ -105,7 +112,9 @@ pub fn load(conn: &rusqlite::Connection, ids: &[String]) -> rusqlite::Result<Vec
     let mut out = Vec::new();
     let mut statement = conn.prepare("SELECT signature FROM tool_signatures WHERE call_id = ?1")?;
     for id in ids {
-        if let Some(signature) = rusqlite::OptionalExtension::optional(statement.query_row([id], |r| r.get::<_, String>(0)))? {
+        if let Some(signature) =
+            rusqlite::OptionalExtension::optional(statement.query_row([id], |r| r.get::<_, String>(0)))?
+        {
             out.push((id.clone(), signature));
         }
     }
@@ -123,7 +132,8 @@ mod tests {
         store(&conn, &found).unwrap();
         // A new process: an empty cache, the same store.
         let mut after = SignatureCache::default();
-        let mut request = json!({ "messages": [{ "role": "assistant", "tool_calls": [{ "id": "call_9" }, { "id": "call_x" }] }] });
+        let mut request =
+            json!({ "messages": [{ "role": "assistant", "tool_calls": [{ "id": "call_9" }, { "id": "call_x" }] }] });
         let missing = after.missing(&request);
         assert_eq!(missing, ["call_9", "call_x"]);
         for (id, signature) in load(&conn, &missing).unwrap() {
@@ -131,7 +141,10 @@ mod tests {
         }
         after.apply(&mut request, true);
         assert_eq!(request["messages"][0]["tool_calls"][0]["extra_content"]["google"]["thought_signature"], "SIG9");
-        assert_eq!(request["messages"][0]["tool_calls"][1]["extra_content"]["google"]["thought_signature"], PLACEHOLDER);
+        assert_eq!(
+            request["messages"][0]["tool_calls"][1]["extra_content"]["google"]["thought_signature"],
+            PLACEHOLDER
+        );
     }
 
     use super::*;
@@ -141,12 +154,16 @@ mod tests {
         let mut cache = SignatureCache::default();
         cache.capture(&json!({ "choices": [{ "delta": { "tool_calls": [{ "id": "call_1",
             "extra_content": { "google": { "thought_signature": "SIG" } } }] } }] }));
-        let request = json!({ "messages": [{ "role": "assistant", "tool_calls": [{ "id": "call_1" }, { "id": "call_2" }] }] });
+        let request =
+            json!({ "messages": [{ "role": "assistant", "tool_calls": [{ "id": "call_1" }, { "id": "call_2" }] }] });
 
         let mut for_gemini = request.clone();
         cache.apply(&mut for_gemini, true);
         assert_eq!(for_gemini["messages"][0]["tool_calls"][0]["extra_content"]["google"]["thought_signature"], "SIG");
-        assert_eq!(for_gemini["messages"][0]["tool_calls"][1]["extra_content"]["google"]["thought_signature"], PLACEHOLDER);
+        assert_eq!(
+            for_gemini["messages"][0]["tool_calls"][1]["extra_content"]["google"]["thought_signature"],
+            PLACEHOLDER
+        );
 
         let mut for_others = for_gemini.clone();
         cache.apply(&mut for_others, false);

@@ -41,13 +41,18 @@ pub async fn run(args: Vec<String>) -> i32 {
         return if args.is_empty() { 2 } else { 0 };
     }
     let Some(at) = at else {
-        eprintln!("pygg: name the tool to run.
-Use: pygg run claude, pygg run opencode or pygg run codex");
+        eprintln!(
+            "pygg: name the tool to run.
+Use: pygg run claude, pygg run opencode or pygg run codex"
+        );
         return 2;
     };
-    if let Some(unknown) = args[..at].iter().find(|a| a.starts_with("--") && !matches!(a.as_str(), "--model" | "--db")) {
-        eprintln!("pygg: unknown option {unknown} for pygg run (Pygg's options go before the tool's name: --model, --db).
-Use: pygg run --help");
+    if let Some(unknown) = args[..at].iter().find(|a| a.starts_with("--") && !matches!(a.as_str(), "--model" | "--db"))
+    {
+        eprintln!(
+            "pygg: unknown option {unknown} for pygg run (Pygg's options go before the tool's name: --model, --db).
+Use: pygg run --help"
+        );
         return 2;
     }
     let (ours, rest) = args.split_at(at);
@@ -61,19 +66,27 @@ Use: pygg run --help");
         eprintln!("--model is for claude. Choose {tool}'s model in {tool} itself (Pygg's provider lists auto first).");
         return 2;
     }
-    let Some(store) = super::flag(ours, "--db").map(PathBuf::from).or_else(super::default_store).filter(|p| p.is_file()) else {
+    let Some(store) =
+        super::flag(ours, "--db").map(PathBuf::from).or_else(super::default_store).filter(|p| p.is_file())
+    else {
         eprintln!("Pygg's store was not found: open Pygg once, or pass --db PATH");
         return 1;
     };
     let conn = match rusqlite::Connection::open_with_flags(&store, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) {
         Ok(c) => c,
-        Err(e) => { eprintln!("{}: {e}", store.display()); return 1; }
+        Err(e) => {
+            eprintln!("{}: {e}", store.display());
+            return 1;
+        }
     };
     let _ = conn.busy_timeout(Duration::from_secs(5));
     let token = if tool == "claude" {
         match crate::launcher::token(&conn) {
             Ok(t) => Some(t),
-            Err(e) => { eprintln!("{e}"); return 1; }
+            Err(e) => {
+                eprintln!("{e}");
+                return 1;
+            }
         }
     } else {
         // OpenCode and Codex keep their own key in the configuration Pygg wrote.
@@ -83,8 +96,11 @@ Use: pygg run --help");
         }
         None
     };
-    let port: u16 = crate::gateway::store::setting(&conn, crate::gateway::PORT_KEY).ok().flatten()
-        .and_then(|p| p.parse().ok()).unwrap_or(crate::gateway::DEFAULT_PORT);
+    let port: u16 = crate::gateway::store::setting(&conn, crate::gateway::PORT_KEY)
+        .ok()
+        .flatten()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(crate::gateway::DEFAULT_PORT);
     drop(conn);
     if let Err(e) = super::health(port).await {
         eprintln!("Pygg's gateway on http://127.0.0.1:{port}: {e}. Next: {}.", super::START_GATEWAY);
@@ -115,7 +131,10 @@ Use: pygg run --help");
     }
     match command.status() {
         Ok(status) => status.code().unwrap_or(1),
-        Err(e) => { eprintln!("{} could not be started: {e}", tool_name(tool)); 1 }
+        Err(e) => {
+            eprintln!("{} could not be started: {e}", tool_name(tool));
+            1
+        }
     }
 }
 
@@ -148,7 +167,8 @@ mod tests {
 
     #[test]
     fn flags_before_the_tool_are_pyggs() {
-        let args: Vec<String> = ["--model", "auto/cheap", "claude", "--model", "x", "-p", "hi"].iter().map(|s| s.to_string()).collect();
+        let args: Vec<String> =
+            ["--model", "auto/cheap", "claude", "--model", "x", "-p", "hi"].iter().map(|s| s.to_string()).collect();
         let at = args.iter().position(|a| !a.starts_with("--") && !is_flag_value(&args, a)).unwrap();
         assert_eq!(at, 2);
         assert_eq!(super::super::flag(&args[..at], "--model").as_deref(), Some("auto/cheap"));

@@ -21,10 +21,15 @@ pub fn detect(workspace: &Path) -> Vec<DetectedCheck> {
     let mut found = Vec::new();
     if let Ok(text) = std::fs::read_to_string(workspace.join("package.json")) {
         if let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&text) {
-            let (runner, install) = if workspace.join("pnpm-lock.yaml").exists() { ("pnpm", "pnpm install --frozen-lockfile") }
-                else if workspace.join("yarn.lock").exists() { ("yarn", "yarn install --frozen-lockfile") }
-                else if workspace.join("package-lock.json").exists() { ("npm run", "npm ci") }
-                else { ("npm run", "npm install") };
+            let (runner, install) = if workspace.join("pnpm-lock.yaml").exists() {
+                ("pnpm", "pnpm install --frozen-lockfile")
+            } else if workspace.join("yarn.lock").exists() {
+                ("yarn", "yarn install --frozen-lockfile")
+            } else if workspace.join("package-lock.json").exists() {
+                ("npm run", "npm ci")
+            } else {
+                ("npm run", "npm install")
+            };
             if let Some(scripts) = manifest.get("scripts").and_then(|s| s.as_object()) {
                 let first = found.len();
                 for name in SCRIPT_CHECKS {
@@ -65,8 +70,9 @@ pub struct CheckResult {
 const TAIL_CHARS: usize = 4000;
 
 /// Runs one check command in `dir`. Passing means exit code 0, nothing else.
-pub async fn run(command: &str, dir: &Path, timeout: Duration, secrets: &[&str],
-    cancel: impl std::future::Future<Output = ()>) -> CheckResult {
+pub async fn run(
+    command: &str, dir: &Path, timeout: Duration, secrets: &[&str], cancel: impl std::future::Future<Output = ()>,
+) -> CheckResult {
     let spec = Spec::shell(command, dir, timeout);
     let outcome = process::run(&spec, cancel).await;
     use crate::messages::{self as m, fill};
@@ -99,13 +105,20 @@ mod tests {
     #[test]
     fn detects_package_scripts_and_cargo() {
         let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("package.json"), r#"{"scripts":{
+        fs::write(
+            dir.path().join("package.json"),
+            r#"{"scripts":{
             "test":"echo \"Error: no test specified\" && exit 1",
-            "typecheck":"tsc --noEmit", "build":"vite build", "dev":"vite"}}"#).unwrap();
+            "typecheck":"tsc --noEmit", "build":"vite build", "dev":"vite"}}"#,
+        )
+        .unwrap();
         fs::write(dir.path().join("pnpm-lock.yaml"), "").unwrap();
         fs::write(dir.path().join("Cargo.toml"), "[package]").unwrap();
         let commands: Vec<String> = detect(dir.path()).into_iter().map(|c| c.command).collect();
-        assert_eq!(commands, ["pnpm install --frozen-lockfile", "pnpm typecheck", "pnpm build", "cargo check", "cargo test"]);
+        assert_eq!(
+            commands,
+            ["pnpm install --frozen-lockfile", "pnpm typecheck", "pnpm build", "cargo check", "cargo test"]
+        );
     }
 
     #[test]
@@ -118,8 +131,13 @@ mod tests {
     fn runs_a_check_and_redacts_its_output() {
         let dir = tempfile::tempdir().unwrap();
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        let ok = rt.block_on(run("echo key=sk-0123456789abcdefghijkl", dir.path(), Duration::from_secs(20), &[],
-            std::future::pending()));
+        let ok = rt.block_on(run(
+            "echo key=sk-0123456789abcdefghijkl",
+            dir.path(),
+            Duration::from_secs(20),
+            &[],
+            std::future::pending(),
+        ));
         assert!(ok.passed, "{ok:?}");
         assert!(ok.output_tail.contains("[redacted]") && !ok.output_tail.contains("sk-0123"));
         let failed = rt.block_on(run("exit 2", dir.path(), Duration::from_secs(20), &[], std::future::pending()));
