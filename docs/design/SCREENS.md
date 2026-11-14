@@ -1,805 +1,488 @@
-# Pygg — Screen Design
+# Pygg — Screens
 
-> **Status:** Current in §2.2 (the navigation as built since 2026-11-12), Historical elsewhere (the v0.1 screen design, kept for its reasoning) · reviewed 2026-11-13 · order: [ROADMAP](../ROADMAP.md) · built: [Implementation Status](../IMPLEMENTATION-STATUS.md)
+> **Status:** Current · the app's screens as built · reviewed 2026-11-14
 
-> **Update 2026-11-11 (ADR-027):** tasks are started from the user's IDE agent through MCP; the app monitors, approves and reviews. New Task → Analyze → Plan → Run as the main path, "Needs Revalidation" and the first-run screens that end in analyzing a task are superseded. See [ROADMAP](../ROADMAP.md#revised-plan-after-adr-026-and-adr-027-2026-11-11-docs-review).
+How Pygg's interface is laid out and how each screen behaves. Code: `apps/desktop/src/main.tsx` (the shell), `apps/desktop/src/components` and `apps/desktop/src/components/gateway` (the screens), `apps/desktop/src/styles.css` (tokens and layout). Code comments cite the section numbers below.
 
+Most people turn Pygg on, point their coding tool at it and keep working in their IDE or terminal, so the gateway screens come first and follow the order of setting it up. Smart tasks are an experimental second part. Their signature element is the **attempt sequence** (`AttemptSequence.tsx`): one chip per attempt, showing its tier and outcome, joined by arrows, so a failed attempt visibly leads to the next step.
 
-> Version: 0.1 | Date: 2026-11-10 | Status: historical task-first design; gateway-first screens now implemented (see Implementation Status)
->
-> Inputs: [plan v1.1](../archive/SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md), the DownFetch desktop UI (a sibling desktop app), and the `apple-design` skill (Apple HIG). Claude and Codex each designed the screens independently, then settled their differences in a second round. All model names, prices, quotas and results below are illustrative.
+## 1. Principles
 
-The app should feel like a task runner with an auditable route, not a provider dashboard. Its signature element is the **attempt sequence**: chosen model → check → outcome → next decision.
+- **Gateway first.** The sidebar leads with the gateway's screens, named as other local AI gateways name theirs. Smart tasks sit in their own group, marked Experimental.
+- **Honest values.** Unknown, estimated and actual figures are kept apart, and an unknown cost is never shown as $0 (§3).
+- **Approvals happen in the app.** A paid task step waits for the user in task detail. A notification never names a task or a path and has no approve button, and no API can approve a step.
+- **Nothing spends or deletes without a confirmation.** Spending actions and destructive actions ask first. The command palette only opens the screen that asks.
+- **Status in place, not in banners.** Gateway status sits in the sidebar footer and on Home's gateway card. A problem is shown next to the thing it affects.
+- **Writes only to Git workspaces.** A task works in a worktree of a Git repository, and the user's own checkout is never changed.
 
-> **Design status note (2026-11-11, navigation renamed 2026-11-12):** Gateway-first Home (was Overview), Providers (was Connections), Endpoint and API Keys (was Clients), CLI Tools, Combos, Usage, Policies, Guide, Agents, Tasks and Workspaces screens are implemented per [Implementation Status](../IMPLEMENTATION-STATUS.md). The task-first/six-destination design in this file is a historical concept, **not current implementation**. Future priority follows [ROADMAP.md](../ROADMAP.md) and the [review reconciliation](../reviews/2026-11-11-review-response.md). Current local gateway port is **8741**; older `4318` examples below are superseded.
+### D12: traffic-light window controls
 
-## 1. Decisions
+On Windows and Linux the native title bar is turned off and the app draws macOS-style traffic-light buttons (`WindowControls.tsx`), the same as the sibling DownFetch app. On macOS the system draws its own. This departs from Windows conventions on purpose, so the controls make up for it:
 
-| # | Decision | Notes |
-| --- | --- | --- |
-| D1 | **List-first, no Overview.** Home is the task list, as in DownFetch. | Items that need action are pinned under "Needs Attention" at the top |
-| D2 | **Six destinations:** Tasks, Connections, Policies, Usage, Endpoints, Settings | "Route" is renamed Tasks; there is no History tab |
-| D3 | **Task filters live in the sidebar:** All Tasks, Running, Needs Approval, Completed, Failed, Stopped | Same pattern as DownFetch's Downloads group |
-| D4 | **Workspaces get a sidebar group and a Workspace Settings page.** | Privacy class, checks, isolation and policy overrides belong to the workspace, not the task |
-| D5 | **Task detail has phases:** New Task → Plan → Run → Result | One screen whose state changes; the prompt and route explanation stay visible throughout |
-| D6 | **MVP handoff is Keep as Branch**, with Export Patch… and Discard Result… as alternatives | Apply to Workspace comes later |
-| D7 | **Status goes in the toolbar subtitle, not a separate strip.** Gateway status goes in the sidebar footer and tray. | Blocking gateway failures also appear next to the affected action |
-| D8 | **An approval is durable, covers exactly one attempt, and is never automatic.** | Notifications never contain task names or paths |
-| D9 | **Each fact carries its own provenance**, with no generic `Live` badge | Unknown, estimated and stale are separate properties |
-| D10 | **One no-check rule:** without a deterministic check there is no automatic cheap-first cascade. The user can review a direct run at the strategy's normal tier instead. | Manual acceptance is never shown as "Checks Passed" |
-| D11 | **MVP writes only to Git workspaces** that can be isolated. | Other workspaces get read-only planning (not built: workspaces must be Git repositories) |
-| D12 | **Traffic-light window controls on Windows too**, as in DownFetch (`WindowControls.tsx`). | Chosen by the team on 2026-11-10 so its apps look alike |
-
-### D12: a deliberate platform departure
-
-Codex recommended native Windows controls instead. The team chose traffic lights for consistency with DownFetch, so this is recorded as a deliberate departure from Windows conventions. The custom controls must pass these checks before release:
-
-- Close, minimize and maximize/restore work with the mouse and the keyboard; double-clicking the drag region maximizes and restores.
-- Windows snap layouts and `Win+Arrow` snapping still work.
-- Hit targets stay usable at 100–200% display scaling.
-- Each control has an accessible name and role that screen readers announce correctly.
-- Inactive-window and hover states match DownFetch.
+- Each button has an accessible name. The green one is named **Maximize** or **Restore**, depending on the window's state.
+- Windows 11 snap layouts work: the core lays an invisible native window over the green button (`snap.rs`), which maximizes or restores on click and reports hover so the glyphs still show.
+- The glyphs show on hover and keyboard focus. The buttons dim when the window is inactive.
 
 ## 2. Shell
 
 ### 2.1 Layout
 
-1440×900 baseline: a 224px sidebar and a 1216px main area. The toolbar is 52px. Body text is 13px. The sidebar can be hidden. At 1024px or with enlarged text, inspectors collapse into full-width detail views.
+- A 224px sidebar and the main area. The toolbar is 52px high. Body text is 13px.
+- The sidebar can be hidden with the toolbar's sidebar button or `Ctrl+Shift+L`.
+- Below 900px of window width (or a 1024px window at 125% text size), the sidebar becomes a 56px rail of icons. Labels stay available to screen readers and show on hover, and counts become small badges.
+- A **Skip to content** link is the first Tab stop. After moving to another screen, focus goes to the page heading, unless the page has already put focus in itself.
+- The browser preview (not the desktop app) shows one line under the toolbar saying it runs on demo data.
 
-```text
-+----------------------+--------------------------------------------------------------+
-| ● ● ●  Pygg           | [◧] All Tasks · smarttaskrouter            [New Task] [...]  |
-|                      |     2 running · 1 waiting · $3.42 recorded + $0.30 reserved  |
-| Tasks                |     / $10 today                                              |
-| > All Tasks      18  +--------------------------------------------------------------+
-|   Running         2  | (banners: setup incomplete, approval waiting elsewhere, …)    |
-|   Needs Approval  1  |                                                              |
-|   Completed      11  |  content                                                     |
-|   Failed          2  |                                                              |
-|   Stopped         2  |                                                              |
-|                      |                                                              |
-| Workspaces           |                                                              |
-| > smarttaskrouter    |                                                              |
-|   docs-site          |                                                              |
-|   Add Workspace…     |                                                              |
-|                      |                                                              |
-| Manage               |                                                              |
-|   Connections     !  |                                                              |
-|   Policies           |                                                              |
-|   Usage              |                                                              |
-|   Endpoints          |                                                              |
-|                      |                                                              |
-| App                  |                                                              |
-|   Settings           |                                                              |
-|----------------------|                                                              |
-| ● Gateway Running    |                                                              |
-| v0.1.0               |                                                              |
-+----------------------+--------------------------------------------------------------+
-```
+### 2.2 Sidebar and the gateway screens
 
-### 2.2 Sidebar
+The navigation:
 
-**Navigation since 2026-11-12 (owner: setup as familiar as 9router and OmniRoute; reviewed with Codex).** Most people turn Pygg on and then work in their own IDE or CLI. The sidebar therefore follows the order of setting it up, with the names those gateways use:
+| Group | Screens | Shortcut |
+| --- | --- | --- |
+| **Gateway** | Home, Providers, Endpoint, CLI Tools, Combos, Usage, Policies | `Ctrl+1` … `Ctrl+6` for Home to Usage |
+| **Smart Tasks · Experimental** | Tasks, Workspaces, Agents | `Ctrl+7` Tasks, `Ctrl+8` Agents |
+| **App** | Guide, Settings | `Ctrl+/` Guide, `Ctrl+,` Settings |
 
-| Screen | What it holds |
-| --- | --- |
-| **Home** | Gateway status. Before the first use: two steps, *Connect a provider* (done once a connection is on, has its key and lists models) and *Set up your coding tool* (opens CLI Tools). After: today's requests, cost, unknown-cost count, alerts |
-| **Providers** | The connections (code: `Connections.tsx`). Each row shows its last 24 hours as dots and a health score (2026-11-13), and the header has **Check All**. Under the list, the **auto readiness** line (2026-11-14): for a coding tool's request, how many models auto may choose, how many miss a fact, are unavailable now or are outside the rules, each count opening the connection with the most of them, filtered; each row adds "{n} for auto" and each model says whether auto would choose it, or why not. The detail shows authentication, health (the strip, the last check, Check Now), account and billing; endpoint, API format, rate limits, quota, pool, data use and model names sit under **Advanced** |
-| **Endpoint** | Gateway card (start/stop, port), the base URLs to copy (OpenAI-compatible `/v1`, Anthropic root, model `auto`), and **API Keys**: Pygg's own client tokens with their limits (code: `Clients.tsx`) |
-| **CLI Tools** | One-click setup (Codex, OpenCode: backup, own key, write, check, undo) and *Set Up by Hand* (Claude Code, OpenCode, editors such as Cline and Continue, OpenAI SDK, curl), then whether the newest request worked |
-| **Combos** | Tabs **Combos** (cards: ordered fallback, members with billing, tier and tools, how many are off or missing) and **How auto chooses** (explainer and simulator). **From Template…**: Free first, Use my plans first, Subscription only, Strong coding with cheap backup, No metered spend, Local only, Long-context coding, as rules over the user's models (`lib/comboTemplates.ts`) resolved into a saved list, with a preview of members, reasons, exclusions and missing stages |
-| **Usage** | API Costs as **Summary** (the Estimated Savings hero, spending, the cost chart, **Token Mix**, how Pygg saved it, by model and client, task results) or **Requests** (filters and the ledger), 2026-11-14 |
-| **Policies** | Defaults for new API keys (applied in `store::create_client`, whoever creates the key), each key's policy (the Limits sheet), each connection's terms, quota and pool, the guarantees that are not settings, and the on-hold task rules |
-| **Smart Tasks · Experimental** | Tasks, Workspaces, Agents (agent CLIs, MCP delegation, Run a Task). On hold; the app no longer opens on a waiting task, the count still shows it |
-| **Guide** (App) | Quick start, Claude Code, Codex, OpenCode, editors and SDKs, the command line and npm, auto and combos, costs, troubleshooting, FAQ; every command with Copy (`Ctrl+/`) |
-| **Settings** | App preferences, background, diagnostics, task budgets |
+- Rows are 28px high, with an accent-coloured icon and a quiet selected background.
+- **Tasks** shows an emphasized count of tasks needing attention (§5.1). **Workspaces** shows an emphasized count of workspaces whose checks need review.
+- The app always starts on Home.
 
-Home leads with the **Estimated Savings** hero after the gateway card and alerts: the amount, the percentage, the comparison model and how many answered requests were compared; under it the three figures behind the amount (the same tokens priced at the baseline, the cost through Pygg, the difference), **where the answers came from** (one bar of free, local, subscription, paid and billing-unknown answers, with counts and shares, shown with or without a baseline), the exclusions in one line, and "How this estimate works" as a disclosure. With no comparison model chosen, it proposes the paid, priced model clients asked for by name most often, never the most expensive one, and the user accepts it. The mechanism is shown, never oversold: an answer from a free, local or plan model used what the user already has; a model asked for by name is the user's choice; a fallback is not in itself a saving (2026-11-13, [Codex review 3](../reviews/2026-11-13-codex-screens-savings-npm-review.md)).
+**Footer.** The gateway's status and the app version. The status is a button that opens Home. It names the local gateway's own state: `Gateway Running · <port>`, `Gateway Stopped`, `Gateway Couldn't Start`, `Connecting…`, or `Core isn't responding` when the core does not answer. A provider outage is reported on that connection (§5.4) and never turns a healthy gateway into "offline".
 
-Not built yet from the Combos review: a combo route preview and a live combo test, drag to reorder, and the strategies worth adding next (cost order within a combo, round robin across independent quota groups, lowest measured latency).
+The gateway screens that have no section of their own in §5 are described here. Providers is §5.4, Usage §5.6 and Endpoint §5.7.
 
-Shortcuts: `Ctrl+1`…`Ctrl+6` the gateway screens in that order, `Ctrl+7` Tasks, `Ctrl+8` Agents, `Ctrl+,` Settings.
+#### Home
 
-Built the same day, from that review:
-- Each set-up tool shows *Configured, waiting for its first request → Working (answered by which model, when)* or *its last request failed*, from the newest request of the tool's own key (`client_latest_requests`).
-- **Claude Code launcher** (`launcher.rs`, `pygg run claude`): a key of its own kept in the Windows Credential Manager and handed to Claude Code at launch with the gateway's address and `auto`. Claude Code's settings are not changed, so plain `claude` keeps the user's Claude plan.
-- **Estimated Savings** (`gateway/savings.rs`) on Usage and Home: the answered requests priced again at a model the user picks, with the same tokens. It counts what it leaves out (unknown cost, no tokens, failed attempts that may have been billed, subscription requests) and is labelled as an estimate. On Usage, **How Pygg Saved It** takes it apart by client and by how the model was asked for (`auto`, `auto/cheap`, a combo, a model by name), and the chart's **Comparison** metric shows it per hour or day.
+Is Pygg working, and what is it costing:
 
-Built 2026-11-13: a note under each tool, before Set Up, when `auto` has no eligible model for that tool's requests on its API surface, linking to Connect Provider or How auto chooses. `auto` is described as choosing an eligible model within the user's rules: it does not judge how hard a prompt is.
+- **Gateway card.** Running, stopped or couldn't start, "Loopback only · other devices can't reach it", **Start Gateway** or **Stop**, Copy URL, and **Configure…** (§6).
+- **Usage alerts.** Things in the ledger worth a look, such as unpriced models. Each opens Usage or Providers.
+- **Estimated Savings**, shown once there are requests in the last 24 hours (`Savings.tsx`, `gateway/savings.rs`). Answered requests are priced again at a comparison model the user chooses, with the same tokens:
+  - The section shows the difference and the percentage, how many answered requests were compared, and three figures: the cost priced at the comparison model, the cost through Pygg, and the difference.
+  - **Where the answers came from** is one bar of free, local, subscription, paid and billing-unknown answers, with counts and shares.
+  - What was left out is listed: answers with an unknown cost, answers without token counts, subscription answers, and failed attempts that may have been billed.
+  - **How this estimate works** is a disclosure that explains the method.
+  - With no comparison model chosen, the section offers the user's most-used paid model that clients asked for by name in the period. The user accepts it or picks another.
+  - It never claims more than the ledger shows. An answer from a free, local or plan model used what the user already has, and a fallback is not a saving in itself.
+- **Get Started**, until all three steps are done:
+  1. **Connect a provider.** Done once a connection is on, has its key and lists models, and `auto` has a model that qualifies for a coding agent's request.
+  2. **Set up your coding tool.** Opens CLI Tools.
+  3. **First request answered.** Done when a request from one of the user's own keys is answered.
+- **Last 24 Hours.** Requests, known cost, how many requests had an unknown cost (not in the total), fallback attempts and failures, then the six newest requests with their model, client, tokens, cost and outcome, and **Open Usage**.
 
-The notes below predate this navigation where they name Overview, Connections or Clients.
+#### CLI Tools
 
-- Groups and rows follow DownFetch (`SidebarGroup`, `SidebarItem`): 28px rows, accent icons, quiet selected background, counts in secondary text. **Needs Approval** uses the emphasized count.
-- **Tasks** filters are views of one collection. Running excludes tasks waiting for approval. Stopped covers canceled and interrupted tasks, with the difference shown in the row. Completed is a navigation category, not a correctness claim; rows still say **Checks Passed** or **Manually Accepted**.
-- **Workspaces:** selecting a workspace scopes the current filter and its counts to that workspace. Selecting it again returns to all workspaces. The toolbar title always names the scope ("All Tasks · smarttaskrouter") so filtered counts are not mistaken for totals.
-- **Connections** shows a `!` when a connection needs attention (expired credentials, unreachable local runtime).
-- **Footer:** gateway status, like DownFetch's `RuntimeStatus`, and the app version. Clicking the status opens a popover with address, upstream summary and **Open Endpoints**.
+Point a coding tool at Pygg (`CliTools.tsx`):
 
-Gateway status wording separates the local service from upstream availability:
+- **One-Click Setup.** Each tool gets a Pygg API key of its own.
+  - **Claude Code: models through Pygg** (`launcher.rs`): **Set Up** makes a key that is kept in the Windows Credential Manager, and the row shows the command that starts Claude Code through Pygg (`pygg run claude`). Claude Code's own settings are not changed, so plain `claude` keeps the user's Claude plan.
+  - **Codex** and **OpenCode** (`integrations.rs`): **Set Up…** shows what will change. Pygg then backs up the tool's configuration, writes the change and checks it. **Remove…** puts the configuration back and revokes the key.
+- **Status of each set-up tool,** read from the newest request sent with its key: *Configured, waiting for its first request*, *Working: answered by <model> <time>*, or *Its last request did not succeed*, with **View Failed Requests**. Nothing is sent to find out.
+- **Before set-up,** a note appears when `auto` has no model that qualifies for that tool's requests on its API format, linking to **Connect Provider…** or **How auto chooses**. With no provider at all, one warning sits above the list instead. Set Up still works.
+- **Set up by hand** (a disclosure): Claude Code without the launcher, OpenCode, editors, the OpenAI SDK and curl. Each has a model choice (auto, auto/cheap, combos, enabled models) and a shell choice where it matters.
 
-| State | Footer text |
-| --- | --- |
-| Running | `Gateway Running` (popover: `127.0.0.1:4318`) |
-| Running, upstream issue | `Gateway Running · 1 provider unavailable` |
-| Starting | `Gateway Starting…` |
-| Stopped | `Gateway Stopped` |
-| Unknown | `Gateway Status Unavailable · checked 14:32` |
+#### Combos
 
-A provider outage never turns a healthy local gateway into "Offline".
+Named, ordered model lists (`Combos.tsx`). A request for the combo's name tries each member in turn. A segmented control switches between two tabs.
+
+**Combos tab:**
+
+- One card per combo, showing:
+  - its strategy (**Ordered fallback**, or **Cheapest first**, which orders members for each request by estimated cost),
+  - the members as a chain, each with its billing, tier and tool support, and marked when its connection is disabled or removed,
+  - the connections that share a quota group,
+  - **Copy Name**, **Test**, **Edit…** and Delete.
+- **Test** sends one short request to the combo after a confirmation, and says which member answered and how many failed before it.
+- **New Combo…** and **Edit…** open the combo editor (a sheet):
+  - Members are found by typing part of a model id or a connection name. Every word typed must match.
+  - The list stays open under the field. The arrow keys move through it, and Enter adds the model while the field keeps focus.
+  - A model already in the combo is marked as such.
+- **From Template…** builds a combo from rules over the user's models (`lib/comboTemplates.ts`): Free first, Use my plans first, Subscription only, Strong coding with a cheap backup, No metered spend, Local only, Long-context coding, and Cheapest for each request. Before saving, it previews the members it picked, why it picked them, and the models it left out with their reasons.
+- A disclosure explains when the next member is tried: a rejected key, exhausted quota or an unavailable model, and never once an answer has started streaming.
+
+**How auto chooses tab** (`AutoRouting.tsx`):
+
+- What `auto` and `auto/cheap` mean.
+- A simulator: choose the alias, a client (or a new client with the defaults), the request format, tools and images. It shows which models would be tried, in what order and why, and every excluded model with its reason. It sends nothing.
+
+#### Policies
+
+Every rule the gateway applies, in one place (`Policies.tsx`):
+
+- **Defaults for New API Keys:** minimum model tier, monthly limit, limit mode (Estimated or Strict) and unknown prices (Block or Allow). These apply whoever creates the key: Endpoint, `pygg gateway create-client`, or a tool's set-up.
+- **API Key Policies:** one row per key, showing its monthly limit, minimum tier, requests at once, unknown prices, paid retries and allowed providers. **Limits…** opens the same sheet as Endpoint.
+- **Connection Policies:** each connection's data-use terms, quota (its own, shared, or assumed shared), pool and billing.
+- **Always On:** the guarantees that are not settings.
+  - The gateway listens on loopback only.
+  - Keys stay in the Credential Manager.
+  - An unknown cost is never $0.
+  - Paid task steps are approved only in the app.
+  - There is no telemetry.
+- **Smart Tasks (on hold):** the daily limit for paid steps (changed in Settings), and a link to Workspaces.
+
+#### Agents
+
+The official agent CLIs on this computer (`Agents.tsx`), each with its own sign-in, which Pygg never reads:
+
+- **Agents on This Computer:** each agent's version and sign-in, or **How to Install**.
+- **Run a Task:** a one-off run in a worktree of a chosen repository.
+- **Let Your Agent Delegate Tasks:** one-click MCP set-up for Claude Code, Codex CLI and OpenCode, and **Set It Up by Hand** for Cursor and other JSON-configured clients.
+
+#### Guide
+
+How to use Pygg, in the order people set it up, with every command ready to copy (`Guide.tsx`). The sections are Quick start, Claude Code, Codex CLI, OpenCode, Editors and SDKs, Command line and npm, auto and combos, Costs and limits, Troubleshooting, and FAQ. The Guide sends nothing and changes no setting.
 
 ### 2.3 Toolbar
 
-Contains the sidebar toggle, the title with a subtitle, the screen's primary action, and a More menu (`MoreMenu`).
+The toolbar holds:
 
-- **Subtitle (task screens):** `2 running · 1 waiting · $3.42 recorded + $0.30 reserved / $10 today`. When unknown costs make the remaining budget uncertain, it reads `2 running · 1 waiting · Budget needs review`. Clicking it opens the **budget popover**, which shows actual vs. estimated spend, reservations, calls with unknown cost, and which limit applies (task, workspace, daily, monthly, client).
-- Reservations are capacity held for running work, not spend. Subscription allowance and local operating cost are never added to the API figure.
+- the sidebar toggle,
+- the screen title,
+- the command palette button,
+- the screen's primary action: **Connect Provider…** on Providers, **Create API Key…** on Endpoint, **New Combo…** on Combos, and **New Task** on Tasks and task detail.
+
+On Tasks and task detail, the subtitle (`BudgetSubtitle.tsx`) reads `<n> running · <n> waiting · <recorded> recorded + <reserved> reserved / <limit> today`. With no daily limit set, the money part reads `<amount> on paid steps today`.
+
+Clicking the subtitle opens the popover **Today's budget for paid steps**. It shows the amount recorded, the amount reserved for running work, the daily limit and the number of runs with an unknown cost. It also explains the rules:
+
+- A run that reported no cost counts at its cap.
+- Free, local and subscription steps are not included.
+- The budget resets at 00:00 UTC.
 
 ### 2.4 Banners
 
-Banners sit under the toolbar, using DownFetch's `banner` / `copied-banner` patterns: one line, an action, and dismissible when that is safe.
+Replaced. The desktop app shows no banners. Gateway state is on Home and in the sidebar footer, and problems appear next to what they affect.
 
-- `Setup isn't finished.` → **Continue Setup**
-- `One task is waiting for approval.` → **Review** (shown when another screen is focused; it does not take focus)
-- `Gateway stopped. Tasks and clients can't reach models.` → **Start Gateway**
-- `One interrupted task needs review.` → **Review**
+### 2.5 Tray and notifications
 
-### 2.5 Approvals when away
+`shell.rs`. Settings → Background (§5.8) controls all of this.
 
-| Context | Behavior |
-| --- | --- |
-| Viewing the affected task | Persistent approval panel above the output, with **Review Escalation** |
-| Another screen focused | Quiet banner; focus is not taken |
-| Window unfocused or closed to tray | Tray state changes and one OS notification is sent (if permitted) |
-| Notifications blocked | The task keeps waiting; the tray menu and the next window opening show it |
-| Another sheet is open | The approval is queued; only one sheet is shown at a time |
-| App restarted | Pending approvals are recovered and revalidated; if anything changed, a fresh decision is required |
-
-Notification: title **Task Waiting for Approval**, body *A task is paused before a paid attempt.* There is no task name or path, and no approve button in the notification. Clicking it opens that task (not built yet, ROADMAP A1).
-
-Tray menu:
-
-```text
-Pygg
-Gateway Running
-2 Tasks Running
-1 Task Waiting for Approval
-─────────────────────────
-Open Pygg
-Review Waiting Task
-─────────────────────────
-Quit Pygg…
-```
-
-Closing the window keeps the core running when **Keep Running When Window Closes** is on; this is explained once, at the first close. **Quit** with active work warns that quitting stops execution and may leave billable partial requests.
+- **Tray icon.** Its menu has **Open Pygg** and **Quit Pygg**.
+- **Keep running in the tray.** When this is on, closing the window keeps the gateway and tasks running. The first time, a notification says Pygg is still running.
+- **Open Pygg when you sign in.** Pygg starts in the tray, without its window.
+- **Task notifications:**
+  - a task is waiting for your approval,
+  - a task is ready (its checks passed),
+  - a task needs your review,
+  - a task did not finish.
+- **Spending notifications,** once a day each and checked every ten minutes:
+  - a client has reached its monthly limit,
+  - a client is near its monthly limit,
+  - spending is up,
+  - many requests are failing.
+- A notification never names a task or a file, and never carries an approve button.
 
 ### 2.6 Keyboard and command palette
 
-`Ctrl` on Windows, `Cmd` on macOS.
+`Ctrl` on Windows and Linux, `Cmd` on macOS.
 
 | Shortcut | Action |
 | --- | --- |
-| `Ctrl+N` | New Task |
-| `Ctrl+1` … `Ctrl+6` | All Tasks, Running, Needs Approval, Completed, Failed, Stopped |
-| `Ctrl+K` | Command palette (groups: Tasks, Navigate, Connections, Diagnostics) |
-| `Ctrl+F` | Search the current list, output or diff |
+| `Ctrl+1` … `Ctrl+6` | Home, Providers, Endpoint, CLI Tools, Combos, Usage |
+| `Ctrl+7` / `Ctrl+8` | Tasks / Agents |
+| `Ctrl+/` | Guide |
 | `Ctrl+,` | Settings |
-| `Ctrl+Shift+L` | Show/hide sidebar |
-| `Ctrl+Enter` | **Analyze Task** while editing a task |
-| `Ctrl+S` | Save in Policies, Workspace Settings and Settings editors only |
-| `Esc` | Close palette, sheet or popover; **never** cancels a run or discards edits |
+| `Ctrl+K` | Command palette |
+| `Ctrl+Shift+L` | Show or hide the sidebar |
+| `Ctrl+N` | New Task (on Tasks and task detail) |
+| `Ctrl+F` | Search tasks (on Tasks) |
 
-- No shortcut moves from analysis to **Run Task**, and Enter never authorizes spending.
-- Spending and destructive commands in the palette open their review UI instead of acting directly.
-- A sheet makes the rest of the window inert (`inert`, as in DownFetch) and takes all keys.
+- While a sheet is open, these shortcuts do nothing. The sheet takes every key.
+- The **command palette** (`CommandPalette.tsx`) has the groups Go to, Gateway, Tasks and App.
+  - Typing filters the commands; every word must match.
+  - The arrow keys move, `Ctrl+Home` and `Ctrl+End` jump to the ends of the list, Enter runs the command and `Esc` closes the palette.
+  - No command spends money or deletes something. Those commands only open the screen that asks.
 
 ## 3. Showing values honestly
 
 ### 3.1 Identity
 
-A model is always shown as **Provider / Account · Model**, e.g. `OpenRouter / Personal · openai/gpt-4.1-mini`. The same model can have different billing and terms on different accounts. Full IDs are selectable and copyable.
+A gateway model is shown as `<connection>/<model>`, which is the name a client sends. The connection's name is the prefix. A provider row shows the connection's label next to its `id/…` prefix; a long label is truncated, the prefix never is. A task attempt names the agent and model of its step, with its tier and billing. Ids, paths and model names are selectable.
 
 ### 3.2 Provenance
 
-Each fact carries its own source and time:
+A figure says where it comes from:
 
-| Display | Meaning |
-| --- | --- |
-| `Provider API · checked 14:32` | From an official endpoint |
-| `Response headers · observed 14:28` | From rate-limit headers |
-| `Ledger estimate · since Nov 1` | Computed from Pygg's own ledger |
-| `Unknown · provider does not report this` | No reliable source |
-| `Stale · last checked Nov 3` | Older than the freshness window; shown with a clock icon |
+- A ledger row's cost has a source, such as reported by the provider, your price × reported tokens, connection marked free, local model, no price recorded for this model, or failed after reaching the provider (billing unknown).
+- Rate limits are shown "as the provider last said", from the headers of its last answer.
+- An account balance shows the provider endpoint it was read from and when.
+- A health check shows when it ran.
+- A connection's data-use terms are the user's own record, not something Pygg checks.
 
-Unknown, estimated and stale can apply together (a ledger estimate can be stale). Stale never means zero or disconnected.
+### 3.3 Money
 
-### 3.3 Money and allowance
+`lib/money.ts`, `lib/format.ts`.
 
-- Estimate: `≈ $0.04–$0.12`, labeled "Estimated".
-- Actual: `$0.08`.
-- Unknown: the word `Unknown` in secondary text with an explanation. Never `$0.00`, never sorted as zero.
-- Subscription: `Window usage unknown`, or a figure with its source. Never converted to money.
-- Local: `API cost: $0 · local operating cost: not configured`.
-- Rate limits, plan allowance and credits are kept apart; their percentages are never combined.
+- **Actual** amounts look like `$0.08`. **Estimated** amounts look like `≈$0.0031`. Small amounts get four decimals, and an amount under $0.0001 shows as `<$0.0001`.
+- **Unknown** is the word "Unknown", never `$0.00`, and it is never added to a total. Totals say how many requests had an unknown cost.
+- **Subscription** requests count against the plan's quota, not money. In API Costs they count as unknown.
+- **Local** models cost `$0` in API money. Electricity and the computer's time are not measured.
+- **A task's cost** reads like `API $0 · local`, `<actual> + ≈<estimated> est.` or `<n> calls unknown`.
 
 ### 3.4 Status words
 
-Status always pairs an icon with a word; color is never the only signal. Outcome words: **Checks Passed**, **Manually Accepted**, **Check Failed**, **Canceled**, **Interrupted**, **Blocked by Policy**, **Waiting for Approval**.
+A status always pairs an icon or dot with a word, so colour is never the only signal.
+
+**Task states:**
+
+- Checks passed
+- Finished, needs your review
+- Manually accepted
+- Check failed
+- Blocked by policy
+- Canceled
+- Interrupted · needs review
+- Waiting for approval
+
+**Attempt outcomes:**
+
+- Passed
+- Finished, not checked
+- Check failed
+- Running
+- Waiting for approval
+- Stopped
+- Skipped: not answering
 
 ## 4. Visual tokens
 
-Reuse DownFetch's semantic tokens (`--window`, `--sidebar`, `--surface`, `--label`, `--secondary`, `--separator`, …) unchanged, **including its green accent**. The owner chose this on 2026-11-11; it replaces the orange accent first proposed here.
+These are DownFetch's semantic tokens and green accent, defined in `styles.css`. They follow the system's light, dark and increased-contrast settings, and there is no theme switch in the app.
 
-| Role | Light | Dark |
+| Token | Light | Dark |
 | --- | --- | --- |
-| Window | `#F5F5F7` | `#1E1E1E` |
-| Sidebar | `#ECECEF` | `#262628` |
-| Surface | `#FFFFFF` | `#2C2C2E` |
-| Label | `#1D1D1F` | `#F5F5F7` |
-| Secondary | `#636366` | `#A1A1A6` |
-| Accent fill (`--accent`) | `#0B7A4B` | `#0D8551` |
-| Accent icon (`--accent-icon`, sidebar icons) | `#0B7A4B` | `#3DDC97` |
-| Accent text (`--accent-text`) | `#0A6B42` | `#3DDC97` |
+| `--window` | `#F5F5F7` | `#1E1E1E` |
+| `--sidebar` | `#ECECEF` | `#262628` |
+| `--surface` | `#FFFFFF` | `#2C2C2E` |
+| `--label` | `#1D1D1F` | `#F5F5F7` |
+| `--secondary` | `#636366` | `#A1A1A6` |
+| `--accent` (fills) | `#0B7A4B` | `#0D8551` |
+| `--accent-text` | `#0A6B42` | `#3DDC97` |
+| `--accent-icon` (sidebar icons) | `#0B7A4B` | `#3DDC97` |
+| `--orange` (warnings) | `#C93400` | `#FF9F0A` |
+| `--red` | `#D70015` | `#FF6961` |
 
-These are DownFetch's own values and contrast notes: white semibold text on `#0B7A4B` 5.4:1 (light) and on `#0D8551` 4.7:1 (dark), light accent text 6.6:1 on the surface, dark accent text 9.6:1 on the surface. `--accent-icon` is the one token DownFetch doesn't have; it reuses the accent text color in dark mode so sidebar icons stay legible. Re-check these ratios with a contrast tool before release.
-
-**Gateway first (ADR-016):** the sidebar now leads with **Gateway** (Overview, Connections, Combos, Clients, Usage); the task screens sit under **Smart Tasks** (Tasks, Policies), with Agents and Workspaces beside them. Endpoints (§5.7) became Overview plus Clients, and Connections (§5.4) has the Providers part with models and prices inline. Agents is built (and Tasks with it); Models-as-a-tab is not.
-
-- Type: 13px body, 11–12px supporting text, 15px toolbar title, 17px section emphasis; 12px monospace for IDs, checks, paths and output. Use tabular figures for money and tokens.
-- Controls are 26–32px high; grouped boxes have 8–10px corners; content margins are 20–24px.
-- The green accent marks the primary action. Warnings use orange, always with an icon and text.
-- Follows the system's light, dark and increased-contrast settings, with no theme switch. Reduced motion removes animated activity effects but keeps the status text.
+- **Contrast,** as noted in the stylesheet:
+  - White semibold text on the accent: 5.4:1 in light mode, 4.7:1 in dark mode.
+  - Accent text on the surface: 6.6:1 in light mode, 9.6:1 in dark mode.
+  - Increased contrast strengthens separators and secondary text.
+- **Type:** 13px body text, 15px toolbar title, 11px sidebar group headings, and 12px monospace for ids, commands, paths and output. Money and token figures use tabular figures.
+- **Colour:** the accent marks the primary action. Warnings use orange, always with an icon and text.
+- **Focus:** a 3px accent outline, which also survives Windows high contrast.
+- **Reduced motion:** spinners and switch transitions stop. The status text stays.
 
 ## 5. Screens
 
-Wireframes show only the 1216px main area. The shell from §2.1 is implied.
+### 5.1 Tasks
 
-### 5.1 Task list (home)
+The task list (`TaskList.tsx`).
 
-**Goal:** see what needs action and find any task. **Primary action:** **New Task**.
-
-```text
-| All Tasks · smarttaskrouter                                  [New Task] [...] |
-| 2 running · 1 waiting · $3.42 recorded + $0.30 reserved / $10 today          |
-+------------------------------------------------------------------------------+
-| [Search Tasks…                                  ]        [Workspace Settings…]|
-|                                                                              |
-| Needs Attention                                                              |
-| ⚠ Fix timeout handling          Waiting for approval · attempt 2   [Review]   |
-|   T0 ✕ ─→ T1 ◌                                                               |
-|                                                                              |
-| Tasks                                                                        |
-| ◌ Add retry tests               Checking · attempt 1 · 1m 12s      [Open]     |
-|   T0 ◌                                                    API $0 · local     |
-| ◌ Update parser                 Generating · attempt 2             [Open]     |
-|   T1 ✕ ─→ T2 ◌                                            $0.03 so far       |
-| ✓ Update README                 Checks passed · 8 min ago          [Open]     |
-|   T0 ✓                                                    API $0             |
-| ✕ Rename config key             Canceled · 23 min ago              [Open]     |
-|   T1 ✕                                                    $0.02              |
-|                                                                              |
-| 1–25 of 68 tasks                                          [<] [1] [2] [3] [>] |
-```
-
-- **Row:** status icon, title, phase and attempt, elapsed or relative time, actions. A second line shows the **attempt sequence** (tier chips with outcome, connected by arrows) and cost so far. The workspace name appears in the row only when the scope is all workspaces.
-- **Needs Attention** holds waiting approvals, interrupted tasks and plans that need revalidation. These rows are not repeated in the list below.
-- Uses DownFetch's list bar, search, rows, row details disclosure and `Pager` (25/50/100 per page).
+- **Filters.** A segmented control at the top: All, Running, Needs Approval, Completed, Failed and Stopped, each with its count.
+  - Running excludes tasks that are waiting for approval.
+  - Completed covers checks passed, manually accepted and needs review.
+  - Failed covers check failed and blocked.
+  - Stopped covers canceled and interrupted.
+- **Search** filters by title (`Ctrl+F`).
+- **Needs Attention.** On All, these tasks are pinned on top and not repeated below: waiting for approval, interrupted, plan needs revalidation, and needs review. Their button reads **Review**; other rows read **Open**.
+- **Row.** A state icon, the title, the workspace and the client that started the task, a status line (phase, attempt, time), the attempt sequence, and the cost so far (§3.3).
 - **States:**
-  - First launch: empty list "Route Your First Task — Connect a way to run tasks, add a workspace, and review a route before anything runs." → **Set Up Routing**. The Setup Assistant sheet opens automatically once.
-  - Ready, no tasks: "Ready for Your First Task" → **New Task**.
-  - Filter empty: "No Failed Tasks", or "No Tasks Match 'timeout'" → **Clear Search**.
-  - Loading: "Restoring tasks…"; no placeholder running rows.
-  - Load error: "Tasks couldn't be loaded." → **Retry**. A failed load is never shown as an empty list.
-- **Keyboard:** arrows select, Enter opens, `Ctrl+F` searches. Returning from a task restores the filter and scroll position.
+  - Loading.
+  - A load error with **Try Again**. A failed load is never shown as an empty list.
+  - Ready for Your First Task, with **New Task**.
+  - No Tasks Match "…", with **Clear Search**.
+  - An empty state for each filter.
 
 ### 5.2 Task detail
 
-One screen with four phases. The toolbar title becomes the task title and the subtitle shows its state.
+What the task is waiting on, its result, and every attempt (`TaskDetail.tsx`). It reloads every two seconds while the task runs, and **‹ Tasks** goes back to the list.
+
+- **Waiting for approval.** This is shown inline, not in a sheet.
+  - **A paid step:** the range of what the last runs of that agent and model cost (by the agent's own estimate), or a note that there is no estimate yet. It also shows what is left of today's budget, and a cap field. The cap is **Spending cap** when the agent can stop itself, or **Stop further steps above** when it cannot. The buttons are **Approve up to $…** and **Decline**.
+  - **A step in a sensitive workspace:** **Allow This Step** or **Decline**.
+- **Result.** Shown when the checks passed or the task needs review.
+  - **Review Changes** shows a file-by-file diff (`DiffView.tsx`) with **Copy Diff**.
+  - Then a branch title and **Keep as Branch**, **Discard…** (which confirms first) and **Export Patch…**, which saves a file `git apply` takes.
+  - Once the result is kept or discarded, the page says so.
+- **Attempts.** One row per attempt, each showing:
+  - the step, tier and billing,
+  - its cost: Pygg's ledger, the agent's own estimate, or unknown, with the cap,
+  - its checks,
+  - disclosures for what it was told about earlier attempts, the check output and the agent output.
+  
+  Below the rows: the cost so far, and why a cost is unknown.
+- **Task.** The steps, the approved checks, and the commit and folder the task started from.
+- **Actions:** **Stop Task** while it runs, and **Retry** for an interrupted task.
 
 #### 5.2.1 New Task
 
-**Goal:** describe the work within the workspace's boundaries. **Primary action:** **Analyze Task**.
+`NewTaskView.tsx`.
 
-```text
-| New Task · smarttaskrouter                                                   |
-+------------------------------------------------------------------------------+
-| Task                                                                         |
-| +--------------------------------------------------------------------------+ |
-| | Fix timeout handling and add regression tests.                           | |
-| |                                                                          | |
-| +--------------------------------------------------------------------------+ |
-|                                                                              |
-| Strategy      [Free First ▾]                                                 |
-|                                                                              |
-| From Workspace                                    [Workspace Settings…]     |
-| ┌──────────────────────────────────────────────────────────────────────────┐ |
-| │ Path        C:\code\my-project     · Git · worktree isolation ready     │ |
-| │ Privacy     Sensitive · providers with unknown data terms excluded       │ |
-| │ Checks      npm run typecheck · npm test                    [Choose…]    │ |
-| │ Permissions Files: workspace · Shell: checks + agent tools · Network:    │ |
-| │             provider requests only                   [Restrict…]         │ |
-| └──────────────────────────────────────────────────────────────────────────┘ |
-|                                                                              |
-| [Analyze Task]                                                 Ctrl+Enter    |
-```
-
-- The workspace comes from the sidebar scope; if the scope is all workspaces, a workspace picker appears first.
-- Privacy, isolation and permissions are inherited from the workspace. A task can **tighten** them (**Restrict…**) or pick among approved checks, but cannot loosen them.
-- Detected checks are suggestions until approved in Workspace Settings. "Detected from package.json; not yet run."
-- **States:** no way to run tasks yet ("Connect a provider and agent, or a supported subscription agent." → **Open Connections**); no workspace ("Add a Workspace"); scanning ("Finding available checks…"); no check ("No deterministic check is selected, so automatic escalation is off." → **Choose Check** or **Review Direct Run**); workspace not isolatable ("This workspace can't be isolated for changes." → read-only planning); analysis needs a paid call (shown with its estimate and approval before any context is sent); analysis error → **Retry Analysis**.
-- **Keyboard:** focus starts in the task field; Enter adds a line; `Ctrl+Enter` analyzes.
-
-#### 5.2.2 Plan
-
-**Goal:** understand and authorize the route. **Primary action:** **Run Task**.
-
-```text
-| Fix timeout handling                                        [Edit Request]  |
-| Plan ready · Bug fix · low complexity · tools required  [Analysis Details]  |
-+------------------------------------------------------------------------------+
-| Proposed Route                                                               |
-| ┌──────────────────────────────────────────────────────────────────────────┐ |
-| │ ▾ Implement Fix and Tests                                                │ |
-| │   OpenCode · Ollama / This Computer · qwen2.5-coder:7b     Local · T0   │ |
-| │   Check   npm run typecheck && npm test                                  │ |
-| │   Cost    API $0 · local operating cost not configured                   │ |
-| │                                                                          │ |
-| │   Why This Model   Lowest eligible tier for this task · supports tools   │ |
-| │   On Check Failure Next eligible T1 model — paid, asks you first         │ |
-| │   [3 Excluded Models ▸]  [Change Model…]                                 │ |
-| └──────────────────────────────────────────────────────────────────────────┘ |
-|                                                                              |
-| Up to 3 attempts · task API limit $1.00                                      |
-| Full estimate unavailable: later attempts depend on check results.           |
-|                                                                              |
-| [Run Task]                                            [Recheck Eligibility]  |
-```
-
-- **One expandable row per stage**, with three always-visible lines (who runs it, the check, the cost). Reasons, exclusions and fallback sit inside the row. Multi-stage plans repeat the same row.
-- **Excluded Models** expands to `Model — reason` lines: "No tool calls", "Context 8k < needed 24k", "Terms unknown (Sensitive workspace)", "Quota exhausted · Provider API · 14:30".
-- **Change Model…** lists eligible candidates only, each with its why line.
-- The copy says "lowest eligible tier", not "cheapest": v1 does not measure total cost.
-- **States:** no eligible candidate (the stage stays visible and blocked, with reasons); estimate unavailable (the reason is given, never $0); **Needs Revalidation** after a catalog, connection or workspace change; model disabled after planning (Run is disabled, with an explanation); privacy denial (shows the deciding rule).
-- Any edit to the task, check, model, strategy or workspace invalidates the affected analysis. Eligibility and budget are checked again when Run is pressed.
-
-#### 5.2.3 Run
-
-**Goal:** follow the work and respond when needed. **Primary action:** **Review Escalation** while waiting; otherwise **Cancel Run** is the main control.
-
-```text
-| Fix timeout handling                                          [Cancel Run]  |
-| Waiting for approval · 4m 02s                                                |
-+------------------------------------------------------------------------------+
-| ⚠ Attempt 1 failed its check. A paid T1 attempt is available.               |
-|                                                        [Review Escalation]  |
-|                                                                              |
-| Attempts                                                                     |
-| ✕ 1  Ollama / This Computer · qwen2.5-coder:7b · Local T0 · 2m 14s          |
-|      npm test: 1 failed · changes discarded                                  |
-| ◌ 2  OpenRouter / Personal · openai/gpt-4.1-mini · Paid T1 · awaiting approval|
-|                                                                              |
-| [Output] [Checks] [Route Decision] [Usage]                                   |
-| ┌──────────────────────────────────────────────────────────────────────────┐ |
-| │ 14:32:04  Regression test failed                                         │ |
-| │           timeout.test.ts: expected rejection after 500 ms               │ |
-| │ 14:32:06  Attempt worktree discarded                                     │ |
-| │ 14:32:06  Escalation requested                                           │ |
-| └──────────────────────────────────────────────────────────────────────────┘ |
-| [Find in Output]                                       Follow Latest: On     |
-|                                                                              |
-| API $0 recorded · local operating cost not configured                        |
-```
-
-- Attempt rows are the signature element at full size. Each attempt's model identity is fixed once it starts.
-- "1 of 3 attempts used" is a limit, not progress. Use activity indicators for generating and checking, and never a fake percentage.
-- **Output:** selectable monospace text with secrets redacted. Auto-follow stops when the user scrolls up, and **Follow Latest** resumes it. New lines never move focus. Screen readers get summarized state changes, not every token.
-- **States:** preparing isolation; queued; generating; checking; waiting for approval; rate-limited (retry time only if the provider gave one); output disconnected ("Live output is unavailable. Checking task status…"); canceling ("Stopping the agent and its tools…", cancel disabled); interrupted (state is reconciled before retry is offered); budget blocked ("The next attempt would exceed the available budget."); no permitted escalation (ends with the check failure and the reasons).
-- **Cancel confirmation:** "Cancel this run? The current attempt's changes will be discarded. Usage already incurred stays in the ledger." → **Keep Running** / **Cancel Run**.
-
-#### 5.2.4 Result
-
-**Goal:** judge the passing result and take it home. **Primary action:** **Keep as Branch**.
-
-```text
-| Fix timeout handling                  [Keep as Branch] [Export Patch…] [...] |
-| Checks passed · 2 attempts · 4m 08s · $0.08 actual                           |
-+------------------------------------------------------------------------------+
-| Changes are isolated. Your working tree has not been touched.                |
-|                                                                              |
-| [Changes] [Checks] [Attempts] [Route Decision] [Usage]                       |
-| ┌───────────────────────┬──────────────────────────────────────────────────┐ |
-| │ Files                 │ src/router.ts                                    │ |
-| │ ▸ src/router.ts  +21-6│ @@ -40,7 +40,9 @@ timeout handling              │ |
-| │   timeout.test.ts +13 │ -  return await operation();                     │ |
-| │                       │ +  return await withTimeout(operation, ms);      │ |
-| │ 2 files · +34 −8      │                                                  │ |
-| └───────────────────────┴──────────────────────────────────────────────────┘ |
-| Checks   typecheck passed · 18 tests passed                                  |
-| Base     7d3e9c1 (main)                                       [Copy]         |
-| Estimate ≈ $0.05–$0.15 · actual $0.08 (incl. $0 for failed attempt 1)        |
-```
-
-- **Keep as Branch** commits the passing result and creates a durable branch `str/fix-timeout-<short-id>` from the base revision. The user's current branch is never switched. Afterwards the screen shows the branch name and copyable commands ("`git switch str/fix-timeout-3f2a`" / "`git merge str/fix-timeout-3f2a`"). Kept branches are exempt from automatic cleanup.
-- **Export Patch…** saves a `.patch` file. **Discard Result…** (in More) removes the unkept result but keeps history and ledger records.
-- The diff is unified by default; side-by-side only when there is room. All text is selectable, and `Ctrl+F` searches the diff.
-- Say **Checks Passed**, never "Correct" or "Safe".
-- **States:** no file changes ("Checks passed, but this attempt made no file changes."); failed or canceled tasks (diagnostics and usage only, no result actions); base moved since the run ("main has moved 3 commits since this run. The branch still starts from 7d3e9c1."); result removed by retention ("The diff was removed under your retention settings. Run details remain."); keep or export failure (the result is kept, with **Try Again**).
-- Later: **Apply to Workspace…** with drift and conflict detection, shown as a separate **Applied** state.
+- **Task:** the description of the work.
+- **Workspace:** a repository chosen from the list, or added with **Add…**.
+- **Steps:** a strategy (Free First, Balanced or Quality) proposes the ladder of agent steps.
+  - Each step has an agent, a model, a tier and a billing, and can be moved up or down or removed.
+  - **Add Step** adds one.
+  - Steps marked paid wait for approval before they run.
+- **Shell commands:** an **Allow** switch. When it is off, agents may read and edit files only. Codex always runs in its own sandbox.
+- **Start Task** creates the task and opens its detail.
+- With no agent installed, the screen says so and points to Agents.
 
 ### 5.3 Workspaces
 
-**Add Workspace…** opens a sheet: choose a folder → detect Git and isolation readiness → detect checks → choose privacy class → **Add Workspace**. A folder without Git can be added for read-only planning only (not built: a workspace must be a Git repository).
+The repositories tasks run in (`WorkspacesView.tsx`). A task from an IDE adds its repository by itself.
 
-**Workspace Settings** is a page opened from the toolbar or the task list, with a back button to the list.
+- **Add Workspace…** takes the folder of a Git repository.
+- **Each workspace** shows:
+  - its folder,
+  - **Privacy**: Standard, or Sensitive, where every step asks before an agent sees the code,
+  - **Paid steps per day here**: a limit on top of the overall one,
+  - **Checks**: detected checks are suggestions until approved. A check can be added by hand, and **Detect** looks again. Approved checks run in order and stop at the first failure.
+  - **Remove**.
+- A badge marks a workspace whose checks are waiting for review. With no approved check, a finished attempt waits for review instead of being confirmed.
 
-```text
-| ‹ Tasks   Workspace Settings · smarttaskrouter                   [Save]     |
-+------------------------------------------------------------------------------+
-| Location                                                                     |
-| ┌──────────────────────────────────────────────────────────────────────────┐ |
-| │ Folder        C:\code\my-project                          [Show]        │ |
-| │ Repository    Git · main · clean                                         │ |
-| │ Isolation     Git worktree per attempt · ready                           │ |
-| └──────────────────────────────────────────────────────────────────────────┘ |
-| Privacy                                                                      |
-| ┌──────────────────────────────────────────────────────────────────────────┐ |
-| │ Privacy class [Sensitive ▾]                                              │ |
-| │               Excludes providers that may train on data or whose terms   │ |
-| │               are unknown.                                               │ |
-| │ Context       Files in this folder only                                  │ |
-| └──────────────────────────────────────────────────────────────────────────┘ |
-| Checks                                                                       |
-| ┌──────────────────────────────────────────────────────────────────────────┐ |
-| │ ☑ npm run typecheck     Detected · package.json                          │ |
-| │ ☑ npm test              Detected · package.json                          │ |
-| │ ☐ npm run lint          Detected · package.json                          │ |
-| │ [Add Check…]                                                             │ |
-| └──────────────────────────────────────────────────────────────────────────┘ |
-| Policy                                                                       |
-| ┌──────────────────────────────────────────────────────────────────────────┐ |
-| │ Effective strategy  Free First (global default)                          │ |
-| │ Overrides           Daily API limit $5.00            [Edit in Policies…] │ |
-| └──────────────────────────────────────────────────────────────────────────┘ |
-|                                                                              |
-| [Remove Workspace…]                                                          |
-```
+### 5.4 Providers
 
-- Uses DownFetch's `SettingsView` group boxes.
-- Changes apply to new plans; existing tasks keep their snapshots; unexecuted plans need revalidation.
-- **Remove Workspace…** explains that it removes the workspace from Pygg only and leaves files and kept branches untouched.
+The connections (`Connections.tsx`). The toolbar's primary action is **Connect Provider…** (§6.2).
 
-### 5.4 Connections
-
-Tabs: **Providers · Models · Agents**. Each tab is a searchable list on top, with the selected item's details in grouped boxes below or beside it (a stacked inspector at narrow widths).
-
-#### Providers
-
-**Primary action:** **Connect Provider…**
-
-```text
-| Connections                                           [Connect Provider…]   |
-+------------------------------------------------------------------------------+
-| [Providers] [Models] [Agents]          [Search Connections…    ] [Refresh]  |
-|                                                                              |
-| Provider / Account          Status            Allowance                      |
-| ▸ OpenRouter / Personal     ● Connected       Unknown                        |
-|   OpenAI / Project API      ⚠ Key rejected    Last known $8.20 · Stale Nov 3 |
-|   Ollama / This Computer    ● Running         Not applicable                 |
-|                                                                              |
-| OpenRouter / Personal                                                        |
-| ┌──────────────────────────────────────────────────────────────────────────┐ |
-| │ Authentication  API key · stored in Windows Credential Manager           │ |
-| │ Models          12 enabled                                               │ |
-| │ Remaining quota Unknown · provider does not report this                  │ |
-| │ Health          Reachable · 420 ms · checked 14:32                       │ |
-| │ Data use        Terms unknown                         [Review Terms…]    │ |
-| └──────────────────────────────────────────────────────────────────────────┘ |
-| [Refresh Metadata] [Reconnect…] [...]                                        |
-```
-
-- "Connected" means the credentials and connection worked; it does not mean every model is eligible.
-- Errors are distinguished: **Key rejected**, **Provider unreachable**, **Local runtime not running**, **Quota exhausted**, **Rate-limited**, **Disabled**.
-- More menu: **Rotate Credentials…**, **Disable Connection**, **Remove Connection…** (explains the effect on running tasks). A test that sends an inference asks for consent and shows the possible cost.
-
-#### Models
-
-**Primary action:** review a model.
-
-```text
-| [Providers] [Models] [Agents]   [Search Model IDs…  ] [Provider ▾] [Billing ▾] [Filters ▾] |
-|                                                                              |
-| Model                       Account                Billing  Tier  Status    |
-| ▸ qwen2.5-coder:7b          Ollama / This Computer Local    T0    Available |
-|   openai/gpt-4.1-mini       OpenRouter / Personal  Paid     T1    Available |
-|   custom-code-model         Custom / Lab           Unknown  —     Missing capability data |
-|                                                                              |
-| qwen2.5-coder:7b · Ollama / This Computer                                   |
-| ┌──────────────────────────────────────────────────────────────────────────┐ |
-| │ Tool calls    Verified by adapter test · Nov 10                          │ |
-| │ Context       32k configured · provider maximum not verified             │ |
-| │ API price     Not applicable                                             │ |
-| │ Tier          T0 · curated table v1                  [Override Tier…]    │ |
-| │ Reliability   Not measured yet                                           │ |
-| └──────────────────────────────────────────────────────────────────────────┘ |
-| [Test Model…] [Disable Model] [...]                                          |
-```
-
-- A new sortable **table** component (DownFetch has none); follow the HIG guidance on lists and tables.
-- Billing and provider filters are always shown; the rest sit in a **Filters** popover.
-- A model is never labeled "Eligible" globally, because eligibility depends on the task. Unknown capability is shown as **Unknown** and fails the matching hard requirement.
-- Reliability appears only once measured, with the sample size.
-
-#### Agents
-
-**Primary action:** **Add Agent…** In Phase 1 this shows the single supported agent.
-
-```text
-| Agent        Authentication         Status                                   |
-| ▸ OpenCode   Gateway-routed         ● Ready                                  |
-|   Codex      Native subscription    ⚠ Needs sign-in                         |
-|                                                                              |
-| OpenCode                                                                     |
-| ┌──────────────────────────────────────────────────────────────────────────┐ |
-| │ Executable        C:\Tools\opencode.exe              [Choose…]           │ |
-| │ Version           detected · checked 14:32                               │ |
-| │ Gateway URL       supported                                              │ |
-| │ Formats           verified combinations only                             │ |
-| │ Usage visibility  Reported by gateway                                    │ |
-| │ Budget limits     Enforced by gateway                                    │ |
-| └──────────────────────────────────────────────────────────────────────────┘ |
-```
-
-For a native subscription agent the box reads: *Usage visibility: limited to what the agent reports. Remaining allowance: unknown. Gateway API limits don't apply.* Sign-in happens in the agent's own flow; the app never asks for subscription credentials in a form.
+- **List.** Each row shows:
+  - the provider logo, the label and its `id/…` prefix,
+  - the preset, billing and model count, and how many models are eligible for auto,
+  - the last 24 hours as one dot per hour, with a health score,
+  - a state badge and an on/off switch.
+- **Above the list:** **Check All** checks every enabled API connection. With more than three connections there is also a search and a filter (all, needs attention, local, Anthropic API).
+- **Auto readiness line.** Under the list: how many models `auto` may choose for a coding tool's request, and how many miss a fact, are unavailable now, or are outside the rules. Each count opens the connection that has most of them, with its models filtered.
+- **Detail** of the selected connection:
+  - **Authentication,** with **Add Key…** or **Replace Key…**.
+  - **Health:** the dot strip, the last check and **Check Now** (or **Check Sign-In** for a web session), and current cooldowns and blocks.
+  - **Key ring:** keys from other accounts, used in turn.
+  - Rate limits as the provider last stated them, the account balance where the provider reports one, and billing.
+  - **Advanced:** endpoint, API format, independent quota (which confirms first), pool, data-use terms and model names.
+  - **Check & Refresh Models** and **Remove Connection…**.
+- **Models.**
+  - Search and a filter: all, enabled, free, paid or unknown with no price, and the auto groups.
+  - **Add Model…** adds a model by name.
+  - A fixed-column table of Model, Price per 1M tokens, Enabled, and actions.
+  - Each model line shows its billing, its auto facts, and whether auto would choose it (or why not). Once measured, it also shows its answer rate and median latency over 30 days, with the sample size.
+  - **Test** is Test Model (§6.2). **Edit Price…** (or **Set Price…**), **Auto Routing Facts…** and **Remove Model** are in a More menu.
+- **Empty state:** No Connections Yet, with **Connect Provider…**. After the first connection, a note offers **Open CLI Tools**.
 
 ### 5.5 Policies
 
-**Goal:** set routing and spending boundaries. **Primary action:** **Save Policy**.
-
-```text
-| Policies                                            [Revert] [Save Policy]  |
-+------------------------------------------------------------------------------+
-| Scope [Global Defaults ▾]          Strategy [Free First ▾]                   |
-| [Routing] [Limits & Approvals] [Privacy] [Advanced]                          |
-|                                                                              |
-| Limits & Approvals                                                           |
-| ┌──────────────────────────────────────────────────────────────────────────┐ |
-| │ Task API limit                                         [$1.00   ]        │ |
-| │ Daily API limit                                        [$10.00  ]        │ |
-| │ Monthly API limit                                      [$100.00 ]        │ |
-| │ Paid escalation                                [Ask Every Time ▾]        │ |
-| │ Unknown price                                          [Block ▾]         │ |
-| │ Subscription allowance unknown               [Ask Before Using ▾]        │ |
-| └──────────────────────────────────────────────────────────────────────────┘ |
-| Limits reset at midnight, local time.                                        |
-|                                                                              |
-| Effective Policy                                                             |
-| Sensitive workspaces exclude providers with unknown data terms.              |
-| Applies to new tasks; running tasks keep their snapshot.      [Try a Task…]  |
-```
-
-- **Routing:** starting tier per category, maximum tier, attempts per tier, latency target. **Privacy:** privacy classes and the providers each excludes. **Advanced:** the tier table, minimum-tier rules, and allow lists.
-- Each value can show where it comes from (**Inherited from Global Defaults** or **Workspace Override**), with **Use Inherited Value** to remove an override.
-- Explicit save and revert, as in DownFetch's `RulesEditor`. Leaving with unsaved edits offers **Keep Editing** / **Discard Changes** / **Save Policy**.
-- **Try a Task…** is a dry run against the draft policy. It runs no inference and no tools; an optional classifier call is disclosed separately.
-- **States:** defaults only (**Customize Policy**); invalid value or fallback cycle (error next to the field, Save disabled); conflict (shows the deciding rule and its scope); changed elsewhere ("This policy changed elsewhere." → **Review Changes**).
+Replaced. Policies is a gateway screen now, described in §2.2.
 
 ### 5.6 Usage
 
-**Goal:** reconcile recorded usage and find expensive or uncertain work. **Primary action:** inspect a ledger row.
+What went through the gateway (`Usage.tsx`).
 
-```text
-| Usage                                   [This Month ▾] [All Workspaces ▾]    |
-+------------------------------------------------------------------------------+
-| API Costs                                                                    |
-| $12.48 actual · $1.20 estimated · 7 calls with unknown cost                  |
-| Unknown costs are not included in totals.                                    |
-|                                                                              |
-| Budget   $13.68 recorded + $0.60 reserved / $100 this month  [Edit Limit…]   |
-|                                                                              |
-| [API Ledger] [Subscriptions] [Local Runtime]                                 |
-| [Provider ▾] [Cost Status ▾] [Task ▾]                       [Export Ledger…] |
-|                                                                              |
-| Time   Task / Client       Provider / Account     Cost      Status           |
-| 14:34  Fix timeout         OpenRouter / Personal  $0.08     Actual           |
-| 14:12  Rename config       OpenAI / Project API   $0.02     Actual           |
-| 13:48  Update README       Codex (native)         Unknown   Not reported     |
-| 13:20  client: editor      OpenRouter / Personal  $0.01     Estimated        |
-|                                                                              |
-| Includes failed and canceled attempts that were billed.                      |
-```
+- **Top bar:** API Costs, Subscriptions or Local Runtime; the period (24 Hours, 7 Days or 30 Days); and **Export CSV…**.
+- **API Costs** opens with the usage alerts, then a choice of two views.
+- **Summary view:**
+  - Estimated Savings (§2.2, Home).
+  - The total: known cost, made of actual and estimated amounts, and how many requests had an unknown cost (not in the total).
+  - A chart of cost, requests or tokens per hour or per day. A period with unknown costs carries a marker. A **Comparison** metric shows the savings estimate over time.
+  - Token Mix: new, cached, cache-written and generated tokens, as tokens or as cost.
+  - Routing: whether requests stayed on one model.
+  - The comparison taken apart by client and by how the model was asked for.
+  - Repeated tool output (measured only).
+  - By Model and By Client tables, and Task Results.
+  
+  A row of any of these tables opens Requests, filtered to that row.
+- **Requests view:**
+  - Filters for client, model, and all, fallbacks and failures, or unknown cost.
+  - The ledger columns are time, client, model, tokens in → out, cost, source, time taken and result. **Show more** goes further back.
+  - Opening a row shows the model asked for and the one that answered, the cost source, how the route was chosen and why, the key, the prompt cache, the attempts of the request and the routing session.
+- **Subscriptions:** requests and tokens for each subscription connection, and the limits as the provider last stated them, or Unknown. No request has a price here.
+- **Local Runtime:** requests and tokens for each local connection, at an API cost of $0.
+- **Empty state:** "No gateway requests in this period", with **Open CLI Tools**.
 
-- Gateway-only traffic shows the client name, not a task outcome.
-- **Subscriptions** tab: each plan window with known usage, source and reset time, or **Unknown**. **Local Runtime** tab: runtime and resource use; optional operating cost kept separate.
-- **Edit Limit…** opens Policies with the right scope selected.
-- **States:** "No Usage Recorded Yet — Run a task or connect a client to the gateway."; reconciliation pending; late provider corrections; limited native-agent reporting (coverage explained).
-- Later: cost per success, defined as cohort cost (including failed attempts) divided by tasks with checks passed, shown with sample size and unknown-cost coverage. No savings charts.
+### 5.7 Endpoint
 
-### 5.7 Endpoints
+Where tools send their requests, and the keys they use (`Endpoint.tsx`, `Clients.tsx`).
 
-**Goal:** connect an external client with clear semantics and limited access. **Primary action:** **Create Client Token…**
-
-```text
-| Endpoints                                            [Create Client Token…] |
-+------------------------------------------------------------------------------+
-| ● Gateway Running · 127.0.0.1:4318 · loopback only           [Configure…]    |
-|                                                                              |
-| Client Setup                                                                 |
-| Mode [Pass-through ▾]   Format [OpenAI-compatible ▾]   Client [SDK ▾]        |
-| Base URL  http://127.0.0.1:4318/v1                                 [Copy]    |
-| ┌──────────────────────────────────────────────────────────────────────────┐ |
-| │ base_url = "http://127.0.0.1:4318/v1"                                    │ |
-| │ api_key  = os.environ["SMARTROUTER_TOKEN"]                               │ |
-| └──────────────────────────────────────────────────────────────────────────┘ |
-| Pass-through uses the model you request. No checks or cascade.              |
-|                                                                              |
-| Client Tokens                                                                |
-| Name          Scope            Last Used    Budget                           |
-| Local editor  Inference only   14:31        $2/day                           |
-| Test script   Inference only   Never        $1/day                           |
-| [Rotate Token…] [Revoke…]                                                    |
-```
-
-- Modes: **Pass-through** (requested model, no checks); **Policy Alias** (model fixed for a conversation, permitted pre-stream fallback recorded); **Task API** (later). Only supported modes are selectable.
-- A new token is shown once; existing tokens stay masked and are never copied automatically. Snippets use environment-variable placeholders.
-- Binding and port settings live here (**Configure…**). Turning on non-loopback binding requires an explicit explanation and confirmation.
-- **States:** gateway stopped (**Start Gateway**); port in use (**Choose Port…**); no tokens; unsupported client/format combination.
+- **Gateway card,** as on Home, with Copy OpenAI URL and Copy Anthropic URL.
+- **Base URLs** to copy:
+  - the OpenAI-compatible `<base>/v1` (Chat Completions and Responses),
+  - Anthropic at the root,
+  - the model `auto`.
+  
+  A Pygg API key is sent as the bearer token or `x-api-key`.
+- **API Keys:** Pygg's own keys, one per app.
+  - The table shows each key's name, the token (Show reads it back from the Credential Manager), last used, and this month's spend, with **Limits…** and **Revoke…**. A revoked key can be deleted.
+  - **Create API Key…** asks for a name, an optional monthly limit and a policy, then shows the key with **Copy API Key** and how to set it as `SMARTTASKROUTER_TOKEN`.
+  - **Limits…** covers the monthly limit, a strict limit, unknown price, requests at once, behaviour after a server error, the auto minimum tier, whether the key may start tasks, data use, and which connections it may use.
 
 ### 5.8 Settings
 
-**Goal:** control app behavior and local data. Tabs: **General · Privacy & Data · Updates · Diagnostics**. Uses DownFetch's `SettingsView` directly.
+`SettingsView.tsx`. Sections in order:
 
-- **General:** language (System, English, Tiếng Việt), Launch at Sign-in, Keep Running When Window Closes, Notify When Approval Is Needed (with OS permission status and **Open System Settings**). Appearance is a note only: "Follows the system's light, dark and contrast settings."
-- **Privacy & Data:** data folder, retention (logs, result artifacts; ledger is always kept), log redaction, telemetry (off by default, opt-in).
-- **Updates:** version and check for updates (signed updater).
-- **Diagnostics:** export a redacted diagnostics bundle for review before saving; benchmark entry point (Phase 1).
-- Links to Endpoints for gateway settings and to Policies for limits; Settings does not duplicate them.
+- **General:** language (System, English, Tiếng Việt).
+- **Task budgets:** the daily spending limit for paid task steps.
+- **Background** (desktop only): open Pygg at sign-in, keep running in the tray, notify about spending, notify about tasks (§2.5).
+- **Gateway:** a link to Endpoint for the port and start-up.
+- **Appearance:** a note that the app follows the system.
+- **Diagnostics:** **Save Diagnostics…** saves one redacted zip, the same as `pygg-cli diagnostics --out PATH`. What it holds is listed before anything is saved.
+- **Usage History:** how long the ledger and route decisions are kept (30 days, 90 days, 1 year or Forever). A shorter period confirms first, with how many requests would be deleted.
+- **About:** the version, the licence, Source Code, Report an Issue, third-party licences, and where the log and daily backups are kept.
 
 ## 6. Sheets
 
-One sheet at a time, with focus trapped inside, the parent `inert`, and focus returned to the launcher on close. Clicking the backdrop does not close a sheet. Uses DownFetch's `TorrentSheet` / `SetupAssistant` structure.
+A sheet (`Sheet` in `ui.tsx`) is a modal dialog:
+
+- The window behind it is inert.
+- Focus moves into the sheet, Tab stays inside it, and focus returns to where it was when the sheet closes.
+- `Esc` closes it unless it is busy. Clicking the backdrop does not.
+- `ConfirmSheet` asks before a destructive or costly action, and names what will happen.
 
 ### 6.1 Setup Assistant
 
-Four steps: **Choose How Tasks Run** (API/local provider + agent, or a supported subscription agent) → **Connect and Verify** → **Workspace and Checks** → **Limits and First Task**. It ends with **Analyze Sample Task**, never a paid run.
+Replaced by Home's **Get Started** steps (§2.2).
 
-- **Finish Later** leaves a "Setup isn't finished" banner, and setup resumes at the incomplete step.
-- Opening Connect Provider replaces the assistant sheet and then returns to it with state preserved, so sheets are never stacked.
-- Notifications are requested when background approvals are explained. Workspace access is requested when a workspace is chosen. There are no launch-time permission prompts.
+### 6.2 Connect Provider and Test Model
 
-### 6.2 Connect Provider
+**Connect Provider…** opens a sheet with a picker of providers. They are grouped by how to start (Free tier, Trial credits, Paid, On this computer, Custom, and Web session (unofficial)), with search.
 
-```text
-┌────────────────────────────────────────────────┐
-│ Connect Provider                               │
-│                                                │
-│ Provider       [OpenRouter ▾]                  │
-│ Account Label  [Personal                    ]  │
-│ API Key        [••••••••••••••••            ]  │
-│                Stored in Windows Credential    │
-│                Manager.                        │
-│ Data-use terms Unknown   [Review Source…]      │
-│                                                │
-│ Connecting checks the key and reads the model  │
-│ list. Testing a model is a separate step.      │
-│                                                │
-│                  [Cancel] [Connect Provider]   │
-└────────────────────────────────────────────────┘
-```
+Then:
 
-- Local providers show a URL field and no key field.
-- Errors: "This key was rejected. Check the key and its permissions." / "The provider couldn't be reached. Your key hasn't been checked yet."
-- Partial success completes as **Connected · Model list unavailable**; the user is not asked to enter the key again.
-- If verification needs a billable call, that is disclosed first.
+- An API key (stored in the Windows Credential Manager and never shown again), or **Sign In with OpenRouter…** for OpenRouter.
+- Under **Name, endpoint and billing:** the name, which is also the model prefix, the endpoint, and the billing.
+- A local runtime needs no key.
+- Connecting checks the key by reading the model list, and no request is billed. If the model list can't be read, the connection is still saved and the sheet says so ("Account Saved; Models Not Read").
+- A web session first shows its risks, which the user acknowledges for that connection.
+
+**Testing a model is a separate step.** **Test** on a model row (§5.4) sends one short request through the gateway (`gateway/model_test.rs`):
+
+- A paid or unpriced model asks first, saying it may cost a little.
+- The result shows the answer and the time taken, and the request appears in Usage.
 
 ### 6.3 Approve Paid Attempt
 
-```text
-┌──────────────────────────────────────────────────┐
-│ Approve Paid Attempt                             │
-│ Fix timeout handling · attempt 2                 │
-│                                                  │
-│ Why   The local attempt failed the regression    │
-│       test. Its changes were discarded.          │
-│                                                  │
-│ From  Ollama / This Computer · qwen2.5-coder:7b  │
-│       Local · T0                                 │
-│ To    OpenRouter / Personal · openai/gpt-4.1-mini│
-│       Paid · T1 · terms: no training             │
-│                                                  │
-│ Estimated cost        ≈ $0.04–$0.12              │
-│ Spending cap          [$0.20]                    │
-│ Task spent so far     $0                         │
-│ Task API limit        $1.00                      │
-│ Sends   selected files + short failure summary   │
-│         [View What Is Sent]                      │
-│                                                  │
-│ [Not Now]  [Stop Task]        [Approve Attempt]  │
-└──────────────────────────────────────────────────┘
-```
-
-- Approval covers this attempt only, up to the cap. An estimate is not a cap; the sheet explains how the cap is enforced, including any delay in usage reporting.
-- **Not Now** / Esc leaves the task waiting. **Stop Task** denies the attempt and ends the task cleanly, keeping usage and diagnostics.
-- Initial focus goes to the heading. Enter alone never approves. Double clicks cannot start two attempts.
-- **States:** unknown token estimate with a known price (an explicit cap is required); unknown price (blocked by the default policy); budget changed while open ("The available budget changed. Review the new limit."); candidate unavailable (Approve disabled, back to the plan); approval invalidated by a policy or catalog change (never reused); already resolved (shows the outcome and **Close**).
+Replaced. A paid step is approved inline in task detail (§5.2).
 
 ## 7. Components
 
-| From DownFetch | Used for |
-| --- | --- |
-| `main.tsx` shell: sidebar, toolbar, banners, inert sheets, shortcuts | The whole shell |
-| `DownloadList` rows, details disclosure, inline confirmation, `Pager` | Task list, attempts, connection lists |
-| `SettingsView` group boxes, rows, switches, pop-up buttons, footnotes | Settings, Workspace Settings, Policies forms, inspectors |
-| `SetupAssistant` | Setup Assistant |
-| `TorrentSheet` | Connect Provider, Approve Paid Attempt, Add Workspace |
-| `SecurityView` factual wording | Isolation, checks, terms, enforcement |
-| `RulesEditor` save/revert/preview | Policies |
-| `RuntimeStatus`, `AppVersion` | Sidebar footer |
-| `lib/i18n.ts`, `locales/vi` | All text |
+Shared controls in `components/ui.tsx`:
 
-New components: **attempt sequence** (chips and full rows), **sortable table**, **tabs**, **popover** (budget, gateway, filters), **output pane** (follow/pause, search, redaction markers), **diff viewer** (file list + unified diff), **code snippet with copy**.
+- `Sheet` and `ConfirmSheet`
+- `Switch`
+- `Segmented`: a radio group with one Tab stop, where the arrow keys and Home/End move the choice
+- `MenuButton`
+- `CopyButton` and `CodeBlock`
+- `Badge`
+- `FormRow`
+- `Empty`
+- `ErrorNote`
+- `Spinner` and `SkeletonRows`
 
-Do not copy DownFetch's blank `Suspense` fallbacks for important screens, and never turn a failed fetch into an empty state. Essential actions are never hover-only; IDs, paths, output and ledger values stay selectable.
+Screen-specific pieces:
 
-## 8. Phase 1 scope
+- the attempt sequence (`AttemptSequence.tsx`)
+- the diff viewer (`DiffView.tsx`)
+- the command palette (`CommandPalette.tsx`)
+- the health dots (`Connections.tsx`)
+- the cost chart (`CostOverTime.tsx`)
 
-| Area | Phase 1 | Later |
-| --- | --- | --- |
-| Shell | Six destinations, sidebar filters, workspaces group, tray, banners, approvals visible everywhere, keyboard-complete | Customizable toolbar |
-| Tasks | Single-stage New Task → Plan → Run → Result; exclusions; checks; escalation; cancel; **Keep as Branch**, Export Patch, Discard; search and filters | Multi-stage editing, Apply to Workspace, run comparison |
-| Workspaces | Add (Git only for changes), settings, checks, privacy class | Non-Git snapshot isolation |
-| Connections | Providers, models, one supported agent with enforcement disclosure | Several agents, model comparison |
-| Policies | Strategy, tiers, attempts, limits, paid approval, unknown-price rule, try-a-task dry run | Full hierarchy editor, conflict explorer |
-| Usage | Ledger with actual/estimated/unknown, failed/canceled costs, subscription and local tabs, reservations | Cost per success, latency, anomalies |
-| Endpoints | Pass-through and policy alias for verified formats, tokens, binding | Task API, more translations |
-| Settings | Language, tray/startup, notifications, retention, redaction, telemetry opt-in, diagnostics | Backup and portability |
-| Recovery | Restart reconciliation, durable approvals, interrupted state, kept results | Smarter resume |
-| Accessibility | Focus management, screen-reader status, contrast, zoom/reflow, reduced motion | Full audit with the `apple-design` skill |
+Rules:
 
-## 9. Next step
-
-Build these screens in `apps/desktop` with mock data, following DownFetch's `desktop-mock` approach, so they can be reviewed in the real window rather than as static drawings. Review each screen with the `apple-design` skill, then replace the old SVG wireframes.
-
-## 10. Proposed consumer Auto Chat and Memory & Context (not yet agreed or built)
-
-> **Dropped 2026-11-11 (ADR-028):** the app hosts no chat of its own. This section is kept for reference only.
-
-~~The six-destination, list-first developer task UI remains the current implemented design. A consumer-first Auto Chat flow is an additional product direction.~~ Superseded: the app is gateway-first (see the status note at the top), and Auto Chat is withdrawn (ADR-028).
-
-**Auto Chat:** chat history/sidebar, message composer with attachments, an `Auto` strategy default; no per-turn model selection. A quiet expandable "Why this model?" inspector shows provider, routed model, usage, rationale, cache and optional switch history. Only privacy, cost-over-limit and sensitive tool actions interrupt normal chat.
-
-**Memory & Context (Settings):** scope selector (account/workspace/conversation), list of remembered facts with source and validity, edit/delete/disable controls, conversation context usage, compaction snapshots, cross-provider disclosure, export and privacy options. Deleted memory cannot be included in newly built context packages.
-
-**Handoff transparency:** after a provider switch, an inspector can show exactly which recent messages, summaries, approved facts and tool checkpoints were included; unsupported provider payloads are rejected rather than silently omitted.
-
-**Source:** [Universal Shared Memory proposal](../archive/UNIVERSAL_SHARED_MEMORY.md). No UI is implemented by this documentation update; current SVG previews predate the updated UX.
-
-## 11. Planned CLI / IDE Integrations and provider tier UI
-
-The design for developer mode adds **Connections → Integrations** with tabs for Terminal CLIs and IDEs/extensions, client status, setup walkthrough, generated scoped gateway token, exact local endpoint, model alias/route, connection test and approved config backup/restore. Candidate clients include Claude Code, Codex, OpenCode, Aider, Cline/Roo and Continue; actual compatibility must be verified by version and supported format. An unknown client can use manual OpenAI/Anthropic-compatible templates when appropriate.
-
-The existing Connections → Providers tab adds filters **All · Free · Subscription · API · Local · Unknown**, showing source/date/limit for each account-model entitlement, independent of key/OAuth/CLI auth methods. One provider can legitimately appear in more than one tier. No unsupported quota estimates or promised free access.
-
-Settings / Endpoints gain CLI health, gateway port/token controls, setup commands and npm/npx onboarding documentation. The package name and distribution are not yet verified or released.
-
-See [full spec](../archive/CLI_IDE_NPM_PROVIDER_TIERS.md). These are designs and do not change the implemented navigation until reviewed.
-
-## 12. Planned Account Pools & Rotation controls
-
-Connections gains **Accounts** with an aggregated view filtered by Free / Subscription / API Paid / Local / Unknown; each account shows source-proven quota, expiration/reset, health/cooldown and model entitlements. Policies gains **Account Selection & Failover**: Fill First, Round Robin, Sticky Round Robin, Cost Aware, pinning, per-client allowlist, maximum fallbacks and safe pre-stream retry.
-
-The **Pool Editor** lists explicitly authorized accounts and models, priority/weight, quota group, budget and privacy requirements. A **Simulation** panel explains how a new session and a continuing conversation choose different accounts and why excluded accounts are not selected. Usage supports per-account metrics and switches; Active Sessions shows account affinity and allows releasing it at the next safe boundary.
-
-**Reference:** [Account/API Rotation design](../archive/ACCOUNT_API_ROTATION.md). This is a planned screen, not currently built. Do not use fake account quotas as live data.
-
-## 13. Approved OmniRoute-inspired feature surfacing (planned)
-
-**Consumer Auto Chat** (withdrawn, ADR-028): preserve Auto as the default; user can optionally pick Save More, Balanced or Quality. Do not show 20 routing strategies, ask a model-selection question each turn, or imply estimated savings are actual.
-
-**Connections > Free Intelligence:** model and account entitlements, free vs promotional quotas, pooled limit/reset, terms, source and freshness; show potentially free catalog separately from personally usable free entitlement.
-
-**Policies > Advanced routing:** Auto aliases, account pool settings, privacy/budget hard filters and clear route reasons. In developer mode, expose Health/Circuit Breaker and pre-stream fallback status.
-
-**Usage > Optimization:** actual input/output/cache tokens, compression shadow-mode measurement, cache switches and true total cost per accepted result. Show an explicit `Unknown` for unmeasured costs.
-
-**Compression controls:** Off, Safe (conservative exact dedup), and Experimental (only after opt-in), with a before/after preview and protected spans. Never silently compress code/tool schemas or active tool calls.
-
-These are design decisions and not implemented screens. Full criteria: [OmniRoute feature research](../archive/OMNIROUTE_FEATURE_RESEARCH.md).
+- A failed load is never turned into an empty state. It shows the error and a way to try again.
+- Essential actions are never hover-only.
+- Ids, paths, commands, output and ledger values stay selectable.
+- Every string goes through `t()` (`lib/i18n.ts`), with Vietnamese in `locales/vi`.

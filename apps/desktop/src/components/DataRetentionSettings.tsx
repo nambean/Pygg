@@ -8,7 +8,7 @@ import { ConfirmSheet, ErrorNote, Spinner } from './ui';
 const CHOICES: RetentionDays[] = [30, 90, 365, null];
 const choiceLabel = (days: RetentionDays) => days === null ? t('Forever') : days === 365 ? t('1 year') : t('{n} days', {n: days});
 
-/** Settings → Usage History (docs/archive/SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md §2.7): how long the ledger and route decisions are kept.
+/** Settings → Usage History: how long the ledger and route decisions are kept.
  * Forever by default. A shorter period asks first, with how many requests would go now (retention.rs). */
 export function DataRetentionSettings() {
   const retention = useGateway(api => api.retention());

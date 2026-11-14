@@ -1,8 +1,10 @@
 # Benchmark
 
-> **Status:** Current · the benchmark harness and its cases · reviewed 2026-11-11 · order: [ROADMAP](../docs/ROADMAP.md) · built: [Implementation Status](../docs/IMPLEMENTATION-STATUS.md)
+> **Status:** Current · the benchmark harness, its cases and how to run it · reviewed 2026-11-14
 
-Tests the product's core idea (ADR-013): does a cascade that climbs model tiers on check failure reach a comparable pass rate at a lower cost per success than always using one model? It also compares the baselines in [ROADMAP](../docs/ROADMAP.md) "P0 release proof": a pinned premium model, a pinned inexpensive capable one, a static combo and Auto. Paid traffic is capped at **$5 in total** (ADR-028). Results, each approved for publication by the owner: [the first pass](reports/2026-11-11-c3-first-pass.md) (every arm but Qwen passed every case, so a harder suite was next); [N2](reports/2026-11-12-n2-savings.md) (12 harder cases: Haiku 5.5 instead of Sonnet 5.5 cost 88% less per solved task); [P0](reports/2026-11-12-p0-optimization.md) (`auto/cheap` 89% less than pinned Sonnet with OpenCode, Claude Code with Haiku 79% less than with Sonnet); [web sessions](reports/2026-11-13-web-sessions.md) (five AI websites as providers: 47 of 48 short tasks, about 18 s each); [a real repository](reports/2026-11-13-ccht-real-repository.md) (six tasks cut from a private production monorepo: Claude Code with Haiku 6 of 6 for $1.50, Sonnet 4 of 5 for $1.19, OpenCode with `auto/cheap` 2 of 6); [web sessions on coding tasks](reports/2026-11-13-web-coding.md) (the 12 `hard-*` cases in one reply each: ChatGPT 17 and 21 of 24, DeepSeek 17, Haiku's API 16 the same way; Muse, Grok and Perplexity mostly timed out).
+The harness runs real coding agents on fixed tasks and judges each attempt only by checks the agent cannot edit. It measures pass rate and cost per solved task for each arm: a pinned model, a combo, `auto`, or a cascade that climbs model tiers when a check fails (ADR-013). Paid traffic for all benchmark runs together is capped at **$20 in total** (ADR-028).
+
+The published results, with what each one does not claim, are summarised in [docs/BENCHMARKS.md](../docs/BENCHMARKS.md). Each run has a report in [reports/](reports) with its method, cost and raw results.
 
 ## Layout
 
@@ -10,8 +12,9 @@ Tests the product's core idea (ADR-013): does a cascade that climbs model tiers 
 benchmark/
   cases/<id>/case.json    task definition
   cases/<id>/repo/        fixture files; the harness turns them into a fresh Git repository per run
-  runs/                   raw results, one JSON line per case and run (git-ignored)
-  reports/                written-up results (committed)
+  runs/                   raw output of local runs, one JSON line per case and run (git-ignored)
+  results/<run>/          raw results of published runs, with SHA256SUMS (committed)
+  reports/                one written-up report per published run (committed)
 ```
 
 `case.json`:
@@ -34,7 +37,7 @@ benchmark/
 - The fixtures need only Node.js.
 - Each case was checked when written: its fixture as given fails, and with a reference solution (not in the repository, so no agent can read it) it passes.
 
-There are 36 cases: 8 bug fixes, 21 features, 3 refactors, 2 test-writing cases and 2 docs cases; 7 low, 17 medium and 12 high complexity. The 12 whose id starts with `hard-` were added for ROADMAP N2 after every arm passed every one of the first 24 ([first pass](reports/2026-11-11-c3-first-pass.md)): each asks for a module written against a specification with many edge cases (passing solutions added 56–211 lines), a concurrency or off-by-one fix, or a fix or refactor spread over three files.
+There are 36 cases: 8 bug fixes, 21 features, 3 refactors, 2 test-writing cases and 2 docs cases; 7 low, 17 medium and 12 high complexity. The 12 whose id starts with `hard-` each ask for a module written against a specification with many edge cases, a concurrency or off-by-one fix, or a fix or refactor spread over three files.
 
 ## Running
 
@@ -53,22 +56,16 @@ cargo run --release --bin bench -- `
 - `--mode single` runs each rung alone (the baselines), `--mode cascade` climbs the rungs in tier order, and `--mode all` does both. The tier only orders the rungs.
 - `--budget-usd` is a hard cap on the run's estimated spend: no attempt starts once it is reached, and the run stops after an attempt whose money cost is unknown.
 - `--only <id>` runs one case; `--agent-timeout` and `--check-timeout` set limits in seconds.
+- `--repeat N` (up to 10) runs every case N times per arm, for a pass rate rather than a single outcome.
+- `--allow-unknown yes` keeps a run going after an attempt whose cost could not be read (a free model that timed out leaves no usage). Use it only when every paid route goes through a gateway key with a strict limit, which then bounds the spend.
 
 Each attempt runs in its own Git worktree and is discarded afterwards. Checks run even when the agent exits with an error.
 
-### One reply, no tools (`scripts/bench-web-agent.py`)
-
-For a provider that takes no tools, such as a web session (ADR-035), `--agent "python -I scripts/bench-web-agent.py {prompt_file} {model} {workdir}"` sends one request through the running gateway with the task and every fixture file, writes the files that come back, and exits; the checks then run. It reads a Markdown reply and the page-text form a web session returns (file name, language word, the page's Copy and Download buttons, then the code). `PYGG_BENCH_KEY_FILE` names a file holding a Pygg API key. The cost is unknown to the bench, so run with `--allow-unknown yes`. Results: [web sessions on coding tasks](reports/2026-11-13-web-coding.md).
-
-### Through the task engine (`--engine`)
-
-`--engine AGENT` runs each case as a smart task, as the app would, instead of running `--agent`'s command: the fixture becomes a workspace, its checks are approved (protected files first, as `git diff --quiet HEAD -- <files>`), and the rungs become the task's steps for that agent. A failed check hands its output to the next step, so a cascade is the product's own. Each attempt runs with `PYGG_ATTEMPT_ID` set to its id; point the agent's gateway session header at it (`{env:PYGG_ATTEMPT_ID}` in OpenCode's configuration) and `--gateway-db` costs each attempt from the gateway's ledger. The budget is checked between cases: a ladder, once started, runs to its end, so keep the gateway client's limit strict. `--repeat N` (up to 10) runs every case N times per arm, for a pass rate rather than a single outcome. `--allow-unknown yes` keeps a run going after an attempt whose cost could not be read (a free model that timed out leaves no usage); use it only when every paid route goes through a gateway client with a strict limit, which then bounds the spend.
-
 ### Through the gateway
 
-With `--gateway-db`, each attempt runs with its own session key in `PYGG_BENCH_SESSION`. The agent's configuration sends it as `x-smarttaskrouter-session`, and the attempt's cost is what the gateway's ledger recorded for that session, at the gateway's prices: the agent cannot know which model a route chose. Requests on a subscription count as quota, not money. An attempt that sent nothing through the gateway (a model the agent reaches directly) is costed from the agent's own report. Put a spending limit on the gateway client too, and make it strict (Clients → Limits): the gateway then holds each request at the most it could cost, so the limit cannot be passed.
+With `--gateway-db`, each attempt runs with its own session key in `PYGG_BENCH_SESSION`. The agent's configuration sends it as `x-smarttaskrouter-session`, and the attempt's cost is what the gateway's ledger recorded for that session, at the gateway's prices: the agent cannot know which model a route chose. Requests on a subscription count as quota, not money. An attempt that sent nothing through the gateway (a model the agent reaches directly) is costed from the agent's own report. Put a spending limit on the gateway key too, and make it strict (Endpoint → API Keys → Limits): the gateway then holds each request at the most it could cost, so the limit cannot be passed.
 
-OpenCode (1.18.4) through the gateway's Anthropic surface: a provider in the file `OPENCODE_CONFIG` points to.
+OpenCode through the gateway's Anthropic surface: a provider in the file `OPENCODE_CONFIG` points to.
 
 ```json
 {
@@ -77,7 +74,7 @@ OpenCode (1.18.4) through the gateway's Anthropic surface: a provider in the fil
       "npm": "@ai-sdk/anthropic",
       "options": {
         "baseURL": "http://127.0.0.1:<port>/v1",
-        "apiKey": "{file:<file with the client token>}",
+        "apiKey": "{file:<file with the Pygg API key>}",
         "headers": { "x-smarttaskrouter-session": "{env:PYGG_BENCH_SESSION}" }
       },
       "models": {
@@ -97,8 +94,27 @@ opencode run "Do the task described in the attached file. Edit files in this dir
 
 A rung is then `pygg/auto`, `pygg/<combo>` or `pygg/<connection>/<model>`; OpenCode's own models (`opencode/<model>`) go direct. OpenCode sends `cache_control`, so Anthropic's prompt cache works through the gateway.
 
+### Through the task engine (`--engine`)
+
+`--engine AGENT` runs each case as a smart task, as the app would, instead of running `--agent`'s command. The fixture becomes a workspace, its checks are approved (protected files first, as `git diff --quiet HEAD -- <files>`), and the rungs become the task's steps for that agent. A failed check hands its output to the next step, so the cascade is the product's own; `--handoff none|tail|evidence` sets what the next step is told (ADR-030). Each attempt runs with `PYGG_ATTEMPT_ID` set to its id; point the agent's gateway session header at it (`{env:PYGG_ATTEMPT_ID}` in OpenCode's configuration) and `--gateway-db` costs each attempt from the gateway's ledger. The budget is checked between cases: a ladder, once started, runs to its end, so keep the gateway key's limit strict.
+
+### One reply, no tools (`scripts/bench-web-agent.py`)
+
+For a provider that takes no tools, `--agent "python -I scripts/bench-web-agent.py {prompt_file} {model} {workdir}"` sends one request through the running gateway with the task and every fixture file, writes the files that come back, and exits; the checks then run. It reads a Markdown reply and the page-text form a web session returns. `PYGG_BENCH_KEY_FILE` names a file holding a Pygg API key. The cost is unknown to the bench, so run with `--allow-unknown yes`.
+
+**Do not point it at a web-session account you need.** Its prompts are long, and a run of them got an account suspended. Pygg's web guard now refuses prompts over 12,000 characters and caps each account's hour by weight, so most cases are refused on a web session.
+
+## Other scripts
+
+| Script | What it does |
+| --- | --- |
+| `scripts/bench-report.py RESULTS.jsonl […] [--baseline LABEL]` | Summarises `bench` result files into Markdown tables: pass rates with 95% Wilson intervals, money per run and per passed run with bootstrap intervals, median time, and the comparison with a baseline arm |
+| `scripts/handoff-ab.py ARM=RESULTS.jsonl …` | Paired comparison of task-engine handoff arms from `bench --engine` runs |
+| `scripts/bench-web.py --models muse/muse,chatgpt/chatgpt,…` | Short checked tasks through the running gateway's web sessions, at Pygg's pace; `PYGG_BENCH_KEY` holds the Pygg API key. Results in `results.jsonl` and `summary.md` |
+| `cargo test --release --lib gateway::tests::overhead -- --ignored --nocapture` | What the gateway adds to a request, against the fake provider; `PYGG_OVERHEAD_OUT=file.json` saves the figures |
+
 ## Cost
 
 Costs are estimates at list price (the gateway's prices, or the agent's catalog), not provider bills. An agent run through its own sign-in, or an attempt whose cost could not be read, is recorded as `unknown`, never as $0.
 
-**Running against paid models costs money.** The owner's budget for the benchmark is under $5 in total (ADR-028); anything beyond it needs a new decision.
+**Running against paid models costs money.** All benchmark runs together stay under $20 (ADR-028); anything beyond it needs a new decision.

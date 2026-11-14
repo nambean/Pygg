@@ -1,29 +1,28 @@
 # Architecture
 
-> **Status:** Current · how the parts fit together · reviewed 2026-11-13 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+> **Status:** Current · how the parts fit together · reviewed 2026-11-14 · built: [Implementation Status](IMPLEMENTATION-STATUS.md) · why: [DECISIONS](DECISIONS.md)
 
-Pygg is one desktop program: a Rust core inside a Tauri 2 window, with the same core also built as headless command-line programs. Everything runs on the user's machine (ADR-002). This page says where each responsibility lives; what is built and how it was verified is in [Implementation Status](IMPLEMENTATION-STATUS.md), and why it is so in [DECISIONS](DECISIONS.md).
+Pygg is one program: a Rust core inside a Tauri 2 window, with the same core also built as headless console programs. Everything runs on the user's computer (ADR-002). This page says where each responsibility lives.
 
 ## The pieces
 
 ```text
                  IDE agent (Claude Code, Codex, …)          Clients the user already has
-                         │ MCP over stdio                    (Claude Code, OpenCode, SDKs, scripts)
-                         ▼                                              │ HTTP, client token
-               <app> mcp / pygg-mcp ──── task API ──┐                   ▼
+                         │ MCP over stdio                    (Claude Code, Codex, OpenCode, SDKs, scripts)
+                         ▼                                              │ HTTP, Pygg API key
+               <app> mcp / pygg mcp ─── task API ──┐                    ▼
                                        /pygg/v1/*   │      ┌───────────────────────────────┐
   Tauri window (React) ── commands ──► Rust core ◄──┴──────┤ Gateway  127.0.0.1:8741      │
-                                       │                   │ /v1/chat/completions          │
-                                       │                   │ /v1/messages, /v1/responses   │
-                                       │                   │ /v1/models                    │
-                                       │                   └──────────────┬────────────────┘
-                        ┌──────────────┼───────────────┐                  │ provider APIs (keys from
-                        ▼              ▼               ▼                  ▼ the OS credential store)
-                   Task engine    SQLite store    OS credential     OpenAI-compatible and
-                   (tasks.rs)     (db.rs, v30)    store (vault.rs)  Anthropic endpoints, local runtimes,
-                                                                    and web sessions (websession/: a
-                                                                    loopback endpoint → a Pygg window)
-                        │
+  pygg (npm) → pygg-cli ─────────────►    │                │ /v1/chat/completions          │
+                                          │                │ /v1/messages, /v1/responses   │
+                                          │                │ /v1/models, /health           │
+                                          │                └──────────────┬────────────────┘
+                        ┌─────────────────┼──────────────┐                │ provider APIs (keys from
+                        ▼                 ▼              ▼                ▼ the OS credential store)
+                   Task engine       SQLite store    OS credential   OpenAI-compatible and Anthropic
+                   (tasks.rs,        (db.rs, v31)    store           endpoints, local runtimes, and
+                    on hold)                         (vault.rs)      web sessions (websession/: a
+                        │                                            loopback endpoint → a Pygg window)
                         ▼  one Git worktree per attempt (isolation.rs)
                    Agent CLIs with their own sign-in (agents.rs): Claude Code, Codex CLI, Gemini CLI, OpenCode
                         │
@@ -31,49 +30,59 @@ Pygg is one desktop program: a Rust core inside a Tauri 2 window, with the same 
                    Approved checks (checks.rs) decide pass or fail
 ```
 
-- **One crate** (`apps/desktop/src-tauri`, ADR-005). The app is the default binary; `pygg-cli`, `gateway`, `agent`, `bench` and `pygg-mcp` are the same library run headless. `pygg-cli` (`cli/`) is the one console program: `status`, `doctor`, `mcp`, `gateway …`, `agent …`, `setup` (`cli/setup.rs`), `run claude` (`cli/run.rs`), `diagnostics` and `--version`. The npm package `@pygg/cli` (`packages/npm`) is only a Node launcher that runs it as `pygg`. The interface is React 19 and Vite in `apps/desktop/src`, talking to the core only through Tauri commands (`commands.rs`, `lib/native.ts`).
-- **One store**, `store.sqlite3` in the app data folder (`%APPDATA%\app.smarttaskrouter.desktop` on Windows, or `PYGG_DATA_DIR`). Migrations run in one transaction when it opens. Schema: [SCHEMA.md](SCHEMA.md), generated from the migrations. A consistent copy is written to `backups/` at start-up and once a day (the newest three kept, `backup.rs`), and the app's own log, redacted and rotated at 1 MB, is `logs/pygg.log` (`applog.rs`), included in the diagnostics bundle.
-- **One gateway per store**: `gateway::start` takes an OS file lock next to the store, held until every attempt it sent is settled.
+- **One crate** (`apps/desktop/src-tauri`, ADR-005). The app is the default binary. `pygg-cli`, `gateway`, `agent`, `bench` and `pygg-mcp` (`src/bin/`) run the same library without a window. The window is the Cargo feature `app`, so `pygg-cli` also builds with `--no-default-features` for macOS and Linux.
+- **The interface** is React 19 and Vite in `apps/desktop/src`. It talks to the core only through Tauri commands (`commands.rs`, `src/lib/native.ts`).
+- **One store**: `store.sqlite3` in the app data folder (`%APPDATA%\app.smarttaskrouter.desktop` on Windows, `~/Library/Application Support/…` on macOS, `$XDG_DATA_HOME` or `~/.local/share/…` on Linux, or `PYGG_DATA_DIR`). Migrations in `migrations/` run in one transaction when it opens; the schema version is the number of migrations (v31). Reference: [SCHEMA.md](SCHEMA.md).
+- **Secrets** live in the OS credential store (`vault.rs`: Windows Credential Manager, macOS Keychain, Linux Secret Service). The store keeps only a reference. Client tokens are stored hashed.
+- **Backups and logs**: a copy of the store goes to `backups/` at start-up and about once a day, newest three kept (`backup.rs`). The app's log is `logs/pygg.log`, redacted, rotated at 1 MB (`applog.rs`). A store that cannot be opened at start-up is explained, with an offer to restore the latest copy (`startup.rs`).
+- **One gateway per store**: `gateway::start` takes an OS lock on `<store>.gateway-lock` and holds it until every attempt it sent is settled.
 
 ## A request through the gateway (`gateway/`)
 
-1. **Authenticate** the client token (`Authorization: Bearer` or `x-api-key`); only loopback `Host` names are served.
-2. **Resolve the model name** (`store::resolve`, then `forward()` in `gateway/mod.rs`): `<connection>/<model>`; `<pool>/<model>`, the pool's connections in the user's order (ADR-034), or for a pool of web sessions the account that sent fewest requests today first; a combo; or `auto` / `auto/cheap`, which build a route from the connected models with hard filters first, then rules (`auto.rs`, ADR-006). **A combo has a strategy** (schema v25, `combos.strategy`): `order` keeps its members as listed; `cheapest` has `forward()` re-order them for each request by that request's estimated cost (`cheapest_first`: free, local and subscription members at $0, an unknown price last), with the reason in the route header. The fallback rules are the same for both. An explicit `x-smarttaskrouter-session` pins a session to the target that answered it.
-3. **For each target in turn**: the client's connection list and data-use requirement, the API format, for a web session its own conditions (`websession::routable`: warning acknowledged, no tools, the app running), health and cooldowns, quota-group holds, then **admission**: a client with a limit holds the estimated (or, if strict, the largest possible) cost before anything is sent. The attempt is **journaled** before it is sent.
-4. **Send**: the same format passes through as a native-format passthrough (key order and cache markers kept); Anthropic to OpenAI-compatible is translated (`anthropic.rs`), OpenAI to Anthropic (`openai_to_anthropic.rs`), and the Responses API to Chat Completions or, through it, to Anthropic (`responses.rs`, ADR-033); what is dropped is named in `x-smarttaskrouter-dropped`. A web session is reached as an OpenAI-format provider at the app's loopback endpoint (below).
-5. **On failure**, `policy.rs` decides by error class: try another model, another connection, or stop (a 5xx or an ambiguous timeout stops unless the client allows retries), and what to mark: a key rejected, a model cooling down, a quota group held. Fallback happens only before any byte reached the client.
-6. **Settle**: the ledger entry (tokens, cost with its source: actual, estimated or unknown, never a guessed $0) and the journal removal are one transaction. While a settlement cannot be written, no paid request is admitted.
+1. **Authenticate.** The gateway listens on 127.0.0.1 only and refuses a `Host` that is not a loopback name. Every request needs a Pygg API key (`Authorization: Bearer` or `x-api-key`). A client also has a cap on requests in flight.
+2. **Resolve the model name** (`store::resolve`, then `forward()` in `gateway/mod.rs`):
+   - `<connection>/<model>`: one target.
+   - `<pool>/<model>`: the pool's connections in the user's order (ADR-034). A pool of web sessions puts an account the guard is resting last, then the one that sent fewest requests today.
+   - a **combo**: its members. Strategy `order` keeps them as listed; `cheapest` re-orders them per request by estimated cost (`cheapest_first`: free, local and subscription at $0, unknown price last).
+   - `auto` or `auto/cheap`: a route built from the connected models, hard filters first, then rules (`auto.rs`, `tiers.rs`, ADR-006). Each model left out has a reason; with none left the answer is 422 with the reasons.
+   - A request with `x-smarttaskrouter-session` goes first to the target that last answered that session, while it is still in the route. Sessions are never guessed from the prompt.
+3. **Expand key rings** (`keys.rs`, ADR-038). A connection with several keys becomes one target per key, ordered by its strategy (`in_order`, `round_robin`, `least_used`, `quota_aware`), the key that answered this session first. Web sessions have no ring.
+4. **Check each target in turn.** In order: the client may use the connection (its connection list and data-use requirement); the request's format can reach the connection's API; for a web session, `websession::routable` (warning acknowledged, no tools, the app running) and no other web session already got the prompt; the quota group is not held by a refusal elsewhere; the connection, model and key are not cooling down or blocked. Each skipped target is named with its reason.
+5. **Admission.** A client with a monthly limit holds the estimated cost before anything is sent (with a strict limit, the largest possible cost). A paid target with an unknown price is skipped for such a client. While a ledger settlement waits to be written, no paid request is sent.
+6. **Journal, then send.** The attempt is written to the journal first; if that fails, nothing is sent. Same format passes through natively: the JSON is rewritten with only `model` changed, in the same key order, so cache markers and every other field reach the provider. Other pairs are translated: Anthropic to OpenAI (`anthropic.rs`), OpenAI to Anthropic (`openai_to_anthropic.rs`), and the Responses API to Chat Completions or Anthropic (`responses.rs`, ADR-033). What is dropped is named in `x-smarttaskrouter-dropped`. Gemini's tool-call signatures are kept and put back (`signatures.rs`).
+7. **On failure**, `policy.rs` decides by error class: whether another target may answer, and what to mark. Fallback happens only before any byte reached the client.
+   - An ambiguous failure (dropped connection, read timeout, 408, 504, 524) stops: the provider may have run it.
+   - A 5xx may go on only if the client allows paid retries.
+   - 401, 402, 403 and 429 go on only to other quota groups. With a key ring, a 401 blocks the key and a 402 or 429 cools it; the next key is tried.
+   - Cooldowns follow the provider's `Retry-After`, `retry-after-ms` or Gemini's `RetryInfo`. A rejected key stays blocked until the user replaces it.
+8. **Settle.** The ledger entry (tokens, cost with its source: actual, estimated or unknown, never a guessed $0; the key that answered; the request id, `x-pygg-request-id`) and the journal removal are one transaction (`pricing.rs`, `store.rs`). An attempt left in the journal by a crash becomes an interrupted entry for the next owner of the store.
 
-A background **probe** (`probe.rs`) reads the free model list of an unreachable connection once a minute and lifts the outage when it answers.
+Background work while the gateway runs: `checker.rs` reads each API connection's model list every 30 minutes (free, no prompt); `probe.rs` re-reads an unreachable connection's list about once a minute and lifts the outage when it answers. **Estimated savings** (`savings.rs`) price the answered requests again at one model the user chose, with the same tokens; unknown costs and subscription requests are counted apart, never as $0.
 
-**Estimated savings** (`gateway/savings.rs`, Home and Usage) read the ledger afterwards: the answered requests are priced again at one model the user chose (`savings.baseline`), with the same tokens, and compared with what routing cost, failed attempts with a known cost included. Requests with an unknown cost or no token counts, and subscription requests, are counted apart, never taken as $0.
+## Web sessions (`websession/`, ADR-035)
 
-## A web session (`websession/`, ADR-035)
+A site with no API, used through a window the user signs in to, and served to the gateway as an ordinary OpenAI-format provider. Only the app runs them; `gateway serve` has no window and skips them with the reason.
 
-A site with no API, used through a window the user signs in to, served to the gateway as an ordinary OpenAI-format provider. The app only: `gateway serve` has no window, so these connections are skipped there with the reason.
+- **The service** (`websession/mod.rs`): a Chat Completions endpoint on a random loopback port (`/web/<connection>/v1/chat/completions`), behind a token kept only in memory. Per request it refuses tools, asks the guard, waits its turn (one request at a time per connection), flattens the conversation into one prompt, opens a new chat, types, presses Send and streams the reply. Errors carry Pygg's own wording and a status the policy reads (401 needs the user, 429 busy or limit reached, 503 page changed, 504 timeout).
+- **The guard** (`websession/guard.rs`), always on: each request is weighed by its size; prompts over about 12,000 characters are refused; an account has caps per hour, per 10 minutes and per UTC day; after a reply it rests as long as a person would take to read it; after a sign of trouble (timeout, usage notice, challenge, changed page) it backs off from 5 minutes up to 6 hours. It decides from what is recorded in the store, so it holds across restarts. Some sites have lower limits. The only setting is a site's daily request limit, held under a ceiling.
+- **The window** (`websession/window.rs`): one Tauri webview per connection with its own WebView2 profile, no Tauri capability, hidden while Pygg drives it and closed after 10 minutes unused.
+- **The recipes** (`RECIPES`, one per preset): the site's hosts and selectors. The page scripts fill the prompt, press Send and read the reply; they never read cookies or storage.
+- `auto` never picks a web session; it is used only when named, in a pool or in a combo. Its cost is $0 on a free plan, unknown on a subscription.
 
-- **The service** (`websession/mod.rs`, `Service`, started in `lib.rs`): a Chat Completions endpoint on a random loopback port (`/web/<connection>/v1/chat/completions`), behind a token that lives only in memory. Per request it refuses tools, checks the connection's daily limit (`store::web_requests_today`, schema v26), waits its turn (one request at a time per connection, 10 s after the last reply), flattens the conversation into one prompt, opens a new chat, types, presses Send and streams the reply as it appears. Errors carry Pygg's own wording and the status the gateway's policy reads (401 needs the user, 429 busy, quota or daily limit, 503 page changed, 504 timeout).
-- **The window** (`websession/window.rs`, `AppWindows`): one Tauri webview per connection (label `web-<connection>`) with its own WebView2 profile folder (`websessions/p-<random>`), hidden while Pygg drives it and closed after 10 minutes unused. It has no Tauri capability. While Pygg drives it, it keeps to the recipe's hosts; while the user has it open to sign in, it may go to any https address. A Check Sign-In that finds the session signed in hides it.
-- **The recipes** (`RECIPES` in `websession/mod.rs`, one per preset in `gateway/presets.rs`): the site, its new-chat address, its hosts, the selectors for the prompt box, Send, a reply, "still answering", a sign-in page, a challenge and an approval request. The page scripts built from them (`state_script`, `fill_script`, `send_script`, `read_script`, `deny_script`) read and fill the page only; `fill_script` and `send_script` act only on the site's own host (`site_host`).
-- **The store** (`gateway/store.rs`): `add_web_provider`, `set_web_state`, `set_web_blocked`, `set_web_daily_limit`, `web_requests_today`; web-session pools in `set_pool` and `resolve`.
+## Tools, the command line and npm
 
-## A task (`tasks.rs`, `agents.rs`, `isolation.rs`, `checks.rs`)
+- **One-click set-up** (`integrations.rs`) points Codex's or OpenCode's models at the gateway, or registers the MCP server: back up, make a Pygg API key of its own, write, check, and put the file back if a step fails. **The Claude Code launcher** (`launcher.rs`) keeps its key in the OS credential store and sets the gateway in one launch's environment only. Details: [AGENTS.md](AGENTS.md).
+- **`pygg-cli`** (`cli/`) is the one console program; read commands open the store read-only. The npm package `@pygg/cli` is only a Node launcher that runs the native program from a per-platform optional dependency (ADR-037). Details: [design/CLI.md](design/CLI.md).
 
-1. A task is created from the app or from an IDE agent through MCP and the task API (ADR-027). Its **ladder of steps** (agent, model, tier, billing) and its workspace's **approved checks** are fixed then, with the base commit.
-2. A **paid step waits for approval** with an estimate and a cap (ADR-010); a sensitive workspace asks before every step. There is no API to approve.
-3. Each attempt runs the **agent's own CLI with its own sign-in** (ADR-026) in a fresh worktree of the base commit, with `PYGG_ATTEMPT_ID` set. Pygg never reads that sign-in.
-4. The approved checks run in the worktree. A failure discards it and hands the failed command and the end of its output to the next step. A pass leaves the result for **Keep as Branch**, **Export Patch** or **Discard**.
-5. The agent's reported tokens go to the ledger with an unknown cost (a subscription is not billed per request); its own list-price estimate is kept beside it.
+## Smart tasks (experimental, on hold)
 
-## Setting a tool up (`integrations.rs`, `launcher.rs`, `cli/setup.rs`, `cli/run.rs`)
-
-- **One-click set-up** (`integrations.rs`): the MCP server in Claude Code, Codex CLI or OpenCode (Agents), and Codex's or OpenCode's models through the gateway (CLI Tools). Each backs up the tool's configuration, makes a Pygg API key of its own, writes the change and checks it, putting the file back if a step fails; Remove takes Pygg's change out (after another backup) and revokes the key. `pygg setup [<tool>] [--dry-run | --remove]` (`cli/setup.rs`) runs the same code from a terminal.
-- **The Claude Code launcher** (`launcher.rs`): set up in CLI Tools or with `pygg setup claude`, it keeps a Pygg API key in the OS credential store. `pygg run claude` (`cli/run.rs`) reads it, checks the gateway answers, and starts Claude Code with the gateway's address, that key and `auto` in that one process's environment, without `ANTHROPIC_API_KEY` or the host session's variables. Claude Code's own settings are never changed.
+`tasks.rs`, `agents.rs`, `isolation.rs`, `checks.rs`, `handoff.rs`, the task API (`gateway/task_api.rs`) and the MCP server (`mcp.rs`). A task is a ladder of agent steps fixed at creation, run in a fresh Git worktree of the base commit, judged by the workspace's approved checks (ADR-007, ADR-008). A paid step waits for the user's approval in the app; there is no API to approve (ADR-010, ADR-027). Each agent runs its own CLI with its own sign-in (ADR-026). Details: [AGENTS.md](AGENTS.md).
 
 ## Boundaries
 
-- **The gateway never changes an external client's conversation**: no injected memory, no rewritten history, no model switch after output started (ADR-003, ADR-025).
-- **Agents reach the gateway only when the user sets them up.** A task's agent runs with its own sign-in. Pygg points a tool at the gateway only on the user's explicit set-up (Codex's or OpenCode's models, the Claude Code launcher, or the user's own configuration, as the benchmark does with OpenCode); its requests are then metered there and can carry the attempt id as their session.
+- **The gateway never changes a client's conversation**: no injected memory, no rewritten history, no model switch after output started (ADR-003, ADR-025).
+- **Tools reach the gateway only when the user sets them up.** A task's agent runs with its own sign-in unless the user pointed it at the gateway.
+- **Sign-ins are never rotated or bridged.** Key rings and pools hold API keys of separate accounts only (ADR-034, ADR-038).
 - **No chat in the app** (ADR-028): the app monitors, approves and reviews.
 
 ## Where to change what
@@ -82,13 +91,17 @@ A site with no API, used through a window the user signs in to, served to the ga
 | --- | --- |
 | A provider preset | `gateway/presets.rs`, and its source in [PROVIDERS.md](PROVIDERS.md) |
 | How an error is handled | `gateway/policy.rs`, with a fixture in `tests/fixtures/provider-errors` |
+| Key rings | `gateway/keys.rs` |
 | What `auto` may choose | `gateway/auto.rs` (filters, ranking), `gateway/tiers.rs` (starting tiers) |
 | A combo strategy | `gateway/mod.rs` (`forward`, `cheapest_first`), `combos.strategy` in a new migration |
-| A web-session site | `websession/mod.rs` (`RECIPES`), its preset in `gateway/presets.rs`, its hosts in [PROVIDERS.md](PROVIDERS.md#web-session-unofficial) |
+| A translation between formats | `gateway/anthropic.rs`, `gateway/openai_to_anthropic.rs`, `gateway/responses.rs` |
+| A web-session site | `websession/mod.rs` (`RECIPES`), its preset in `gateway/presets.rs`, its hosts in [PROVIDERS.md](PROVIDERS.md#web-sessions-unofficial) |
+| The web guard's limits | `websession/guard.rs` |
 | How a web session's window behaves | `websession/window.rs` |
 | The savings estimate | `gateway/savings.rs` |
 | A tool's one-click set-up | `integrations.rs`, and its name in `cli/setup.rs` |
 | The Claude Code launcher | `launcher.rs`, `cli/run.rs` |
+| A `pygg` command | `cli/mod.rs`, `cli/read.rs`; the npm launcher in `packages/npm/pygg/bin/pygg.js` |
 | A new agent CLI | `agents.rs` (`AgentSpec`, arguments, usage parsing) |
 | The task ladder | `tasks.rs` |
 | The schema | a new numbered file in `migrations/`, then `python scripts/schema-reference.py` |

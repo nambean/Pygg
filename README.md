@@ -9,6 +9,7 @@
 
 <p align="center">
 <a href="https://github.com/nambean/smarttaskrouter/actions/workflows/ci.yml"><img src="https://github.com/nambean/smarttaskrouter/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+<a href="https://www.npmjs.com/package/@pygg/cli"><img src="https://img.shields.io/npm/v/@pygg/cli/dev?label=npm%20%40pygg%2Fcli" alt="npm: @pygg/cli (dev)"></a>
 <img src="https://img.shields.io/badge/licence-MIT-green" alt="Licence: MIT">
 <img src="https://img.shields.io/badge/app-Windows%20x64-blue" alt="Desktop app: Windows x64">
 <img src="https://img.shields.io/badge/CLI-Windows%20%C2%B7%20Linux-blue" alt="CLI: Windows and Linux">
@@ -25,7 +26,7 @@
 Pygg runs on your computer. Connect your providers once (API keys, coding plans, a local Ollama, even an AI website without an API), point Claude Code, Codex, OpenCode, an editor or an SDK at `127.0.0.1:8741`, and choose the model **`auto`**. Each request goes to an eligible model you connected, free and cheap ones first where they qualify, within the limits you set; when a provider says no, the next one answers. Every attempt lands in a ledger with what it cost and where that figure came from.
 
 > [!NOTE]
-> **Developer preview (2026-11-14).** The gateway and the Windows desktop app are built and verified live, from first launch to "my coding tool uses `auto`". Builds are **not code-signed**, so Windows SmartScreen warns about them, and there is no published installer yet: the desktop app is built from source. The `pygg` command line is on npm for Windows and Linux. Spending limits rest on prices and token estimates, so Pygg is **not yet for unattended or financially critical use** ([production readiness](docs/reports/2026-11-14-production-readiness.md)). What is built and how each part was verified: [Implementation Status](docs/IMPLEMENTATION-STATUS.md).
+> **Developer preview (2026-11-14).** The gateway and the Windows desktop app are built and verified live, from first launch to "my coding tool uses `auto`". Builds are **not code-signed**, so Windows SmartScreen warns about them, and there is no published installer yet: the desktop app is built from source. The `pygg` command line is [on npm](https://www.npmjs.com/package/@pygg/cli) for Windows and Linux. Spending limits rest on prices and token estimates, and clean-machine installs and long-running behaviour still need validation, so Pygg is **not yet for unattended or financially critical use**. What is built and how each part was verified: [Implementation Status](docs/IMPLEMENTATION-STATUS.md).
 
 ## Why Pygg
 
@@ -81,7 +82,7 @@ pnpm --filter @smarttaskrouter/desktop tauri:build
 
 The installer is unsigned, so Windows asks before it runs. It installs for the current user and adds `pygg-cli.exe` next to the app.
 
-**Command line (`pygg`), from npm:**
+**Command line (`pygg`), from [npm (`@pygg/cli`)](https://www.npmjs.com/package/@pygg/cli):**
 
 ```bash
 npm install -g @pygg/cli@dev
@@ -146,7 +147,7 @@ Coding agents ──HTTP──► Gateway 127.0.0.1:8741 (axum) ──► OpenAI
 
 - **One Rust crate** (Tauri 2): the gateway (axum), the SQLite store, the OS credential store, web-session windows, and the headless programs (`pygg-cli`, `gateway`, `pygg-mcp`) built from the same library.
 - **Interface:** React 19, Vite and TypeScript, with a layout check over every screen in CI (`pnpm ui-check`).
-- **`@pygg/cli` on npm:** a Node launcher with one optional package per platform (ADR-037).
+- **[`@pygg/cli` on npm](https://www.npmjs.com/package/@pygg/cli):** a Node launcher with one optional package per platform (ADR-037).
 - **Smart tasks** (experimental, on hold): IDE agents hand subtasks to Pygg over MCP; agent CLIs run them in Git worktrees against approved checks ([AGENTS.md](docs/AGENTS.md)).
 
 ## Documentation
@@ -154,8 +155,8 @@ Coding agents ──HTTP──► Gateway 127.0.0.1:8741 (axum) ──► OpenAI
 | | |
 | --- | --- |
 | **Use** | [Getting started](docs/GETTING-STARTED.md) · [Providers](docs/PROVIDERS.md) · [Benchmarks](docs/BENCHMARKS.md) · [Security](docs/SECURITY.md) |
-| **Understand** | [Architecture](docs/ARCHITECTURE.md) · [Decisions (ADR-001 to ADR-038)](docs/DECISIONS.md) · [Schema](docs/SCHEMA.md) · [CLI design](docs/design/CLI.md) |
-| **Track** | [Implementation status](docs/IMPLEMENTATION-STATUS.md) · [Roadmap](docs/ROADMAP.md) · [Reviews](docs/reviews) · [Benchmark reports](benchmark/reports) |
+| **Understand** | [Architecture](docs/ARCHITECTURE.md) · [Decisions (ADR-001 to ADR-038)](docs/DECISIONS.md) · [Schema](docs/SCHEMA.md) · [Screens](docs/design/SCREENS.md) · [Command line](docs/design/CLI.md) |
+| **Track** | [Implementation status](docs/IMPLEMENTATION-STATUS.md) · [Roadmap](docs/ROADMAP.md) · [Benchmark reports](benchmark/reports) |
 | **Contribute** | [Contributing](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [Every document, indexed](docs/README.md) |
 
 The repository and its technical identifiers keep the engineering name SmartTaskRouter. Brand assets are in [branding](branding/README.md).

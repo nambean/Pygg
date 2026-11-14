@@ -1,5 +1,5 @@
 //! What a failed attempt means for the rest of the request and for later ones (ROADMAP P0-2,
-//! docs/archive/ACCOUNT_API_ROTATION.md §5, counter-review CR-01, CR-04, CR-05). Two questions per failure:
+//! ADR-023, ADR-038, counter-review CR-01, CR-04, CR-05). Two questions per failure:
 //!
 //! - **May another target answer this request?** Never after an ambiguous failure, where the provider may
 //!   have run (and billed) the request: a dropped connection, a read timeout, and the HTTP statuses that say
@@ -14,7 +14,7 @@
 //! The HTTP status alone does not say whether a limit is per model, per key or per organization. Where a
 //! provider says more in its error body, that is used (see `ProviderError::from_response`); otherwise the
 //! narrowest cooldown is set on the connection that refused, and the whole quota group is kept off that model
-//! (`store::group_hold`). The full matrix is in docs/reviews/2026-11-11-counter-review-response.md.
+//! (`store::group_hold`). The full matrix is the `decide` match below and its tests.
 
 use axum::http::HeaderMap;
 use serde_json::Value;

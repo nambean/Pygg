@@ -1,34 +1,57 @@
 # Getting started
 
-> **Status:** Current · install Pygg, connect a provider and point a coding tool at it · reviewed 2026-11-13 · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+> **Status:** Current · install Pygg, connect a provider and point a coding tool at it · reviewed 2026-11-14
 
-This page goes from the installer to "my coding tool uses the model `auto`". Everything on it is built and has been run at least once; where a step has only been tested against the fake provider, or not at all, the page says so. The in-app **Guide** repeats these steps with every command ready to copy. The full list of what is verified is in [Implementation Status](IMPLEMENTATION-STATUS.md).
+This page goes from the installer to "my coding tool uses the model `auto`". Where a step has not been verified, the page says so. The in-app **Guide** repeats these steps with every command ready to copy. What is built and how each part was verified is in [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md).
 
 ## What you need
 
-- **Windows 10 or 11, x64** for the desktop app (ADR-001). The `pygg` command line is also published for Linux x64 (`npm install -g @pygg/cli@dev`, ADR-037), where `pygg gateway serve` runs the gateway; the macOS packages wait for CI.
+- **Windows 10 or 11, x64**, for the desktop app (ADR-001).
 - **WebView2.** It is built into Windows 11; Windows 10 may need it from Microsoft.
-- **An account with at least one provider.** Gemini, OpenRouter and Groq have free tiers; Ollama runs on your own computer. The presets and their free tiers are listed in [PROVIDERS.md](PROVIDERS.md).
+- **An account with at least one provider.** Gemini, OpenRouter and Groq have free tiers; Ollama runs on your own computer. [PROVIDERS.md](PROVIDERS.md) lists every preset and its free tier.
 - **A coding tool:** Claude Code, Codex CLI, OpenCode, an editor extension that calls an OpenAI-compatible API, or an SDK.
 
 ## Install
 
-There is no public release yet. The installer is built from source:
+### The desktop app (Windows)
+
+There is no public release yet. Build the installer from source:
 
 ```powershell
 pnpm install
 pnpm --filter @smarttaskrouter/desktop tauri:build
 ```
 
-That gives `Pygg_0.1.0_x64-setup.exe` (NSIS, per user) and `Pygg_0.1.0_x64_en-US.msi` under `apps/desktop/src-tauri/target/release/bundle`. The requirements for building are in the [README](../README.md#development).
+This gives `Pygg_0.1.0_x64-setup.exe` (NSIS, per user) and an MSI under `apps/desktop/src-tauri/target/release/bundle`. The build requirements are in the [README](../README.md).
 
-Run the installer. It is not signed during development, so Windows may ask you to confirm before it runs. It installs for the current user:
+Run the installer. It is not signed, so Windows may ask you to confirm before it runs. It installs for the current user:
 
 - `%LOCALAPPDATA%\Pygg\Pygg.exe`, with a Start-menu shortcut;
 - `pygg-cli.exe` next to it, the command line (see [Command line](#command-line));
 - the headless programs the app uses.
 
-To uninstall, use Settings → Apps in Windows, or `uninstall.exe` in the same folder. The installer has been tried on the development PC (install, uninstall, reinstall) and on the owner's PC; a clean machine is still an open release check (ROADMAP N9).
+To uninstall, use Settings → Apps in Windows, or `uninstall.exe` in the same folder.
+
+Not verified yet: installing on a clean machine.
+
+### The command line only (Windows and Linux)
+
+The `pygg` command line is published on npm as a developer preview, version `0.1.0-dev.1`, for Windows x64 and Linux x64 (ADR-037). The macOS packages are not published yet; they wait for CI.
+
+```bash
+npm install -g @pygg/cli@dev
+pygg --version
+```
+
+On Windows, the command line works with the desktop app, which runs the gateway. On Linux there is no app: connect a provider and run the gateway from the terminal. The key is read from an environment variable, never from the command line.
+
+```bash
+pygg gateway add-connection --preset openrouter --key-env OPENROUTER_API_KEY
+pygg gateway create-client --name my-tool     # prints a Pygg API key once
+pygg gateway serve                            # in a terminal of its own
+```
+
+Not verified yet: a provider answering through `pygg gateway serve` on Linux. The Linux package has been installed from npm and run (`pygg --version`).
 
 ## First run
 
@@ -42,23 +65,22 @@ Model:              auto
 
 Home shows three steps: connect a provider, set up your coding tool, work with `auto`. Nothing is sent to any provider until you connect one and a request comes through.
 
-Pygg keeps its data in `%APPDATA%\app.smarttaskrouter.desktop` (the store, the request ledger and each web session's profile). Provider keys are not in that folder: they are in the Windows Credential Manager. `PYGG_DATA_DIR` points the app at another folder, for trying it without touching your own store.
+Pygg keeps its data in `%APPDATA%\app.smarttaskrouter.desktop`: the store, the request ledger and each web session's profile. Provider keys are not in that folder; they are in the Windows Credential Manager. Set `PYGG_DATA_DIR` to point the app at another folder, for example to try it without touching your own store.
 
 ## Connect a provider
 
-**Providers → Connect Provider.** Choose a provider, paste its API key, and Pygg reads its model list. Nothing is billed for that. The key goes into the Credential Manager and never comes back to the interface.
+**Providers → Connect Provider.** Choose a provider and paste its API key; Pygg reads its model list. Nothing is billed for that. The key goes into the Credential Manager and never comes back to the interface.
 
-Some notes:
-
-- **Free first.** Gemini (AI Studio), OpenRouter (`:free` models) and Groq have free tiers. Free tiers have their own limits, set by the provider; when one is used up, `auto` moves on to the next model.
+- **Free first.** Gemini (AI Studio), OpenRouter (`:free` models) and Groq have free tiers, with limits set by each provider. When one is used up, `auto` moves on to the next model.
 - **Local.** Ollama and five other local runtimes have presets. A local model costs $0 and is counted as such.
-- **Prices and facts.** `auto` needs each model's tier, price, context and tool support. Providers → **Auto…** fills them from the models.dev catalog (also `pygg gateway lookup`). A model with a missing fact is not eligible for `auto` until the fact is set.
-- **Which providers have answered live.** Gemini, Anthropic, OpenRouter, Ollama and Qwen's token plan have. The others are configured from their documentation and have not been tried; [PROVIDERS.md](PROVIDERS.md) says which.
-- **Web sessions** connect an AI website that has no API (Muse, ChatGPT, Perplexity, DeepSeek, Grok) through a window Pygg owns, where you sign in yourself. They are **opt-in and unofficial**, behind an account-risk warning: one site suspended the owner's account for three days after a long benchmark run. Pygg keeps a person's pace (one request at a time, a rest between requests, a daily limit) and never answers a CAPTCHA, but the risk is yours. Details: [PROVIDERS.md](PROVIDERS.md) and ADR-035.
+- **Prices and facts.** `auto` needs each model's tier, price, context size and tool support. Providers → **Auto…** fills them from the models.dev catalog (also `pygg gateway lookup`). A model with a missing fact is not eligible for `auto` until the fact is set.
+- **More than one account.** A connection can hold API keys of several accounts, used in turn when one is rate-limited, out of credit or rejected (Providers → a connection → API keys, ADR-038). Add only keys of separate accounts.
+- **Which providers have answered live.** Gemini, Anthropic, OpenRouter, Ollama and Qwen's token plan. The others are configured from their documentation and have not answered a real request yet; [PROVIDERS.md](PROVIDERS.md) says which.
+- **Web sessions** connect an AI website that has no API (Muse, ChatGPT, Perplexity, DeepSeek, Grok) through a window Pygg owns, where you sign in yourself. They are **opt-in and unofficial**, behind an account-risk warning: a site can suspend an account it takes for automated use, and one site has done so after a run of long prompts. Pygg keeps a person's pace and never answers a CAPTCHA, but the risk is yours. Use web sessions for short questions; longer work belongs on an API connection. Details: [PROVIDERS.md](PROVIDERS.md) and ADR-035.
 
 ## Set up your coding tool
 
-**CLI Tools** sets up each tool and shows its state. Each tool gets a Pygg API key of its own, so Usage can tell them apart and each can have its own limit. Under each tool, before Set Up, CLI Tools says whether `auto` has an eligible model for that tool's requests.
+**CLI Tools** sets up each tool and shows its state. Each tool gets a Pygg API key of its own, so Usage can tell the tools apart and each can have its own limit. Before you press Set Up, CLI Tools says whether `auto` has an eligible model for that tool's requests.
 
 ### Claude Code
 
@@ -67,14 +89,14 @@ Pointing Claude Code's own settings at another endpoint would stop it using your
 ```powershell
 pygg setup claude --dry-run     # shows what would change
 pygg setup claude
-pygg run claude                          # Claude Code through Pygg, this launch only
+pygg run claude                 # Claude Code through Pygg, this launch only
 pygg run --model auto/cheap claude
 pygg run claude -p "Explain this repository"
 ```
 
-Arguments after `claude` are Claude Code's own. Claude Code may say it does not recognize the model `auto` and assume a 200k context; that is expected.
+Pygg's options go before `claude`; arguments after it are Claude Code's own. Claude Code may say it does not recognize the model `auto` and assume a 200k context; that is expected.
 
-Verified: a headless Claude Code session (`claude -p`) through the gateway answered every turn on 2026-11-11, including a sub-agent and `/compact`, with the session header on 12 of 12 requests. **Not verified yet:** the launcher's only live run (2026-11-12) ended at the gateway's 422 because no provider was connected, and an interactive terminal session has not been run.
+Verified: a headless Claude Code session (`claude -p`) through the gateway, including a sub-agent and `/compact`. Not verified yet: the launcher with a provider answering, and an interactive Claude Code session through the gateway.
 
 ### Codex CLI
 
@@ -85,23 +107,25 @@ pygg setup codex --dry-run
 pygg setup codex
 pygg run codex
 codex --profile pygg -m auto/cheap
-pygg setup codex --remove         # undo
+pygg setup codex --remove       # undo
 ```
 
-Verified live on 2026-11-12: Codex through the Responses API, and the one-click set-up in CLI Tools.
+Verified live: Codex through the Responses API, and the one-click set-up in CLI Tools.
 
 ### OpenCode
 
-Pygg adds a provider named Pygg to `opencode.json`, after a backup, listing `auto`, `auto/cheap` and your enabled models, and keeps the list current when models change.
+Pygg adds a provider named Pygg to `opencode.json`, after a backup. It lists `auto`, `auto/cheap` and your enabled models, and Pygg keeps the list current when models change.
 
 ```powershell
 pygg setup opencode
 pygg run opencode
 # then in OpenCode: /models → Pygg → auto
-pygg setup opencode --remove      # undo
+pygg setup opencode --remove    # undo
 ```
 
-Verified live on 2026-11-11 with the generated snippet (`opencode run` completed; a combo fallback happened and the ledger said so). The one-click set-up calls the same code.
+Verified live: an OpenCode run through the gateway, including a combo fallback that the ledger recorded.
+
+`pygg setup` runs the same code as the app's one-click set-up. Not verified yet: `pygg setup` itself against a real tool's configuration.
 
 ### Editors and SDKs
 
@@ -134,11 +158,11 @@ print(reply.choices[0].message.content)
 
 ## Work with `auto`
 
-Use your tool as usual with the model `auto`. For each request Pygg builds the route from the models you connected, within the key's limits, and records what it cost. CLI Tools says **Working** under a tool once a request has come through it.
+Use your tool as usual with the model `auto`. For each request Pygg picks the route from the models you connected, within the key's limits, and records what it cost. CLI Tools says **Working** under a tool once a request has come through it.
 
 The model names you can use:
 
-- `auto`: an eligible model at or above the key's minimum tier (T2 unless changed), local, free and subscription before paid, then the lowest estimated cost. It chooses within your rules; it does not judge how hard a prompt is.
+- `auto`: an eligible model at or above the key's minimum tier (T2 unless changed); local, free and subscription models before paid ones, then the lowest estimated cost. It chooses within your rules; it does not judge how hard a prompt is.
 - `auto/cheap`: the lowest estimated cost among the models that can take the request.
 - `coding`, or any combo's name: your own ordered list, from **Combos**. The next model answers when one is out of quota or unavailable. Templates build a combo from rules (Free first, Use my plans first, Local only, and others); they never fill a gap with a paid model by themselves.
 - `gemini/gemini-2.5-flash`, or any `connection/model`: one model by name.
@@ -151,32 +175,35 @@ Fallback happens only on errors, before any answer reaches the client. Pygg does
 
 **Usage** shows every request with its cost and that cost's source: **actual** (the provider reported usage and the model has a price), **estimated** (counted from tokens at the model's price), or **unknown**. Unknown is never shown as $0 and is left out of totals; give the model a price in Providers to estimate it. A subscription's use is counted as quota, not money.
 
-**Estimated Savings** prices the same tokens at a model you choose and says what it left out. It is an estimate at list prices. It is unit-tested on a ledger built for the test and has not yet been checked against real usage.
+**Estimated Savings** prices the same tokens at a model you choose and says what it left out. It is an estimate at list prices. Not verified yet: Estimated Savings against real usage (it is unit-tested on a ledger built for the test).
 
-Limits are per API key, in **Endpoint → API Keys → Limits**: a monthly limit (estimated or strict), a cap on requests in flight, a policy for models without a price, the connections the key may use, and a minimum tier for `auto`. **Policies** sets the defaults for new keys. A strict limit held every request of a 165-request benchmark.
+Limits are per API key, in **Endpoint → API Keys → Limits**: a monthly limit (estimated or strict), a cap on requests in flight, a policy for models without a price, the connections the key may use, and a minimum tier for `auto`. A strict limit holds each request at the most it could cost, so the limit cannot be passed. **Policies** sets the defaults for new keys.
 
 ## Command line
 
-The installer puts `pygg-cli.exe` next to the app. From npm, the same program is called `pygg` (developer preview, Windows x64 only):
+The installer puts `pygg-cli.exe` next to the app. From npm, the same program is called `pygg`:
 
 ```powershell
-npm install -g @pygg/cli@dev
-pygg --version
-pygg status                              # is Pygg serving, and does the gateway answer
-pygg doctor                              # status, plus the store, the agents found and what is set up
-pygg setup                               # the tools Pygg can set up, and their state
+pygg                    # where you are, and what to type next
+pygg status             # is the gateway answering
+pygg doctor             # status, plus your tools and the providers that need attention
+pygg setup              # the tools Pygg can set up, and their state
+pygg providers          # connections, their health and models
+pygg logs               # recent requests
+pygg usage              # requests and cost
 ```
 
-Without npm: `& "$env:LOCALAPPDATA\Pygg\pygg-cli.exe" doctor`. Keys are never taken on the command line: `pygg gateway add-connection` reads one from an environment variable (`--key-env`). `pygg <command> --help` lists every option.
+Without npm: `& "$env:LOCALAPPDATA\Pygg\pygg-cli.exe" doctor`. The read commands take `--json`. Keys are never taken on the command line: `pygg gateway add-connection` reads one from an environment variable (`--key-env`). `pygg <command> --help` lists every option, and [design/CLI.md](design/CLI.md) describes every command.
 
 ## Troubleshooting
 
 | You see | What to do |
 | --- | --- |
 | Connection refused, or "nothing is listening" | Start the Pygg app (it serves the gateway), or check with `pygg status`. The port is set in Endpoint → Configure. |
-| HTTP 401 | The API key is wrong or revoked. Endpoint → API Keys → **Show** copies it again. Keys made before 2026-11-12 cannot be shown: create a new one. |
+| HTTP 401 | The API key is wrong or revoked. Endpoint → API Keys → **Show** copies it again. A key that cannot be shown (an older key, or one made by `pygg gateway create-client` or a tool's set-up) was shown once only: create a new one. |
 | HTTP 422 "No connected model is eligible for auto" | No model has every fact `auto` needs (tier, price, tools, context). Run `pygg gateway lookup`, set them in Providers → Auto…, lower the key's minimum tier, or name a model. |
 | HTTP 429, or "cooling down" | A provider's rate limit or quota. `auto` and combos move on to the next model; Providers shows when it is tried again. |
+| A web session says "Not sent" | Its guard is keeping the account at a person's pace, or the prompt is too long for a site. Wait for the time it gives, or use an API connection. |
 | A cost shows as unknown | The model has no price. Set one in Providers, or run `pygg gateway lookup`. |
 | Claude Code says it does not know the model `auto` | Expected. It assumes a 200k context and carries on. |
 | Gemini CLI: "client no longer supported" | Google no longer accepts its free Google-account login from Gemini CLI. Use a Gemini API key, or connect Gemini in Providers and use it through Pygg. |
@@ -200,11 +227,12 @@ Bugs go to the repository's issues. A security problem goes privately, as [SECUR
 - **Can another computer use my Pygg?** No. The gateway listens on `127.0.0.1` only.
 - **Does using Claude Code through Pygg use my Claude plan?** No. Through Pygg, Claude Code uses your connected providers. Plain `claude`, started without `pygg run`, keeps your plan.
 - **Does Pygg have a chat of its own?** No (ADR-028). It is a gateway for the tools you already use.
-- **What are Smart Tasks?** An experimental group where IDE agents hand subtasks to Pygg over MCP and agent CLIs run them in worktrees. They work but are on hold until the owner re-evaluates them; see [AGENTS.md](AGENTS.md).
+- **What are Smart Tasks?** An experimental feature where IDE agents hand subtasks to Pygg over MCP and agent CLIs run them in worktrees. It is on hold; see [AGENTS.md](AGENTS.md).
 
 ## Where next
 
 - [PROVIDERS.md](PROVIDERS.md): every preset, its endpoint, free tier and live status.
 - [SECURITY.md](SECURITY.md): what Pygg protects, what you are trusted with, how to report a problem.
-- [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md): what is built and how each part was verified, including what is not verified yet.
-- [docs/README.md](README.md): the full index.
+- [BENCHMARKS.md](BENCHMARKS.md): what Pygg changes, measured.
+- [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md): what is built and how each part was verified.
+- [README.md](README.md): the index of every document.

@@ -1,6 +1,6 @@
 # P0 optimization benchmark: what routing saves, with a second agent, 2026-11-12
 
-> **Status:** Record · **approved for publication by the owner on 2026-11-13** · ROADMAP "P0 release proof" · plan: [2026-11-12 plan](../plans/2026-11-12-p0-optimization-plan.md) · earlier run: [N2](2026-11-12-n2-savings.md)
+> **Status:** Record · **approved for publication by the owner on 2026-11-13** · ROADMAP "P0 release proof" · plan: `benchmark/plans/2026-11-12-p0-optimization-plan.md` in git history · earlier run: [N2](2026-11-12-n2-savings.md)
 
 **In one line:** on the same 12 harder coding tasks as N2, `auto/cheap` through Pygg solved 34 of 36 for **$0.0129 per solved task**, 89% less than pinned Claude Sonnet 5.5 with the same agent (N2's baseline). With Claude Code as the agent, Haiku 5.5 instead of Sonnet 5.5 cost **79% less per solved task** (95% CI 74% to 84%). Rule-based `auto`, which picked Gemini 2.5 Flash, solved only 5 of 12.
 

@@ -1,161 +1,179 @@
-# Agents: official agent CLIs with their own sign-in
+# Agents and coding tools
 
-> **Status:** Current · agent CLIs, the task engine and the MCP server · reviewed 2026-11-13 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+> **Status:** Current · coding tools through the gateway, agent CLIs, the MCP server and the task engine · reviewed 2026-11-14 · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
 
-**Decision (owner, 2026-11-11):** to let people use the subscriptions and free tiers they already have, Pygg runs the vendors' own agent CLIs as executors. It does not bridge cookies or another product's OAuth tokens into an agent (see [OMNIROUTE_FEATURE_RESEARCH.md](archive/OMNIROUTE_FEATURE_RESEARCH.md#provider-reference-review-2026-11-11)); the web-session connections of ADR-035 are gateway providers the user signs in to in a Pygg window, and have nothing to do with an agent's sign-in. Code: `apps/desktop/src-tauri/src/agents.rs`. The app's screens are Agents (agents found, one-off runs, and MCP delegation) and, for pointing a tool's model requests at the gateway, CLI Tools; the headless CLI is `pygg agent` (`cargo run --bin agent` in development).
+A coding tool meets Pygg in one of two ways:
 
-## Contract
+- **Its model requests go through the gateway.** The user sets the tool up once (CLI Tools in the app, or `pygg setup`), then starts it through Pygg (`pygg run`). This is the main path.
+- **It hands a task to Pygg** through the MCP server (experimental, on hold). Pygg then runs agent CLIs, each with its own sign-in, in a Git worktree, and the workspace's approved checks judge the result.
 
-- **Sign-in stays with the agent.** Pygg starts the agent's own program, which uses whatever the user signed it in with: a Claude plan, a ChatGPT plan, an API key the agent manages, or OpenCode's providers. Pygg never reads, stores or forwards that sign-in, and never exposes the agent to other clients through the gateway. The only sign-in information Pygg shows is what the CLI's own status command prints (`codex login status`), with anything key-shaped redacted.
-- **One worktree per task** (ADR-008). The agent works on a detached Git worktree of the repository's current commit. The user's files and branch are not touched. Afterwards the user keeps the result as a new branch or discards it, and the worktree is removed either way.
-- **Least permission by default.** Claude Code gets `--permission-mode acceptEdits` with only file tools (Read, Write, Edit, Glob, Grep). Gemini CLI gets `--approval-mode auto_edit`. Shell commands need **Allow** (Claude's Bash tool, Gemini's yolo mode). Codex always runs in its own `workspace-write` sandbox. Each run has a time limit (15 minutes) and the whole process tree is ended on timeout or cancel (process.rs).
-- **Honest cost.** Tokens are recorded as the agent reports them. The money depends on how the agent is signed in, and a subscription is not billed per request, so the ledger records the cost as **unknown**. Where the agent gives a list-price estimate (Claude Code's `total_cost_usd`, OpenCode's step costs), that estimate goes into the cost's source, not into spend.
+Pygg never reads, stores or forwards an agent's own sign-in, and never bridges cookies or another product's OAuth tokens into an agent (ADR-026). Web-session connections (ADR-035) are gateway providers and have nothing to do with an agent's sign-in.
 
-## Agents
+## Coding tools through the gateway
 
-| Agent | Detected as | Headless command (in the worktree) | Usage read from |
+| Tool | Set up | Start | What Pygg changes |
 | --- | --- | --- | --- |
-| Claude Code | `claude` on PATH | `claude -p <task> --output-format json --permission-mode acceptEdits --allowedTools Read,Write,Edit,Glob,Grep[,Bash]` | result JSON: `usage`, `total_cost_usd`, `modelUsage`, `result` |
-| Codex CLI | `codex` (also `codex login status`) | `codex exec --json --sandbox workspace-write --ephemeral [--model M] <task>` | JSON lines: `turn.completed.usage`, final `agent_message` |
-| Gemini CLI | `gemini` (npm shim → `node …/gemini.js`) | `gemini -p <task> --output-format json --approval-mode auto_edit|yolo`, with `GEMINI_CLI_TRUST_WORKSPACE=true` for the task's worktree | `stats.models.*.tokens`, `response` |
-| OpenCode | `opencode` (npm shim → `opencode.exe`) | `opencode run --format json <task> [--model provider/model]` | `step_finish` events (as in the benchmark harness) |
+| Claude Code | `pygg setup claude` | `pygg run claude` | No file. A Pygg API key "Claude Code (launcher)" in the OS credential store |
+| Codex CLI | `pygg setup codex` | `pygg run codex` (adds `--profile pygg`) | A `[model_providers.pygg]` table in `config.toml` and a new `pygg.config.toml` |
+| OpenCode | `pygg setup opencode` | `pygg run opencode`, then pick a `pygg/…` model with `/models` | A `pygg` provider in `opencode.json` |
 
-On Windows, npm installs `.cmd` shims. Pygg starts their target (an `.exe`, or a `.js` through Node) directly, because a free-text task cannot be quoted safely through `cmd`.
+The same rows are in the app under **CLI Tools → One-Click Setup** (`integrations.rs`, `launcher.rs`). For every set-up:
 
-## Live verification, 2026-11-11
+- **Preview first.** The app shows the change before it is made; `pygg setup <tool> --dry-run` prints it and writes nothing.
+- **Backup, write, check.** The tool's configuration is backed up into the app's `integration-backups` folder, a Pygg API key of its own is made (never printed), the change is written and checked. If a step fails, the file is put back and the key revoked.
+- **Remove** (`--remove`) backs up again, takes out only Pygg's part and revokes the key.
+- The key is a client like any other: it reaches the connections, may not start tasks, and its limits are set in **Endpoint → API Keys → Limits…**.
+- **Each launch is a routing session.** `pygg run` gives each launch a fresh session id (`launch-<uuid>`). The gateway keeps that launch on the model that answered it while the model stays eligible, which keeps the provider's prompt cache. A long-lived tool shares one session until it is started again.
+- `pygg run` checks that the tool is set up, that the gateway answers and that the tool is installed (on PATH or in `~/.local/bin`) before it starts anything.
 
-A scratch repository with `add()` returning `a - b`; the task was to make it `a + b` and change nothing else.
+### Claude Code: the launcher
 
-| Agent | Sign-in | Result |
-| --- | --- | --- |
-| Codex CLI 0.163.0 | ChatGPT plan (`Logged in using ChatGPT`) | Fixed in 28.5 s, diff +1 −1. 83,166 input tokens (65,664 from cache), 291 output. Recorded with an unknown cost |
-| OpenCode 1.18.4 | its free model `opencode/deepseek-v4.1-flash-free` | Fixed in 25.4 s, diff +1 −1, agent's estimate $0.0000 |
-| OpenCode 1.18.4 | its default model | Failed: the model's server answered "Unexpected server error". Recorded as an error |
-| Gemini CLI 0.66.0 | Google account | Failed. Google answered "This client is no longer supported for Gemini Code Assist for individuals" and points to Antigravity. A Gemini API key set in Gemini CLI is the remaining way; not tested. The headless trust prompt is handled |
-| Claude Code | — | Not on PATH at the time; tested later from its native install in `~/.local/bin` (2.1.322, Team plan), see From the IDE below |
+Pygg never changes Claude Code's own settings, since Claude Code on another endpoint stops using the user's Claude plan. Instead, `pygg run [--model M] claude [Claude Code's arguments…]` starts Claude Code with this environment, for that one process only:
 
-Every run, including the failed ones, has a ledger entry under `agent:<id>`.
+```text
+ANTHROPIC_BASE_URL              http://127.0.0.1:<port>
+ANTHROPIC_AUTH_TOKEN            the launcher's Pygg API key, read from the OS credential store
+ANTHROPIC_MODEL                 auto (or --model: auto/cheap, a combo, <connection>/<model>)
+ANTHROPIC_DEFAULT_OPUS_MODEL    the same
+ANTHROPIC_DEFAULT_SONNET_MODEL  the same
+ANTHROPIC_DEFAULT_HAIKU_MODEL   the same
+ANTHROPIC_CUSTOM_HEADERS        x-smarttaskrouter-session: launch-<uuid>
+```
 
-## Smart tasks: task engine v1 (`tasks.rs`, schema v8)
+`ANTHROPIC_API_KEY`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX` and a host session's variables are removed first. A plain `claude` keeps the user's sign-in and plan. **Remove** revokes the key and deletes it from the credential store.
 
-A task is a ladder of agent steps fixed when it is created (`tasks.policy_snapshot_json`), run against the workspace's **approved** checks:
+Verified: unit tests (`launcher::tests`, `cli::run::tests`); live with Claude Code 2.1.322 up to the gateway (key and `auto` reached it; with no provider connected it answered 422). A session answered by a model through the launcher is not yet verified.
 
-1. Each attempt runs one step (agent, model, the user's tier and billing classing) in a fresh worktree of the task's **base commit**, recorded at creation, so every attempt starts from the same code.
-2. The approved checks run in order in that worktree and stop at the first failure. Passing means exit code 0.
-3. If an attempt fails its checks, its worktree is discarded and the next step starts. The new step's prompt gets the failed command and the last 1,500 characters of its (redacted) output. If the agent itself failed (exit, timeout, could not start), the next step gets the task alone. An attempt that changed nothing counts as a failure. A step whose agent and model timed out on their last two runs, both in the past 30 minutes and without one output token, is **skipped** and recorded as such, unless it is the last step left: its service is most likely not answering, and waiting out the time limit again only delays the next step (found by the N2 benchmark, when OpenCode's free model stopped answering).
+### Codex
 
-   **What the next step is told** is the task's handoff mode (ADR-030), fixed in its policy:
-   - **`tail`** (the default): the failed check's command and the end of its output.
-   - **`none`**: the task alone.
-   - **`evidence`** (H1): every earlier attempt, built by `handoff.rs` from what Pygg recorded. That covers each failing check's output (colour codes and redrawn progress lines removed, repeats named rather than copied), the paths a discarded attempt changed, and the agent's own final message, marked unverified. It is capped at about 6,000 characters, the oldest attempts are dropped first, and the drop is said.
+Codex CLI speaks only the Responses API. The gateway serves `POST /v1/responses` for every connection (`gateway/responses.rs`, ADR-033), so Codex can use any of them, metered like any client. Codex's own ChatGPT sign-in is not involved.
 
-   The text sent is stored on the attempt (`attempts.handoff_sent`) and shown in task detail and `pygg_task_status`. Which files an agent read is not reported by the CLIs, so it is never claimed. Its A/B (2026-11-12, [report](../benchmark/reports/2026-11-12-h1-handoff-ab.md)) did not show `evidence` saving tokens, time or money, or changing the pass rate, so `tail` stays the default.
-4. When the checks pass, the task is `checks_passed` and the worktree waits for **Keep as Branch** or **Discard**; **Export Patch** saves it as a file `git apply` takes, and leaves it waiting. With no approved checks, the task is `needs_review`: nothing confirmed it. If the attempt changed the file that defines a check (`package.json`, `Cargo.toml`), the task is also `needs_review`, because the checks could pass without the task being done. Keeping a reviewed result makes it `manually_accepted`.
-5. A step marked **paid** waits for approval before it runs (ADR-010; schema v10). The approval shows the range of what the last 10 runs of that agent and model cost, or says there is none, and approving needs a **spending cap**. **A step's cost** is Pygg's own ledger when the agent sent its requests through Pygg's gateway with its attempt id as the session header (schema v19): the gateway's entries since the attempt started are tied to it, and the agent's own entry for the run is taken off the attempt so nothing counts twice. If any of those requests had no price, the cost is unknown, never $0, and the task says which model needs a price in Connections. Otherwise the cost is the agent's own list-price estimate. (N6 found OpenCode estimating a run through Pygg at $0.0000, a custom provider having no price in OpenCode.) Claude Code is given the cap as `--max-budget-usd` and stops there itself. Other agents cannot stop at a cap, so their cost is checked afterwards: over the cap, the ladder stops (`blocked`) instead of trying another step, and when they report no cost the task says the cap could not be checked. If the estimate or a budget changed before the user decided, the approval is invalidated and a new one is asked. There is no API to approve (ADR-027). Declining blocks the task.
-6. **Daily budgets** (schema v11) for paid steps: one for all tasks, and one per workspace on top. A finished paid step counts at the agent's own estimate, or at its whole cap when it reported none; a running one holds its cap; free, local and subscription steps do not count. When today's budget is used, a paid step is blocked before it asks; an approval's cap cannot be more than what is left. Days are UTC. Declining blocks the task.
-7. **Stop** ends the running agent or check, including its whole process tree. At start-up, a task left `running` becomes `interrupted` (Retry runs that step again), and leftover worktrees in the app's folder are removed.
-
-Every agent run of a task gets `PYGG_ATTEMPT_ID`, the attempt's id, in its environment. An agent the user has pointed at the gateway can send it as its session header (`x-smarttaskrouter-session`), and the gateway's ledger then says which attempt each request belonged to; the benchmark costs attempts this way (`bench --engine`).
-
-Workspaces must be Git repositories, and are managed on the Workspaces screen (checks, privacy, budget). In a **sensitive** workspace every step, free ones too, asks before it runs, since Pygg cannot yet check where an agent sends the code; such an approval needs no cap unless the step is paid. Detected checks (`package.json` scripts, preceded by the package manager's install, and `cargo check` / `cargo test`) are suggestions until the user approves them, and checks run the code the agent wrote, on this computer. Each attempt's ledger entry carries `usage_events.attempt_id`, so a task's cost is the sum of its own entries (unknown for agents).
-
-Headless: `cargo run --bin agent -- --db STORE task --workspace DIR --prompt TEXT --steps "opencode:opencode/some-free-model,codex" --check "CMD" [--keep TITLE | --discard yes]`.
-
-### A paid step approved live (N6), 2026-11-12
-
-In the installed app (release build, schema v19): an Anthropic connection marked paid with Haiku 5.5's list price entered, a client that may start tasks, and OpenCode pointed at the app's gateway with `x-smarttaskrouter-session: {env:PYGG_ATTEMPT_ID}`. A scratch repository with `slugify()` that neither lower-cases nor cleans punctuation, and an approved check `python check_slug.py` with three cases. The task came through the task API, as an IDE agent's would: step 1 OpenCode's free model (free), step 2 OpenCode with `pygg/anthropic/claude-haiku-5-5` (paid). Step 1 added `.lower()` and failed the check (1 of 3). The task waited; the approval said there was no estimate yet and offered a $0.50 cap; it was approved in the app's task view with a cap of $0.10. Step 2 fixed it (+6 −2) and the check passed. Pygg's ledger tied 4 Haiku requests to the attempt, $0.009279 in all at the entered price, which is the step's cost in task detail ("Pygg's ledger $0.0093 · cap $0.10") and in today's paid total. The first try, before the fix, ran with no price for Haiku: the cap check took OpenCode's own $0.0000 estimate, so an unknown cost passed as $0. In that try the check lived outside the repository, and the handoff named its path; OpenCode refused to read outside its worktree and ended without a change. Checks are best kept in the repository.
-
-### Live verification, 2026-11-11
-
-A scratch repository with `add()` returning `a - b`, the check `python test_calc.py`, and two steps: OpenCode with `opencode/deepseek-v4.1-flash-free`, then Codex. Step 1 fixed it (+1 −1, 9,781 input / 356 output tokens), the check passed in its worktree in 157 ms, and the task ended `checks_passed` without reaching Codex. Approvals, stop, interruption and retry are covered by `tasks.rs` tests with a scripted agent in real worktrees, not live.
-
-**The cascade, live (ROADMAP C2).** A scratch repository with `slugify()` that neither lower-cases nor cleans punctuation, and an approved check kept outside the repository, so no agent could read it: three cases, `"Hello World"` → `hello-world`, extra spaces collapsed, punctuation dropped. The prompt named only the lower-casing. Steps: OpenCode with `opencode/deepseek-v4.1-flash-free`, then Codex (ChatGPT plan).
-
-| Run | Step 1, OpenCode | Check | Step 2, Codex | Check |
-| --- | --- | --- | --- | --- |
-| 1 | added `.lower()` (+1 −1, 25,174 / 308 tokens) | exited 1, "1 of 3 passed" | handed the command and its two `FAIL` lines; one-line rewrite (84,124 / 512 tokens) | passed, `checks_passed` |
-| 2 | the same (12,464 / 355) | the same | a `re.sub` rewrite (+2 −1, 91,701 / 747) | passed; discarded, no worktree left |
-
-Codex's own sandbox could not run `python`, so it could not test its change; the check Pygg ran is what passed it. No money was spent: a free model and a subscription. The headless CLI now prints the end of a failed check's output, which is what the next step is handed.
-
-## From the IDE: `pygg-mcp` and the task API
-
-**Decision (owner, 2026-11-11):** most people will not treat the router app as an IDE. Tasks are started where people already work, by their coding agent; the app runs them and is where they are watched, paid steps are approved, and history is kept. New Task in the app stays as a simple way to start one by hand.
-
-**Where each part lives** (navigation of 2026-11-12, commit e0b236f; the screen formerly called "Agents → From Your IDE" was split):
-- **Agents → Let Your Agent Delegate Tasks**: the MCP server, set up in one click for Claude Code, Codex CLI and OpenCode, with **Set It Up by Hand** for Cursor and other JSON-configured clients. From a terminal: `pygg mcp setup claude-code`, `pygg mcp setup codex`, `pygg mcp setup opencode` (`cli/setup.rs`).
-- **CLI Tools → One-Click Setup**: a tool's own model requests through the gateway. "Codex: models through Pygg" and "OpenCode: models through Pygg" (`pygg setup codex`, `pygg setup opencode`), and the Claude Code launcher (`pygg setup claude`, then `pygg run claude`). Below it, set-up by hand for Claude Code without the launcher, Cline, Continue, SDKs and curl.
-- **Endpoint → API Keys**: Pygg's API keys (client tokens) and their **Limits…**, the screen formerly called Clients.
-
-`pygg setup` with no tool lists every tool with its kind (`mcp` or `gateway`) and state; `--dry-run` prints what would change and writes nothing; `--remove` takes Pygg out and revokes the key it made. It runs the same code as the app (`integrations.rs`): the tool's configuration is backed up first and the key is never printed. Verified by a unit test of its tool names (`cli::setup::tests`, passed 2026-11-13); no live run of `pygg setup` against a real tool's configuration is recorded (the live one-click checks below call `integrations.rs` directly).
-
-- **The MCP server** (`src/mcp.rs`) runs over stdio. The installed app's own program serves it when started as `<app> mcp`, so the installer ships nothing extra; `pygg-mcp` is the same server as its own program, for development and headless machines. Tools: `pygg_run_task` (prompt, optional title, steps or strategy, shell, wait), `pygg_task_status` (waits while running), `pygg_task_diff`, `pygg_keep_result`, `pygg_discard_result`, `pygg_stop_task`, `pygg_list_tasks`, `pygg_agents`. The workspace defaults to the folder the server runs in, which the IDE sets to the project. Configuration: `PYGG_TOKEN`, and optionally `PYGG_URL` (default `http://127.0.0.1:8741`). Example: `claude mcp add pygg -e PYGG_TOKEN=… -- "C:\…\Pygg.exe" mcp`. Agents → Let Your Agent Delegate Tasks → Set It Up by Hand shows this for Claude Code, Codex CLI (`config.toml`) and JSON-configured IDEs, with the app's real path.
-- **One-click setup** (ROADMAP D2, ADR-022; `src/integrations.rs`, 2026-11-12). Agents → Let Your Agent Delegate Tasks lists Claude Code, Codex CLI and OpenCode with whether Pygg's server is registered in each (`pygg mcp setup claude-code|codex|opencode` from a terminal). **Set Up…** shows what will change before anything does. Then Pygg backs up the agent's configuration file into the app's `integration-backups` folder, creates a client token that may start tasks and reaches no model connection (`<Agent> (MCP)`), registers the server and checks the agent now lists it; if any step fails, the file is put back and the token revoked. Claude Code and Codex edit their own files through their own commands (`claude mcp add --scope user`, `codex mcp add`; removal is `… mcp remove`), so their format and comments stay theirs. OpenCode has no such command that runs without asking, so Pygg edits `opencode.json` itself, keeping every other key in its order, and refuses a file that is not plain JSON (comments). The entry is user-wide, never a project file, because a project file would be committed with the token in it; the server takes the project from the folder the agent runs in. **Remove…** removes the entry (after another backup) and revokes the token. An entry named `pygg` that Pygg did not make is shown as set up by hand and left alone unless the user removes it. The agents' own sign-in is never read (ADR-026). The manual snippets stay under **Set It Up by Hand**, for Cursor and other JSON-configured clients.
-- **OpenCode's models through Pygg** (D2c, 2026-11-12). The row "OpenCode: models through Pygg", on CLI Tools since 2026-11-12 (`pygg setup opencode`), adds a `pygg` provider to `opencode.json` instead of the MCP server, with the same preview, backup, check and undo. The provider speaks the Anthropic format, which the gateway serves for every connection, points at the gateway's address with a client token of its own (a client like any other: it reaches the connections, may not start tasks, and its limits are set in Endpoint → API Keys), and sends `x-smarttaskrouter-session: {env:PYGG_ATTEMPT_ID}`, so a task step's requests are tied to the attempt and costed by Pygg's ledger; outside a task the header is empty and ignored. It lists `auto`, `auto/cheap` and the enabled models of enabled connections, with context and output limits only where Pygg knows them, and leaves out models known not to take tools. Pygg keeps that list current: at start-up, after a model list refresh, and whenever a model or connection is changed, it rewrites only the `models` of its own provider entry (never its address, token or anything else in the file), and only when the list differs. Setting up with no enabled model is refused. After enabling more models, remove it and set it up again. Removal takes the provider out and revokes its token. Pygg never changes Claude Code's own settings to point it at the gateway, since Claude Code on another endpoint stops using its subscription; the launcher (below) does it for one launch instead. Codex speaks the Responses API, which the gateway serves since 2026-11-12 (ADR-033); its one-click row is the next item. Checked on the owner's machine on 2026-11-12: OpenCode reached the gateway through the provider; `pygg/auto` was refused because no connected model had every fact `auto` needs with tools (prices for Claude, tiers and tool support for the others, and OpenRouter held for 10 minutes after a 402), which is what the grouped refusal now says. A model named directly, such as `pygg/claude/claude-sonnet-5-5`, does not need those facts.
-- **Codex's models through Pygg** (2026-11-12). The row "Codex: models through Pygg", on CLI Tools (`pygg setup codex`), is the twin of OpenCode's, with the same preview, backup, check and undo. Codex has no command to add a model provider, so Pygg edits `config.toml` (in `CODEX_HOME`, else `~/.codex`) itself with `toml_edit`: it adds a commented `[model_providers.pygg]` table at the end (`base_url` the gateway's `/v1`, `wire_api = "responses"`, the client token as `experimental_bearer_token`, and `env_http_headers = { x-smarttaskrouter-session = "PYGG_ATTEMPT_ID" }`), and every other key, table, comment and line ending stays as it was. It also creates the profile file `pygg.config.toml` next to it (`model_provider = "pygg"`, `model = "auto"`). Codex 0.134 and later read a profile from `<name>.config.toml` and refuse `--profile pygg` while `config.toml` still has a `[profiles.pygg]` table; this was found by the live check. **Codex's default `model` and `model_provider` are never changed**: the user runs `codex --profile pygg`, or `codex --profile pygg -m <connection>/<model>` for a model by name. The token belongs to a client like any other (`Codex (models)`): it reaches the connections, may not start tasks, and its limits are set in Endpoint → API Keys. Set-up is refused, before anything is created, for a file that is not valid TOML (the message names the line and quotes nothing, since the file may hold other secrets), for a `model_providers` written inline, for an existing provider or profile file named `pygg`, and for a legacy `[profiles.pygg]` table. **Remove…** backs up both files, takes out only the provider table (and `model_providers` when Pygg's was all it held and it had no header), deletes the profile file only while it still selects Pygg's provider, and revokes the token. While `model_provider = "pygg"` is Codex's default, removal is refused, because Codex would not start without the provider. Apply then remove leaves `config.toml` byte-identical; the one exception is a file without a final newline, which gets one. A comment that ended the file stays at the very end, below Pygg's block. Codex runs a model it does not know with fallback metadata (no `apply_patch`; see below). `auto` follows the client's minimum tier (T2 by default), so with only cheaper models connected it refuses and says why: name the model, or lower the minimum in Endpoint → API Keys → Limits… (or, for keys made later, in Policies → defaults for new API keys).
-- **The Claude Code launcher** (2026-11-12; `launcher.rs`, `cli/run.rs`). On CLI Tools, the row "Claude Code: models through Pygg" → **Set Up** (or `pygg setup claude`) makes the API key "Claude Code (launcher)" and keeps it in the Windows Credential Manager, never in a file; no file of Claude Code's is changed. `pygg run claude [Claude Code's own arguments…]` then starts Claude Code with the gateway's address, that key, the model `auto` for every model slot (or `pygg run --model <name> claude …`) and a fresh `x-smarttaskrouter-session`, in that one process's environment; `ANTHROPIC_API_KEY`, Bedrock and Vertex switches and the host session's variables are removed first. A plain `claude` keeps using the user's Claude sign-in and plan. Before the launch it checks that the gateway answers and that Claude Code is installed (on PATH or in `~/.local/bin`). **Remove…** revokes the key and deletes it from the Credential Manager. Verified by unit tests (`launcher::tests`, `cli::run::tests`, passed 2026-11-13) and live on 2026-11-12 on a scratch store and gateway (commit d12443f): Claude Code 2.1.322 reached the gateway with the launcher's key and `auto`, which was refused with 422 because no provider was connected; a stopped gateway was caught before the launch; Remove left no credential behind. A session answered by a model through the launcher is not recorded.
-- **Waiting:** a tool call waits at most 50 s by default, under the 60 s many MCP clients allow (Codex's `tool_timeout_sec`); the agent then calls `pygg_task_status` again. Codex needs `tool_timeout_sec` raised to wait longer, and `default_tools_approval_mode = "approve"` for `codex exec`, which cannot ask before a tool call.
-- **The task API** (`gateway/task_api.rs`) on the local gateway: `GET /pygg/v1/agents`, `GET|POST /pygg/v1/tasks`, `GET /pygg/v1/tasks/{id}?wait=S`, `GET …/diff`, `POST …/stop|keep|discard`. `pygg-mcp` holds no state; it forwards to this API.
-- **Permission:** a client token may start tasks only after the user turns on **May start tasks** (Endpoint → API Keys → Limits…; `gateway client --name N --tasks yes`). A client sees and acts on only the tasks it started. **There is no API to approve a paid step**: that stays with the user in the app.
-- **Workspaces:** the folder is resolved to its repository root, which becomes a workspace if it is not one. Checks found there are suggestions until the user approves them, so until then a result is `needs_review`, never `checks_passed`.
-- **Where tasks run:** in the app. `gateway serve` answers the task API with 503 unless started with `--tasks yes`, for a computer where the app is not open on that store. The app does not mark tasks interrupted at start-up while another process holds the store.
-
-### Live verification, 2026-11-11
-
-`gateway serve --tasks yes` on a scratch store, a client allowed to start tasks, and `pygg-mcp` driven over stdio from inside a scratch repository (`add()` returning `a - b`, approved check `python test_calc.py`). `pygg_run_task` with OpenCode's free model, then Codex: step 1 fixed it and the check passed (`checks_passed`); `pygg_task_diff` returned the one-line change; `pygg_keep_result` created `str/fix-add-ae739de9` with the checkout unchanged.
-
-**From a real Codex session.** `codex exec` (Codex CLI 0.163.0, ChatGPT plan, read-only sandbox so it could not edit files itself) with the server given by one-off `-c mcp_servers.pygg.*` overrides, so `~/.codex/config.toml` was untouched. Asked to delegate a fix of `area()` (returning `w + h`), Codex called `pygg_run_task`; OpenCode's free model changed it to `w * h`, the approved check `python test_shapes.py` passed, and Codex called `pygg_task_diff` and `pygg_keep_result`: branch `str/fix-area-5855f35a`, checkout unchanged. The first attempt failed because `codex exec` refuses an MCP tool call that needs approval; `default_tools_approval_mode = "approve"` fixed it. **From a real Claude Code session.** Claude Code 2.1.322 (Team plan), installed by its native installer into `~/.local/bin` (not on PATH; Pygg looks there too). `claude -p` with a one-off `--mcp-config` and `--strict-mcp-config`, so the user's Claude Code configuration was untouched, and only Pygg's tools allowed. Asked to delegate a fix of `to_fahrenheit()` (`- 32` instead of `+ 32`), Claude Code called `pygg_run_task`; OpenCode's free model fixed it, the approved check `python test_temps.py` passed, and Claude Code called `pygg_task_diff` and `pygg_keep_result`: branch `str/fix-fahrenheit-9f15e982`, checkout unchanged. 5 turns; Claude Code's own list-price estimate for its session, $0.087, is covered by the subscription.
-
-### One-click setup, live, 2026-11-12
-
-`cargo test --lib integrations::tests::live -- --ignored` with the agents installed here (Claude Code 2.1.322, Codex CLI 0.163.0, OpenCode 1.18.4), each pointed at a scratch configuration folder through its own variable (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_CONFIG_HOME`), so the owner's own configuration was not touched (checked before and after). For each: set up, the agent listed the server (`claude mcp get pygg` reported user scope; Codex's `mcp get` the command), a second setup was refused, Codex's own comment in `config.toml` was kept, removal left no entry and no live token. Claude Code's health check said "Failed to connect" because the test's server program was the test binary, not the app; the registration itself is what was checked. Not yet clicked through in the native app. Unit tests cover the arguments, the placeholder in what is shown, OpenCode's key order and refusal of comments, and putting a file back.
-
-## Codex through Pygg's gateway (ADR-033)
-
-Codex CLI 0.163.0 speaks only the Responses API (`wire_api = "chat"` is refused). The gateway serves `POST /v1/responses` for every connection (`gateway/responses.rs`), so Codex can use any of them, metered like any client. Codex's own ChatGPT sign-in is not involved: this is a provider of its own in Codex's configuration, with a Pygg client token.
-
-By hand, or as **CLI Tools → One-Click Setup → Codex: models through Pygg** (`pygg setup codex`) sets it up (above; that row uses `experimental_bearer_token` instead of `env_key` and leaves the default model alone):
+What `pygg setup codex` writes (in `CODEX_HOME`, else `~/.codex`), edited with `toml_edit` so every other key, table, comment and line ending stays:
 
 ```toml
-# ~/.codex/config.toml (or ~/.codex/<profile>.config.toml for model and model_provider)
-model_provider = "pygg"
-model = "anthropic/claude-haiku-5-5"   # any <connection>/<model>, a combo, auto or auto/cheap
-
+# config.toml, added at the end
 [model_providers.pygg]
 name = "Pygg"
 base_url = "http://127.0.0.1:8741/v1"
-env_key = "PYGG_TOKEN"                  # a Pygg API key from Endpoint → API Keys
 wire_api = "responses"
-env_http_headers = { "x-smarttaskrouter-session" = "PYGG_ATTEMPT_ID" }   # ties a task step's requests to it
+experimental_bearer_token = "<a Pygg API key of its own>"
+env_http_headers = { "x-smarttaskrouter-session" = "PYGG_ATTEMPT_ID" }
+
+# pygg.config.toml, a new file next to it
+model_provider = "pygg"
+model = "auto"
 ```
 
-- **Tools.** For a model Codex does not know, it uses fallback metadata: shell (`exec_command`) and its other function tools, but no `apply_patch`, so it edits files through the shell. A model catalog (`model_catalog_json`, a file listing the model with `apply_patch_tool_type = "freeform"` and `base_instructions`) gives it `apply_patch`, which crosses as a function with one string parameter and comes back as Codex's custom tool call.
-- **What does not cross:** OpenAI's encrypted reasoning, hosted tools (`web_search`), `prompt_cache_key` and `client_metadata`: named in `x-smarttaskrouter-dropped`. Pygg stores no responses, so `previous_response_id` is refused (Codex sends the whole conversation with `store = false`).
-- **Windows sandbox:** in a fresh `CODEX_HOME`, `-s workspace-write` fell back to read-only until `[windows] sandbox = "unelevated"` (or the user's own elevated setup) was set.
+- **Codex's default `model` and `model_provider` are never changed.** Use `pygg run codex`, or `codex --profile pygg`, or `codex --profile pygg -m <connection>/<model>`.
+- Codex 0.134 and later read a profile from `<name>.config.toml` and refuse `--profile pygg` while `config.toml` has a `[profiles.pygg]` table, so set-up refuses such a table.
+- Set-up is also refused, before anything is made, for a file that is not valid TOML (the message names the line and quotes nothing), an inline `model_providers`, and an existing `pygg` provider or profile file.
+- Removal deletes the profile file only while it still selects Pygg's provider. While `model_provider = "pygg"` is Codex's default, removal is refused. Apply then remove leaves `config.toml` byte-identical (a file without a final newline gets one).
+- **`auto` follows the client's minimum tier** (T2 by default). With only cheaper models connected it refuses and says why: name the model, or lower the minimum in Endpoint → API Keys → Limits….
+- **Tools.** For a model it does not know, Codex uses fallback metadata: its shell and function tools, but no `apply_patch`, so it edits through the shell. A model catalog (`model_catalog_json`, listing the model with `apply_patch_tool_type = "freeform"` and `base_instructions`) gives it `apply_patch`, which crosses as a function with one string parameter. Pygg does not write this catalog yet.
+- **What does not cross:** OpenAI's encrypted reasoning, hosted tools (`web_search`), `prompt_cache_key` and `client_metadata`, named in `x-smarttaskrouter-dropped`. Pygg stores no responses, so `previous_response_id` is refused; Codex sends the whole conversation with `store = false`.
+- **Prompt cache.** A Codex turn with tools translated for Anthropic's own API gets Anthropic's automatic caching (ADR-036).
+- **Windows sandbox:** in a fresh `CODEX_HOME`, `-s workspace-write` falls back to read-only until `[windows] sandbox = "unelevated"` (or the user's own elevated setup) is set.
 
-### Live verification, 2026-11-12
+Verified: unit tests in `integrations.rs`; live with Codex CLI 0.163.0: set-up, an answer through the gateway on Claude Haiku 5.5, removal leaving `config.toml` byte-identical; tool round trips with `apply_patch` on Anthropic and Qwen connections; the prompt-cache run in [benchmark/reports/2026-11-14-codex-claude-prompt-cache.md](../benchmark/reports/2026-11-14-codex-claude-prompt-cache.md). `pygg run codex`: unit tests only.
 
-Codex CLI 0.163.0 (`codex exec --json -s workspace-write`) through a scratch gateway (`pygg-cli gateway serve --port 8798`, scratch store) with a scratch `CODEX_HOME` holding the provider above and a model catalog giving both models `apply_patch`; the host's Claude and Anthropic session variables removed from Codex's environment; keys from the User environment, removed with their connections afterwards. A scratch Git repository with `add()` returning `a - b`.
+### OpenCode
 
-| Run | Model | What Codex did | Requests | Tokens in / out | Cost |
-| --- | --- | --- | --- | --- | --- |
-| Plain text | `anthropic/claude-haiku-5-5` (`translated:responses->anthropic`) | Answered `pong` | 1 | 16,551 / 4 | $0.0017, estimated at the models.dev list price |
-| Tool round trip | `anthropic/claude-haiku-5-5` | Read `calc.py` with `exec_command`, fixed it with `apply_patch` (custom tool), reported. Diff +1 −1 | 3 | 50,141 / 205 | $0.0051, estimated |
-| Tool round trip | `qwen/qwen3.7-plus` on Qwen's token plan (`translated:responses->openai`) | Read the file, fixed `add()` and added `mul()` with `apply_patch`; Qwen's reasoning showed in Codex as reasoning items and went back as `reasoning_content`. Diff +5 −1 | 3 | 34,207 (21,760 cached) / 177 | quota, not money |
+`pygg setup opencode` adds a `pygg` provider to `opencode.json`, keeping every other key in its order. It refuses a file that is not plain JSON (comments).
 
-Every request carried the session header; every ledger entry has usage and its session. A captured Codex request sent to Qwen answered with `x-smarttaskrouter-dropped: web_search tool,prompt_cache_key,client_metadata`, and the same request as `auto/cheap` was routed to `qwen/qwen3.7-max` with its reason. Anthropic's prompt cache was not used on this path (0 cached tokens): the translation added no cache markers. Since ADR-036 (2026-11-14) Pygg turns on Anthropic's automatic caching for such a turn when it carries tools; not yet measured live. Total spent: $0.0068 at list price.
+```json
+"provider": {
+  "pygg": {
+    "npm": "@ai-sdk/anthropic",
+    "name": "Pygg",
+    "options": {
+      "baseURL": "http://127.0.0.1:8741/v1",
+      "apiKey": "<a Pygg API key of its own>",
+      "headers": { "x-smarttaskrouter-session": "{env:PYGG_ATTEMPT_ID}" }
+    },
+    "models": { "auto": { "name": "auto", "tool_call": true } }
+  }
+}
+```
 
-### Live verification of the one-click row, 2026-11-12
+- The provider speaks the Anthropic format, which the gateway serves for every connection.
+- `models` lists `auto`, `auto/cheap` and the enabled models of enabled connections, with context and output limits only where Pygg knows them. Models known not to take tools are left out. Set-up with no enabled model is refused.
+- Pygg keeps that list current: at start-up, after a model list refresh, and when a model or connection changes, it rewrites only its own provider's `models`, and only when the list differs.
+- Outside `pygg run` or a task step, `PYGG_ATTEMPT_ID` is empty and the gateway ignores the header.
 
-`cargo test --lib integrations::tests::live_codex -- --ignored --nocapture` against a scratch store served by `pygg-cli gateway serve --port 8797` and a scratch `CODEX_HOME` whose `config.toml` had comments, another provider, a profile, a Windows path and `[windows] sandbox = "unelevated"`. One Anthropic connection with only `claude-haiku-5-5` enabled; the key was read from the User environment into that one process and removed with the connection from the Credential Manager afterwards. The host's `CLAUDE*`/`ANTHROPIC_*` variables were stripped from every child. The test ran the real `apply`, then `codex exec --profile pygg -m anthropic/claude-haiku-5-5 --json "Reply with exactly: ok"` (Codex CLI 0.163.0) with `PYGG_ATTEMPT_ID=live-codex-gateway`, then the real `remove`.
+Verified: unit tests in `integrations.rs` (key order, refusal of comments, putting a file back); live: OpenCode reached the gateway through the provider. `pygg run opencode`: unit tests only.
 
-- Codex answered `ok`. Ledger: 1 request, `anthropic/claude-haiku-5-5`, `translated:responses->anthropic`, 15,691 / 4 tokens, $0.0016 estimated at the models.dev list price, `session=live-codex-gateway`.
-- After removal, `config.toml` was byte-identical to before, `pygg.config.toml` was gone (both backed up), and the `Codex (models)` token was revoked.
-- Two earlier runs failed without reaching a provider. The first had the profile as a `[profiles.pygg]` table in `config.toml`, which Codex refused (hence the profile file). The second used the profile's `auto`, which the gateway refused with 422 because Haiku is T1 and a new client's minimum is T2; the gateway's own message says so.
-- Not yet clicked through in the native app; the browser preview shows the row, the sheet and the set-up state on demo data.
+### Other clients
+
+Claude Code without the launcher, Cline, Continue, SDKs and curl are set up by hand: CLI Tools shows the snippets with the gateway's address. See [GETTING-STARTED](GETTING-STARTED.md).
+
+## Agent CLIs with their own sign-in
+
+Code: `agents.rs`. In the app: **Agents** (agents found, one-off runs). Headless: `pygg agent` (`cargo run --bin agent` in development).
+
+| Agent | Detected as | Headless command (in the worktree) | Usage read from |
+| --- | --- | --- | --- |
+| Claude Code | `claude` on PATH or in `~/.local/bin` | `claude -p <task> --output-format json --permission-mode acceptEdits --allowedTools Read,Write,Edit,Glob,Grep[,Bash]` | result JSON: `usage`, `total_cost_usd`, `modelUsage`, `result` |
+| Codex CLI | `codex` (also `codex login status`) | `codex exec --json --sandbox workspace-write --ephemeral [--model M] <task>` | JSON lines: `turn.completed.usage`, final `agent_message` |
+| Gemini CLI | `gemini` (npm shim → `node …/gemini.js`) | `gemini -p <task> --output-format json --approval-mode auto_edit\|yolo`, with `GEMINI_CLI_TRUST_WORKSPACE=true` | `stats.models.*.tokens`, `response` |
+| OpenCode | `opencode` (npm shim → `opencode.exe`) | `opencode run --format json <task> [--model provider/model]` | `step_finish` events |
+
+- **Sign-in stays with the agent**: a Claude plan, a ChatGPT plan, an API key the agent manages, or OpenCode's providers. The only sign-in information Pygg shows is what the CLI's own status command prints, with anything key-shaped redacted.
+- **One worktree per run** (ADR-008): a detached Git worktree of the current commit. The user's files and branch are not touched. The result is kept as a new branch or discarded, and the worktree is removed either way.
+- **Least permission by default.** Claude Code gets only file tools; Gemini CLI gets `auto_edit`. Shell commands need **Allow** (Claude's Bash tool, Gemini's `yolo`). Codex always runs in its own `workspace-write` sandbox. Each run has a time limit (15 minutes by default), and the whole process tree is ended on timeout or cancel (`process.rs`).
+- **Honest cost.** Tokens are recorded as the agent reports them. A subscription is not billed per request, so the cost is **unknown**. An agent's own list-price estimate (Claude Code's `total_cost_usd`, OpenCode's step costs) goes into the cost's source, not into spend.
+- On Windows, npm installs `.cmd` shims. Pygg starts their target (an `.exe`, or a `.js` through Node) directly, because a free-text task cannot be quoted safely through `cmd`.
+
+Verified: live with Codex CLI 0.163.0 (ChatGPT plan) and OpenCode 1.18.4 (a free model); Claude Code 2.1.322 through the MCP server (below). Gemini CLI 0.66.0 signed in with a Google account is refused by Google ("no longer supported for Gemini Code Assist for individuals"); a Gemini API key is untested.
+
+## The MCP server and the task API (experimental, on hold)
+
+Tasks are started where people already work, by their coding agent (ADR-027). The app runs them, and is where they are watched, paid steps approved, and history kept.
+
+- **The MCP server** (`mcp.rs`) runs over stdio. The app's own program serves it as `<app> mcp`; `pygg mcp` (and `pygg-mcp`) is the same server. Tools: `pygg_run_task`, `pygg_task_status`, `pygg_task_diff`, `pygg_keep_result`, `pygg_discard_result`, `pygg_stop_task`, `pygg_list_tasks`, `pygg_agents`. The workspace is the folder the server runs in. Configuration: `PYGG_TOKEN`, and optionally `PYGG_URL` (default `http://127.0.0.1:8741`).
+
+  ```text
+  claude mcp add pygg -e PYGG_TOKEN=<key> -- "C:\path\to\Pygg.exe" mcp
+  ```
+
+- **One-click registration**: **Agents → Let Your Agent Delegate Tasks**, or `pygg mcp setup claude-code|codex|opencode`. Claude Code and Codex edit their own files through their own commands (`claude mcp add --scope user`, `codex mcp add`; removal `… mcp remove`). OpenCode's `opencode.json` is edited by Pygg. The entry is user-wide, never a project file, which would be committed with the token in it. The token may start tasks and reaches no model connection. An entry named `pygg` that Pygg did not make is left alone. **Set It Up by Hand** shows snippets for Cursor and other JSON-configured clients.
+- **Waiting.** A tool call waits at most 50 s by default, under the 60 s many MCP clients allow; the agent then calls `pygg_task_status` again. Codex needs `tool_timeout_sec` raised to wait longer, and `default_tools_approval_mode = "approve"` for `codex exec`, which cannot ask before a tool call.
+- **The task API** (`gateway/task_api.rs`): `GET /pygg/v1/agents`, `GET|POST /pygg/v1/tasks`, `GET /pygg/v1/tasks/{id}?wait=S`, `GET …/diff`, `POST …/stop|keep|discard`. The MCP server holds no state; it forwards to this API.
+- **Permission.** A key may start tasks only after the user turns on **May start tasks** (Endpoint → API Keys → Limits…; `pygg gateway client --name N --tasks yes`). A client sees and acts on only its own tasks. **There is no API to approve a paid step.**
+- **Where tasks run:** in the app. `pygg gateway serve` answers the task API with 503 unless started with `--tasks yes`, for a computer where the app is not open on that store.
+
+Verified: integration test `integrations::tests::live` with Claude Code 2.1.322, Codex CLI 0.163.0 and OpenCode 1.18.4 on scratch configuration folders (set up, listed by the agent, second set-up refused, removed, token revoked); live delegation from Codex CLI 0.163.0 (`codex exec`) and Claude Code 2.1.322 (`claude -p`) through `pygg mcp`: task run, check passed, diff read, result kept as a branch. Not yet clicked through in the app.
+
+## The task engine (experimental, on hold)
+
+`tasks.rs`. A task is a ladder of agent steps fixed when it is created (`tasks.policy_snapshot_json`), run against the workspace's **approved** checks.
+
+1. Each attempt runs one step (agent, model, tier, billing) in a fresh worktree of the task's **base commit**, so every attempt starts from the same code. `PYGG_ATTEMPT_ID` is set to the attempt's id; an agent pointed at the gateway sends it as its session header, and the gateway's entries are then tied to the attempt.
+2. The approved checks run in order and stop at the first failure. Passing means exit code 0.
+3. A failed attempt is discarded and the next step starts. What the next step is told is the task's handoff mode (ADR-030):
+   - `tail` (default): the failed check's command and the last 1,500 characters of its redacted output.
+   - `none`: the task alone.
+   - `evidence`: every earlier attempt, built by `handoff.rs` (check output cleaned, paths changed, the agent's final message marked unverified), about 6,000 characters at most. It did not save tokens, time or money in [its A/B](../benchmark/reports/2026-11-12-h1-handoff-ab.md).
+
+   An attempt that changed nothing counts as a failure. A step whose agent and model timed out on their last two runs in the past 30 minutes, with no output token, is skipped, unless it is the last step left.
+4. Checks pass: the task is `checks_passed` and waits for **Keep as Branch**, **Export Patch** or **Discard**. No approved checks, or a change to the file that defines a check (`package.json`, `Cargo.toml`): `needs_review`. Keeping a reviewed result: `manually_accepted`.
+5. **A paid step waits for approval** (ADR-010) with the cost range of the last 10 runs of that agent and model, and needs a spending cap. Claude Code gets the cap as `--max-budget-usd`; other agents are checked afterwards, and over the cap the ladder stops (`blocked`). A step's cost is Pygg's ledger when its requests went through the gateway with the attempt id, else the agent's own estimate; an unpriced request makes it unknown, never $0. A changed estimate or budget invalidates the approval. Declining blocks the task.
+6. **Daily budgets** (UTC): one for all tasks and one per workspace. A running paid step holds its cap; free, local and subscription steps do not count.
+7. **Stop** ends the running agent or check with its process tree. At start-up a task left `running` becomes `interrupted` (Retry runs that step again), and leftover worktrees are removed.
+
+Workspaces must be Git repositories and are managed on the Workspaces screen (checks, privacy, budget). A **sensitive** workspace asks before every step. Detected checks (`package.json` scripts, `cargo check`, `cargo test`) are suggestions until approved. Keep checks inside the repository: an agent may refuse to read outside its worktree.
+
+Headless:
+
+```text
+pygg agent detect
+pygg agent [--db STORE] run --agent ID --workspace DIR --prompt TEXT [--model M] [--shell yes] [--timeout SECS] [--keep TITLE | --discard yes]
+pygg agent --db STORE task --workspace DIR --prompt TEXT --steps "opencode:opencode/some-free-model,codex" [--check CMD] [--keep TITLE | --discard yes]
+pygg agent --db STORE quality [--days N]
+```
+
+Verified: unit tests in `tasks.rs` with a scripted agent in real worktrees (approvals, stop, interruption, retry); live cascades with OpenCode 1.18.4 (free model) then Codex CLI 0.163.0; a paid step approved live in the installed app, OpenCode through the gateway on Claude Haiku 5.5, its cost taken from Pygg's ledger.
 
 ## Not built yet
 
-- Codex's model catalog for the models Pygg lists (`model_catalog_json` in `pygg.config.toml`), so Codex gets `apply_patch` and real context sizes instead of its fallback metadata. Today that has to be done by hand (above).
-- A verified interactive Claude Code session answered through the gateway. The launcher (`pygg run claude`) starts one, but its only live check (2026-11-12) ended at the gateway's 422, with no provider connected; headless runs pass.
+- Codex's model catalog for the models Pygg lists, so Codex gets `apply_patch` and real context sizes.
 - Cancelling a single run on the Agents screen (tasks can be stopped).
