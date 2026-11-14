@@ -7,6 +7,7 @@
 //   - a table or block whose content is wider than its container, unless that container scrolls sideways on purpose;
 //   - anything that reaches past the right edge of the window;
 //   - a text cell squeezed to one word per line (a cell under 48 px wide holding more than one line of text).
+//   - a control a screen reader would announce by its role alone (no accessible name), checked once per state.
 // Usage: start the preview (pnpm dev, port 1431), then `node scripts/ui-overflow-check.mjs [--url http://localhost:1431]`.
 // Exit code 1 lists every finding; 0 when the layout holds; 2 when the check itself is broken. Needs Node 22+
 // (fetch and WebSocket built in, unflagged).
@@ -142,6 +143,26 @@ function inspect() {
 }
 
 let failures = 0;
+
+// Controls a screen reader announces by role alone ("button", "edit"): no text, label, aria-label or title. Read from
+// the browser's accessibility tree, the same tree Narrator reads through UI Automation.
+const NAMED_ROLES = new Set(['button', 'link', 'textbox', 'searchbox', 'combobox', 'listbox', 'checkbox', 'radio', 'switch',
+  'menuitem', 'menuitemcheckbox', 'menuitemradio', 'tab', 'slider', 'spinbutton', 'option', 'dialog', 'img']);
+async function unnamedControls(send) {
+  const tree = await send('Accessibility.getFullAXTree');
+  const out = [];
+  for (const node of tree.result?.nodes ?? []) {
+    const role = node.role?.value;
+    if (node.ignored || !NAMED_ROLES.has(role) || String(node.name?.value ?? '').trim()) continue;
+    const described = node.backendDOMNodeId
+      ? await send('DOM.resolveNode', {backendNodeId: node.backendDOMNodeId}).then(r => r.result?.object?.objectId
+        ? send('Runtime.callFunctionOn', {objectId: r.result.object.objectId, returnByValue: true,
+            functionDeclaration: 'function () { return this.outerHTML.slice(0, 160); }'}) : null)
+      : null;
+    out.push(`a ${role} with no accessible name: ${described?.result?.result?.value ?? '(no element)'}`);
+  }
+  return out;
+}
 try {
   // A page target: Edge also lists its extensions' background pages.
   let target;
@@ -159,6 +180,8 @@ try {
     if (message.id && pending.has(message.id)) { pending.get(message.id)(message); pending.delete(message.id); }
   };
   const send = (method, params = {}) => new Promise(resolve => { const n = ++id; pending.set(n, resolve); ws.send(JSON.stringify({id: n, method, params})); });
+  await send('DOM.enable');
+  await send('Accessibility.enable');
   // Waits until the screen has drawn: its content is there and nothing in it is still loading (up to 10 s).
   const settle = async () => {
     for (let i = 0; i < 40; i++) {
@@ -218,6 +241,8 @@ ${run.screen}, ${run.name}, ${width} × ${height}: not reached (no ${run.expect}
       }
       const result = await send('Runtime.evaluate', {expression: `(${inspect.toString()})()`, returnByValue: true});
       const found = result.result?.result?.value ?? [`could not inspect: ${JSON.stringify(result.result?.exceptionDetails ?? result.error)}`];
+      // Once per state (at the first size): what a screen reader such as Narrator gets from the accessibility tree.
+      if (width === sizes[0][0] && height === sizes[0][1]) found.push(...await unnamedControls(send));
       const label = `${run.screen}, ${run.name}, ${width} × ${height}`;
       if (found.length) {
         failures += found.length;
@@ -235,5 +260,5 @@ ${label}:`);
   await sleep(300);
   try { rmSync(profile, {recursive: true, force: true}); } catch { /* the browser may still hold it */ }
 }
-console.log(failures ? `\n${failures} layout problems.` : '\nThe layout holds on every screen.');
+console.log(failures ? `\n${failures} layout or naming problems.` : '\nThe layout holds on every screen, and every control has a name.');
 process.exit(failures ? 1 : 0);
