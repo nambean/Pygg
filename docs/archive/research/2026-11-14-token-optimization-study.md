@@ -1,6 +1,6 @@
 # Token optimisation in OmniRoute and other open-source tools, and what Pygg could build, 2026-11-14
 
-> **Status:** Research · the owner asked to keep studying OmniRoute and open-source token-saving tools and to discuss features and UI/UX with Codex · discussion: [Codex review 5](../reviews/2026-11-14-codex-token-optimization-discussion.md) · earlier: [OmniRoute feature research](../OMNIROUTE_FEATURE_RESEARCH.md), [OmniRoute docs study](2026-11-13-omniroute-docs-study.md), [ROADMAP P1-4](../ROADMAP.md)
+> **Status:** Research · the owner asked to keep studying OmniRoute and open-source token-saving tools and to discuss features and UI/UX with Codex · discussion: [Codex review 5](../../reviews/2026-11-14-codex-token-optimization-discussion.md) · earlier: [OmniRoute feature research](../OMNIROUTE_FEATURE_RESEARCH.md), [OmniRoute docs study](2026-11-13-omniroute-docs-study.md), [ROADMAP P1-4](../../ROADMAP.md)
 
 Upstream figures below are the projects' own claims unless marked as measured. None was run here.
 
@@ -42,7 +42,7 @@ The aggregate counters do not say which model the OpenCode run's uncached input 
 - Explicit sessions are pinned to the model that answered (`x-smarttaskrouter-session`), for two hours since last use per client, session and requested route. `pygg run claude` already sends a fresh id per launch (`cli/run.rs`, `launcher.rs`). The OpenCode and Codex setups map the header to `PYGG_ATTEMPT_ID`, which is set only inside Pygg tasks, so their ordinary launches send none; the manual OpenCode example on Home uses the literal `opencode`, which groups unrelated conversations. The decision of 2026-11-11 says never to derive a session from a prompt hash ([UNIVERSAL_SHARED_MEMORY.md](../UNIVERSAL_SHARED_MEMORY.md)).
 - Repeated tool output is measured in shadow (`gateway/shadow.rs`): identical tool-output text repeated within one request, 200 characters or more, at characters / 4. It does not know the cache position. Nothing is removed.
 - A dropped cache hint is returned in a response header, not kept for Usage; top-level automatic caching is not detected.
-- Savings are an estimate against a chosen baseline with coverage counts ([Codex review 3](../reviews/2026-11-13-codex-screens-savings-npm-review.md)).
+- Savings are an estimate against a chosen baseline with coverage counts ([Codex review 3](../../reviews/2026-11-13-codex-screens-savings-npm-review.md)).
 
 ## 4. Candidates for discussion
 
@@ -66,4 +66,4 @@ The aggregate counters do not say which model the OpenCode run's uncached input 
 | **LiteLLM prompt caching** ([docs](https://docs.litellm.ai/docs/tutorials/prompt_caching)) | `cache_control_injection_points`, and a flag that adds Anthropic cache checkpoints for clients that never set them; never double-injects; warns that injecting on Gemini switches it to paid explicit caching | **Built (ADR-036)**: Pygg turns on Anthropic's automatic caching for translated agent turns to Anthropic's own API, never on Gemini or other providers |
 | **Anthropic's caching guidance** | A top-level `cache_control` caches up to the last block and moves with the conversation (one of four breakpoints, 1.25x write, read at 0.05-0.1x); try the stronger model at lower effort before a cascade, because a cascade forfeits cache reuse | The basis of ADR-036 |
 
-The settled approach is [ADR-036](../DECISIONS.md): keep the cache, route per session, measure before compressing.
+The settled approach is [ADR-036](../../DECISIONS.md): keep the cache, route per session, measure before compressing.

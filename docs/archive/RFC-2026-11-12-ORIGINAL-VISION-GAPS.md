@@ -20,7 +20,7 @@ Most are present as old reference designs or ROADMAP E/P1/D entries; **being doc
 
 ### Source hierarchy and scope conflict
 
-- [Documentation index](README.md), [ROADMAP](ROADMAP.md) and [Implementation Status](IMPLEMENTATION-STATUS.md) remain authoritative about sequence and actual verification; [Decisions](DECISIONS.md) controls accepted ADRs.
+- [Documentation index](../README.md), [ROADMAP](../ROADMAP.md) and [Implementation Status](../IMPLEMENTATION-STATUS.md) remain authoritative about sequence and actual verification; [Decisions](../DECISIONS.md) controls accepted ADRs.
 - **ADR-026:** Only official agent CLIs with their own authorized sign-in; **no credential/session/cookie/OAuth bridge**, no sharing those sign-ins through the gateway.
 - **ADR-027:** Users delegate tasks from their IDE/agent; Pygg monitors, runs, approves and reviews. The desktop is **not another IDE**.
 - **ADR-028:** No app-owned Auto Chat. ADR-017/018's consumer chat and app-managed turn-by-turn conversational memory are **withdrawn**. This document **does not silently reverse that decision**.
@@ -378,9 +378,9 @@ Answer **these decision questions explicitly**:
 
 ## Related existing documents
 
-- [docs index](README.md), [ROADMAP](ROADMAP.md), [Implementation Status](IMPLEMENTATION-STATUS.md), [Decisions](DECISIONS.md), [Architecture](ARCHITECTURE.md), [Security](SECURITY.md), [Agents and task engine](AGENTS.md).
+- [docs index](../README.md), [ROADMAP](../ROADMAP.md), [Implementation Status](../IMPLEMENTATION-STATUS.md), [Decisions](../DECISIONS.md), [Architecture](../ARCHITECTURE.md), [Security](../SECURITY.md), [Agents and task engine](../AGENTS.md).
 - [Withdrawn Universal Shared Memory proposal](UNIVERSAL_SHARED_MEMORY.md) — source of the original memory concept, **not active authority**.
 - [CLI / IDE / npm / tiers reference](CLI_IDE_NPM_PROVIDER_TIERS.md), [authorized account rotation reference](ACCOUNT_API_ROTATION.md), [OmniRoute features assessment](OMNIROUTE_FEATURE_RESEARCH.md), [historical functional plan](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md).
-- [N2 measured benchmark](../benchmark/reports/2026-11-12-n2-savings.md) and [2026-11-12 owner progress report](reports/2026-11-12-progress.md).
+- [N2 measured benchmark](../../benchmark/reports/2026-11-12-n2-savings.md) and [2026-11-12 owner progress report](../reports/2026-11-12-progress.md).
 
 **End of RFC. This file makes no code-delivery, supported npm package, seamless external-chat memory, universal provider compatibility or generalized savings claim.**

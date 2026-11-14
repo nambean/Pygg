@@ -1,6 +1,6 @@
 # How OmniRoute documents itself, and what Pygg should borrow
 
-> **Status:** Reference · a study of OmniRoute's and 9router's documentation layout, with a proposed `docs/` layout for Pygg's open-source release · written 2026-11-13 · order: [ROADMAP](../ROADMAP.md) · built: [Implementation Status](../IMPLEMENTATION-STATUS.md)
+> **Status:** Reference · a study of OmniRoute's and 9router's documentation layout, with a proposed `docs/` layout for Pygg's open-source release · written 2026-11-13 · order: [ROADMAP](../../ROADMAP.md) · built: [Implementation Status](../../IMPLEMENTATION-STATUS.md)
 
 This study is about documentation only. What Pygg took from OmniRoute's features, and what it rejected, is in [OMNIROUTE_FEATURE_RESEARCH.md](../OMNIROUTE_FEATURE_RESEARCH.md). Their text was read as data; nothing here is copied from it.
 
@@ -121,28 +121,28 @@ packages/npm/PUBLISHING.md     how the npm preview is published
 **A newcomer who wants to use Pygg**
 
 1. The root README's status block and "How it works for a user".
-2. [GETTING-STARTED.md](../GETTING-STARTED.md), top to bottom, stopping at their coding tool.
-3. [PROVIDERS.md](../PROVIDERS.md) when choosing a provider, for free tiers and which have answered live.
-4. [SECURITY.md](../SECURITY.md) before pasting a key, for where it is kept.
+2. [GETTING-STARTED.md](../../GETTING-STARTED.md), top to bottom, stopping at their coding tool.
+3. [PROVIDERS.md](../../PROVIDERS.md) when choosing a provider, for free tiers and which have answered live.
+4. [SECURITY.md](../../SECURITY.md) before pasting a key, for where it is kept.
 5. The in-app Guide, which repeats the steps with the commands ready to copy.
 
 **A contributor**
 
-1. [CONTRIBUTING.md](../../CONTRIBUTING.md): order, status, tests, money, writing, commits.
-2. [ARCHITECTURE.md](../ARCHITECTURE.md): a request's path, a task's path, where to change what.
-3. [IMPLEMENTATION-STATUS.md](../IMPLEMENTATION-STATUS.md): what exists, and what is not verified, before touching it.
-4. [ROADMAP.md](../ROADMAP.md): whether the change is in order.
-5. [DECISIONS.md](../DECISIONS.md): the ADR that bounds the area, by number.
-6. [SCHEMA.md](../SCHEMA.md) and [AGENTS.md](../AGENTS.md) when the change touches the store or the task engine.
+1. [CONTRIBUTING.md](../../../CONTRIBUTING.md): order, status, tests, money, writing, commits.
+2. [ARCHITECTURE.md](../../ARCHITECTURE.md): a request's path, a task's path, where to change what.
+3. [IMPLEMENTATION-STATUS.md](../../IMPLEMENTATION-STATUS.md): what exists, and what is not verified, before touching it.
+4. [ROADMAP.md](../../ROADMAP.md): whether the change is in order.
+5. [DECISIONS.md](../../DECISIONS.md): the ADR that bounds the area, by number.
+6. [SCHEMA.md](../../SCHEMA.md) and [AGENTS.md](../../AGENTS.md) when the change touches the store or the task engine.
 
 **A reviewer**
 
-1. [IMPLEMENTATION-STATUS.md](../IMPLEMENTATION-STATUS.md), in particular "Not verified yet" and "Designed, not built".
-2. [ROADMAP.md](../ROADMAP.md), the P0 status table and the release gates.
-3. [SECURITY.md](../SECURITY.md), "Not covered yet".
-4. [benchmark/reports](../../benchmark/reports): each run's method, cost and raw results.
-5. [reviews/](../reviews): what earlier reviewers objected to and what was answered, so an objection is not raised twice.
-6. [DECISIONS.md](../DECISIONS.md) for the owner's decisions a review must not reopen (ADR-026, ADR-027, ADR-028).
+1. [IMPLEMENTATION-STATUS.md](../../IMPLEMENTATION-STATUS.md), in particular "Not verified yet" and "Designed, not built".
+2. [ROADMAP.md](../../ROADMAP.md), the P0 status table and the release gates.
+3. [SECURITY.md](../../SECURITY.md), "Not covered yet".
+4. [benchmark/reports](../../../benchmark/reports): each run's method, cost and raw results.
+5. [reviews/](../../reviews): what earlier reviewers objected to and what was answered, so an objection is not raised twice.
+6. [DECISIONS.md](../../DECISIONS.md) for the owner's decisions a review must not reopen (ADR-026, ADR-027, ADR-028).
 
 ## 6. Done in this change, and what is left
 

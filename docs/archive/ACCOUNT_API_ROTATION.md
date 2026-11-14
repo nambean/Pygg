@@ -1,6 +1,6 @@
 # Multi-Account and API Key Rotation — Account Pool Router
 
-> **Status:** Reference · account pool specification; partly built: pools of separate accounts (ADR-034) and of web sessions (ADR-035), the other strategies are ROADMAP E · reviewed 2026-11-13 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+> **Status:** Reference · account pool specification; partly built: pools of separate accounts (ADR-034) and of web sessions (ADR-035), the other strategies are ROADMAP E · reviewed 2026-11-13 · order: [ROADMAP](../ROADMAP.md) · built: [Implementation Status](../IMPLEMENTATION-STATUS.md)
 
 > **Update 2026-11-11 (ADR-026):** account pools apply to API-key and token-plan connections only. Subscriptions are used through the vendors' agent CLIs with their own sign-in, which Pygg never reads, so subscription sessions are not pooled or rotated. References to consumer Auto Chat, and to Universal Shared Memory context packages and handoff (§3, §6), no longer apply (ADR-028); pools would serve gateway clients, under the gateway's explicit session affinity (P0-4).
 

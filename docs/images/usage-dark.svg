@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 340" width="940" height="340" role="img" aria-labelledby="ut ud">
+<title id="ut">Using Pygg</title>
+<desc id="ud">A terminal installs the Pygg command line with npm install -g @pygg/cli@dev, checks with pygg status that Pygg's gateway answers on http://127.0.0.1:8741, gives Claude Code its own Pygg key with pygg setup claude, and starts Claude Code through Pygg with pygg run claude and the model auto. The gateway sends each request to one of the providers you connected: free and cheap models, your plans, local models such as Ollama, or opt-in web sessions behind a guard.</desc>
+<defs>
+<linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d1117"/><stop offset="1" stop-color="#101a15"/></linearGradient>
+<filter id="soft" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="rgba(0,0,0,.45)"/></filter>
+<filter id="glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="7"/></filter>
+</defs>
+<style>
+svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans",Helvetica,Arial,sans-serif}
+.mono{font-family:ui-monospace,SFMono-Regular,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace}
+.tt{fill:#e6edf3;font-size:13px}
+.tm{fill:#7d8a90;font-size:12.5px}
+.tok{fill:#3fbf7f;font-size:12.5px}
+.pr{fill:#3fbf7f;font-size:13px;font-weight:700}
+.lbl{fill:#e6edf3;font-size:13.5px;font-weight:600}
+.sub{fill:#9198a1;font-size:12px}
+.cap{fill:#9198a1;font-size:11px;font-weight:600;letter-spacing:.1em}
+.node{fill:#151b23;stroke:#2a333d;stroke-width:1.2}
+.wire{stroke:#4d5864;stroke-width:1.4;fill:none}
+.pulse{stroke:#2fb170;stroke-width:2.6;fill:none;stroke-linecap:round;stroke-dasharray:14 400;stroke-dashoffset:414}
+.anim{opacity:0}
+@keyframes l0{0%{opacity:0}0.5%{opacity:0}1.1%{opacity:1}95%{opacity:1}95.6%{opacity:0}100%{opacity:0}}@keyframes c0{0%{transform:translate(0px,0px)}2%{transform:translate(0px,0px);animation-timing-function:steps(28,end)}10%{transform:translate(225.2px,0px)}100%{transform:translate(225.2px,0px)}}@keyframes k0{0%{opacity:0}0.5%{opacity:0}1.1%{opacity:1}11%{opacity:1}11.6%{opacity:0}100%{opacity:0}}.l0{animation:l0 16s infinite}.c0{animation:c0 16s infinite}.k0{animation:k0 16s infinite}@keyframes l1{0%{opacity:0}16.5%{opacity:0}17.1%{opacity:1}95%{opacity:1}95.6%{opacity:0}100%{opacity:0}}@keyframes c1{0%{transform:translate(0px,0px)}18%{transform:translate(0px,0px);animation-timing-function:steps(11,end)}22%{transform:translate(90.9px,0px)}100%{transform:translate(90.9px,0px)}}@keyframes k1{0%{opacity:0}16.5%{opacity:0}17.1%{opacity:1}23%{opacity:1}23.6%{opacity:0}100%{opacity:0}}.l1{animation:l1 16s infinite}.c1{animation:c1 16s infinite}.k1{animation:k1 16s infinite}@keyframes l2{0%{opacity:0}30.5%{opacity:0}31.1%{opacity:1}95%{opacity:1}95.6%{opacity:0}100%{opacity:0}}@keyframes c2{0%{transform:translate(0px,0px)}32%{transform:translate(0px,0px);animation-timing-function:steps(17,end)}38%{transform:translate(138.3px,0px)}100%{transform:translate(138.3px,0px)}}@keyframes k2{0%{opacity:0}30.5%{opacity:0}31.1%{opacity:1}39%{opacity:1}39.6%{opacity:0}100%{opacity:0}}.l2{animation:l2 16s infinite}.c2{animation:c2 16s infinite}.k2{animation:k2 16s infinite}@keyframes l3{0%{opacity:0}50.5%{opacity:0}51.1%{opacity:1}95%{opacity:1}95.6%{opacity:0}100%{opacity:0}}@keyframes c3{0%{transform:translate(0px,0px)}52%{transform:translate(0px,0px);animation-timing-function:steps(15,end)}57%{transform:translate(122.5px,0px)}100%{transform:translate(122.5px,0px)}}@keyframes k3{0%{opacity:0}50.5%{opacity:0}51.1%{opacity:1}58%{opacity:1}58.6%{opacity:0}100%{opacity:0}}.l3{animation:l3 16s infinite}.c3{animation:c3 16s infinite}.k3{animation:k3 16s infinite}@keyframes o0{0%{opacity:0}12%{opacity:0}12.6%{opacity:1}95%{opacity:1}95.6%{opacity:0}100%{opacity:0}}.o0{animation:o0 16s infinite}@keyframes o1{0%{opacity:0}24%{opacity:0}24.6%{opacity:1}95%{opacity:1}95.6%{opacity:0}100%{opacity:0}}.o1{animation:o1 16s infinite}@keyframes o2{0%{opacity:0}40%{opacity:0}40.6%{opacity:1}95%{opacity:1}95.6%{opacity:0}100%{opacity:0}}.o2{animation:o2 16s infinite}@keyframes o3{0%{opacity:0}42%{opacity:0}42.6%{opacity:1}95%{opacity:1}95.6%{opacity:0}100%{opacity:0}}.o3{animation:o3 16s infinite}@keyframes o4{0%{opacity:0}59%{opacity:0}59.6%{opacity:1}95%{opacity:1}95.6%{opacity:0}100%{opacity:0}}.o4{animation:o4 16s infinite}@keyframes dim{0%{opacity:.45}24%{opacity:.45}26%{opacity:1}95%{opacity:1}97%{opacity:.45}100%{opacity:.45}}.hub{animation:dim 16s infinite}@keyframes flowing{0%{opacity:0}59%{opacity:0}59.6%{opacity:1}95%{opacity:1}95.6%{opacity:0}100%{opacity:0}}.flowing{animation:flowing 16s infinite}@keyframes blink{0%{opacity:1}50%{opacity:0}100%{opacity:1}}.blink{animation:blink 1s steps(1,end) infinite}@keyframes sel{0%{stroke-dashoffset:414;opacity:1}25%{stroke-dashoffset:0;opacity:1}25.5%{opacity:0}100%{opacity:0;stroke-dashoffset:0}}@keyframes halo{0%{opacity:.14}50%{opacity:.3}100%{opacity:.14}}@keyframes flowS{0%{stroke-dashoffset:154}100%{stroke-dashoffset:0}}@media (prefers-reduced-motion:reduce){*{animation:none!important}.anim{opacity:1}.hub{opacity:1}.pulse{opacity:0!important}.c0>rect,.c1>rect,.c2>rect,.c3>rect{opacity:0}.k0,.k1,.k2,.k3{opacity:0}.halo{opacity:.2}}</style>
+<rect width="940" height="340" rx="16" fill="url(#bgGrad)"/>
+<g filter="url(#soft)"><rect x="16" y="16" width="446" height="308" rx="14" fill="#0a0f0d" stroke="#22302a"/></g>
+<circle cx="36" cy="36" r="4.5" fill="#e5534b"/><circle cx="51" cy="36" r="4.5" fill="#d29922"/><circle cx="66" cy="36" r="4.5" fill="#3fbf7f"/>
+<text class="tm mono" x="239" y="40" text-anchor="middle" style="font-size:11.5px">~/my-project</text>
+<circle cx="404" cy="36" r="3" fill="#3fbf7f"/><text class="tm" x="412" y="40" style="font-size:10px;letter-spacing:.12em;font-weight:600">LOCAL</text>
+<path d="M16 54H462" stroke="#22302a"/>
+<clipPath id="termClip"><rect x="17" y="55" width="444" height="268" rx="12"/></clipPath>
+<g clip-path="url(#termClip)"><g class="anim l0"><text class="pr mono" x="38" y="82">$</text><text class="tt mono" x="54" y="82">npm install -g @pygg/cli@dev</text>
+<g class="c0"><rect x="53" y="68" width="406" height="19" fill="#0a0f0d"/><g class="anim k0"><rect class="blink" x="54" y="70" width="7.5" height="15" fill="#3fbf7f"/></g></g></g><g class="anim l1"><text class="pr mono" x="38" y="138">$</text><text class="tt mono" x="54" y="138">pygg status</text>
+<g class="c1"><rect x="53" y="124" width="406" height="19" fill="#0a0f0d"/><g class="anim k1"><rect class="blink" x="54" y="126" width="7.5" height="15" fill="#3fbf7f"/></g></g></g><g class="anim l2"><text class="pr mono" x="38" y="194">$</text><text class="tt mono" x="54" y="194">pygg setup claude</text>
+<g class="c2"><rect x="53" y="180" width="406" height="19" fill="#0a0f0d"/><g class="anim k2"><rect class="blink" x="54" y="182" width="7.5" height="15" fill="#3fbf7f"/></g></g></g><g class="anim l3"><text class="pr mono" x="38" y="270">$</text><text class="tt mono" x="54" y="270">pygg run claude</text>
+<g class="c3"><rect x="53" y="256" width="406" height="19" fill="#0a0f0d"/><g class="anim k3"><rect class="blink" x="54" y="258" width="7.5" height="15" fill="#3fbf7f"/></g></g></g><text class="anim o0 tm mono" x="54" y="104"># 0.1.0-dev.1 (tag dev): Windows and Linux</text><text class="anim o1 tok mono" x="54" y="160">Gateway   http://127.0.0.1:8741 answers</text><text class="anim o2 tok mono" x="54" y="216">✓ Its own Pygg key; no file changes</text><text class="anim o3 tm mono" x="54" y="236">Next: pygg run claude</text><text class="anim o4 tok mono" x="54" y="292">→ Claude Code through Pygg, model auto</text></g>
+<rect x="480" y="16" width="444" height="308" rx="14" fill="#161b22" stroke="#2a333d" opacity=".7"/>
+<text class="cap" x="498" y="44">ROUTES YOUR TOOLS TO YOUR PROVIDERS</text>
+<g class="hub">
+<path class="wire" d="M554 168H614"/>
+<g class="anim flowing"><path class="pulse" d="M554 168H614" style="stroke-dasharray:14 140;animation:flowS 1.5s linear infinite"/></g>
+<path class="wire" d="M682 168C718 168 688 76 728 76"/><path class="wire" d="M682 168C718 168 688 136 728 136"/><path class="wire" d="M682 168C718 168 688 196 728 196"/><path class="wire" d="M682 168C718 168 688 256 728 256"/>
+<g class="anim flowing"><path class="pulse" d="M682 168C718 168 688 76 728 76" style="opacity:0;animation:sel 6s 0.0s linear infinite"/><path class="pulse" d="M682 168C718 168 688 136 728 136" style="opacity:0;animation:sel 6s 1.5s linear infinite"/><path class="pulse" d="M682 168C718 168 688 196 728 196" style="opacity:0;animation:sel 6s 3.0s linear infinite"/><path class="pulse" d="M682 168C718 168 688 256 728 256" style="opacity:0;animation:sel 6s 4.5s linear infinite"/></g>
+<rect x="506" y="144" width="48" height="48" rx="12" class="node"/>
+<path d="M521 161l7 7-7 7M531 176h9" stroke="#e6edf3" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text class="sub" x="530" y="212" text-anchor="middle">Your tools</text>
+<text class="sub" x="530" y="228" text-anchor="middle" style="font-size:10.5px">Claude Code · Codex</text>
+<circle cx="648" cy="168" r="46" fill="#2fb170" filter="url(#glow)" class="halo" style="opacity:.2;animation:halo 3.2s ease-in-out infinite"/>
+<rect x="614" y="134" width="68" height="68" rx="18" fill="#151b23" stroke="#2fb170" stroke-width="1.6"/>
+<rect x="622" y="142" width="52" height="52" rx="13" fill="#11291c"/>
+<path d="M635 159h14a8 8 0 0 1 0 16h-8v9" stroke="#2fb170" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="654" cy="183" r="3" fill="#2fb170"/>
+<text class="lbl" x="648" y="226" text-anchor="middle">Pygg gateway</text>
+<text class="sub mono" x="648" y="242" text-anchor="middle" style="font-size:11px">model: auto</text>
+<g><rect x="728" y="54" width="182" height="44" rx="10" class="node"/><circle cx="898" cy="76" r="3" fill="#2fb170"/>
+<text class="lbl" x="740" y="73" style="font-size:12.5px">Free and cheap models</text><text class="sub" x="740" y="89" style="font-size:11px">Gemini, OpenRouter, Groq …</text></g><g><rect x="728" y="114" width="182" height="44" rx="10" class="node"/><circle cx="898" cy="136" r="3" fill="#2fb170"/>
+<text class="lbl" x="740" y="133" style="font-size:12.5px">Your plans</text><text class="sub" x="740" y="149" style="font-size:11px">subscription keys</text></g><g><rect x="728" y="174" width="182" height="44" rx="10" class="node"/><circle cx="898" cy="196" r="3" fill="#2fb170"/>
+<text class="lbl" x="740" y="193" style="font-size:12.5px">Local models</text><text class="sub" x="740" y="209" style="font-size:11px">Ollama, on this PC</text></g><g><rect x="728" y="234" width="182" height="44" rx="10" class="node"/><circle cx="898" cy="256" r="3" fill="#2fb170"/>
+<text class="lbl" x="740" y="253" style="font-size:12.5px">Web sessions</text><text class="sub" x="740" y="269" style="font-size:11px">opt-in, text only, guarded</text></g>
+</g>
+</svg>

@@ -2,7 +2,7 @@
 
 > **Status:** Current · architecture decision records (ADR-001 to ADR-034) · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
 
-Architecture decision records, in the style of DownFetch's `docs/DECISIONS.md`. Each decision says what was chosen, why, and what it costs. The product plan is [SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md); the screen design is [design/SCREENS.md](design/SCREENS.md).
+Architecture decision records, in the style of DownFetch's `docs/DECISIONS.md`. Each decision says what was chosen, why, and what it costs. The product plan is [SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md](archive/SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md); the screen design is [design/SCREENS.md](design/SCREENS.md).
 
 ## ADR-001 — Windows first, macOS next
 
@@ -146,7 +146,7 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Why:** switching models inside long conversations otherwise loses context or requires expensive replay; memories must belong to the user, not one provider.
 
-**Status:** withdrawn as an app feature by ADR-028 (no Auto Chat in the app); not implemented. Specification kept for reference: [UNIVERSAL_SHARED_MEMORY.md](UNIVERSAL_SHARED_MEMORY.md).
+**Status:** withdrawn as an app feature by ADR-028 (no Auto Chat in the app); not implemented. Specification kept for reference: [UNIVERSAL_SHARED_MEMORY.md](archive/UNIVERSAL_SHARED_MEMORY.md).
 
 ## ADR-018 — Cache-aware model affinity with no per-turn model picker (proposed)
 
@@ -154,7 +154,7 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Why:** a cheaper output-token price may be overwhelmed by cache loss and rehydration cost; uninterrupted user experience is central to an AI Cost Optimizer.
 
-**Status:** withdrawn by ADR-028 (no Auto Chat in the app). Cache-aware affinity for gateway clients remains as P1-3. Reference: [UNIVERSAL_SHARED_MEMORY.md](UNIVERSAL_SHARED_MEMORY.md).
+**Status:** withdrawn by ADR-028 (no Auto Chat in the app). Cache-aware affinity for gateway clients remains as P1-3. Reference: [UNIVERSAL_SHARED_MEMORY.md](archive/UNIVERSAL_SHARED_MEMORY.md).
 
 ## ADR-019 — Gateway-first is current, benchmark-first order superseded
 
@@ -166,19 +166,19 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Decision:** UI groups accounts and models under Free, Subscription, API Paid, Local and Unknown, while keeping connection/auth method separate. A provider can have models in multiple tiers. Capability, pricing and quota are recorded per account-model with provenance and timestamps. Unknown is not free. Subscription entitlements are only used through verified provider-supported methods.
 
-**Status:** partly built: billing (Free, Local, Subscription, Paid, Unknown) is set per connection and per model, with its source; the tier-grouped Providers views and an account-model entitlement schema are not (ROADMAP E). See [CLI / IDE / npm / tiers](CLI_IDE_NPM_PROVIDER_TIERS.md).
+**Status:** partly built: billing (Free, Local, Subscription, Paid, Unknown) is set per connection and per model, with its source; the tier-grouped Providers views and an account-model entitlement schema are not (ROADMAP E). See [CLI / IDE / npm / tiers](archive/CLI_IDE_NPM_PROVIDER_TIERS.md).
 
 ## ADR-021 — Headless Rust CLI and npm launcher (proposed; built as ADR-030 and ADR-037)
 
 **Decision:** reuse the same Rust gateway for desktop and a headless `str` CLI; npm/npx publishes a small launcher with verified platform binaries, not a second Node gateway. Ownership of the prospective npm package name is unverified; no released package is implied.
 
-**Status:** proposed. See [CLI / IDE / npm / tiers](CLI_IDE_NPM_PROVIDER_TIERS.md).
+**Status:** proposed. See [CLI / IDE / npm / tiers](archive/CLI_IDE_NPM_PROVIDER_TIERS.md).
 
 ## ADR-022 — Integration contract matrix and safe setup (proposed)
 
 **Decision:** user-enabled, version-tested CLI/IDE setup with scoped gateway token, config backup/restore and feature-based tests. Do not claim compatibility for unsupported client APIs or route proprietary subscription credentials through unrelated clients.
 
-**Status:** proposed. See [CLI / IDE / npm / tiers](CLI_IDE_NPM_PROVIDER_TIERS.md).
+**Status:** proposed. See [CLI / IDE / npm / tiers](archive/CLI_IDE_NPM_PROVIDER_TIERS.md).
 
 ## ADR-023 — Authorized multi-account rotation with session affinity (proposed; built as ADR-034 and ADR-038)
 
@@ -186,7 +186,7 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Safety:** do not use account/key/IP rotation to circumvent bans, quotas, subscription terms, shared tenant limits or user authorization. Do not silently change an active agent attempt, tool call or stream. 401 and 403 are not normal transient errors.
 
-**Status:** partly built: client allowlists, quota groups, spend reservations, cooldowns and a circuit breaker with a probe; account pools are not (ROADMAP E). See [ACCOUNT_API_ROTATION.md](ACCOUNT_API_ROTATION.md).
+**Status:** partly built: client allowlists, quota groups, spend reservations, cooldowns and a circuit breaker with a probe; account pools are not (ROADMAP E). See [ACCOUNT_API_ROTATION.md](archive/ACCOUNT_API_ROTATION.md).
 
 ## ADR-024 — OmniRoute feature shortlist and validation gates (2026-11-11)
 
@@ -196,7 +196,7 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Evidence:** documentation and public source references inspected; no local OmniRoute benchmark executed. No production savings or completed integration claimed.
 
-**Implementation gate:** provider-verified entitlements, no privacy or budget bypass, safe rollback and controlled quality/cost-per-success evaluation. See [research and detailed adoption matrix](OMNIROUTE_FEATURE_RESEARCH.md).
+**Implementation gate:** provider-verified entitlements, no privacy or budget bypass, safe rollback and controlled quality/cost-per-success evaluation. See [research and detailed adoption matrix](archive/OMNIROUTE_FEATURE_RESEARCH.md).
 
 
 ## ADR-025 — Cost-safe gateway parity and owned vs external memory boundary (accepted; P0 built)
@@ -223,7 +223,7 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Decision:** Most people will not treat a router app as an IDE. Smart tasks are started where people already work: their coding agent calls Pygg's MCP server (`<app> mcp`), which forwards to the gateway's task API. The app runs the tasks and is where they are watched, paid steps are approved, and results are reviewed; New Task in the app stays as a manual fallback. A client needs the user's **May start tasks** permission, sees only its own tasks, and cannot approve a paid step (ADR-010).
 
-**Supersedes:** the parts of [SCREENS.md](design/SCREENS.md) and the [functional plan](SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md) that assume the user composes and plans tasks in the app first (Analyze Task, Plan/Run/Result as the primary path). Status: built and verified from real Codex and Claude Code sessions. See [AGENTS.md](AGENTS.md#from-the-ide-pygg-mcp-and-the-task-api).
+**Supersedes:** the parts of [SCREENS.md](design/SCREENS.md) and the [functional plan](archive/SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md) that assume the user composes and plans tasks in the app first (Analyze Task, Plan/Run/Result as the primary path). Status: built and verified from real Codex and Claude Code sessions. See [AGENTS.md](AGENTS.md#from-the-ide-pygg-mcp-and-the-task-api).
 
 ## ADR-028 — MIT licence, a $5 benchmark budget, and no Auto Chat in the app (2026-11-11)
 
@@ -244,7 +244,7 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 ## ADR-030 — The original-vision RFC: a task handoff inside ADR-028, the integrations hub next (2026-11-12)
 
-**Context:** the owner's [RFC](RFC-2026-11-12-ORIGINAL-VISION-GAPS.md) listed eleven gaps (PV-01 to PV-11) against the original vision, a [counter-review](reviews/2026-11-12-original-vision-gaps-response.md) answered it, and the owner's [open-source study](research/2026-11-12-open-source-adoption-study.md) corrected the counter-review. On 2026-11-12 the owner told the chief architect to decide and carry out what was agreed, and to answer the rest. The decisions are in the [architect's response](reviews/2026-11-12-oss-patterns-response.md).
+**Context:** the owner's [RFC](archive/RFC-2026-11-12-ORIGINAL-VISION-GAPS.md) listed eleven gaps (PV-01 to PV-11) against the original vision, a [counter-review](reviews/2026-11-12-original-vision-gaps-response.md) answered it, and the owner's [open-source study](archive/research/2026-11-12-open-source-adoption-study.md) corrected the counter-review. On 2026-11-12 the owner told the chief architect to decide and carry out what was agreed, and to answer the rest. The decisions are in the [architect's response](reviews/2026-11-12-oss-patterns-response.md).
 
 **Decisions:**
 - **A task handoff is what ADR-028 already keeps** ("the bounded summary a failed attempt hands to the next step"). A richer one is built (H1), and it holds only for that task: it is bounded, built from what Pygg recorded, and shown to the user. It is never kept across tasks, never shown as memory, and never sent through the gateway. It ships **off by default** and becomes the default only if its A/B says so. This clarifies ADR-028; it does not reverse it.
@@ -317,7 +317,7 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Context:** some AI services have no API and are offered only behind an account sign-in on their website or app. The first one the owner named is [Muse](https://muse.ai) (Meta's personal AI agent: web, app and WhatsApp; sign-in with a phone number or email; no public API). ADR-026, ADR-034 and OR-16 refused web-session bridges. The owner, 2026-11-12: support the cases that have only a sign-in session, and warn the user that it puts their account at risk; the sign-in may be kept, since it never leaves the user's machine.
 
-**How other routers do it** ([research notes](research/2026-11-12-web-session-routers.md), from their source): 9router (MIT) has `muse-web` and seven other web providers, OmniRoute (MIT) has 37. The user pastes cookies into their dashboard (9router's `muse-web` asks for `hatch_sess`, `hatch_gw`, `hatch_vml`, `hatch_native_auth_device`), they are kept in the router's SQLite file, and where a site's own web API is simple they call it over HTTP; for the hard ones (ChatGPT, Gemini and Muse) they drive a pooled Playwright Chromium loaded with those cookies, with stealth builds and other anti-bot measures. 9router's `muse-web` opens a new chat per request, refuses tools, streams by reading the reply every 300 ms, and clicks **deny** on every approval Muse asks for. Meta also has an official API for its Muse models (`https://api.meta.ai/v1`, OpenAI and Anthropic formats, pay as you go); the muse.ai agent app has none.
+**How other routers do it** ([research notes](archive/research/2026-11-12-web-session-routers.md), from their source): 9router (MIT) has `muse-web` and seven other web providers, OmniRoute (MIT) has 37. The user pastes cookies into their dashboard (9router's `muse-web` asks for `hatch_sess`, `hatch_gw`, `hatch_vml`, `hatch_native_auth_device`), they are kept in the router's SQLite file, and where a site's own web API is simple they call it over HTTP; for the hard ones (ChatGPT, Gemini and Muse) they drive a pooled Playwright Chromium loaded with those cookies, with stealth builds and other anti-bot measures. 9router's `muse-web` opens a new chat per request, refuses tools, streams by reading the reply every 300 ms, and clicks **deny** on every approval Muse asks for. Meta also has an official API for its Muse models (`https://api.meta.ai/v1`, OpenAI and Anthropic formats, pay as you go); the muse.ai agent app has none.
 
 **Status:** accepted by the owner on 2026-11-12, and built (below).
 
@@ -361,13 +361,13 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 8. **Challenges stop the connection.** On a CAPTCHA, a sign-in page, a login challenge or a bot check, Pygg stops, marks the connection "Needs you" (or "Not signed in"), answers the client with 401 and the reason, which holds the connection until a check finds it signed in again, and tells the user to open the window and deal with it themselves. Pygg never tries to solve, skip or hide from such a check: no user-agent or fingerprint changes, no stealth scripts, no off-screen windows to hide automation, no retries around it. These are the parts of 9router and OmniRoute Pygg does not copy.
 9. **An API comes first.** Where a site has an official API (Meta's Muse models at `api.meta.ai`), Connect offers it as an API-key preset, and the web-session preset says it exists.
 
-**Built** (schema v24): `websession/` (recipe, page driving, loopback endpoint, profile folders) and `websession/window.rs` (the Tauri window), the gateway's routing rule and billing, `store::add_web_provider`, `set_web_state` and the pool and billing refusals, `auto`'s exclusion, the commands `web_session_open` and `web_session_check`, and Connections (the preset group, the warning sheet, the sign-in row). The Muse recipe's selectors follow 9router's `muse-web` (MIT, THIRD_PARTY_NOTICES.md). 21 tests cover the safeguards with a scripted page. Muse was verified live by the owner on 2026-11-12. **More sites, 2026-11-12** (the owner: "Grok should be done; drop Gemini, since it already has a free API key"): ChatGPT, Perplexity, DeepSeek and Grok recipes, each with its own sign-in hosts. Gemini web, UC and Veo AI Free are left out ([research](research/2026-11-12-web-session-routers.md)). Grok's Cloudflare checks stop the connection like any other check; if its sign-in cannot finish in the window without disguising it, Grok is dropped rather than worked around.
+**Built** (schema v24): `websession/` (recipe, page driving, loopback endpoint, profile folders) and `websession/window.rs` (the Tauri window), the gateway's routing rule and billing, `store::add_web_provider`, `set_web_state` and the pool and billing refusals, `auto`'s exclusion, the commands `web_session_open` and `web_session_check`, and Connections (the preset group, the warning sheet, the sign-in row). The Muse recipe's selectors follow 9router's `muse-web` (MIT, THIRD_PARTY_NOTICES.md). 21 tests cover the safeguards with a scripted page. Muse was verified live by the owner on 2026-11-12. **More sites, 2026-11-12** (the owner: "Grok should be done; drop Gemini, since it already has a free API key"): ChatGPT, Perplexity, DeepSeek and Grok recipes, each with its own sign-in hosts. Gemini web, UC and Veo AI Free are left out ([research](archive/research/2026-11-12-web-session-routers.md)). Grok's Cloudflare checks stop the connection like any other check; if its sign-in cannot finish in the window without disguising it, Grok is dropped rather than worked around.
 
 **Consequences:** the user carries the account risk, knowingly, per connection; Pygg's own risk is a recipe that breaks when the site changes (it fails closed, as "the page has changed", and never falls back to guessing). A web-session request is slow (seconds to minutes) and uncounted in tokens, so it suits a user who names the model for chat-like work, not coding agents. The first recipe (Muse) is written without a signed-in session to look at; it is confirmed or corrected when the owner signs in in the dev build.
 
 ## ADR-036 — How Pygg saves tokens: keep the cache, route per session, measure before compressing (2026-11-14)
 
-**Context.** The owner asked for the best token and cost optimisation after studying the well-known open-source tools ([study](research/2026-11-14-token-optimization-study.md), [Codex discussion](reviews/2026-11-14-codex-token-optimization-discussion.md)). Compression tools (RTK, Headroom, Caveman, OmniRoute's engines) advertise 60-95%, but an independent replay of 500 Claude Code sessions found 3.7% of spend, because once prompt caching works the bill is mostly cache writes and output. Per-request routers (RouteLLM: up to 85% cheaper at 95% of GPT-4's quality on MT-Bench) pick a model per prompt, but caches are scoped to a model: in an agent loop, every switch re-sends the whole conversation uncached. Anthropic's own guidance is to try the stronger model at a lower effort before a cascade, for that reason. LiteLLM turns Anthropic's caching on for clients that never mark it.
+**Context.** The owner asked for the best token and cost optimisation after studying the well-known open-source tools ([study](archive/research/2026-11-14-token-optimization-study.md), [Codex discussion](reviews/2026-11-14-codex-token-optimization-discussion.md)). Compression tools (RTK, Headroom, Caveman, OmniRoute's engines) advertise 60-95%, but an independent replay of 500 Claude Code sessions found 3.7% of spend, because once prompt caching works the bill is mostly cache writes and output. Per-request routers (RouteLLM: up to 85% cheaper at 95% of GPT-4's quality on MT-Bench) pick a model per prompt, but caches are scoped to a model: in an agent loop, every switch re-sends the whole conversation uncached. Anthropic's own guidance is to try the stronger model at a lower effort before a cascade, for that reason. LiteLLM turns Anthropic's caching on for clients that never mark it.
 
 **Decision.** In this order:
 
@@ -400,7 +400,7 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 ## ADR-038 — Key rings: several API keys of separate accounts on one connection, used in turn (2026-11-14)
 
-**Context.** The owner asked for the planned multi-account rotation ([Account Rotation](ACCOUNT_API_ROTATION.md), ROADMAP E): several API keys or accounts per provider, rotated in order, round-robin, least-used or by the rate limits the provider states, with per-key cooldowns and blocks, the key that answered in the ledger, and the keys on Providers. ADR-034 already pools separate connections as `<pool>/<model>`; a pool member is a whole connection (endpoint, models, prices), so ten accounts mean ten copies of the same model list, and clients must ask for the pool's name.
+**Context.** The owner asked for the planned multi-account rotation ([Account Rotation](archive/ACCOUNT_API_ROTATION.md), ROADMAP E): several API keys or accounts per provider, rotated in order, round-robin, least-used or by the rate limits the provider states, with per-key cooldowns and blocks, the key that answered in the ledger, and the keys on Providers. ADR-034 already pools separate connections as `<pool>/<model>`; a pool member is a whole connection (endpoint, models, prices), so ten accounts mean ten copies of the same model list, and clients must ask for the pool's name.
 
 **Decision.** A connection may hold a **key ring**: its own key plus keys of other accounts, each confirmed by the user as another account with its own quota (the ADR-034 rule, kept: several keys of one account share its limits, and rotating them would only get around them). Requests keep naming `connection/model`, combos and `auto` unchanged.
 - **Order per connection** (`providers.key_strategy`): `in_order` (the user's order, the default), `round_robin` (the next key first, request by request, `providers.key_cursor`), `least_used` (fewest requests today, from the ledger) or `quota_aware` (most room left by the limits that key's account last stated, read by `quota.rs` from its own rate-limit headers, `key_limits`; a key whose stated limit is used up goes last; without stated limits, least used). A session goes back to the key that answered it (its account's prompt cache), whatever the order.

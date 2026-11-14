@@ -1,4 +1,4 @@
-//! Data retention (SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md §2.7): how long the usage ledger and route decisions are kept.
+//! Data retention (docs/archive/SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md §2.7): how long the usage ledger and route decisions are kept.
 //! Settings → Data: 30, 90 or 365 days, or forever (the default, so a store from before keeps everything). Older rows are
 //! deleted at start-up and once a day while the app runs, except
 //! - a ledger row a task attempt still refers to (`usage_events.attempt_id`, or its `session_key` while the gateway rows

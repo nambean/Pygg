@@ -2,7 +2,7 @@
 
 > **Status:** Current · agent CLIs, the task engine and the MCP server · reviewed 2026-11-13 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
 
-**Decision (owner, 2026-11-11):** to let people use the subscriptions and free tiers they already have, Pygg runs the vendors' own agent CLIs as executors. It does not bridge cookies or another product's OAuth tokens into an agent (see [OMNIROUTE_FEATURE_RESEARCH.md](OMNIROUTE_FEATURE_RESEARCH.md#provider-reference-review-2026-11-11)); the web-session connections of ADR-035 are gateway providers the user signs in to in a Pygg window, and have nothing to do with an agent's sign-in. Code: `apps/desktop/src-tauri/src/agents.rs`. The app's screens are Agents (agents found, one-off runs, and MCP delegation) and, for pointing a tool's model requests at the gateway, CLI Tools; the headless CLI is `pygg agent` (`cargo run --bin agent` in development).
+**Decision (owner, 2026-11-11):** to let people use the subscriptions and free tiers they already have, Pygg runs the vendors' own agent CLIs as executors. It does not bridge cookies or another product's OAuth tokens into an agent (see [OMNIROUTE_FEATURE_RESEARCH.md](archive/OMNIROUTE_FEATURE_RESEARCH.md#provider-reference-review-2026-11-11)); the web-session connections of ADR-035 are gateway providers the user signs in to in a Pygg window, and have nothing to do with an agent's sign-in. Code: `apps/desktop/src-tauri/src/agents.rs`. The app's screens are Agents (agents found, one-off runs, and MCP delegation) and, for pointing a tool's model requests at the gateway, CLI Tools; the headless CLI is `pygg agent` (`cargo run --bin agent` in development).
 
 ## Contract
 

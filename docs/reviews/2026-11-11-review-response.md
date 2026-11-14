@@ -87,10 +87,10 @@ See [ROADMAP.md](../ROADMAP.md) for one authoritative P0/P1/P2 list. Summary:
 
 - [ROADMAP.md](../ROADMAP.md): new **single source of truth** for priorities and release gates.
 - [DECISIONS.md](../DECISIONS.md): add reconciliation ADR and correct superseded ordering.
-- [UNIVERSAL_SHARED_MEMORY.md](../UNIVERSAL_SHARED_MEMORY.md): distinguish owned vs opaque external client; prefix-stable invariant.
-- [OMNIROUTE_FEATURE_RESEARCH.md](../OMNIROUTE_FEATURE_RESEARCH.md): remove deterministic compression as an unconditional default until cache parity and quality are measured.
-- [ACCOUNT_API_ROTATION.md](../ACCOUNT_API_ROTATION.md): no provider-wide blanket 403 logic; use error scope, quota groups and entitlements.
-- [CLI_IDE_NPM_PROVIDER_TIERS.md](../CLI_IDE_NPM_PROVIDER_TIERS.md): distinguish current `gateway serve` from future `str start`, current port 8741.
+- [UNIVERSAL_SHARED_MEMORY.md](../archive/UNIVERSAL_SHARED_MEMORY.md): distinguish owned vs opaque external client; prefix-stable invariant.
+- [OMNIROUTE_FEATURE_RESEARCH.md](../archive/OMNIROUTE_FEATURE_RESEARCH.md): remove deterministic compression as an unconditional default until cache parity and quality are measured.
+- [ACCOUNT_API_ROTATION.md](../archive/ACCOUNT_API_ROTATION.md): no provider-wide blanket 403 logic; use error scope, quota groups and entitlements.
+- [CLI_IDE_NPM_PROVIDER_TIERS.md](../archive/CLI_IDE_NPM_PROVIDER_TIERS.md): distinguish current `gateway serve` from future `str start`, current port 8741.
 - [IMPLEMENTATION-STATUS.md](../IMPLEMENTATION-STATUS.md): authoritative for **implemented** vs **not implemented**; updating specs never constitutes implementation.
 
 ## 5. Open tests before accepting or rejecting contested recommendations

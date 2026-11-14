@@ -2,7 +2,7 @@
 
 > Vai trò: Principal Software Architect. Mục tiêu của bản này là **phản biện, không phải đồng tình**.
 >
-> Phạm vi là code trên `main` (gateway đã chạy) và bộ tài liệu mới: [UNIVERSAL_SHARED_MEMORY](../UNIVERSAL_SHARED_MEMORY.md), [ACCOUNT_API_ROTATION](../ACCOUNT_API_ROTATION.md), [CLI_IDE_NPM_PROVIDER_TIERS](../CLI_IDE_NPM_PROVIDER_TIERS.md), [OMNIROUTE_FEATURE_RESEARCH](../OMNIROUTE_FEATURE_RESEARCH.md), cùng ADR-017 đến ADR-024.
+> Phạm vi là code trên `main` (gateway đã chạy) và bộ tài liệu mới: [UNIVERSAL_SHARED_MEMORY](../archive/UNIVERSAL_SHARED_MEMORY.md), [ACCOUNT_API_ROTATION](../archive/ACCOUNT_API_ROTATION.md), [CLI_IDE_NPM_PROVIDER_TIERS](../archive/CLI_IDE_NPM_PROVIDER_TIERS.md), [OMNIROUTE_FEATURE_RESEARCH](../archive/OMNIROUTE_FEATURE_RESEARCH.md), cùng ADR-017 đến ADR-024.
 >
 > Mức độ:
 > - **Critical:** làm hỏng mục tiêu cốt lõi (giảm chi phí), hoặc có rủi ro vi phạm điều khoản hay mất tiền thật.
@@ -27,10 +27,10 @@
 ### PF-1 · Critical · P0 bị lạm phát, không còn thứ tự ưu tiên
 
 **Dẫn chứng:** các mục sau đều được đánh dấu P0.
-- OR-01 đến OR-07 ([OMNIROUTE:34-40](../OMNIROUTE_FEATURE_RESEARCH.md#L34)), OR-P0-1 đến 4 ([OMNIROUTE:230-233](../OMNIROUTE_FEATURE_RESEARCH.md#L230)).
-- M1 đến M3 ([UNIVERSAL_SHARED_MEMORY:213-215](../UNIVERSAL_SHARED_MEMORY.md#L213)).
-- G1 đến G3 ([CLI_IDE_NPM:210-212](../CLI_IDE_NPM_PROVIDER_TIERS.md#L210)).
-- Account registry, entitlement, quota group, `fill_first`, `round_robin` và allowlist ([ACCOUNT_API_ROTATION:183](../ACCOUNT_API_ROTATION.md#L183)).
+- OR-01 đến OR-07 ([OMNIROUTE:34-40](../archive/OMNIROUTE_FEATURE_RESEARCH.md#L34)), OR-P0-1 đến 4 ([OMNIROUTE:230-233](../archive/OMNIROUTE_FEATURE_RESEARCH.md#L230)).
+- M1 đến M3 ([UNIVERSAL_SHARED_MEMORY:213-215](../archive/UNIVERSAL_SHARED_MEMORY.md#L213)).
+- G1 đến G3 ([CLI_IDE_NPM:210-212](../archive/CLI_IDE_NPM_PROVIDER_TIERS.md#L210)).
+- Account registry, entitlement, quota group, `fill_first`, `round_robin` và allowlist ([ACCOUNT_API_ROTATION:183](../archive/ACCOUNT_API_ROTATION.md#L183)).
 
 **Vấn đề:**
 - Gộp lại, P0 gồm gateway, catalog, alias `auto`, xoay vòng tài khoản, nén, memory, affinity và ba tích hợp CLI. Đó là cả sản phẩm, không phải một MVP.
@@ -44,8 +44,8 @@
 ### PF-2 · High · Người dùng mục tiêu mâu thuẫn với giá trị cốt lõi
 
 **Dẫn chứng:**
-- Định vị "everyday AI users **and** developers" ([PLAN:9](../SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md#L9)).
-- Consumer chat là "new primary flow" ([UNIVERSAL_SHARED_MEMORY:170](../UNIVERSAL_SHARED_MEMORY.md#L170)).
+- Định vị "everyday AI users **and** developers" ([PLAN:9](../archive/SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md#L9)).
+- Consumer chat là "new primary flow" ([UNIVERSAL_SHARED_MEMORY:170](../archive/UNIVERSAL_SHARED_MEMORY.md#L170)).
 
 **Vấn đề:**
 - Người dùng phổ thông phần lớn trả phí thuê bao cố định (ChatGPT/Claude/Gemini), không trả theo token. Tiết kiệm token gần như không có giá trị với họ.
@@ -58,9 +58,9 @@
 ### PF-3 · High · Ba định vị sản phẩm cùng tồn tại trong tài liệu "hiện hành"
 
 **Dẫn chứng:**
-- ADR-003 "Orchestrator first" ([DECISIONS:17-19](../DECISIONS.md#L17)) và Plan §0.1 cùng hướng ([PLAN:53](../SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md#L53)).
+- ADR-003 "Orchestrator first" ([DECISIONS:17-19](../DECISIONS.md#L17)) và Plan §0.1 cùng hướng ([PLAN:53](../archive/SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md#L53)).
 - ADR-016 "Gateway first".
-- North star "AI Cost Optimizer cho mọi người" ([PLAN:9](../SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md#L9)).
+- North star "AI Cost Optimizer cho mọi người" ([PLAN:9](../archive/SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md#L9)).
 - README vẫn liệt kê "Orchestrator first" là nguyên tắc ([README:11](../../README.md#L11)).
 
 **Sửa:**
@@ -83,8 +83,8 @@
 ### RE-2 · High · Chi phí của classifier không có trần
 
 **Dẫn chứng:**
-- "detect intent… at minimal classifier cost" ([OMNIROUTE:86](../OMNIROUTE_FEATURE_RESEARCH.md#L86)).
-- "Detect task intent" ở mỗi tin nhắn ([UNIVERSAL_SHARED_MEMORY:87](../UNIVERSAL_SHARED_MEMORY.md#L87)).
+- "detect intent… at minimal classifier cost" ([OMNIROUTE:86](../archive/OMNIROUTE_FEATURE_RESEARCH.md#L86)).
+- "Detect task intent" ở mỗi tin nhắn ([UNIVERSAL_SHARED_MEMORY:87](../archive/UNIVERSAL_SHARED_MEMORY.md#L87)).
 
 **Vấn đề:**
 - Nếu classifier đọc toàn bộ context của một phiên agent (khoảng 70k token), nó tốn **bằng cả lượt trả lời của model rẻ** (§7, dòng 3). Khoản "tiết kiệm" khi đó bị nhân đôi chi phí.
@@ -98,12 +98,12 @@
 ### RE-3 · Critical · Chưa có tín hiệu chất lượng nên không chứng minh được "giữ chất lượng"
 
 **Dẫn chứng:**
-- Tài liệu tự thừa nhận: "Gateway-only routing cannot infer complete intent… must not claim task-level cost optimization" ([CLI_IDE_NPM:15](../CLI_IDE_NPM_PROVIDER_TIERS.md#L15)).
-- Rủi ro #4 trong [UNIVERSAL_SHARED_MEMORY](../UNIVERSAL_SHARED_MEMORY.md#L228).
+- Tài liệu tự thừa nhận: "Gateway-only routing cannot infer complete intent… must not claim task-level cost optimization" ([CLI_IDE_NPM:15](../archive/CLI_IDE_NPM_PROVIDER_TIERS.md#L15)).
+- Rủi ro #4 trong [UNIVERSAL_SHARED_MEMORY](../archive/UNIVERSAL_SHARED_MEMORY.md#L228).
 
 **Vấn đề:**
 - Với code còn có test để kiểm tra, với chat thường thì không có gì đo được chất lượng.
-- Chi phí lớn nhất khi model rẻ thất bại là **thời gian của người dùng**: đọc câu trả lời kém, hoàn tác thay đổi sai. Công thức `C_effective` ([OMNIROUTE:104](../OMNIROUTE_FEATURE_RESEARCH.md#L104)) không có hạng mục này.
+- Chi phí lớn nhất khi model rẻ thất bại là **thời gian của người dùng**: đọc câu trả lời kém, hoàn tác thay đổi sai. Công thức `C_effective` ([OMNIROUTE:104](../archive/OMNIROUTE_FEATURE_RESEARCH.md#L104)) không có hạng mục này.
 
 **Sửa:**
 - Thêm `C_human_failure` vào công thức.
@@ -115,8 +115,8 @@
 ### USM-1 · Critical · Context package dựng lại mỗi lượt sẽ phá prompt cache
 
 **Dẫn chứng:**
-- Bước 3 dựng một "minimum viable context package" cho mỗi tin nhắn mới ([UNIVERSAL_SHARED_MEMORY:88](../UNIVERSAL_SHARED_MEMORY.md#L88)).
-- Nén và dedup lịch sử ([OMNIROUTE:110-118](../OMNIROUTE_FEATURE_RESEARCH.md#L110)).
+- Bước 3 dựng một "minimum viable context package" cho mỗi tin nhắn mới ([UNIVERSAL_SHARED_MEMORY:88](../archive/UNIVERSAL_SHARED_MEMORY.md#L88)).
+- Nén và dedup lịch sử ([OMNIROUTE:110-118](../archive/OMNIROUTE_FEATURE_RESEARCH.md#L110)).
 
 **Vấn đề:**
 - Prompt cache của provider chỉ trúng khi **tiền tố y hệt** lần gửi trước.
@@ -131,7 +131,7 @@
 ### USM-2 · Critical · Memory không thể chạy qua gateway cho client tự giữ lịch sử
 
 **Dẫn chứng:**
-- "Conversation Manager owns one portable thread ID" ([UNIVERSAL_SHARED_MEMORY:57](../UNIVERSAL_SHARED_MEMORY.md#L57)).
+- "Conversation Manager owns one portable thread ID" ([UNIVERSAL_SHARED_MEMORY:57](../archive/UNIVERSAL_SHARED_MEMORY.md#L57)).
 - Kiến trúc ở §3 đặt "Chat UI / Agent CLI / SDK" chung một luồng.
 
 **Vấn đề:**
@@ -145,7 +145,7 @@
 
 ### USM-3 · High · Tài liệu không định nghĩa cách nhận diện hội thoại qua gateway
 
-**Dẫn chứng:** khoá affinity có dạng `client_id + conversation_id + …` ([ACCOUNT_API_ROTATION:28](../ACCOUNT_API_ROTATION.md#L28)), nhưng không nói `conversation_id` lấy từ đâu.
+**Dẫn chứng:** khoá affinity có dạng `client_id + conversation_id + …` ([ACCOUNT_API_ROTATION:28](../archive/ACCOUNT_API_ROTATION.md#L28)), nhưng không nói `conversation_id` lấy từ đâu.
 
 **Sửa:** đặc tả thứ tự ưu tiên:
 1. ID tường minh mà client gửi. Cần kiểm chứng xem Claude Code có gửi trong `metadata` không.
@@ -156,7 +156,7 @@ Hash dễ vỡ: hai phiên có thể có cùng tin nhắn mở đầu, và clien
 
 ### USM-4 · Medium · Trích xuất memory chưa có trần chi phí
 
-**Dẫn chứng:** dòng "Update summary/facts **selectively**" ([UNIVERSAL_SHARED_MEMORY:92](../UNIVERSAL_SHARED_MEMORY.md#L92)) không định nghĩa "selectively".
+**Dẫn chứng:** dòng "Update summary/facts **selectively**" ([UNIVERSAL_SHARED_MEMORY:92](../archive/UNIVERSAL_SHARED_MEMORY.md#L92)) không định nghĩa "selectively".
 
 **Sửa:**
 - Gom thành lô, ví dụ mỗi N lượt hoặc khi đóng hội thoại.
@@ -169,7 +169,7 @@ Hash dễ vỡ: hai phiên có thể có cùng tin nhắn mở đầu, và clien
 
 **Dẫn chứng:** [mod.rs:238-239](../../apps/desktop/src-tauri/src/gateway/mod.rs#L238). Gateway fallback trên 401, 403 và 429 sang **bất kỳ** model kế tiếp nào trong combo, kể cả một kết nối khác của cùng provider.
 
-**Vấn đề:** điều này trái [ACCOUNT_API_ROTATION:66-69](../ACCOUNT_API_ROTATION.md#L66). Người dùng có thể bị khoá tài khoản vì xoay key để vượt rate limit hoặc né lệnh chặn.
+**Vấn đề:** điều này trái [ACCOUNT_API_ROTATION:66-69](../archive/ACCOUNT_API_ROTATION.md#L66). Người dùng có thể bị khoá tài khoản vì xoay key để vượt rate limit hoặc né lệnh chặn.
 
 **Sửa:**
 - Phân loại lỗi trong `forward`:
@@ -317,7 +317,7 @@ Dữ kiện lấy từ GitHub API ngày 2026-11-11:
 
 ### OSS-1 · High · "Viết lại bằng Rust" bị đánh giá thấp chi phí
 
-**Dẫn chứng:** "prefer reimplementing small contracts in Rust" ([OMNIROUTE:18](../OMNIROUTE_FEATURE_RESEARCH.md#L18)).
+**Dẫn chứng:** "prefer reimplementing small contracts in Rust" ([OMNIROUTE:18](../archive/OMNIROUTE_FEATURE_RESEARCH.md#L18)).
 
 **Vấn đề:**
 - Phần tốn kém không nằm ở "contracts nhỏ" mà ở hàng trăm ngóc ngách riêng của từng provider.
@@ -347,10 +347,10 @@ Dữ kiện lấy từ GitHub API ngày 2026-11-11:
 ### RM-1 · High · Tài liệu nói gateway chưa có, trong khi code đã chạy
 
 **Dẫn chứng:**
-- "Current project state: UI concept and implementation planning only" ([PLAN:596](../SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md#L596)).
+- "Current project state: UI concept and implementation planning only" ([PLAN:596](../archive/SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md#L596)).
 - "does not imply gateway… implementation" ([DECISIONS:159](../DECISIONS.md#L159)).
 - "six-destination… remains the current implemented design" ([SCREENS:726](../design/SCREENS.md#L726)).
-- Plan còn giữ "six-destination navigation" ([PLAN:498](../SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md#L498), [PLAN:579](../SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md#L579)).
+- Plan còn giữ "six-destination navigation" ([PLAN:498](../archive/SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md#L498), [PLAN:579](../archive/SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md#L579)).
 - Trong khi đó [IMPLEMENTATION-STATUS](../IMPLEMENTATION-STATUS.md) mô tả gateway đã được kiểm chứng.
 
 **Sửa:**
@@ -360,7 +360,7 @@ Dữ kiện lấy từ GitHub API ngày 2026-11-11:
 ### RM-2 · Medium · Cổng và tên CLI không thống nhất
 
 **Dẫn chứng:**
-- Tài liệu dùng `4318` ([SCREENS:85](../design/SCREENS.md#L85), [SCREENS:586-592](../design/SCREENS.md#L586), [CLI_IDE_NPM:90](../CLI_IDE_NPM_PROVIDER_TIERS.md#L90)).
+- Tài liệu dùng `4318` ([SCREENS:85](../design/SCREENS.md#L85), [SCREENS:586-592](../design/SCREENS.md#L586), [CLI_IDE_NPM:90](../archive/CLI_IDE_NPM_PROVIDER_TIERS.md#L90)).
 - Code dùng `8741` ([mod.rs:36](../../apps/desktop/src-tauri/src/gateway/mod.rs#L36)).
 - Tên CLI: `str` (ADR-021) và binary `gateway` hiện có.
 
@@ -382,7 +382,7 @@ Dữ kiện lấy từ GitHub API ngày 2026-11-11:
 ### RM-4 · Medium · Lược đồ đề xuất trùng lặp
 
 **Dẫn chứng:**
-- `model_entitlements` có ở hai nơi với cột khác nhau ([OMNIROUTE §8](../OMNIROUTE_FEATURE_RESEARCH.md#L160), [CLI_IDE_NPM §5](../CLI_IDE_NPM_PROVIDER_TIERS.md#L148)).
+- `model_entitlements` có ở hai nơi với cột khác nhau ([OMNIROUTE §8](../archive/OMNIROUTE_FEATURE_RESEARCH.md#L160), [CLI_IDE_NPM §5](../archive/CLI_IDE_NPM_PROVIDER_TIERS.md#L148)).
 - `quota_groups` và `account_quota_groups` trùng ý.
 - `client_tokens` trùng với bảng `gateway_clients` đang có.
 

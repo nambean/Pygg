@@ -1,5 +1,5 @@
 //! What a failed attempt means for the rest of the request and for later ones (ROADMAP P0-2,
-//! ACCOUNT_API_ROTATION §5, counter-review CR-01, CR-04, CR-05). Two questions per failure:
+//! docs/archive/ACCOUNT_API_ROTATION.md §5, counter-review CR-01, CR-04, CR-05). Two questions per failure:
 //!
 //! - **May another target answer this request?** Never after an ambiguous failure, where the provider may
 //!   have run (and billed) the request: a dropped connection, a read timeout, and the HTTP statuses that say

@@ -1,8 +1,8 @@
 # OmniRoute Feature Research — Pygg Adoption Decision
 
-> **Status:** Reference · OmniRoute research and adopt/reject decisions · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+> **Status:** Reference · OmniRoute research and adopt/reject decisions · reviewed 2026-11-11 · order: [ROADMAP](../ROADMAP.md) · built: [Implementation Status](../IMPLEMENTATION-STATUS.md)
 
-> **Update 2026-11-11:** built since this research: OR-01/OR-02 as `auto` and `auto/cheap` (`gateway/auto.rs`, the reason stored in the ledger rather than an `auto_route_decisions` table), OR-05 as cooldowns and quota groups (`gateway/policy.rs`). The `/api/routing/*` endpoints in section 9 are superseded by Tauri commands, `gateway auto` and `/pygg/v1/*`. Consumer Auto Chat (section 3) is dropped (ADR-028). No classifier is used (P0-5); compression is P1, not P0. A narrow, task-only MCP server ships under ADR-027 (cf. OR-18). Credential or session bridges stay rejected (ADR-026). Current plan: [ROADMAP](ROADMAP.md#revised-plan-after-adr-026-and-adr-027-2026-11-11-docs-review).
+> **Update 2026-11-11:** built since this research: OR-01/OR-02 as `auto` and `auto/cheap` (`gateway/auto.rs`, the reason stored in the ledger rather than an `auto_route_decisions` table), OR-05 as cooldowns and quota groups (`gateway/policy.rs`). The `/api/routing/*` endpoints in section 9 are superseded by Tauri commands, `gateway auto` and `/pygg/v1/*`. Consumer Auto Chat (section 3) is dropped (ADR-028). No classifier is used (P0-5); compression is P1, not P0. A narrow, task-only MCP server ships under ADR-027 (cf. OR-18). Credential or session bridges stay rejected (ADR-026). Current plan: [ROADMAP](../ROADMAP.md#revised-plan-after-adr-026-and-adr-027-2026-11-11-docs-review).
 
 
 > Decision record v1.0 · 2026-11-11 · Research and implementation plan only. No OmniRoute runtime or new Pygg feature was implemented by this commit.
@@ -11,7 +11,7 @@
 
 ## Review-driven scope and safety correction (2026-11-11)
 
-Claude's [review](reviews/2026-11-11-architecture-review.md) was triaged in the [response](reviews/2026-11-11-review-response.md). [ROADMAP.md](ROADMAP.md) **overrides all P0/P1/P2 labels and sprint order below**. Before any model/candidate compression optimization, deliver:
+Claude's [review](../reviews/2026-11-11-architecture-review.md) was triaged in the [response](../reviews/2026-11-11-review-response.md). [ROADMAP.md](../ROADMAP.md) **overrides all P0/P1/P2 labels and sprint order below**. Before any model/candidate compression optimization, deliver:
 
 - Same-format native provider passthrough with preserved cache hints and verified parity.
 - Safe 401/403/429/timeout handling, quota group policy and cost accounting.
@@ -275,8 +275,8 @@ Aliases are conceptual; no endpoint or package is published just by these docs. 
 - [Account/API Rotation](ACCOUNT_API_ROTATION.md)
 - [Universal Shared Memory](UNIVERSAL_SHARED_MEMORY.md)
 - [CLI / IDE / npm / tiers](CLI_IDE_NPM_PROVIDER_TIERS.md)
-- [Screen Design](design/SCREENS.md)
-- [Architecture Decisions](DECISIONS.md)
-- [Implementation Status](IMPLEMENTATION-STATUS.md)
+- [Screen Design](../design/SCREENS.md)
+- [Architecture Decisions](../DECISIONS.md)
+- [Implementation Status](../IMPLEMENTATION-STATUS.md)
 
 Only update Implementation Status when actual code and tests land.

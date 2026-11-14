@@ -2,7 +2,7 @@
 
 > **Status:** Current · connection presets and their sources · reviewed 2026-11-13 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
 
-Each preset in `apps/desktop/src-tauri/src/gateway/presets.rs` fills in a provider's endpoint, API format and default billing type. The user can change any of them when connecting, for example a token plan's or a regional endpoint. Every endpoint below comes from the provider's own documentation, checked on 2026-11-11. OmniRoute's provider reference was used only to decide which providers to look at (see [OMNIROUTE_FEATURE_RESEARCH.md](OMNIROUTE_FEATURE_RESEARCH.md#provider-reference-review-2026-11-11)).
+Each preset in `apps/desktop/src-tauri/src/gateway/presets.rs` fills in a provider's endpoint, API format and default billing type. The user can change any of them when connecting, for example a token plan's or a regional endpoint. Every endpoint below comes from the provider's own documentation, checked on 2026-11-11. OmniRoute's provider reference was used only to decide which providers to look at (see [OMNIROUTE_FEATURE_RESEARCH.md](archive/OMNIROUTE_FEATURE_RESEARCH.md#provider-reference-review-2026-11-11)).
 
 "Live" means a real request went through the gateway (see [Implementation Status](IMPLEMENTATION-STATUS.md)). Everything else is configured from the docs and not yet tried; OpenAI, Groq and Mistral have only had their answer to an invalid key recorded, as error fixtures. DeepSeek has also answered a real 402 for an empty balance (2026-11-12), so a successful DeepSeek API request is still unverified.
 
@@ -63,7 +63,7 @@ gateway add-connection --preset custom --label "My provider" --endpoint https://
 
 A site with no API, used through a Pygg window the user signs in to (ADR-035). Off until the user acknowledges the account-risk warning for that connection and signs in; billed as free by default ($0 a request: the user's plan with the site, paid by the month or free, never per request; schema v27, 2026-11-13) or as a subscription (quota, cost unknown) at the user's choice; never chosen by `auto`; no tools or images.
 
-Each connection has its own WebView2 profile: its own cookies, storage and sign-in. Pygg never changes a window's browser fingerprint. Each connection sends one request at a time, rests 10 s after each reply and stops at its daily limit (50 requests by default, 1 to 1,000, counted since 00:00 UTC; schema v26). Connections of one site, each signed in to a different account ("Another account on the site"), can form a pool; see [ACCOUNT_API_ROTATION.md](ACCOUNT_API_ROTATION.md). Recipes, hosts and selectors are in `apps/desktop/src-tauri/src/websession/mod.rs` (`RECIPES`); the presets are in `gateway/presets.rs`.
+Each connection has its own WebView2 profile: its own cookies, storage and sign-in. Pygg never changes a window's browser fingerprint. Each connection sends one request at a time, rests 10 s after each reply and stops at its daily limit (50 requests by default, 1 to 1,000, counted since 00:00 UTC; schema v26). Connections of one site, each signed in to a different account ("Another account on the site"), can form a pool; see [ACCOUNT_API_ROTATION.md](archive/ACCOUNT_API_ROTATION.md). Recipes, hosts and selectors are in `apps/desktop/src-tauri/src/websession/mod.rs` (`RECIPES`); the presets are in `gateway/presets.rs`.
 
 | Preset (id) | Site and new chat | Model | Selectors from | Live |
 | --- | --- | --- | --- | --- |
@@ -93,7 +93,7 @@ A window the user has open to sign in may go to any https address, like a browse
 - **Visitor chats.** ChatGPT, Perplexity and Grok also chat with visitors. Their recipes treat a page that shows "Log in" or "Sign in" buttons as signed out, even when the prompt box is there.
 - **Cloudflare.** Grok's site sits behind Cloudflare. Any check it shows stops the connection until the user clears it in the window.
 - **Official APIs.** Meta's Muse *models* (Meta (Muse API), above), OpenAI's, DeepSeek's and xAI's models all have official APIs, and Pygg has presets for each. Perplexity's Sonar API is paid and not supported by the gateway yet. The muse.ai agent app has no API.
-- **Not added** ([research](research/2026-11-12-web-session-routers.md)):
+- **Not added** ([research](archive/research/2026-11-12-web-session-routers.md)):
   - Gemini web: Google's API has a free tier (the owner's decision, 2026-11-12), and Google may refuse sign-in in embedded windows.
   - 9router's UC (image and video only, adult content).
   - Veo AI Free (no sign-in; a video scraper).
@@ -103,7 +103,7 @@ A window the user has open to sign in may go to any https address, like a browse
 - **GitHub Models**: fully retired as of July 30, 2026, per GitHub's docs.
 - **Perplexity**: Sonar chat completions support ended on September 27, 2026. The API now uses Responses-style endpoints, which the gateway sends to OpenAI only (ADR-033: the gateway serves the Responses API to clients, and translates it to Chat Completions for every other provider).
 - **Novita**: its docs do not make clear which base URL OpenAI clients should use. To be added once checked with a request.
-- **Cookie bridges (pasted or imported cookies), OAuth bridges into other products' subscriptions, and no-auth scrapers**: see [OMNIROUTE_FEATURE_RESEARCH.md](OMNIROUTE_FEATURE_RESEARCH.md#provider-reference-review-2026-11-11). A site with no API can be connected as a web session instead (above, ADR-035), where the user signs in themselves and no cookie leaves its window.
+- **Cookie bridges (pasted or imported cookies), OAuth bridges into other products' subscriptions, and no-auth scrapers**: see [OMNIROUTE_FEATURE_RESEARCH.md](archive/OMNIROUTE_FEATURE_RESEARCH.md#provider-reference-review-2026-11-11). A site with no API can be connected as a web session instead (above, ADR-035), where the user signs in themselves and no cookie leaves its window.
 
 ## Reusing OmniRoute code
 

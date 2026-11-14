@@ -1,6 +1,6 @@
 # Counter-review of the original-vision gaps RFC, 2026-11-12
 
-> **Status:** Record · an independent counter-review of [RFC-2026-11-12-ORIGINAL-VISION-GAPS](../RFC-2026-11-12-ORIGINAL-VISION-GAPS.md) (commit `a62efdf`), checked against the code on `main` at `0e2663b` plus that commit · changes nothing by itself: order stays with [ROADMAP](../ROADMAP.md), decisions with [DECISIONS](../DECISIONS.md) · built: [Implementation Status](../IMPLEMENTATION-STATUS.md)
+> **Status:** Record · an independent counter-review of [RFC-2026-11-12-ORIGINAL-VISION-GAPS](../archive/RFC-2026-11-12-ORIGINAL-VISION-GAPS.md) (commit `a62efdf`), checked against the code on `main` at `0e2663b` plus that commit · changes nothing by itself: order stays with [ROADMAP](../ROADMAP.md), decisions with [DECISIONS](../DECISIONS.md) · built: [Implementation Status](../IMPLEMENTATION-STATUS.md)
 
 Every row below was checked against the source named in it. Nothing was run live, `cargo test` was not run, and no money was spent. The only outside request was a read of the npm registry (question 3). Where I could not check something, the row says so.
 

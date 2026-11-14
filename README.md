@@ -1,193 +1,181 @@
-<p><img src="branding/pygg-logo.svg" alt="Pygg — One Flow. Many Agents." width="420"></p>
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="branding/pygg-logo-dark.svg">
+  <img src="branding/pygg-logo.svg" alt="Pygg — One Flow. Many Agents." width="380">
+</picture>
+</p>
 
-# Pygg
+<h3 align="center">A local AI gateway that routes your coding agents across the providers you already have,<br>and records what every request cost.</h3>
 
-**One Flow. Many Agents.** A local AI gateway that cuts what your coding tools cost.
+<p align="center">
+<a href="https://github.com/nambean/smarttaskrouter/actions/workflows/ci.yml"><img src="https://github.com/nambean/smarttaskrouter/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+<img src="https://img.shields.io/badge/licence-MIT-green" alt="Licence: MIT">
+<img src="https://img.shields.io/badge/app-Windows%20x64-blue" alt="Desktop app: Windows x64">
+<img src="https://img.shields.io/badge/CLI-Windows%20%C2%B7%20Linux-blue" alt="CLI: Windows and Linux">
+<img src="https://img.shields.io/badge/status-developer%20preview-orange" alt="Status: developer preview">
+</p>
 
-[![CI](https://github.com/nambean/smarttaskrouter/actions/workflows/ci.yml/badge.svg)](https://github.com/nambean/smarttaskrouter/actions/workflows/ci.yml) ![Licence: MIT](https://img.shields.io/badge/licence-MIT-green) ![Windows x64](https://img.shields.io/badge/platform-Windows%20x64-blue) ![Status: developer preview](https://img.shields.io/badge/status-developer%20preview-orange)
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/usage-dark.svg">
+  <img src="docs/images/usage-light.svg" alt="A terminal installs the pygg command line from npm, checks that Pygg's gateway answers on 127.0.0.1:8741, sets up Claude Code and starts it through Pygg with the model auto; the gateway routes each request to free and cheap models, your plans, local models or opt-in web sessions" width="100%">
+</picture>
+</p>
 
-<p><img src="docs/images/home.png" alt="Pygg's Home screen: the gateway running, estimated savings against a chosen model, where the answers came from, and the last 24 hours of requests" width="720"></p>
+Pygg runs on your computer. Connect your providers once (API keys, coding plans, a local Ollama, even an AI website without an API), point Claude Code, Codex, OpenCode, an editor or an SDK at `127.0.0.1:8741`, and choose the model **`auto`**. Each request goes to an eligible model you connected, free and cheap ones first where they qualify, within the limits you set; when a provider says no, the next one answers. Every attempt lands in a ledger with what it cost and where that figure came from.
 
-The repository and its technical identifiers keep the engineering name SmartTaskRouter. New here? Read [Getting started](docs/GETTING-STARTED.md). Every document is listed in [docs/README.md](docs/README.md); brand assets are in [branding](branding/README.md).
+> [!NOTE]
+> **Developer preview (2026-11-14).** The gateway and the Windows desktop app are built and verified live, from first launch to "my coding tool uses `auto`". Builds are **not code-signed**, so Windows SmartScreen warns about them, and there is no published installer yet: the desktop app is built from source. The `pygg` command line is on npm for Windows and Linux. Spending limits rest on prices and token estimates, so Pygg is **not yet for unattended or financially critical use** ([production readiness](docs/reports/2026-11-14-production-readiness.md)). What is built and how each part was verified: [Implementation Status](docs/IMPLEMENTATION-STATUS.md).
 
-Pygg runs on your computer. You connect your providers once, point Claude Code, Codex, OpenCode, an editor or an SDK at it, and choose the model `auto`. Each request then goes to an eligible model you connected, free and cheap ones first where they qualify, within the limits you set. Every request is recorded with what it cost and where that figure came from. The app hosts no chat of its own (ADR-028).
+## Why Pygg
 
-> **Status (2026-11-14), developer preview for Windows x64:**
-> - **Built and live-verified:** the gateway and the desktop app that runs it, from first launch to "my coding tool uses `auto`".
-> - **Built and fake-tested:** account pools, web-session connections for AI sites without an API, the `pygg` command line (npm developer preview), estimated savings, the token mix and routing diagnostics, and automatic prompt caching for translated agent turns.
-> - **On hold:** smart tasks, run by agent CLIs and started from an IDE, work but are paused until the owner re-evaluates them.
->
-> See [implementation status](docs/IMPLEMENTATION-STATUS.md) and the [roadmap](docs/ROADMAP.md). Installers are not code-signed yet, so Windows SmartScreen warns about them.
->
-> **Not yet for unattended or financially critical use:** spending limits rely on prices and token estimates, and clean-machine installation and long-running behaviour need more validation ([production readiness](docs/reports/2026-11-14-production-readiness.md)). Web sessions are optional, unofficial and experimental; automated use can lead to account restrictions.
+- **`auto` that you can read.** Rules over the models you connected, not a classifier: the lowest eligible tier at or above your key's minimum, at most five models in a route and at most two from one connection, so one empty account cannot end a request. Every response says why it chose what it chose, and **How auto chooses** simulates a route before you send anything.
+- **Cost you can trace.** Each attempt is recorded with its cost and that cost's source: **actual** (the provider said), **estimated** (a price you or a catalog set) or **unknown**, never shown as $0. Estimated savings compare the same tokens at a model you choose, and say what they left out.
+- **Fallback that does not double-bill.** A 429, 402 or rejected key moves on to the next key or target, only before the agent got its first byte. A timeout stops instead, since the provider may already have billed it. Each attempt is written to disk **before** it is sent.
+- **The provider's cache keeps working.** Anthropic requests from Claude Code pass through unchanged; for OpenAI-format agents such as Codex, Pygg turns on Anthropic's prompt cache. Measured: 30% less in all, 68% less on input ([below](#measured-not-claimed)).
+- **Several accounts, used in turn.** A key ring holds API keys of separate accounts on one connection (in order, round robin, least used or quota aware); a pool groups connections of one provider. Each key cools down on its own.
+- **AI websites as providers, carefully.** Web sessions (Muse, ChatGPT, Perplexity, DeepSeek, Grok) are opt-in and unofficial, signed in by you in Pygg's own window, and held behind a per-site guard: one request at a time, rests between them, a daily cap, longer rests after the site's own warnings.
+- **Local, with your own accounts.** The gateway listens on 127.0.0.1 only and needs a Pygg API key; provider keys stay in the OS credential store. Each tool's setup is backed up first, and Remove puts it back.
 
-## What makes Pygg different
+## A look at the app
 
-- **Cost you can trace.** Every request is recorded with its cost and where that figure came from: actual (the provider said), estimated (a price you or a catalog set) or **unknown**, never shown as $0. Savings are an estimate against a model you choose, with what was left out said beside it.
-- **It keeps the provider's cache working.** A coding agent re-sends its whole conversation every turn; the provider's prompt cache bills that at a tenth or less. Pygg keeps a launch on one model, passes cache hints through unchanged, turns on Anthropic's caching for clients that cannot ask for it, and shows the token mix so you can see it working ([ADR-036](docs/DECISIONS.md)). Measured: Codex on Claude through Pygg cost 30% less in all and 68% less on input than through a gateway without it, with the same 16 of 16 tasks solved ([benchmarks](docs/BENCHMARKS.md)).
-- **Setup you can undo.** Each tool gets its own key; its configuration is backed up first and Remove puts it back. Claude Code keeps your Claude sign-in: `pygg run claude` routes one launch at a time.
-- **Local, with your own accounts.** Keys stay in the Windows Credential Manager, the gateway listens on 127.0.0.1 only, and Pygg contacts nothing but the providers you connected and a public model catalog.
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/home.png">
+  <img src="docs/images/home-light.png" alt="Home: the gateway running on 127.0.0.1:8741, estimated savings against a chosen model, where the answers came from, and the last 24 hours of requests" width="760">
+</picture>
+</p>
 
 | Providers | Usage | CLI Tools |
-| --- | --- | --- |
-| <img src="docs/images/providers.png" alt="Providers: each connection with its health over 24 hours, last check and models" width="300"> | <img src="docs/images/usage.png" alt="Usage: estimated savings, known cost, cost per day and the token mix" width="300"> | <img src="docs/images/cli-tools.png" alt="CLI Tools: one-click set-up for Claude Code, Codex and OpenCode" width="300"> |
+| :---: | :---: | :---: |
+| <img src="docs/images/providers.png" alt="Providers: each connection with its health over 24 hours, its billing and how many models auto may use" width="260"> | <img src="docs/images/usage.png" alt="Usage: estimated savings, known cost by its source, and cost per day" width="260"> | <img src="docs/images/cli-tools.png" alt="CLI Tools: one-click set-up for Claude Code, OpenCode and Codex" width="260"> |
 
-Screenshots are the browser preview with demo data.
+<sub>The browser preview with demo data (`pnpm dev`).</sub>
 
-## How it works for a user
+## How a request flows
 
-The setup follows 9router and OmniRoute, so it feels familiar:
-1. **Install and open Pygg.** The gateway starts on `127.0.0.1:8741`. Home shows three steps.
-2. **Providers → Connect Provider.** Pick a provider and paste its key; Pygg reads its model list. Gemini, OpenRouter and Groq have free tiers, and Ollama runs locally. AI sites with no API connect as web sessions.
-3. **CLI Tools.**
-   - Codex and OpenCode are set up in one click: backup, a key of their own, the change, a check.
-   - Claude Code starts through Pygg with `pygg run claude`, one launch at a time, so your Claude plan stays as it was.
-   - Editors and SDKs get a snippet.
-4. **Work as usual with the model `auto`.** Home shows the first request, what it cost, and an estimate of what it saved against the model you would otherwise use.
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/request-flow-dark.svg">
+  <img src="docs/images/request-flow-light.svg" alt="One request through Pygg: agent, gateway, route, policy and budget, journal; the key ring's key 1 answers 429 and key 2 answers 402, both cool down; the route's next target, Ollama, answers 200; the answer streams back and each attempt is settled in the ledger" width="100%">
+</picture>
+</p>
 
-Step by step, with each tool's commands and a troubleshooting table: [Getting started](docs/GETTING-STARTED.md).
+1. **Gateway.** The agent calls `127.0.0.1:8741` with its own Pygg API key, in OpenAI Chat Completions, OpenAI Responses (Codex) or Anthropic Messages, streamed, with tool calls.
+2. **Route.** The model name is `auto` or `auto/cheap`, a **combo** (a name for an ordered list, or cheapest first per request), a pool, or `<connection>/<model>`.
+3. **Policy and budget.** The key's allowed connections, health and cooldowns, quota-group holds; a key with a monthly limit holds the attempt's estimated cost first, so concurrent requests cannot pass the limit together.
+4. **Journal.** The attempt is written to disk before it is sent, and settled with its ledger entry in one transaction.
+5. **Send and fall back.** Same format passes through untouched; other pairs are translated and say what they dropped. A 429 or 402 cools that key or model down for as long as the provider says, a rejected key (401) waits until you replace it, and the next key or target is tried.
 
-## What works today
+The diagrams are generated by [`scripts/readme-diagrams.mjs`](scripts/readme-diagrams.mjs) and checked against `apps/desktop/src-tauri/src/gateway/`. More in [Architecture](docs/ARCHITECTURE.md).
 
-- **Gateway on `127.0.0.1:8741`:**
-  - OpenAI Chat Completions, OpenAI Responses (for Codex) and Anthropic Messages, streamed, with tool calls in both directions.
-  - Loopback only.
-  - One gateway per store.
-- **Providers:**
-  - 26 cloud presets and 6 local runtimes ([PROVIDERS.md](docs/PROVIDERS.md)), plus custom OpenAI- and Anthropic-compatible endpoints.
-  - Keys stay in the Windows Credential Manager.
-  - Model facts (prices, context, tools) are looked up from the models.dev catalog.
-  - Quota windows and account balances are shown where the provider reports them.
-- **Same-format passthrough:** an Anthropic request (Claude Code) to an Anthropic connection goes through unchanged, so its prompt cache keeps working. Other pairs are translated and report what they drop.
-- **`auto` and `auto/cheap`:**
-  - Rules over the models you connected, not a classifier.
-  - `auto` takes the lowest eligible tier at or above the key's minimum; `auto/cheap` takes the lowest estimated cost.
-  - Unknown facts count as missing.
-  - Every response says why it chose what it chose.
-  - **How auto chooses** (in Combos) simulates a route.
-- **Combos:**
-  - A name such as `coding` stands for an ordered list.
-  - The order is either as listed or **cheapest first** for each request.
-  - Templates build one from rules: Free first, Use my plans first, Strong coding with cheap backup, Local only, Long-context, and others. They never fill a gap with a paid model by themselves.
-  - Fallback happens only before any answer reaches the client, and it honours cooldowns and shared quotas.
-- **Pools ([ADR-034](docs/DECISIONS.md)):**
-  - Separate API-key accounts of one provider behind one name.
-  - Web sessions of one site may pool too. Such a pool sends each request to the account used least today, and each account keeps its own limit and pace.
-- **Web sessions ([ADR-035](docs/DECISIONS.md)):**
-  - **Opt-in and unofficial.** Each one is behind an account-risk warning you accept.
-  - **Sites:** Muse, ChatGPT, Perplexity, DeepSeek and Grok.
-  - **Sign-in and storage:** you sign in yourself in Pygg's own window. Each connection keeps its own profile, and Pygg never imports cookies.
-  - **Where Pygg types:** only on the site's own page.
-  - **Pace:**
-    - one request at a time;
-    - a 10 s rest between requests;
-    - a daily limit (50 by default).
-  - **What it never does:** it never changes the browser's fingerprint and never answers a CAPTCHA.
-  - **Cost:** $0 a request by default, since the site is used on your own plan; set it to Subscription to count requests as quota instead.
-  - **Benchmark:** 47 of 48 short tasks answered correctly, at about 18 s each ([report](benchmark/reports/2026-11-13-web-sessions.md)).
-- **API keys:**
-  - One per app, each with:
-    - a monthly limit (estimated or strict);
-    - a cap on requests in flight;
-    - a policy for models without a price;
-    - the connections it may use;
-    - a minimum tier for `auto`.
-  - A copy of each key is kept in the Credential Manager, so it can be shown again. Revoked keys can be deleted.
-  - **Policies** sets the defaults for new keys.
-- **Usage:**
-  - Every attempt is recorded with its cost and that cost's source: **actual**, **estimated** or **unknown**, never shown as $0.
-  - Estimated savings compare the same tokens at a model you choose, and say what was left out.
-  - Charts, alerts, CSV export and retention.
-  - **Token mix** (new input, cache reads, cache writes, output) and **Routing** (fallbacks, routing sessions, changes of model with the cache writes that followed); each request records its attempt chain, the billing it was sent under and what happened to its cache hints.
-- **CLI (`pygg`, or `pygg-cli.exe` next to the app):**
-  - `pygg` alone shows where you are; `setup claude|codex|opencode`, `run claude|codex|opencode` (a routing session per launch), `status`, `doctor`, `providers`, `models`, `logs`, `usage` (each with `--json`), `gateway …`, `diagnostics` and `mcp` ([design](docs/design/CLI.md)).
-  - npm developer preview: `npm install -g @pygg/cli@dev`.
-- **Guide:** in the app, with every command ready to copy.
-- **Smart tasks (experimental, on hold):**
-  - IDE agents hand subtasks to Pygg over MCP.
-  - Agent CLIs run them in worktrees against approved checks.
-  - Paid steps wait for approval in the app ([AGENTS.md](docs/AGENTS.md)).
+## Install
 
-## Navigation
-
-| Group | Screen | Purpose |
-| --- | --- | --- |
-| Gateway | Home | Gateway state, the three setup steps, estimated savings, the last 24 hours |
-| | Providers | Connections, keys or sign-ins, models, prices, health and quota |
-| | Endpoint | Base URLs to copy, and API Keys with their limits |
-| | CLI Tools | One-click set-up for Codex and OpenCode, the Claude Code launcher, snippets for the rest, each tool's status |
-| | Combos | Combos and templates; How auto chooses |
-| | Usage | Savings, costs, requests, alerts, export |
-| | Policies | Defaults for new keys, each key's and each connection's policy, the guarantees |
-| Smart Tasks · Experimental | Tasks, Workspaces, Agents | On hold |
-| App | Guide, Settings | How to use Pygg, the commands; preferences, background, diagnostics |
-
-See the [screen design](docs/design/SCREENS.md).
-
-## Tech stack
-
-- **Tauri 2** with a Rust core: the gateway (axum), the task engine, a SQLite store, the OS credential store, WebView2 windows for web sessions, and process supervision.
-- **Interface:** React 19 + Vite + TypeScript with semantic CSS tokens.
-- **Workspace:** pnpm.
-
-## Development
-
-Requirements:
-- Node.js LTS and pnpm 9 (`corepack enable`).
-- Stable Rust, installed through rustup.
-- On Windows, the Visual Studio C++ Build Tools and WebView2. WebView2 is built into Windows 11.
-
-Run these from the repo root:
+**Desktop app (Windows 10/11 x64).** It runs the gateway, holds your connections and shows usage. There is no published release yet; build the installer from source ([requirements](#development)):
 
 ```powershell
 pnpm install
-pnpm dev                                              # interface in a browser at http://127.0.0.1:1431 with demo data (?empty for first run)
-pnpm --filter @smarttaskrouter/desktop tauri:dev     # the desktop app with the real gateway
-pnpm typecheck
-pnpm --filter @smarttaskrouter/desktop tauri:build   # NSIS and MSI installers under src-tauri/target/release/bundle
-cd apps/desktop/src-tauri; cargo test --lib           # core, gateway, web-session and task engine tests
+pnpm --filter @smarttaskrouter/desktop tauri:build
+# → apps/desktop/src-tauri/target/release/bundle: Pygg_0.1.0_x64-setup.exe (NSIS) and an MSI
 ```
 
-`PYGG_DATA_DIR` points the app at another store, for trying it without touching your own. In a debug build, `PYGG_WEB_DEVTOOLS=1` turns on a navigation log and DevTools for web-session windows.
+The installer is unsigned, so Windows asks before it runs. It installs for the current user and adds `pygg-cli.exe` next to the app.
 
-### Command line
+**Command line (`pygg`), from npm:**
 
-`pygg-cli` (or `pygg` from npm) uses the same core and store as the app. API keys are read from an environment variable, so they never appear on a command line.
-
-```powershell
-pygg                               # where you are, and what to type next
-pygg setup claude                  # route Claude Code through Pygg; also codex, opencode
-pygg run claude                    # start it through Pygg, a routing session per launch
-pygg providers                     # saved connections: on, last check, health, models
-pygg models --search flash         # the models to ask for, with billing and price
-pygg logs --failed                 # recent request attempts that did not answer
-pygg usage --days 7 --json         # requests, cost and token mix, for scripts
-pygg gateway add-connection --preset gemini --key-env GEMINI_API_KEY
-pygg gateway auto --alias auto --tools yes   # which model auto would choose, and why
-pygg --help
+```bash
+npm install -g @pygg/cli@dev
 ```
 
-More is in the in-app **Guide** and in [AGENTS.md](docs/AGENTS.md).
+`0.1.0-dev.1` under the tag `dev`, for **Windows x64** and **Linux x64** (glibc). The macOS packages wait for CI and are not published yet. On Windows the CLI uses the desktop app's store and gateway; on Linux, `pygg gateway serve` runs the gateway in a terminal of its own.
 
-## Licence
+## Quick start
 
-MIT, see [LICENSE](LICENSE). Third-party notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Open Pygg, then **Providers → Connect Provider** and paste a key (Gemini, OpenRouter and Groq have free tiers; Ollama is local). Without the app, `pygg gateway add-connection --preset gemini --key-env GEMINI_API_KEY` reads the key from an environment variable. Then point your tool at Pygg:
+
+**Claude Code** keeps your Claude sign-in; Pygg starts it through the gateway one launch at a time.
+
+```bash
+pygg setup claude          # a Pygg key of its own, kept in the credential store; no file changes
+pygg run claude            # this launch through Pygg, model auto
+```
+
+**Codex CLI** gets a `pygg` provider and profile, after a backup; its default model is not changed.
+
+```bash
+pygg setup codex
+pygg run codex             # or: codex --profile pygg -m auto/cheap
+```
+
+**OpenCode** gets a Pygg provider listing `auto`, `auto/cheap` and your enabled models, kept current.
+
+```bash
+pygg setup opencode
+pygg run opencode          # then /models → Pygg → auto
+```
+
+**Editors and SDKs** (Cline, Continue, Roo Code, the OpenAI or Anthropic SDKs): base URL `http://127.0.0.1:8741/v1`, a key from **Endpoint → API Keys**, model `auto`.
+
+Each `setup` takes `--dry-run` to show what would change and `--remove` to undo it. The same set-up is one click in **CLI Tools**. Step by step, with troubleshooting: [Getting started](docs/GETTING-STARTED.md).
+
+## Measured, not claimed
+
+Real agents, real models, checks the agent cannot edit, about $16.7 of a $20 budget in all. Each report gives its method, raw results and what it does not show; read it before quoting a number. Summary: [BENCHMARKS.md](docs/BENCHMARKS.md).
+
+| What was measured | Result | Report |
+| --- | --- | --- |
+| OpenCode on 12 harder coding tasks × 3, through Pygg to Claude Haiku 5.5 instead of Sonnet 5.5 | **88% less per solved task** (95% CI 87–90%); 36/36 solved against 34/36 | [N2](benchmark/reports/2026-11-12-n2-savings.md) |
+| Claude Code on the same tasks, Haiku 5.5 instead of Sonnet 5.5 | **79% less per solved task** (95% CI 74–84%); `auto/cheap` with OpenCode: 34/36 at $0.0129 per solved task | [P0](benchmark/reports/2026-11-12-p0-optimization.md) |
+| Claude Code on six tasks from a real production repository | Haiku 5.5: **6/6 for $1.50**, 96% of input read from cache; Sonnet 5.5: 4/5 for $1.19; OpenCode with `auto/cheap`: 2/6 for $0.35 | [CCHT](benchmark/reports/2026-11-13-ccht-real-repository.md) |
+| Codex on Claude Haiku 5.5, Pygg's prompt caching off vs on | 16/16 either way; **30% less in all, 68% less on input** | [Prompt cache](benchmark/reports/2026-11-14-codex-claude-prompt-cache.md) |
+| The gateway's own overhead, against a local fake provider | **About 4 ms** per short request, 5 ms per 400 kB prompt; about 230 requests/s with 16 clients | [Overhead](benchmark/reports/2026-11-14-gateway-overhead.md) |
+| Web sessions on five sites, 48 short tasks | **47/48 correct**, about 18 s each, $0 | [Web sessions](benchmark/reports/2026-11-13-web-sessions.md) |
+
+Not claimed: a quality ranking of models (a handful of tasks each), a provider's bill (costs are the ledger at list prices), or "60–95% fewer tokens". A longer web-session run on coding tasks got the owner's DeepSeek account suspended for three days ([report](benchmark/reports/2026-11-13-web-coding.md)); the guard has been stricter since.
+
+## What's inside
+
+```text
+Coding agents ──HTTP──► Gateway 127.0.0.1:8741 (axum) ──► OpenAI- and Anthropic-compatible APIs, coding plans,
+  Claude Code, Codex,     auth · route · policy · journal       local runtimes (Ollama …), web sessions (WebView2
+  OpenCode, SDKs          translate · fall back · settle         windows behind the guard)
+                                   │
+       React UI ◄── Tauri ──► Rust core ──► SQLite store (ledger, journal, connections) · OS credential store
+       pygg CLI ──────────────┘
+```
+
+- **One Rust crate** (Tauri 2): the gateway (axum), the SQLite store, the OS credential store, web-session windows, and the headless programs (`pygg-cli`, `gateway`, `pygg-mcp`) built from the same library.
+- **Interface:** React 19, Vite and TypeScript, with a layout check over every screen in CI (`pnpm ui-check`).
+- **`@pygg/cli` on npm:** a Node launcher with one optional package per platform (ADR-037).
+- **Smart tasks** (experimental, on hold): IDE agents hand subtasks to Pygg over MCP; agent CLIs run them in Git worktrees against approved checks ([AGENTS.md](docs/AGENTS.md)).
 
 ## Documentation
 
-**Using Pygg**
+| | |
+| --- | --- |
+| **Use** | [Getting started](docs/GETTING-STARTED.md) · [Providers](docs/PROVIDERS.md) · [Benchmarks](docs/BENCHMARKS.md) · [Security](docs/SECURITY.md) |
+| **Understand** | [Architecture](docs/ARCHITECTURE.md) · [Decisions (ADR-001 to ADR-038)](docs/DECISIONS.md) · [Schema](docs/SCHEMA.md) · [CLI design](docs/design/CLI.md) |
+| **Track** | [Implementation status](docs/IMPLEMENTATION-STATUS.md) · [Roadmap](docs/ROADMAP.md) · [Reviews](docs/reviews) · [Benchmark reports](benchmark/reports) |
+| **Contribute** | [Contributing](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [Every document, indexed](docs/README.md) |
 
-- [Getting started](docs/GETTING-STARTED.md): install, first run, connect a provider, set up Claude Code, Codex, OpenCode or an editor, see cost and savings, troubleshooting, FAQ.
-- [Providers](docs/PROVIDERS.md): every connection preset, its endpoint, its free tier and whether it has answered live; the web-session sites.
-- [Security](docs/SECURITY.md): what Pygg protects, what you are trusted with, how to report a problem.
-- The in-app **Guide** repeats the steps with every command ready to copy.
+The repository and its technical identifiers keep the engineering name SmartTaskRouter. Brand assets are in [branding](branding/README.md).
 
-**Engineering**
+## Development
 
-- [Implementation status](docs/IMPLEMENTATION-STATUS.md): what is built and how each part was verified, including what is not verified yet. The authority on whether something works.
-- [Roadmap](docs/ROADMAP.md): delivery order and release gates. The authority on what comes next.
-- [Architecture](docs/ARCHITECTURE.md), [Decisions](docs/DECISIONS.md) (ADR-001 to ADR-035), [Schema](docs/SCHEMA.md), [Agents and smart tasks](docs/AGENTS.md).
-- [Contributing](CONTRIBUTING.md): how to change Pygg.
-- [Benchmarks](benchmark/reports): each run with its method, cost and raw results.
-- [Reviews](docs/reviews) with their answers, and [research](docs/research), as written at the time.
-- [docs/README.md](docs/README.md): the full index, grouped by reader, with each document's status.
+Requirements: Node.js LTS with pnpm 9 (`corepack enable`), stable Rust through rustup, and on Windows the Visual Studio C++ Build Tools and WebView2 (built into Windows 11).
+
+```powershell
+pnpm install
+pnpm dev                                              # the interface at http://127.0.0.1:1431 with demo data (?empty for a first run)
+pnpm --filter @smarttaskrouter/desktop tauri:dev     # the desktop app with the real gateway
+pnpm typecheck
+pnpm ui-check                                         # every screen at several window sizes, nothing overflowing
+cd apps/desktop/src-tauri; cargo test --lib           # core, gateway, web-session and task engine tests
+node scripts/readme-diagrams.mjs                      # regenerate the README's animated diagrams
+```
+
+`PYGG_DATA_DIR` points the app at another store, for trying it without touching your own.
+
+## Licence
+
+MIT, see [LICENSE](LICENSE). Third-party code and data are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

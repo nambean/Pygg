@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 494" width="940" height="494" role="img" aria-labelledby="ft fd">
+<title id="ft">One request through Pygg's gateway</title>
+<desc id="fd">A coding agent sends a request to Pygg on 127.0.0.1:8741. Pygg checks the client token, resolves the model (auto, a combo or a named connection/model), applies the key's policy and holds the estimated spend, and journals the attempt before sending it. In this example route, the connection's key ring sends it with key 1, which gets a 429 and cools down; key 2 gets a 402 and cools down; the request then goes to the route's next target, a local Ollama model, which answers. The answer streams back to the agent, and each attempt is settled in the ledger with its cost and that cost's source.</desc>
+<defs>
+<linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d1117"/><stop offset="1" stop-color="#101a15"/></linearGradient>
+<filter id="soft" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="rgba(0,0,0,.45)"/></filter>
+<filter id="glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="7"/></filter>
+</defs>
+<style>
+svg{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans",Helvetica,Arial,sans-serif}
+.m{font-family:ui-monospace,SFMono-Regular,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace}
+.box{fill:#151b23;stroke:#2a333d;stroke-width:1.4}
+.t{fill:#e6edf3;font-size:15px;font-weight:600}
+.s{fill:#9198a1;font-size:12.5px}
+.h{fill:#9198a1;font-size:10.5px;font-weight:600;letter-spacing:.1em}
+.chip{fill:#1f262e;stroke:#2a333d}
+.ct{fill:#e6edf3;font-size:12px}
+.ln{stroke:#4d5864;stroke-width:1.4;fill:none}
+.lane{stroke:#2fb170;stroke-width:1.6;fill:none;stroke-dasharray:5 4}
+.ah{fill:#4d5864}
+.ok{fill:#2fb170;font-weight:700}
+.no{fill:#f2a34e;font-weight:700}
+.row{font-size:12.5px;fill:#e6edf3}
+.dim{fill:#9198a1}
+.anim,.pkt{opacity:0}
+@keyframes pk{0%{transform:translate(98px,102px);opacity:0}1.6%{transform:translate(98px,102px);opacity:1}6.4%{transform:translate(284px,102px)}11.2%{transform:translate(470px,102px)}16%{transform:translate(656px,102px)}20.8%{transform:translate(842px,102px)}24%{transform:translate(842px,244px)}27.2%{transform:translate(800px,244px)}32.8%{transform:translate(800px,244px)}35.2%{transform:translate(842px,244px)}37.6%{transform:translate(800px,244px)}44%{transform:translate(800px,244px)}46.4%{transform:translate(842px,244px)}48.8%{transform:translate(842px,369px)}50.4%{transform:translate(800px,369px)}53.6%{transform:translate(800px,369px)}56%{transform:translate(420px,369px)}57.6%{transform:translate(398px,369px)}61.6%{transform:translate(398px,178px)}70.4%{transform:translate(98px,178px)}73.2%{transform:translate(98px,150px);opacity:1}73.6%{transform:translate(98px,150px);opacity:0}100%{transform:translate(98px,150px);opacity:0}}@keyframes pkc{0%{fill:#6aa5ff}32%{fill:#6aa5ff}32.4%{fill:#f2a34e}36.8%{fill:#f2a34e}37.2%{fill:#6aa5ff}43.2%{fill:#6aa5ff}43.6%{fill:#f2a34e}49.6%{fill:#f2a34e}50%{fill:#6aa5ff}52.8%{fill:#6aa5ff}53.2%{fill:#2fb170}100%{fill:#2fb170}}
+@keyframes g1{0%{stroke:#2a333d}4%{stroke:#2a333d}4.4%{stroke:#6aa5ff}8%{stroke:#6aa5ff}8.4%{stroke:#2a333d}100%{stroke:#2a333d}}@keyframes g2{0%{stroke:#2a333d}8.8%{stroke:#2a333d}9.2%{stroke:#6aa5ff}12.8%{stroke:#6aa5ff}13.2%{stroke:#2a333d}100%{stroke:#2a333d}}@keyframes g3{0%{stroke:#2a333d}13.6%{stroke:#2a333d}14%{stroke:#6aa5ff}17.6%{stroke:#6aa5ff}18%{stroke:#2a333d}100%{stroke:#2a333d}}@keyframes g4{0%{stroke:#2a333d}18.4%{stroke:#2a333d}18.8%{stroke:#6aa5ff}22.4%{stroke:#6aa5ff}22.8%{stroke:#2a333d}35.2%{stroke:#2a333d}35.6%{stroke:#6aa5ff}36.8%{stroke:#6aa5ff}37.2%{stroke:#2a333d}46.4%{stroke:#2a333d}46.8%{stroke:#6aa5ff}48%{stroke:#6aa5ff}48.4%{stroke:#2a333d}100%{stroke:#2a333d}}
+@keyframes f1{0%{stroke:#2a333d;fill:#151b23}27.2%{stroke:#2a333d;fill:#151b23}27.6%{stroke:#f2a34e;fill:#35230f}46.4%{stroke:#f2a34e;fill:#35230f}46.8%{stroke:#2a333d;fill:#151b23}100%{stroke:#2a333d;fill:#151b23}}@keyframes f3{0%{stroke:#2a333d;fill:#151b23}50.4%{stroke:#2a333d;fill:#151b23}50.8%{stroke:#2fb170;fill:#11291c}97.75%{stroke:#2fb170;fill:#11291c}97.94%{stroke:#2a333d;fill:#151b23}100%{stroke:#2a333d;fill:#151b23}}
+@keyframes k1{0%{fill:#1f262e;stroke:#2a333d}23.2%{fill:#1f262e;stroke:#2a333d}23.6%{fill:#132540;stroke:#6aa5ff}32.4%{fill:#132540;stroke:#6aa5ff}32.8%{fill:#35230f;stroke:#f2a34e}98.13%{fill:#35230f;stroke:#f2a34e}98.31%{fill:#1f262e;stroke:#2a333d}100%{fill:#1f262e;stroke:#2a333d}}@keyframes k2{0%{fill:#1f262e;stroke:#2a333d}34.8%{fill:#1f262e;stroke:#2a333d}35.2%{fill:#132540;stroke:#6aa5ff}43.6%{fill:#132540;stroke:#6aa5ff}44%{fill:#35230f;stroke:#f2a34e}98.13%{fill:#35230f;stroke:#f2a34e}98.31%{fill:#1f262e;stroke:#2a333d}100%{fill:#1f262e;stroke:#2a333d}}
+@keyframes r1a{0%{opacity:0}20%{opacity:0}20.48%{opacity:1}32.4%{opacity:1}32.88%{opacity:0}100%{opacity:0}}.r1a{animation:r1a 15s infinite}@keyframes r1b{0%{opacity:0}32.4%{opacity:0}32.88%{opacity:1}98.13%{opacity:1}98.35%{opacity:0}100%{opacity:0}}.r1b{animation:r1b 15s infinite}@keyframes r2a{0%{opacity:0}35.2%{opacity:0}35.68%{opacity:1}43.6%{opacity:1}44.08%{opacity:0}100%{opacity:0}}.r2a{animation:r2a 15s infinite}@keyframes r2b{0%{opacity:0}43.6%{opacity:0}44.08%{opacity:1}98.13%{opacity:1}98.35%{opacity:0}100%{opacity:0}}.r2b{animation:r2b 15s infinite}@keyframes r3a{0%{opacity:0}46.4%{opacity:0}46.88%{opacity:1}53.2%{opacity:1}53.68%{opacity:0}100%{opacity:0}}.r3a{animation:r3a 15s infinite}@keyframes r3b{0%{opacity:0}53.2%{opacity:0}53.68%{opacity:1}72.8%{opacity:1}73.28%{opacity:0}100%{opacity:0}}.r3b{animation:r3b 15s infinite}@keyframes r3c{0%{opacity:0}72.8%{opacity:0}73.28%{opacity:1}98.13%{opacity:1}98.35%{opacity:0}100%{opacity:0}}.r3c{animation:r3c 15s infinite}@keyframes b429{0%{opacity:0}32.4%{opacity:0}32.88%{opacity:1}98.13%{opacity:1}98.35%{opacity:0}100%{opacity:0}}.b429{animation:b429 15s infinite}@keyframes b402{0%{opacity:0}43.6%{opacity:0}44.08%{opacity:1}98.13%{opacity:1}98.35%{opacity:0}100%{opacity:0}}.b402{animation:b402 15s infinite}@keyframes b200{0%{opacity:0}53.2%{opacity:0}53.68%{opacity:1}98.13%{opacity:1}98.35%{opacity:0}100%{opacity:0}}.b200{animation:b200 15s infinite}@keyframes nt{0%{opacity:0}44%{opacity:0}44.48%{opacity:1}98.13%{opacity:1}98.35%{opacity:0}100%{opacity:0}}.nt{animation:nt 15s infinite}@keyframes cool1{0%{opacity:0}32.8%{opacity:0}33.28%{opacity:1}98.13%{opacity:1}98.35%{opacity:0}100%{opacity:0}}.cool1{animation:cool1 15s infinite}@keyframes cool2{0%{opacity:0}44%{opacity:0}44.48%{opacity:1}98.13%{opacity:1}98.35%{opacity:0}100%{opacity:0}}.cool2{animation:cool2 15s infinite}
+@keyframes halo{0%{opacity:.12}40%{opacity:.35}100%{opacity:.12}}
+.pkt{animation:pk 15s linear infinite}
+.pkt .pk{animation:pkc 15s step-end infinite}
+.pkt .halo{opacity:.25}
+#gw{animation:g1 15s infinite}#route{animation:g2 15s infinite}#policy{animation:g3 15s infinite}
+#journal{animation:g4 15s infinite}#c1{animation:f1 15s infinite}#c3{animation:f3 15s infinite}
+#k1{animation:k1 15s infinite}#k2{animation:k2 15s infinite}
+@media (prefers-reduced-motion:reduce){
+*{animation:none!important}
+.pkt,.r1a,.r2a,.r3a,.r3b,.b200{opacity:0}
+.r1b,.r2b,.r3c,.b429,.b402,.nt,.cool1,.cool2{opacity:1}
+#c1{stroke:#f2a34e}#c3{stroke:#2fb170}#k1,#k2{stroke:#f2a34e;fill:#35230f}
+}</style>
+<rect width="940" height="494" rx="16" fill="url(#bgGrad)"/>
+<text class="h" x="16" y="32" style="font-size:11px">ONE REQUEST THROUGH PYGG · AN EXAMPLE ROUTE</text>
+<circle cx="584" cy="28" r="5" fill="#6aa5ff"/><text class="s" x="594" y="32">request</text>
+<circle cx="664" cy="28" r="5" fill="#f2a34e"/><text class="s" x="674" y="32">refused: next key or target</text>
+<circle cx="848" cy="28" r="5" fill="#2fb170"/><text class="s" x="858" y="32">answer</text>
+<g filter="url(#soft)"><rect id="agent" class="box" x="16" y="54" width="164" height="96" rx="12"/></g>
+<text class="h" x="30" y="74">1</text>
+<text class="t" x="30" y="94">Coding agent</text>
+<text class="s" x="30" y="115">Claude Code, Codex,</text><text class="s" x="30" y="132">OpenCode, SDKs</text>
+<g filter="url(#soft)"><rect id="gw" class="box" x="202" y="54" width="164" height="96" rx="12"/></g>
+<text class="h" x="216" y="74">2</text>
+<text class="t" x="216" y="94">Pygg gateway</text>
+<text class="s m" x="216" y="115" style="font-size:12px">127.0.0.1:8741</text><text class="s" x="216" y="132">token, loopback only</text>
+<g filter="url(#soft)"><rect id="route" class="box" x="388" y="54" width="164" height="96" rx="12"/></g>
+<text class="h" x="402" y="74">3</text>
+<text class="t" x="402" y="94">Route</text>
+<rect class="chip" x="402" y="104" width="48" height="20" rx="10"/><text class="ct m" x="426" y="118" text-anchor="middle">auto</text><rect class="chip" x="456" y="104" width="62" height="20" rx="10"/><text class="ct m" x="487" y="118" text-anchor="middle">combo</text><rect class="chip" x="402" y="128" width="136" height="20" rx="10"/><text class="ct m" x="470" y="142" text-anchor="middle">connection/model</text>
+<g filter="url(#soft)"><rect id="policy" class="box" x="574" y="54" width="164" height="96" rx="12"/></g>
+<text class="h" x="588" y="74">4</text>
+<text class="t" x="588" y="94">Policy · budget</text>
+<text class="s" x="588" y="115">limits, cooldowns</text><text class="s" x="588" y="132">spend held if capped</text>
+<g filter="url(#soft)"><rect id="journal" class="box" x="760" y="54" width="164" height="96" rx="12"/></g>
+<text class="h" x="774" y="74">5</text>
+<text class="t" x="774" y="94">Journal</text>
+<text class="s" x="774" y="115">written to disk</text><text class="s" x="774" y="132">before it is sent</text>
+<path class="ln" d="M180 102H195"/><path class="ah" d="M202 102l-7 -4v8z"/><path class="ln" d="M366 102H381"/><path class="ah" d="M388 102l-7 -4v8z"/><path class="ln" d="M552 102H567"/><path class="ah" d="M574 102l-7 -4v8z"/><path class="ln" d="M738 102H753"/><path class="ah" d="M760 102l-7 -4v8z"/>
+<path class="ln" d="M842 150V423"/>
+<path class="ln" d="M842 244H807"/><path class="ah" d="M800 244l7 -4v8z"/><path class="ln" d="M842 315H807"/><path class="ah" d="M800 315l7 -4v8z"/><path class="ln" d="M842 369H807"/><path class="ah" d="M800 369l7 -4v8z"/><path class="ln" d="M842 423H807"/><path class="ah" d="M800 423l7 -4v8z"/>
+<g class="anim nt"><text class="s" x="852" y="311" style="fill:#f2a34e;font-weight:600">next</text><text class="s" x="852" y="327" style="fill:#f2a34e;font-weight:600">target</text></g>
+<g filter="url(#soft)"><rect id="c1" class="box" x="420" y="204" width="380" height="80" rx="11"/></g>
+<text class="t" x="434" y="227" style="font-size:14px">API keys · key ring</text>
+<text class="s" x="434" y="245">OpenAI, Anthropic, Gemini, OpenRouter …</text>
+<rect id="k1" class="chip" x="434" y="255" width="58" height="21" rx="10.5"/><text class="ct m" x="463" y="269.5" text-anchor="middle">key 1</text>
+<rect id="k2" class="chip" x="498" y="255" width="58" height="21" rx="10.5"/><text class="ct m" x="527" y="269.5" text-anchor="middle">key 2</text>
+<text class="s" x="566" y="270" style="font-size:11.5px">other accounts, used in turn</text>
+<g class="anim b429"><rect x="688" y="214" width="48" height="22" rx="11" fill="#f2a34e"/><text x="712" y="229.5" text-anchor="middle" font-size="12.5" font-weight="700" fill="#0d1117" class="m">429</text></g><g class="anim b402"><rect x="742" y="214" width="48" height="22" rx="11" fill="#f2a34e"/><text x="766" y="229.5" text-anchor="middle" font-size="12.5" font-weight="700" fill="#0d1117" class="m">402</text></g>
+<g filter="url(#soft)"><rect id="c2" class="box" x="420" y="292" width="380" height="46" rx="11"/></g>
+<text class="t" x="434" y="312" style="font-size:14px">Plans</text><text class="s" x="434" y="329">subscription keys, counted as quota</text><g filter="url(#soft)"><rect id="c3" class="box" x="420" y="346" width="380" height="46" rx="11"/></g>
+<text class="t" x="434" y="366" style="font-size:14px">Ollama and local runtimes</text><text class="s" x="434" y="383">on this PC, no API charge</text><g filter="url(#soft)"><rect id="c4" class="box" x="420" y="400" width="380" height="46" rx="11"/></g>
+<text class="t" x="434" y="420" style="font-size:14px">Web sessions · opt-in</text><text class="s" x="434" y="437">text only · the guard: one at a time, rests, a daily cap</text>
+<g class="anim b200"><rect x="742" y="358" width="48" height="22" rx="11" fill="#2fb170"/><text x="766" y="373.5" text-anchor="middle" font-size="12.5" font-weight="700" fill="#0d1117" class="m">200</text></g>
+<path class="lane" d="M420 369H398V178H98V157"/><path d="M98 150l-4.5 8h9z" fill="#2fb170"/>
+<text class="s" x="118" y="170">streamed back · a fallback happens only before the agent gets its first byte</text>
+<g filter="url(#soft)"><rect class="box" x="16" y="204" width="360" height="242" rx="12"/></g>
+<text class="t" x="32" y="231">Ledger</text>
+<text class="s" x="32" y="250">each attempt settled with its journal entry</text>
+<text class="h" x="32" y="278">#</text><text class="h" x="58" y="278">TARGET</text><text class="h" x="172" y="278">HTTP</text><text class="h" x="216" y="278">OUTCOME</text>
+<path class="ln" d="M32 286H360" style="stroke-width:1"/>
+<g class="anim r1a"><text class="row m" x="32" y="308">1</text><text class="row" x="58" y="308">API key 1</text><text class="row m dim" x="172" y="308">…</text><text class="row dim" x="216" y="308">journaled, sent</text></g>
+<g class="anim r1b"><text class="row m" x="32" y="308">1</text><text class="row" x="58" y="308">API key 1</text><text class="row m no" x="172" y="308">429</text><text class="row dim" x="216" y="308">key cools down</text></g>
+<g class="anim r2a"><text class="row m" x="32" y="332">2</text><text class="row" x="58" y="332">API key 2</text><text class="row m dim" x="172" y="332">…</text><text class="row dim" x="216" y="332">journaled, sent</text></g>
+<g class="anim r2b"><text class="row m" x="32" y="332">2</text><text class="row" x="58" y="332">API key 2</text><text class="row m no" x="172" y="332">402</text><text class="row dim" x="216" y="332">key cools down</text></g>
+<g class="anim r3a"><text class="row m" x="32" y="356">3</text><text class="row" x="58" y="356">Ollama</text><text class="row m dim" x="172" y="356">…</text><text class="row dim" x="216" y="356">journaled, sent</text></g>
+<g class="anim r3b"><text class="row m" x="32" y="356">3</text><text class="row" x="58" y="356">Ollama</text><text class="row m ok" x="172" y="356">200</text><text class="row dim" x="216" y="356">streaming</text></g>
+<g class="anim r3c"><text class="row m" x="32" y="356">3</text><text class="row" x="58" y="356">Ollama</text><text class="row m ok" x="172" y="356">200</text><text class="row dim" x="216" y="356">tokens, cost, source</text></g>
+<path class="ln" d="M32 376H360" style="stroke-width:1"/>
+<text class="s" x="32" y="401">cost source: actual · estimated · unknown</text>
+<text class="s" x="32" y="420">unknown is never shown as $0</text>
+<text class="s" x="16" y="480" style="font-size:12px">A timeout stops the request, and so does a 5xx unless the client allows retries: the provider may already have billed it.</text>
+<g class="pkt"><circle class="pk halo" r="12"/><circle class="pk" r="6.5"/></g>
+</svg>

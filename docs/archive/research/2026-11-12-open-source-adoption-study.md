@@ -2,8 +2,8 @@
 
 > **Status:** Reference / research, **not an accepted ADR or implementation**.  
 > **Scope:** Read publicly documented repositories and selected current implementation files; compare them to Pygg's built Rust/Tauri/SQLite/Agent stack. No dependency imported, no tests run, no provider calls or paid traffic.  
-> **Why:** The owner explicitly wants the original shared-context, npm/CLI and routing vision evaluated against well-known open source before adopting Claude's [counter-review](../reviews/2026-11-12-original-vision-gaps-response.md).  
-> **Authority:** [docs index](../README.md) → [ROADMAP](../ROADMAP.md) → [Implementation Status](../IMPLEMENTATION-STATUS.md) → [Decisions](../DECISIONS.md). This research does **not** reverse ADR-026, 027 or 028. Compare with the [original-vision RFC](../RFC-2026-11-12-ORIGINAL-VISION-GAPS.md).
+> **Why:** The owner explicitly wants the original shared-context, npm/CLI and routing vision evaluated against well-known open source before adopting Claude's [counter-review](../../reviews/2026-11-12-original-vision-gaps-response.md).  
+> **Authority:** [docs index](../../README.md) → [ROADMAP](../../ROADMAP.md) → [Implementation Status](../../IMPLEMENTATION-STATUS.md) → [Decisions](../../DECISIONS.md). This research does **not** reverse ADR-026, 027 or 028. Compare with the [original-vision RFC](../RFC-2026-11-12-ORIGINAL-VISION-GAPS.md).
 
 ## Executive decision: learn patterns, not entire frameworks
 
@@ -86,7 +86,7 @@ The schema is illustrative. **A new worktree starts from the original base commi
 
 ## 4. What these sources say about Claude's PV-01/PV-02 reply
 
-Claude's [counter-review](../reviews/2026-11-12-original-vision-gaps-response.md) is correct to **avoid a speculative global memory subsystem** before evidence, and correct that today `pygg_run_task` already transports the user's *explicit task description*.
+Claude's [counter-review](../../reviews/2026-11-12-original-vision-gaps-response.md) is correct to **avoid a speculative global memory subsystem** before evidence, and correct that today `pygg_run_task` already transports the user's *explicit task description*.
 
 But that is **not equivalent to portable context with source lineage**:
 

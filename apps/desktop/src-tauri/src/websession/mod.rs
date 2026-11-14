@@ -151,7 +151,7 @@ const GOOGLE: [&str; 2] = ["google.com", "youtube.com"];
 /// Sites and their sign-in hosts. Muse's hosts are from its live redirect chain (2026-11-12). The others are the sites'
 /// documented sign-in paths, and are checked against the live chain when the owner signs in with the debug navigation
 /// log (`PYGG_WEB_DEVTOOLS=1`); their selectors were read from each site's public page where it has one, and follow
-/// what 9router reads otherwise (docs/research/2026-11-12-web-session-routers.md).
+/// what 9router reads otherwise (docs/archive/research/2026-11-12-web-session-routers.md).
 pub const RECIPES: &[Recipe] = &[
     Recipe {
         preset: "muse-web",

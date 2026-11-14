@@ -6,7 +6,7 @@ This page goes from the installer to "my coding tool uses the model `auto`". Eve
 
 ## What you need
 
-- **Windows 10 or 11, x64.** macOS and Linux builds do not exist yet (ADR-001).
+- **Windows 10 or 11, x64** for the desktop app (ADR-001). The `pygg` command line is also published for Linux x64 (`npm install -g @pygg/cli@dev`, ADR-037), where `pygg gateway serve` runs the gateway; the macOS packages wait for CI.
 - **WebView2.** It is built into Windows 11; Windows 10 may need it from Microsoft.
 - **An account with at least one provider.** Gemini, OpenRouter and Groq have free tiers; Ollama runs on your own computer. The presets and their free tiers are listed in [PROVIDERS.md](PROVIDERS.md).
 - **A coding tool:** Claude Code, Codex CLI, OpenCode, an editor extension that calls an OpenAI-compatible API, or an SDK.

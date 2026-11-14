@@ -1,15 +1,15 @@
 # Pygg — UI/UX & Functional Implementation Plan
 
-> **Status:** Historical · the v1.2 functional plan; superseded where ROADMAP and ADR-026 to ADR-028 say so · reviewed 2026-11-11 · order: [ROADMAP](ROADMAP.md) · built: [Implementation Status](IMPLEMENTATION-STATUS.md)
+> **Status:** Historical · the v1.2 functional plan; superseded where ROADMAP and ADR-026 to ADR-028 say so · reviewed 2026-11-11 · order: [ROADMAP](../ROADMAP.md) · built: [Implementation Status](../IMPLEMENTATION-STATUS.md)
 
-> **Update 2026-11-11 (ADR-026, ADR-027):** agents run with their own sign-in, and tasks are started from the user's IDE agent through MCP. The analyze-then-plan flow (§2.2, §3.2), `POST /api/routes/analyze` and the tasks API in §6 are superseded; the built task API is `/pygg/v1/tasks` ([AGENTS.md](AGENTS.md#from-the-ide-pygg-mcp-and-the-task-api)). Auto Chat and app-owned conversation memory are dropped (ADR-028). See [ROADMAP](ROADMAP.md#revised-plan-after-adr-026-and-adr-027-2026-11-11-docs-review).
+> **Update 2026-11-11 (ADR-026, ADR-027):** agents run with their own sign-in, and tasks are started from the user's IDE agent through MCP. The analyze-then-plan flow (§2.2, §3.2), `POST /api/routes/analyze` and the tasks API in §6 are superseded; the built task API is `/pygg/v1/tasks` ([AGENTS.md](../AGENTS.md#from-the-ide-pygg-mcp-and-the-task-api)). Auto Chat and app-owned conversation memory are dropped (ADR-028). See [ROADMAP](../ROADMAP.md#revised-plan-after-adr-026-and-adr-027-2026-11-11-docs-review).
 
 
 > Version: 1.2 addendum | Date: 2026-11-11 | Status: design plus implementation; shared memory and Auto Chat are withdrawn (ADR-028)
 >
 > Reference direction: 9Router-style provider/quota/endpoint management, extended with task-level routing that is checked by deterministic verification.
 
-> **CURRENT DELIVERY PRIORITIES (2026-11-11):** [ROADMAP.md](ROADMAP.md) is authoritative; [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) is authoritative for implemented code. The gateway, headless `gateway serve` CLI and gateway-first desktop screens have been built; older Phase 0–4 ordering, six-destination/task-first descriptions and mock-up colors below are retained as historical design. [Review response](reviews/2026-11-11-review-response.md) addresses the Claude findings. Rule-based Auto routing (P0-5) is built; no Smart Memory (withdrawn, ADR-028) and no cost savings are claimed.
+> **CURRENT DELIVERY PRIORITIES (2026-11-11):** [ROADMAP.md](../ROADMAP.md) is authoritative; [IMPLEMENTATION-STATUS.md](../IMPLEMENTATION-STATUS.md) is authoritative for implemented code. The gateway, headless `gateway serve` CLI and gateway-first desktop screens have been built; older Phase 0–4 ordering, six-destination/task-first descriptions and mock-up colors below are retained as historical design. [Review response](../reviews/2026-11-11-review-response.md) addresses the Claude findings. Rule-based Auto routing (P0-5) is built; no Smart Memory (withdrawn, ADR-028) and no cost savings are claimed.
 
 ## Update — AI Cost Optimizer + Universal Shared Memory (2026-11-11)
 
@@ -47,7 +47,7 @@ Add Account Pools with Fill First, Round Robin, Sticky Round Robin, Weighted and
 - **Scope cut:** navigation goes from 12 items to 6 destinations. The Skills Hub moves to Phase 4.
 - **Stack and design aligned with DownFetch:** one Tauri 2 app with a Rust core (gateway, router, agent runner) and a React 19 + Vite interface styled with semantic CSS tokens after Apple's HIG. Design reviews use the `apple-design` skill. This replaces the earlier Node/Fastify + Tailwind/shadcn proposal and the 9Router-style web-dashboard look; the accent was later changed to green (see SCREENS and Implementation Status).
 - **Target users and competitive landscape added;** model tiers are now defined; broken mockup references are fixed.
-- **Screen design agreed** ([docs/design/SCREENS.md](design/SCREENS.md)). Navigation is list-first with six destinations and no Overview. Workspaces get their own settings. A passing result is handed off as a kept Git branch. Approvals are durable and cover exactly one attempt. MVP writes only to Git workspaces, and crash recovery moves into Phase 1.
+- **Screen design agreed** ([docs/design/SCREENS.md](../design/SCREENS.md)). Navigation is list-first with six destinations and no Overview. Workspaces get their own settings. A passing result is handed off as a kept Git branch. Approvals are durable and cover exactly one attempt. MVP writes only to Git workspaces, and crash recovery moves into Phase 1.
 
 ## 0. Product scope and principles
 
@@ -115,7 +115,7 @@ Badges describe facts, not quality.
 
 ### 1.2 Navigation
 
-The navigation is list-first like DownFetch: the task list is home, and there is no Overview dashboard. The six destinations are Tasks, Connections, Policies, Usage, Endpoints and Settings. A Skills destination is added in Phase 4. Full screen design: [docs/design/SCREENS.md](design/SCREENS.md).
+The navigation is list-first like DownFetch: the task list is home, and there is no Overview dashboard. The six destinations are Tasks, Connections, Policies, Usage, Endpoints and Settings. A Skills destination is added in Phase 4. Full screen design: [docs/design/SCREENS.md](../design/SCREENS.md).
 
 | Sidebar group | Items |
 | --- | --- |
@@ -135,7 +135,7 @@ The navigation is list-first like DownFetch: the task list is home, and there is
 
 ### 1.3 Design mockups
 
-The agreed screen design, with ASCII wireframes for every screen and sheet, is [docs/design/SCREENS.md](design/SCREENS.md). Where it is more detailed than §2 below, SCREENS.md takes precedence.
+The agreed screen design, with ASCII wireframes for every screen and sheet, is [docs/design/SCREENS.md](../design/SCREENS.md). Where it is more detailed than §2 below, SCREENS.md takes precedence.
 
 Older editable SVG wireframes are also in `docs/design/`:
 
@@ -604,7 +604,7 @@ package.json, pnpm-workspace.yaml, skills-lock.json
 | Benchmark not representative of real tasks | Add opt-in, redacted local task outcomes to measured stats (Phase 3) |
 | Non-git workspaces cannot be isolated cheaply | Snapshot copy for small workspaces; otherwise read-only or explicit warning |
 
-**Current project state:** The gateway, basic combo routing, headless CLI and gateway-first desktop screens exist per [Implementation Status](IMPLEMENTATION-STATUS.md). Rule-based Auto routing is implemented; shared memory is withdrawn (ADR-028), and no optimization is claimed before the benchmark. Historical wireframe values are illustrative, not product telemetry.
+**Current project state:** The gateway, basic combo routing, headless CLI and gateway-first desktop screens exist per [Implementation Status](../IMPLEMENTATION-STATUS.md). Rule-based Auto routing is implemented; shared memory is withdrawn (ADR-028), and no optimization is claimed before the benchmark. Historical wireframe values are illustrative, not product telemetry.
 
 ## 13. Universal Memory integration dependency
 

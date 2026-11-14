@@ -9,6 +9,7 @@
 | File | Purpose |
 |---|---|
 | `pygg-logo.svg` | Horizontal logo and slogan |
+| `pygg-logo-dark.svg` | The same for dark backgrounds (transparent, light text; the README uses it in dark mode) |
 | `pygg-icon.svg` | Scalable symbol |
 | `pygg-icon-32.png` | Small UI/favicon |
 | `pygg-icon-64.png` | Toolbar/app icon |

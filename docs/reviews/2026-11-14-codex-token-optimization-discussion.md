@@ -1,6 +1,6 @@
 # Fifth discussion with Codex: token optimisation, features and UI/UX, 2026-11-14
 
-> **Status:** Record and plan · nothing built in this round · the study it discussed: [token optimisation study](../research/2026-11-14-token-optimization-study.md) (corrected after Part A) · earlier rounds: [fourth](2026-11-14-codex-providers-web-guard-review.md), [third](2026-11-13-codex-screens-savings-npm-review.md) · order: [ROADMAP](../ROADMAP.md)
+> **Status:** Record and plan · nothing built in this round · the study it discussed: [token optimisation study](../archive/research/2026-11-14-token-optimization-study.md) (corrected after Part A) · earlier rounds: [fourth](2026-11-14-codex-providers-web-guard-review.md), [third](2026-11-13-codex-screens-savings-npm-review.md) · order: [ROADMAP](../ROADMAP.md)
 
 **How it was run.** Codex CLI 0.163.0 (ChatGPT plan), `codex exec --sandbox read-only --ephemeral`, given the study, the code and three screenshots of the browser preview (Usage, Home, Providers). It re-summed the CCHT benchmark files, read OmniRoute's, Headroom's and RTK's documentation and the independent replay, and the Anthropic, OpenAI, OpenCode and Codex docs on caching and headers. No model request, no money spent.
 

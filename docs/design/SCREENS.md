@@ -7,7 +7,7 @@
 
 > Version: 0.1 | Date: 2026-11-10 | Status: historical task-first design; gateway-first screens now implemented (see Implementation Status)
 >
-> Inputs: [plan v1.1](../SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md), the DownFetch desktop UI (a sibling desktop app), and the `apple-design` skill (Apple HIG). Claude and Codex each designed the screens independently, then settled their differences in a second round. All model names, prices, quotas and results below are illustrative.
+> Inputs: [plan v1.1](../archive/SMARTROUTER_UI_UX_FUNCTIONAL_PLAN.md), the DownFetch desktop UI (a sibling desktop app), and the `apple-design` skill (Apple HIG). Claude and Codex each designed the screens independently, then settled their differences in a second round. All model names, prices, quotas and results below are illustrative.
 
 The app should feel like a task runner with an auditable route, not a provider dashboard. Its signature element is the **attempt sequence**: chosen model → check → outcome → next decision.
 
@@ -770,7 +770,7 @@ Build these screens in `apps/desktop` with mock data, following DownFetch's `des
 
 **Handoff transparency:** after a provider switch, an inspector can show exactly which recent messages, summaries, approved facts and tool checkpoints were included; unsupported provider payloads are rejected rather than silently omitted.
 
-**Source:** [Universal Shared Memory proposal](../UNIVERSAL_SHARED_MEMORY.md). No UI is implemented by this documentation update; current SVG previews predate the updated UX.
+**Source:** [Universal Shared Memory proposal](../archive/UNIVERSAL_SHARED_MEMORY.md). No UI is implemented by this documentation update; current SVG previews predate the updated UX.
 
 ## 11. Planned CLI / IDE Integrations and provider tier UI
 
@@ -780,7 +780,7 @@ The existing Connections → Providers tab adds filters **All · Free · Subscri
 
 Settings / Endpoints gain CLI health, gateway port/token controls, setup commands and npm/npx onboarding documentation. The package name and distribution are not yet verified or released.
 
-See [full spec](../CLI_IDE_NPM_PROVIDER_TIERS.md). These are designs and do not change the implemented navigation until reviewed.
+See [full spec](../archive/CLI_IDE_NPM_PROVIDER_TIERS.md). These are designs and do not change the implemented navigation until reviewed.
 
 ## 12. Planned Account Pools & Rotation controls
 
@@ -788,7 +788,7 @@ Connections gains **Accounts** with an aggregated view filtered by Free / Subscr
 
 The **Pool Editor** lists explicitly authorized accounts and models, priority/weight, quota group, budget and privacy requirements. A **Simulation** panel explains how a new session and a continuing conversation choose different accounts and why excluded accounts are not selected. Usage supports per-account metrics and switches; Active Sessions shows account affinity and allows releasing it at the next safe boundary.
 
-**Reference:** [Account/API Rotation design](../ACCOUNT_API_ROTATION.md). This is a planned screen, not currently built. Do not use fake account quotas as live data.
+**Reference:** [Account/API Rotation design](../archive/ACCOUNT_API_ROTATION.md). This is a planned screen, not currently built. Do not use fake account quotas as live data.
 
 ## 13. Approved OmniRoute-inspired feature surfacing (planned)
 
@@ -802,4 +802,4 @@ The **Pool Editor** lists explicitly authorized accounts and models, priority/we
 
 **Compression controls:** Off, Safe (conservative exact dedup), and Experimental (only after opt-in), with a before/after preview and protected spans. Never silently compress code/tool schemas or active tool calls.
 
-These are design decisions and not implemented screens. Full criteria: [OmniRoute feature research](../OMNIROUTE_FEATURE_RESEARCH.md).
+These are design decisions and not implemented screens. Full criteria: [OmniRoute feature research](../archive/OMNIROUTE_FEATURE_RESEARCH.md).
