@@ -25,9 +25,13 @@ export function costText(micro: number | null, status: CostStatus): string {
 }
 
 /** "$0.10 / $0.40 per 1M tokens". */
+/** A price per million tokens: two decimals when whole cents, four otherwise. */
+export function perMillion(micro: number): string {
+  return format(micro / 1_000_000, micro % 10_000 === 0 ? 2 : 4);
+}
+
 export function priceText(price: Price): string {
-  const per = (micro: number) => format(micro / 1_000_000, micro % 10_000 === 0 ? 2 : 4);
-  return t('{input} in · {output} out per 1M', {input: per(price.inputMicroPerMtok), output: per(price.outputMicroPerMtok)});
+  return t('{input} in · {output} out per 1M', {input: perMillion(price.inputMicroPerMtok), output: perMillion(price.outputMicroPerMtok)});
 }
 
 /** "1.2k", "34k", "1.4M". */

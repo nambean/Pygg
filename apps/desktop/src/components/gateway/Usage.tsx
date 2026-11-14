@@ -146,11 +146,11 @@ export function Usage({onOpenTools, intent, onIntentDone}: {onOpenTools?: () => 
   </div>;
   const parts = view === 'api' && total > 0 && <Segmented label={t('API costs view')} value={part} onChange={v => { setPart(v); setOpenId(null); }}
     options={[{value: 'summary', label: t('Summary')}, {value: 'requests', label: t('Requests ({n})', {n: total})}]}/>;
-  if (view === 'subscriptions') return <div className="page">{bar}<Subscriptions days={Number(range)}/></div>;
-  if (view === 'local') return <div className="page">{bar}<LocalRuntime days={Number(range)}/></div>;
-  if (usage.loading && !usage.data) return <div className="page">{bar}<Spinner label={t('Loading usage…')}/></div>;
+  if (view === 'subscriptions') return <div className="page data-page">{bar}<Subscriptions days={Number(range)}/></div>;
+  if (view === 'local') return <div className="page data-page">{bar}<LocalRuntime days={Number(range)}/></div>;
+  if (usage.loading && !usage.data) return <div className="page data-page">{bar}<Spinner label={t('Loading usage…')}/></div>;
   const data = usage.data;
-  return <div className="page">
+  return <div className="page data-page">
     {bar}
     {usage.error && <ErrorNote>{usage.error}</ErrorNote>}
     <UsageAlerts/>

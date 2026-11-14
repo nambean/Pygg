@@ -119,6 +119,53 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
+export type MenuItem = {label: string; onSelect: () => void; destructive?: boolean; disabled?: boolean};
+
+/** A button that opens a short menu of actions (a row's secondary actions, so the row keeps one or two buttons; UI review
+ *  2026-11-14). The menu is drawn fixed under the button, outside any scrolling table, and closes on Escape, a click
+ *  elsewhere, scrolling or a choice; the arrow keys, Home and End move through it and focus returns to the button. */
+export function MenuButton({label, items, children}: {label: string; items: MenuItem[]; children?: React.ReactNode}) {
+  const [open, setOpen] = useState<{top?: number; bottom?: number; right: number} | null>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const close = (refocus: boolean) => { setOpen(null); if (refocus) button.current?.focus(); };
+  useEffect(() => {
+    if (!open) return;
+    menu.current?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus();
+    const away = (e: Event) => { if (!menu.current?.contains(e.target as Node) && e.target !== button.current) close(false); };
+    const scrolled = (e: Event) => { if (!menu.current?.contains(e.target as Node)) close(false); };
+    document.addEventListener('mousedown', away);
+    window.addEventListener('scroll', scrolled, true);
+    window.addEventListener('resize', scrolled);
+    return () => { document.removeEventListener('mousedown', away); window.removeEventListener('scroll', scrolled, true); window.removeEventListener('resize', scrolled); };
+  }, [open]);
+  const toggle = () => {
+    if (open) { close(true); return; }
+    const r = button.current!.getBoundingClientRect();
+    // Under the button, or above it when the window has no room below (a row at the bottom of the page).
+    const below = window.innerHeight - r.bottom > items.length * 34 + 16;
+    setOpen({...(below ? {top: r.bottom + 4} : {bottom: window.innerHeight - r.top + 4}), right: Math.max(8, window.innerWidth - r.right)});
+  };
+  const keyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); close(true); return; }
+    const all = [...e.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])')];
+    const next = rovingIndex(e.key, all.indexOf(document.activeElement as HTMLElement), all.length);
+    if (next === null) return;
+    e.preventDefault();
+    all[next]?.focus();
+  };
+  return <>
+    <button ref={button} type="button" className="button small" aria-haspopup="menu" aria-expanded={open !== null}
+      aria-label={label} title={label} onClick={toggle}>{children ?? t('More')}</button>
+    {open && createPortal(<div ref={menu} className="menu" role="menu" aria-label={label} style={{top: open.top, bottom: open.bottom, right: open.right}}
+      onKeyDown={keyDown}>
+      {items.map(item => <button key={item.label} type="button" role="menuitem" disabled={item.disabled}
+        className={item.destructive ? 'menu-item destructive' : 'menu-item'}
+        onClick={() => { close(true); item.onSelect(); }}>{item.label}</button>)}
+    </div>, document.body)}
+  </>;
+}
+
 export function CopyButton({text, label = t('Copy'), prominent}: {text: string; label?: string; prominent?: boolean}) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {

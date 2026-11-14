@@ -54,8 +54,9 @@ export function Combos({intent, onIntentDone, onConnect}: {intent?: 'create' | '
         <h2>{t('Combos')}</h2>
         <p className="group-intro">{t('One model name, a fallback order you control. Clients send the name as the model.')}</p>
         <ul className="group-box combo-list">
-          {list.map(combo => <li key={combo.id} className="combo-row">
+          {list.map(combo => <ComboCard key={combo.id} combo={combo}>{test => <>
             <div className="combo-head">
+              <span className="combo-title">
               <span className="combo-name mono selectable">{combo.name}</span>
               <span className="secondary">{combo.strategy === 'cheapest' ? t('Cheapest first') : t('Ordered fallback')} · {plural(combo.members.length, '{n} model', '{n} models')}
                 {(() => {
@@ -64,13 +65,17 @@ export function Combos({intent, onIntentDone, onConnect}: {intent?: 'create' | '
                   return off || missing ? <span className="warn-text"> · {[off && plural(off, '{n} off', '{n} off'),
                     missing && plural(missing, '{n} missing', '{n} missing')].filter(Boolean).join(' · ')}</span> : null;
                 })()}</span>
-              <span className="spacer"/>
-              <CopyButton text={combo.name} label={t('Copy Name')}/>
-              <ComboTestButton name={combo.name}/>
-              <button type="button" className="button" onClick={() => setEditing(combo)}>{t('Edit…')}</button>
-              <button type="button" className="button icon-only" aria-label={t('Delete {name}', {name: combo.name})} title={t('Delete')}
-                onClick={() => setDeleting(combo)}><Trash2 size={14} aria-hidden/></button>
+              </span>
+              <span className="combo-actions">
+                <CopyButton text={combo.name} label={t('Copy Name')}/>
+                <ComboTestButton name={combo.name} onResult={test.set}/>
+                <button type="button" className="button" onClick={() => setEditing(combo)}>{t('Edit…')}</button>
+                <button type="button" className="button icon-only" aria-label={t('Delete {name}', {name: combo.name})} title={t('Delete')}
+                  onClick={() => setDeleting(combo)}><Trash2 size={14} aria-hidden/></button>
+              </span>
             </div>
+            {/* The test's answer gets its own line under the head: beside the buttons it pushed them aside (UI review). */}
+            {test.result && <p className={test.result.ok ? 'combo-test source' : 'combo-test warn-text'} role="status">{test.result.text}</p>}
             {combo.strategy === 'cheapest' && <p className="chain-note">{t('Ordered for each request by its estimated cost: free, local and plan members first, unknown prices last.')}</p>}
             <ol className="chain" aria-label={t('Order')}>
               {combo.members.map((m, i) => {
@@ -87,7 +92,7 @@ export function Combos({intent, onIntentDone, onConnect}: {intent?: 'create' | '
               })}
               {combo.members.length === 0 && <li className="secondary">{t('Empty: its models’ connections were removed.')}</li>}
             </ol>
-          </li>)}
+          </>}</ComboCard>)}
         </ul>
         <details className="group-footnote fallback-details">
           <summary>{t('Tries members in order when a key is rejected, quota is exhausted, or a model is unavailable. Once an answer starts streaming, Pygg does not switch models.')}</summary>
@@ -111,25 +116,27 @@ export function Combos({intent, onIntentDone, onConnect}: {intent?: 'create' | '
  * Sends one short request to the combo by its name, through its real route: says which member answered and whether
  * members before it failed. It asks first, as a paid member may answer; nothing is sent when the editor opens.
  */
-function ComboTestButton({name}: {name: string}) {
+/** A combo's card, holding its last test result for the card's body. */
+function ComboCard({combo, children}: {combo: Combo; children: (test: {result: TestResult | null; set: (r: TestResult | null) => void}) => React.ReactNode}) {
+  const [result, set] = useState<TestResult | null>(null);
+  return <li className="combo-row" aria-label={combo.name}>{children({result, set})}</li>;
+}
+
+type TestResult = {ok: boolean; text: string};
+
+function ComboTestButton({name, onResult}: {name: string; onResult: (r: TestResult | null) => void}) {
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
-  const [ok, setOk] = useState(true);
   const run = () => {
     if (!window.confirm(t('Send one short request through {name}? A paid model may answer, and fallback may try more than one model. Charges are recorded in Usage.', {name}))) return;
     setBusy(true);
-    setResult(null);
+    onResult(null);
     call(api => api.testCombo(name)).then(r => {
-      setOk(r.ok);
-      setResult(r.ok ? (r.attempts && r.attempts > 1
+      onResult({ok: r.ok, text: r.ok ? (r.attempts && r.attempts > 1
         ? t('Answered by {model} in {ms} ms, after {n} members failed', {model: r.answeredBy ?? '', ms: String(r.latencyMs), n: String(r.attempts - 1)})
-        : t('Answered by {model} in {ms} ms', {model: r.answeredBy ?? '', ms: String(r.latencyMs)})) : r.text);
-    }, e => { setOk(false); setResult(errorText(e)); }).finally(() => setBusy(false));
+        : t('Answered by {model} in {ms} ms', {model: r.answeredBy ?? '', ms: String(r.latencyMs)})) : r.text});
+    }, e => onResult({ok: false, text: errorText(e)})).finally(() => setBusy(false));
   };
-  return <>
-    <button type="button" className="button" disabled={busy} onClick={run}>{busy ? t('Testing…') : t('Test')}</button>
-    {result && <small className={ok ? 'source combo-test' : 'warn-text combo-test'} role="status">{result}</small>}
-  </>;
+  return <button type="button" className="button" disabled={busy} onClick={run} aria-busy={busy}>{busy ? t('Testing…') : t('Test')}</button>;
 }
 
 /** Connections in a combo that share a quota group (review GW-1), one list of labels per group. */
@@ -230,7 +237,7 @@ function ComboSheet({combo, connections, models, existing, onClose}: {
         onDrop={e => { e.preventDefault(); drop(i); }} onDragEnd={() => { setDragged(null); setOver(null); }}>
         <span className="drag-handle" aria-hidden title={t('Drag to reorder')}><GripVertical size={14}/></span>
         <span className="chain-index">{i + 1}</span>
-        <span className="member-text"><span className="mono">{key(m)}</span><small>{describe(m)}</small></span>
+        <span className="member-text"><span className="mono selectable">{key(m)}</span><small>{describe(m)}</small></span>
         <button type="button" className="button small icon-only" onClick={() => move(i, -1)} disabled={i === 0}
           aria-label={t('Move up')} title={t('Move up')}><ArrowUp size={13} aria-hidden/></button>
         <button type="button" className="button small icon-only" onClick={() => move(i, 1)} disabled={i === members.length - 1}
@@ -246,7 +253,8 @@ function ComboSheet({combo, connections, models, existing, onClose}: {
     <div className="form">
       <FormRow label={t('Add model')} htmlFor="combo-add">
         <select id="combo-add" className="popup-button wide" value={adding} onChange={e => add(e.target.value)} disabled={!options.length}>
-          <option value="">{options.length ? t('Choose a model…') : t('Connect a provider first')}</option>
+          <option value="">{options.length ? t('Choose a model…') : connections.some(c => c.enabled)
+            ? t('No model is turned on: turn one on in Providers') : t('Connect a provider first')}</option>
           {options.map(g => <optgroup key={g.connection.id} label={g.connection.label}>
             {g.models.map(m => <option key={m.modelId} value={`${m.providerId}/${m.modelId}`}>{m.modelId}</option>)}
           </optgroup>)}

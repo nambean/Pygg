@@ -46,8 +46,8 @@ export function Clients({intent, onIntentDone}: {intent?: 'create'; onIntentDone
               {[...active, ...revoked].map(c => <tr key={c.id} className={c.revokedAt ? 'disabled-row' : ''}>
                 <td><span className="client-name">{c.name}{c.revokedAt && <> <Badge tone="off">{t('Revoked')}</Badge></>}</span>
                   {!c.revokedAt && <small className="secondary">{policySummary(c)}</small>}</td>
-                <td className="mono secondary"><TokenCell client={c}/></td>
-                <td className="secondary">{c.lastUsedAt ? ago(c.lastUsedAt) : t('Never')}</td>
+                <td className="token-cell secondary"><TokenCell client={c}/></td>
+                <td className="secondary nowrap">{c.lastUsedAt ? ago(c.lastUsedAt) : t('Never')}</td>
                 <td><Spend client={c}/></td>
                 <td className="narrow row-buttons">{!c.revokedAt ? <>
                   <button type="button" className="button small" onClick={() => setLimit(c)}
@@ -171,7 +171,7 @@ function CreateSheet({onClose}: {onClose: () => void}) {
     const persist = isMac
       ? `echo 'export SMARTTASKROUTER_TOKEN="${created.token}"' >> ~/.zshrc`
       : `[Environment]::SetEnvironmentVariable('SMARTTASKROUTER_TOKEN', '${created.token}', 'User')`;
-    return <Sheet title={t('Token for {name}', {name: created.client.name})} onClose={onClose} footer={<>
+    return <Sheet title={t('API Key for {name}', {name: created.client.name})} onClose={onClose} footer={<>
       <span className="spacer"/>
       <button type="button" className="button prominent" onClick={onClose}>{t('Done')}</button>
     </>}>
@@ -180,7 +180,7 @@ function CreateSheet({onClose}: {onClose: () => void}) {
         : <p className="warning-note"><TriangleAlert size={15} aria-hidden/>{t('Copy it now. The Credential Manager could not keep a copy, so it can’t be shown again.')}</p>}
       <div className="token-box">
         <code className="mono selectable">{created.token}</code>
-        <CopyButton text={created.token} label={t('Copy Token')} prominent/>
+        <CopyButton text={created.token} label={t('Copy API Key')} prominent/>
       </div>
       <p className="sheet-text">{t('The snippets in CLI Tools → Set Up by Hand read it from SMARTTASKROUTER_TOKEN. To set that for your user:')}</p>
       <div className="token-box">
@@ -194,7 +194,7 @@ function CreateSheet({onClose}: {onClose: () => void}) {
     className="narrow" footer={<>
       <span className="spacer"/>
       <button type="button" className="button" onClick={onClose} disabled={busy}>{t('Cancel')}</button>
-      <button type="button" className="button prominent" onClick={create} disabled={busy || !valid}>{t('Create Token')}</button>
+      <button type="button" className="button prominent" onClick={create} disabled={busy || !valid}>{t('Create API Key')}</button>
     </>}>
     <div className="form">
       <FormRow label={t('Name')} htmlFor="client-name">
@@ -325,7 +325,7 @@ export function LimitSheet({client: c, onClose}: {client: Client; onClose: () =>
         {(connections.data ?? []).map(conn => <label key={conn.id} className="check-row">
           <input type="checkbox" checked={allowed.includes(conn.id)}
             onChange={e => setAllowed(list => e.target.checked ? [...list, conn.id] : list.filter(id => id !== conn.id))}/>
-          <span>{conn.label}</span><span className="secondary mono">{conn.id}/…</span>
+          <span className="check-text"><span>{conn.label}</span><span className="secondary mono">{conn.id}/…</span></span>
         </label>)}
         {allowed.length === 0 && <small className="error-text">{t('With nothing ticked, every request from this client is refused.')}</small>}
       </fieldset>}

@@ -67,7 +67,7 @@ export function Policies({go, onSettings, onWorkspaces}: {go: Go; onSettings: ()
           <td>{c.label}{!c.enabled && <> <Badge tone="off">{t('Off')}</Badge></>}</td>
           <td>{c.dataUseTerms === 'no_training' ? t('does not train on requests') : c.dataUseTerms === 'may_train' ? t('may train') : t('not recorded')}
             {c.termsSource && <small className="secondary"> · {c.termsSource}</small>}</td>
-          <td>{c.separateQuota ? t('own quota, confirmed') : c.sharesQuotaWith.length ? t('shared with {names}', {names: c.sharesQuotaWith.join(', ')}) : t('assumed shared')}</td>
+          <td>{c.separateQuota ? t('own quota, confirmed') : c.sharesQuotaWith.length ? t('shared with {names}', {names: c.sharesQuotaWith.join(', ')}) : <>{t('Shared')} <small className="secondary">{t('assumed')}</small></>}</td>
           <td>{c.pool ?? '—'}</td>
           <td>{c.defaultBilling}</td>
         </tr>)}</tbody>

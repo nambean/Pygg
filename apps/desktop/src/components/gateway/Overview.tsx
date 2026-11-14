@@ -102,14 +102,14 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
       </div>
       {usage.error && <ErrorNote>{usage.error}</ErrorNote>}
       {usage.data && <>
-        <div className="stats">
+        <div className="stats-wrap"><div className="stats">
           <Stat label={t('Requests')} value={String(usage.data.total.requests)}/>
           <Stat label={t('Known cost')} value={microUsd(usage.data.total.knownMicroUsd)}
             note={usage.data.total.knownMicroUsd > usage.data.total.actualMicroUsd ? t('includes estimates') : undefined}/>
           <Stat label={t('Cost unknown')} value={String(usage.data.total.unknownRequests)} note={t('requests, not in the total')}/>
           <Stat label={t('Fallback attempts')} value={String(usage.data.total.fallbacks)} note={t('another model was tried')}/>
           <Stat label={t('Failed')} value={String(usage.data.total.failed)}/>
-        </div>
+        </div></div>
         {usage.data.recent.length > 0 ? <ul className="group-box compact-list">
           {usage.data.recent.slice(0, 6).map(e => <li key={e.id} className="compact-row">
             <span className="compact-time">{ago(e.createdAt)}</span>

@@ -16,7 +16,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
@@ -31,3 +31,14 @@ jobs:
       - run: python scripts/schema-reference.py --check
       # The shipped licence inventory matches Cargo.lock and the interface's packages, and every licence is allowed.
       - run: python scripts/licences.py --check
+      # Every screen and the states that broke before, with long real-shaped data, at 1024, 1440 and 1990 px: nothing
+      # may be wider than the box that holds it (UI review 2026-11-14).
+      - name: Layout check
+        shell: pwsh
+        run: |
+          $dev = Start-Process -FilePath pnpm.cmd -ArgumentList 'dev' -PassThru -WindowStyle Hidden
+          for ($i = 0; $i -lt 60; $i++) { try { Invoke-WebRequest http://127.0.0.1:1431 -UseBasicParsing | Out-Null; break } catch { Start-Sleep 1 } }
+          node scripts/ui-overflow-check.mjs --url http://127.0.0.1:1431
+          $code = $LASTEXITCODE
+          Stop-Process -Id $dev.Id -Force -ErrorAction SilentlyContinue
+          exit $code

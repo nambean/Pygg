@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "pnpm --filter @smarttaskrouter/desktop dev",
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "ui-check": "node scripts/ui-overflow-check.mjs"
   }
 }

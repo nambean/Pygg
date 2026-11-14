@@ -4,10 +4,10 @@ import { BILLINGS, CODING_NEEDS, TIERS, WEB_WARNING_VERSION, call, errorText, ga
   type Preset, type ModelTest, type Reliability, type Tier, type WebState, type AutoPlan, type AutoExcluded, type AutoExclusionKind } from '../../lib/api';
 import { ago, windowText } from '../../lib/format';
 import { locale, plural, t } from '../../lib/i18n';
-import { billingLabel, parseUsd, priceText } from '../../lib/money';
+import { billingLabel, parseUsd, perMillion, priceText } from '../../lib/money';
 import { isMac } from '../../lib/platform';
 import { useGateway } from '../../hooks/useGateway';
-import { Badge, ConfirmSheet, Empty, ErrorNote, FormRow, Segmented, Sheet, Spinner, Switch, rovingIndex } from '../ui';
+import { Badge, ConfirmSheet, Empty, ErrorNote, FormRow, MenuButton, Segmented, Sheet, Spinner, Switch, rovingIndex } from '../ui';
 import { ProviderLogo } from './ProviderLogo';
 
 const STORE = isMac ? 'Keychain' : 'Windows Credential Manager';
@@ -72,8 +72,8 @@ export function Connections({intent, onIntentDone, onNext}: {intent?: 'connect' 
     setJump(n => n + 1);
   };
 
-  if (list.loading && !list.data) return <div className="page"><Spinner label={t('Loading connections…')}/></div>;
-  return <div className="page">
+  if (list.loading && !list.data) return <div className="page data-page"><Spinner label={t('Loading connections…')}/></div>;
+  return <div className="page data-page">
     {list.error && <ErrorNote>{list.error}</ErrorNote>}
     {justConnected && onNext && <div className="next-step-note" role="status">
       <span>{t('Connection added. Next, set up your coding tool; CLI Tools says whether a model qualifies for it.')}</span>
@@ -472,17 +472,19 @@ function ConnectionDetail({connection: c, onRemoved, initialShow = 'all', plan}:
     {models.data && models.data.length === 0
       ? <p className="group-footnote">{t('No models yet. Check & Refresh Models asks the provider for its list; Add Model… adds one by name.')}</p>
       : <div className="group-box table-box">
-        <table className="data-table" aria-label={t('Models')}>
+        <table className="data-table models-table" aria-label={t('Models')}>
+          {/* Fixed columns (UI review 2026-11-14): the model takes what the others leave, and they never grow with their text. */}
+          <colgroup><col/><col className="price-col"/><col className="switch-col"/><col className="actions-col"/></colgroup>
           <thead><tr>
-            <th scope="col">{t('Model')}</th><th scope="col">{t('Billing')}</th><th scope="col">{t('Price')}</th>
-            <th scope="col">{t('Auto routing')}</th>
-            <th scope="col" className="narrow">{t('Enabled')}</th><th scope="col" className="narrow"><span className="sr-only">{t('Actions')}</span></th>
+            <th scope="col">{t('Model')}</th>
+            <th scope="col">{t('Price per 1M tokens')}</th>
+            <th scope="col">{t('Enabled')}</th><th scope="col"><span className="sr-only">{t('Actions')}</span></th>
           </tr></thead>
           <tbody>
             {shown.map(m => <ModelRow key={m.modelId} model={m} auto={autoOf(m)} onPrice={() => setSheet({price: m})} onCaps={() => setSheet({caps: m})}
               health={c.health.find(h => h.modelId === m.modelId)} reliability={reliability.data?.find(r => r.modelId === m.modelId)}
               onChange={() => { models.reload(); gatewayChanged(); }}/>)}
-            {shown.length === 0 && <tr><td colSpan={6} className="table-empty">{t('No models match.')}</td></tr>}
+            {shown.length === 0 && <tr><td colSpan={4} className="table-empty">{t('No models match.')}</td></tr>}
           </tbody>
         </table>
       </div>}
@@ -583,7 +585,7 @@ function AccountRow({connection: c}: {connection: Connection}) {
 }
 
 /** Test Model (SCREENS §6.2): one short request through the gateway; a paid model asks first, as it costs a little. */
-function ModelTestButton({model: m}: {model: Model}) {
+function ModelTestButton({model: m, onResult}: {model: Model; onResult: (result: {ok: boolean; text: string} | null) => void}) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ModelTest | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -595,48 +597,64 @@ function ModelTestButton({model: m}: {model: Model}) {
     setBusy(true);
     setError(null);
     setResult(null);
-    call(api => api.testModel(m.providerId, m.modelId)).then(setResult, e => setError(errorText(e))).finally(() => setBusy(false));
+    onResult(null);
+    call(api => api.testModel(m.providerId, m.modelId)).then(r => {
+      setResult(r);
+      onResult({ok: r.ok, text: r.ok ? t('Test: answered “{text}” in {ms} ms', {text: r.text.trim().slice(0, 40), ms: r.latencyMs})
+        : t('Test failed: {reason}', {reason: r.text})});
+    }, e => { setError(errorText(e)); onResult({ok: false, text: t('Test failed: {reason}', {reason: errorText(e)})}); })
+      .finally(() => setBusy(false));
   };
-  const summary = result && (result.ok
-    ? t('Answered “{text}” in {ms} ms', {text: result.text.trim().slice(0, 40), ms: result.latencyMs})
-    : result.text);
-  return <>
-    <button type="button" className="button small" disabled={busy} onClick={run}
-      title={summary ?? error ?? t('Send one short request to this model')}>{busy ? t('Testing…') : t('Test')}</button>
-    {(summary || error) && <small className={result?.ok ? 'source' : 'warn-text'} role="status">{summary ?? error}</small>}
-  </>;
+  const summary = result ? (result.ok ? t('Answered in {ms} ms', {ms: result.latencyMs}) : result.text) : error;
+  return <button type="button" className="button small" disabled={busy} onClick={run} aria-busy={busy}
+    title={summary ?? t('Send one short request to this model')}>{busy ? t('Testing…') : t('Test')}</button>;
 }
 
 function ModelRow({model: m, auto, health, reliability: r, onPrice, onCaps, onChange}: {model: Model; auto?: AutoVerdict; health?: Health;
   reliability?: Reliability; onPrice: () => void; onCaps: () => void; onChange: () => void}) {
   const needsPrice = m.billing === 'paid' || m.billing === 'unknown';
-  const price = m.price ? priceText(m.price)
-    : needsPrice ? t('No price · cost Unknown') : m.billing === 'subscription' ? t('Quota, not money') : t('Not needed');
   const [failed, setFailed] = useState<string | null>(null);
+  const [tested, setTested] = useState<{ok: boolean; text: string} | null>(null);
   const change = (action: Promise<unknown>) => { setFailed(null); action.then(onChange, e => setFailed(errorText(e))); };
+  const free = m.price && m.price.inputMicroPerMtok === 0 && m.price.outputMicroPerMtok === 0;
+  // The model's own health reason is said once: in the auto line when that already gives it.
+  const healthSaid = health && auto && auto !== 'eligible' && auto.reason.includes(health.reason.slice(0, 40));
+  const off = !m.enabled && m.enabledSource === 'media-model' ? t('Off: makes media')
+    : !m.enabled && m.enabledSource === 'free-connection' ? t('Off: not $0') : null;
+  // The first column holds the name and every line about it; the price, the switch and the actions have fixed widths
+  // (colgroup), so no text can widen the table: long ids and provider errors wrap inside the first column.
   return <tr className={m.enabled ? '' : 'disabled-row'}>
-    <td className="mono selectable" title={health ? `${m.modelId} · ${health.reason}` : m.modelId}>
-      {m.modelId}{health && <> <Badge tone="warn">{healthLabel(health)}</Badge></>}
-      {failed && <small className="warn-text" role="alert"><br/>{t('Not saved: {error}', {error: failed})}</small>}</td>
-    <td>{billingLabel(m.billing)}{!m.enabled && m.enabledSource === 'media-model' && <small className="source"
-      title={t('The model catalog says this model makes audio, video or images, priced per item rather than per token, so Pygg turned it off. Turn it on if you mean to use it.')}>
-      <br/>{t('Off: makes media')}</small>}{!m.enabled && m.enabledSource === 'free-connection'
-      && <small className="source" title={t('This connection is set as free and this model is not listed at $0, so Pygg turned it off. Turn it on to use it; its cost follows its price, or is Unknown without one.')}>
-        <br/>{t('Off: not $0')}</small>}</td>
-    <td className={m.price ? '' : 'secondary'}>{price}{m.price && <small className="source"> · {m.price.source === 'user' ? t('your price') : t('list price')}</small>}</td>
-    <td className={m.capabilities.tier ? '' : 'secondary'}>{capsText(m)}
+    <td className="model-cell">
+      <span className="model-name">
+        <span className="mono selectable">{m.modelId}</span>
+        {health && <Badge tone="warn">{healthLabel(health)}</Badge>}
+      </span>
+      <small className="model-line secondary">{billingLabel(m.billing)} · {capsText(m)}{off && <> · <span title={off === t('Off: makes media')
+        ? t('The model catalog says this model makes audio, video or images, priced per item rather than per token, so Pygg turned it off. Turn it on if you mean to use it.')
+        : t('This connection is set as free and this model is not listed at $0, so Pygg turned it off. Turn it on to use it; its cost follows its price, or is Unknown without one.')}>{off}</span></>}</small>
       {auto && <AutoVerdictLine verdict={auto}/>}
-      {r && r.requests > 0 && <small className="source" title={t('From the ledger over the last 30 days; requests the client left are not counted.')}>
-        <br/>{t('{rate}% of {n} answered', {rate: Math.round((r.ok / r.requests) * 100), n: r.requests})}
-        {r.medianLatencyMs !== null ? ` · ${t('median {s} s', {s: (r.medianLatencyMs / 1000).toFixed(1)})}` : ''}</small>}</td>
-    <td className="narrow"><Switch checked={m.enabled} label={t('Use {model}', {model: m.modelId})}
+      {health && !healthSaid && <small className="model-line warn-text">{health.reason}</small>}
+      {r && r.requests > 0 && <small className="model-line source" title={t('From the ledger over the last 30 days; requests the client left are not counted.')}>
+        {t('{rate}% of {n} answered', {rate: Math.round((r.ok / r.requests) * 100), n: r.requests})}
+        {r.medianLatencyMs !== null ? ` · ${t('median {s} s', {s: (r.medianLatencyMs / 1000).toFixed(1)})}` : ''}</small>}
+      {tested && <small className={tested.ok ? 'model-line source' : 'model-line warn-text'} role="status">{tested.text}</small>}
+      {failed && <small className="model-line warn-text" role="alert">{t('Not saved: {error}', {error: failed})}</small>}</td>
+    <td className={m.price ? '' : 'secondary'} title={m.price ? priceText(m.price) : undefined}>
+      {free ? '$0' : m.price ? <>{perMillion(m.price.inputMicroPerMtok)} {t('in')}<br/>{perMillion(m.price.outputMicroPerMtok)} {t('out')}</>
+        : needsPrice ? t('Not set') : m.billing === 'subscription' ? t('Plan quota') : t('Not needed')}
+      <small className="model-line source">{m.price ? (m.price.source === 'user' ? t('your price') : t('list price'))
+        : needsPrice ? t('cost Unknown') : null}</small></td>
+    <td><Switch checked={m.enabled} label={t('Use {model}', {model: m.modelId})}
       onChange={enabled => change(call(api => api.updateModel(m.providerId, m.modelId, {enabled})))}/></td>
-    <td className="narrow row-buttons">
-      <button type="button" className="button small" onClick={onPrice}>{m.price ? t('Edit Price…') : t('Set Price…')}</button>
-      <button type="button" className="button small" onClick={onCaps}>{t('Auto…')}</button>
-      <ModelTestButton model={m}/>
-      <button type="button" className="button small icon-only" aria-label={t('Remove {model}', {model: m.modelId})} title={t('Remove')}
-        onClick={() => change(call(api => api.removeModel(m.providerId, m.modelId)))}><Trash2 size={13} aria-hidden/></button>
+    <td className="row-actions-cell">
+      <span className="row-actions">
+        <ModelTestButton model={m} onResult={setTested}/>
+        <MenuButton label={t('More actions for {model}', {model: m.modelId})} items={[
+          {label: m.price ? t('Edit Price…') : t('Set Price…'), onSelect: onPrice},
+          {label: t('Auto Routing Facts…'), onSelect: onCaps},
+          {label: t('Remove Model'), destructive: true, onSelect: () => change(call(api => api.removeModel(m.providerId, m.modelId)))},
+        ]}/>
+      </span>
     </td>
   </tr>;
 }
@@ -1096,9 +1114,9 @@ function AutoReadinessLine({readiness, onOpen}: {readiness: ReturnType<typeof au
 
 /** Under a model's routing facts: whether auto would choose it for a coding tool's request, or why not. */
 function AutoVerdictLine({verdict}: {verdict: AutoVerdict}) {
-  if (verdict === 'eligible') return <small className="source"><br/>{t('Auto: eligible')}</small>;
+  if (verdict === 'eligible') return <small className="model-line source">{t('Auto: eligible')}</small>;
   if (verdict.kind === 'web') return null;
-  return <small className="source" title={verdict.reason}><br/>
+  return <small className="model-line source" title={verdict.reason}>
     {verdict.kind === 'facts' ? t('Auto skips: {reason} (Auto… sets it)', {reason: verdict.reason})
       : t('Auto skips: {reason}', {reason: verdict.reason})}</small>;
 }

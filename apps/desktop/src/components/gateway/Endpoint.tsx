@@ -18,7 +18,7 @@ export function Endpoint({status, onStatus, intent, onIntentDone}: {status: Gate
     {label: t('Anthropic'), hint: t('Messages API: Claude Code, Anthropic SDKs'), value: base},
     {label: t('Model'), hint: t('auto picks a model for each request; auto/cheap the cheapest that qualifies. A combo’s name, or connection/model, also works.'), value: 'auto'},
   ];
-  return <div className="page">
+  return <div className="page data-page">
     <GatewayCard status={status} onStatus={onStatus} onConfigure={() => setConfiguring(true)}
       copies={[{label: t('Copy OpenAI URL'), text: `${base}/v1`}, {label: t('Copy Anthropic URL'), text: base}]}/>
     <section className="group">

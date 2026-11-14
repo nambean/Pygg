@@ -326,6 +326,42 @@ export function demoApi(): GatewayApi {
     events.length = 0;
   }
 
+  // `?stress` fills the preview with data shaped like a real account (UI review 2026-11-14, after a models table broke on
+  // the owner's OpenRouter free models): long model ids, dozens of them, long labels and names, failed tests with long
+  // errors. Reviews look at every screen with it as well as with the default data.
+  const stress = new URLSearchParams(location.search).has('stress');
+  if (stress) {
+    const vendors = ['baidu/ernie-5.5-flash-preview', 'cohere/north-mini-code', 'dots-studio/dots-3-note-preview', 'google/gemma-4-26b-a4b-it',
+      'meta-llama/llama-4.1-maverick-instruct-long-context', 'mistralai/devstral-medium-2611-experimental', 'moonshotai/kimi-k3-thinking-preview',
+      'nousresearch/hermes-5-405b-reasoning', 'nvidia/nemotron-ultra-3-253b-v2-instruct', 'qwen/qwen3.7-coder-480b-a35b-instruct-turbo',
+      'thudm/glm-5.1-air-agentic-coding-preview', 'z-ai/glm-4.9-flash-0305-reasoning-distill'];
+    const ids: string[] = [];
+    for (let round = 0; round < 3; round++) for (const v of vendors) ids.push(round === 0 ? `${v}:free` : `${v}-v${round + 1}:free`);
+    addModels('openrouter', ids);
+    for (const [i, id] of ids.entries()) {
+      const m = models.find(x => x.modelId === id)!;
+      m.billing = 'free';
+      m.price = {inputMicroPerMtok: 0, outputMicroPerMtok: 0, cachedInputMicroPerMtok: null, source: 'list', observedAt: now};
+      m.capabilities = {...UNKNOWN, contextTokens: [1_024_000, 256_000, 512_000, 262_144][i % 4], supportsTools: true, supportsVision: i % 3 === 0,
+        source: 'provider: openrouter /models', observedAt: now};
+    }
+    const or = connections.find(c => c.id === 'openrouter')!;
+    or.label = 'OpenRouter — personal account used by every coding agent on this computer';
+    clients.push({...clients[0], id: 'k-stress', name: 'Visual Studio Code with the Continue extension (work laptop, second profile)',
+      tokenPrefix: 'str-9f1d0c33', spend: 0});
+    combos.push({id: 'combo-stress', name: 'free-models-first-then-the-cheapest-paid-ones-for-long-agent-sessions',
+      members: ids.slice(0, 6).map(modelId => ({providerId: 'openrouter', modelId}))});
+    for (const [i, e] of events.slice(0, 40).entries()) {
+      e.model = ids[i % ids.length];
+      e.provider = 'openrouter';
+      if (i % 5 === 0) {
+        e.outcome = 'error';
+        e.httpStatus = 429;
+        e.error = 'Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day. This message comes straight from the provider and is long on purpose.';
+      }
+    }
+  }
+
   let retention: Retention = {days: null, lastRun: null};
   const monthStart = () => { const d = new Date(); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1); };
   function clientView(c: Client & {spend: number}): Client {
@@ -650,7 +686,12 @@ export function demoApi(): GatewayApi {
         answeredBy: `${first.providerId}/${first.modelId}`, attempts: 1} : {ok: false, text: 'No such combo', latencyMs: 1, inputTokens: null,
         outputTokens: null, route: '', answeredBy: '', attempts: 0};
     },
-    testModel: async () => { await sleep(600); return {ok: true, text: 'ok', latencyMs: 640, inputTokens: 14, outputTokens: 2, route: 'native'}; },
+    testModel: async (_provider, modelId) => {
+      await sleep(600);
+      // Stress data: every other model fails the way a real free model does, with the provider's long message.
+      if (stress && modelId.length % 2 === 0) return {ok: false, text: 'The model answered with HTTP 429 Too Many Requests: Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day.', latencyMs: 412, inputTokens: null, outputTokens: null, route: 'native'};
+      return {ok: true, text: 'ok', latencyMs: 640, inputTokens: 14, outputTokens: 2, route: 'native'};
+    },
     setConnectionPool: async (id, pool) => {
       const c = find(id);
       if (pool && !c.separateQuota) throw 'Confirm first that this connection has its own provider quota (Independent quota confirmed): a pool is for separate accounts, not several keys of one account';
