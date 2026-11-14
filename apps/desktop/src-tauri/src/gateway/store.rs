@@ -140,6 +140,36 @@ pub struct NewProvider<'a> {
     pub wire: &'a str,
 }
 
+/// Whether an endpoint may be used as written: any `https://` address, and `http://` only to this computer or the
+/// local network (a loopback, private or link-local address, a name without a dot such as a container's, or a
+/// `.local`, `.lan`, `.internal`, `.home.arpa`, `.localhost` or `.test` name). Over plain http the key and the
+/// prompts cross the network unencrypted.
+pub fn plain_http_allowed(endpoint: &str) -> bool {
+    use std::net::IpAddr;
+    let Ok(url) = reqwest::Url::parse(endpoint) else { return false };
+    if url.scheme() != "http" {
+        return true;
+    }
+    let Some(host) = url.host_str() else { return false };
+    match host.trim_start_matches('[').trim_end_matches(']').parse::<IpAddr>() {
+        Ok(IpAddr::V4(ip)) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
+        Ok(IpAddr::V6(ip)) => {
+            ip.is_loopback()
+                || (ip.segments()[0] & 0xfe00) == 0xfc00
+                || (ip.segments()[0] & 0xffc0) == 0xfe80
+                || ip.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback() || v4.is_private())
+        }
+        Err(_) => {
+            let name = host.trim_end_matches('.').to_ascii_lowercase();
+            name == "localhost"
+                || !name.contains('.')
+                || [".localhost", ".local", ".lan", ".internal", ".home.arpa", ".test"]
+                    .iter()
+                    .any(|s| name.ends_with(s))
+        }
+    }
+}
+
 pub fn add_provider(conn: &Connection, new: &NewProvider) -> Result<Provider> {
     if !BILLING.contains(&new.default_billing) {
         return Err(format!("unknown billing type {}", new.default_billing));
@@ -153,6 +183,10 @@ pub fn add_provider(conn: &Connection, new: &NewProvider) -> Result<Provider> {
     let endpoint = new.endpoint.trim().trim_end_matches('/');
     if !(endpoint.starts_with("https://") || endpoint.starts_with("http://")) {
         return Err("The endpoint must start with https:// or http://".into());
+    }
+    if !plain_http_allowed(endpoint) {
+        return Err("Use https:// for a provider on the internet: over http:// its key and every prompt would travel                     unencrypted. http:// is for this computer and the local network."
+            .into());
     }
     let base = slug(new.label);
     // `auto/…` is the auto-routing alias, so no connection may take that name.
@@ -3267,6 +3301,43 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    #[test]
+    fn plain_http_only_on_this_computer_and_the_local_network() {
+        for ok in [
+            "https://api.example.com/v1",
+            "http://127.0.0.1:11434/v1",
+            "http://localhost:1234/v1",
+            "http://[::1]:8000/v1",
+            "http://192.168.1.20:8000/v1",
+            "http://10.0.0.5/v1",
+            "http://172.20.0.3/v1",
+            "http://169.254.10.1/v1",
+            "http://[fd12::1]/v1",
+            "http://ollama:11434/v1",
+            "http://gpu-box.local:8000/v1",
+            "http://vllm.internal/v1",
+            "http://o.test",
+        ] {
+            assert!(plain_http_allowed(ok), "{ok}");
+        }
+        for refused in
+            ["http://api.example.com/v1", "http://8.8.8.8/v1", "http://[2001:db8::1]/v1", "http://172.32.0.1/v1"]
+        {
+            assert!(!plain_http_allowed(refused), "{refused}");
+        }
+        let conn = db::open_in_memory().unwrap();
+        let new = NewProvider {
+            kind: "custom-openai",
+            label: "Remote",
+            endpoint: "http://api.example.com/v1",
+            credential_ref: Some("provider-x"),
+            default_billing: "unknown",
+            wire: "openai",
+        };
+        let error = add_provider(&conn, &new).unwrap_err();
+        assert!(error.contains("https://"), "{error}");
     }
 
     #[test]

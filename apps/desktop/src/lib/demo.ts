@@ -116,6 +116,17 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const clone = <T>(value: T): T => structuredClone(value);
 const hex = (n: number) => Array.from(crypto.getRandomValues(new Uint8Array(n)), b => b.toString(16).padStart(2, '0')).join('');
 
+/** As the core's `plain_http_allowed`: https anywhere, http only to this computer or the local network. */
+function plainHttpAllowed(endpoint: string): boolean {
+  let url: URL;
+  try { url = new URL(endpoint); } catch { return false; }
+  if (url.protocol !== 'http:') return true;
+  const host = url.hostname.toLowerCase().replace(/\.$/, '');
+  if (host.startsWith('[')) return host === '[::1]' || /^\[f[c-d]/.test(host) || /^\[fe[89ab]/.test(host);
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host);
+  return host === 'localhost' || !host.includes('.') || /\.(localhost|local|lan|internal|home\.arpa|test)$/.test(host);
+}
+
 function slug(label: string): string {
   const out = label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
   return out || 'connection';
@@ -617,6 +628,7 @@ export function demoApi(): GatewayApi {
       const endpoint = (connection.endpoint?.trim() || preset.endpoint || '').replace(/\/+$/, '');
       if (!endpoint) throw 'Enter the endpoint URL';
       if (!/^https?:\/\//.test(endpoint)) throw 'The endpoint must start with https:// or http://';
+      if (!plainHttpAllowed(endpoint)) throw 'Use https:// for a provider on the internet: over http:// its key and every prompt would travel unencrypted. http:// is for this computer and the local network.';
       if (preset.needsKey && !connection.apiKey?.trim()) throw `${preset.name} needs an API key`;
       const label = connection.label.trim() || preset.name;
       let id = slug(label), n = 2;
