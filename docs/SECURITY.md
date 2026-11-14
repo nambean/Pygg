@@ -6,7 +6,7 @@ Pygg holds API keys, sends source code and prompts to providers, runs agent CLIs
 
 ## Reporting a problem
 
-Report a vulnerability privately, not in a public issue: through the repository's Security tab (private vulnerability reporting) where it is enabled, or to the maintainer directly. Include the version or commit, what you did and what happened. Do not include real keys or tokens.
+Report a vulnerability privately, not in a public issue: with [Report a vulnerability](https://github.com/nambean/Pygg/security/advisories/new) on the repository's Security tab. Include the version or commit, what you did and what happened. Do not include real keys or tokens.
 
 ## What Pygg protects, and how
 
