@@ -33,6 +33,10 @@
     "active": true,
     "targets": "all",
     "windows": {
+      "wix": {
+        "bannerPath": "installer/wix-banner.bmp",
+        "dialogImagePath": "installer/wix-dialog.bmp"
+      },
       "nsis": {
         "installMode": "currentUser",
         "headerImage": "installer/header.bmp",

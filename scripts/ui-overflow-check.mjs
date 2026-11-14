@@ -2,7 +2,8 @@
 // Opens the browser preview with `?stress` data in headless Edge or Chrome at the app's minimum size (1024 × 640), its
 // default (1440 × 900) and a wide window (1990 × 1030), on every screen and in the states that broke or could break:
 // models tested on a connection of 40 long-named models, a row's menu, every sheet (Connect, Create API Key, Limits,
-// Edit Price, the combo editor), combos tested, a failed request expanded, keys shown. It fails when:
+// Edit Price, the combo editor), combos tested, a failed request expanded, keys shown; every screen and the Connect and
+// Create API Key sheets on a first run (`?empty`); and sheets whose change failed with a long error (`?fail`). It fails when:
 //   - a table or block whose content is wider than its container, unless that container scrolls sideways on purpose;
 //   - anything that reaches past the right edge of the window;
 //   - a text cell squeezed to one word per line (a cell under 48 px wide holding more than one line of text).
@@ -41,6 +42,24 @@ const states = [
   {screen: 'endpoint', name: 'Create API Key sheet', steps: `click('Create API Key'); await wait(600);`, expect: '[role=dialog]'},
   {screen: 'endpoint', name: 'Limits sheet', steps: `click('Limits', -1); await wait(600);`, expect: '[role=dialog]'},
   {screen: 'endpoint', name: 'keys shown', steps: `for (let i = 0; i < 4; i++) click('Show the key', i); await wait(800);`, expect: '.token-full'},
+  // First run: nothing connected, no keys, no requests.
+  ...['overview', 'connections', 'endpoint', 'tools', 'combos', 'usage'].map(screen => ({screen, query: 'empty', name: 'first run', steps: ''})),
+  {screen: 'connections', query: 'empty', name: 'first run, Connect sheet', steps: `click('Connect Provider'); await wait(800);`, expect: '[role=dialog]'},
+  {screen: 'endpoint', query: 'empty', name: 'first run, Create API Key sheet', steps: `click('Create API Key'); await wait(600);`, expect: '[role=dialog]'},
+  // A change that failed: each sheet shows the error under its form.
+  {screen: 'endpoint', query: 'stress&fail', name: 'Gateway Settings failed', steps: `click('Configure…'); await wait(500);
+    fill('#gateway-port', '8790'); await wait(100); click('Save', -1); await wait(700);`, expect: '[role=dialog] .error-note'},
+  {screen: 'endpoint', query: 'stress&fail', name: 'Create API Key failed', steps: `click('Create API Key'); await wait(600);
+    fill('#client-name', 'Visual Studio Code with the Continue extension'); await wait(100); click('Create API Key', -1); await wait(700);`,
+    expect: '[role=dialog] .error-note'},
+  {screen: 'endpoint', query: 'stress&fail', name: 'Limits failed', steps: `click('Limits', -1); await wait(600);
+    click('Save Limits', -1); await wait(700);`, expect: '[role=dialog] .error-note'},
+  {screen: 'connections', query: 'stress&fail', name: 'Add Key failed', steps: `click('OpenRouter'); await wait(800);
+    click('Add Key from Another Account'); await wait(500); fill('#ring-key-label', 'Second account'); fill('#ring-key', 'sk-or-v1-preview');
+    document.querySelector('[role=dialog] input[type=checkbox]')?.click(); await wait(100); click('Add Key', -1); await wait(700);`,
+    expect: '[role=dialog] .error-note'},
+  {screen: 'combos', query: 'stress&fail', name: 'Save Combo failed', steps: `click('Edit…', -1); await wait(600);
+    click('Save Combo', -1); await wait(700);`, expect: '[role=dialog] .error-note'},
   {screen: 'usage', name: 'a failed request expanded', steps: `click('Requests'); await wait(800);
     const row = [...document.querySelectorAll('tr')].find(r => /429|failed|error/i.test(r.textContent) && r.querySelector('.row-toggle'));
     row?.querySelector('.row-toggle')?.click(); await wait(500);`, expect: '.ledger-detail'},
@@ -175,12 +194,18 @@ try {
       const all = [...document.querySelectorAll('button, [role=menuitem], [role=tab], [role=radio]')].filter(b =>
         (b.getAttribute('aria-label') ?? '').startsWith(text) || (b.textContent ?? '').trim().startsWith(text));
       const b = all.at(n); if (b) b.click(); return !!b;
+    };
+    // Types into a React input: the native setter, then an input event React listens for.
+    const fill = (selector, value) => {
+      const el = document.querySelector(selector); if (!el) return false;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, value);
+      el.dispatchEvent(new Event('input', {bubbles: true})); return true;
     };`;
   const runs = [...screens.map(screen => ({screen, name: 'as it opens', steps: ''})), ...states];
   for (const [width, height] of sizes) {
     await send('Emulation.setDeviceMetricsOverride', {width, height, deviceScaleFactor: 1, mobile: false});
     for (const run of runs) {
-      await send('Page.navigate', {url: `${base}/?screen=${run.screen}&stress`});
+      await send('Page.navigate', {url: `${base}/?screen=${run.screen}&${run.query ?? 'stress'}`});
       await settle();
       if (run.steps) {
         const done = await send('Runtime.evaluate', {awaitPromise: true, returnByValue: true,

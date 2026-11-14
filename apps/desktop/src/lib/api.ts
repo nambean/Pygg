@@ -639,7 +639,7 @@ let demo: Promise<GatewayApi> | null = null;
 /** The API: the core in the desktop app, the labeled demo in a browser preview. */
 export async function gatewayApi(): Promise<GatewayApi> {
   if (runningInDesktop) return native;
-  demo ??= import('./demo').then(m => m.demoApi());
+  demo ??= import('./demo').then(m => m.withFailures(m.demoApi()));
   return demo;
 }
 

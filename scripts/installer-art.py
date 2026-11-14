@@ -1,9 +1,11 @@
-"""Draws the Windows installer's artwork (NSIS, apps/desktop/src-tauri/installer/).
+"""Draws the Windows installers' artwork (NSIS and WiX, apps/desktop/src-tauri/installer/).
 
     python scripts/installer-art.py
 
 - sidebar.bmp: the Welcome and Finish pages' picture (MUI's 164 x 314, drawn at 2x for high-DPI screens).
 - header.bmp: the other pages' corner picture (MUI's 150 x 57, at 2x).
+- wix-dialog.bmp, wix-banner.bmp: the MSI's pictures (WiX's 493 x 312 Welcome and Finish background, its text on the
+  white right part; the 493 x 58 banner of the other dialogs, only the mark at its right end), at 2x.
 - install-100.avi, install-150.avi, install-200.avi: the animation played while files are copied (installer-hooks.nsh
   picks the one for the window's DPI). It shows what Pygg does, as the gateway really works: an agent's request
   reaches Pygg on 127.0.0.1:8741, goes to a provider; a provider out of quota answers 429 and the next one answers
@@ -96,6 +98,26 @@ def header(scale=2):
     im.paste(mark, (x, (h - size) // 2), mark)
     d.text((x - 8 * scale, h // 2 - 7 * scale), "Pygg", font=font("seguisb.ttf", 14 * scale), fill=INK, anchor="rm")
     d.text((x - 8 * scale, h // 2 + 9 * scale), "Local AI gateway", font=font("segoeui.ttf", 8 * scale), fill=MUTED, anchor="rm")
+    return im
+
+
+# ---------- The MSI (WiX): the same pictures in WiX's places ----------
+
+def wix_dialog(scale=2):
+    w, h = 493 * scale, 312 * scale
+    im = Image.new("RGB", (w, h), WHITE)
+    side = sidebar(scale).resize((164 * scale, h), Image.LANCZOS)
+    im.paste(side, (0, 0))
+    return im
+
+
+def wix_banner(scale=2):
+    # The mark only: WiX writes the page's title and a description almost the banner's full width over it.
+    w, h = 493 * scale, 58 * scale
+    im = Image.new("RGB", (w, h), WHITE)
+    size = 34 * scale
+    mark = Image.open(ICON).convert("RGBA").resize((size, size), Image.LANCZOS)
+    im.paste(mark, (w - size - 10 * scale, (h - size) // 2), mark)
     return im
 
 
@@ -305,6 +327,8 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     save_bmp(sidebar(), OUT / "sidebar.bmp")
     save_bmp(header(), OUT / "header.bmp")
+    save_bmp(wix_dialog(), OUT / "wix-dialog.bmp")
+    save_bmp(wix_banner(), OUT / "wix-banner.bmp")
     for percent, s in ((100, 1), (150, 1.5), (200, 2)):
         images = frames(2) if s == 2 else frames(1) if s == 1 else None
         if images is None:

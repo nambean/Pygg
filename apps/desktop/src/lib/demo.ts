@@ -1316,3 +1316,19 @@ model = "auto"
     },
   };
 }
+
+/** `?fail` makes every change the preview is asked to make fail with a long error, so each sheet's and screen's error
+ *  state can be reviewed (scripts/ui-overflow-check.mjs opens them so). Reads still answer, so the screens fill. */
+export function withFailures(api: GatewayApi): GatewayApi {
+  if (!new URLSearchParams(location.search).has('fail')) return api;
+  const change = /^(gateway(Start|Stop|Configure)|add|signIn|update|set|move|remove|enable|save|delete|create|revoke|launcher(SetUp|Remove)|apply|refreshModels|resume|clear)/;
+  const failure = 'The preview was asked to fail: the provider refused the change with HTTP 503 Service Unavailable '
+    + '(upstream_connect_error_or_disconnect_or_reset_before_headers, reset reason: connection termination). Try again later.';
+  return new Proxy(api, {
+    get(target, name, receiver) {
+      const value = Reflect.get(target, name, receiver);
+      if (typeof name !== 'string' || typeof value !== 'function' || !change.test(name)) return value;
+      return async () => { await sleep(200); throw failure; };
+    },
+  });
+}
