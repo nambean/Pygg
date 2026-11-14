@@ -182,7 +182,7 @@ pnpm --filter @pygg/desktop tauri:dev     # the desktop app with the real gatewa
 pnpm typecheck
 pnpm --filter @pygg/desktop tauri:build   # the installers, under apps/desktop/src-tauri/target/release/bundle
 pnpm ui-check                                         # every screen at several window sizes, nothing overflowing
-cd apps/desktop/src-tauri; cargo test --lib           # core, gateway, web-session and task engine tests
+cd apps/desktop/src-tauri; cargo test --lib --tests   # core, gateway, web-session and task engine tests
 node scripts/readme-diagrams.mjs                      # regenerate the README's animated diagrams
 ```
 

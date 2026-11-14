@@ -11,7 +11,7 @@ What exists in code, and how each part was verified. What comes next is in the [
 - **Live**: a real provider answered through the gateway. The providers and models are named.
 - **Browser preview**: the interface on labelled demo data (`pnpm dev`, ADR-014), with `?empty` for a first run and `?stress` for long data. `pnpm ui-check` loads every screen and a set of clicked states (sheets, menus, tested models) with `?stress` data in headless Edge or Chrome at five sizes (1024×640, 1440×900, 1990×1030, and 819×512 and 683×427, the minimum window at Windows text size 125% and 150%), and fails on overflow. It first plants a known overflow and stops if it cannot find it.
 
-CI runs `cargo clippy -- -D warnings` for the app (`--all-features`) and the console program (`--no-default-features`), `cargo test --lib`, the UI typecheck and build, the schema reference check and the licence check.
+CI runs `cargo clippy -- -D warnings` for the app (`--all-features`) and the console program (`--no-default-features`), `cargo fmt --check`, the library and integration tests (`cargo test --lib --tests`), the UI typecheck and build, the schema reference check, the licence check and the layout check. `cargo audit` and `pnpm audit` run when a lockfile changes and weekly.
 
 ## P0: cost-safe gateway
 

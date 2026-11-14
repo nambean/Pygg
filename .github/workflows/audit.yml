@@ -1,0 +1,45 @@
+name: Dependency audit
+
+# Known vulnerabilities in the Rust crates and npm packages Pygg ships or builds with. Runs when a lockfile changes,
+# every Monday (advisories are published after a lockfile is committed) and by hand.
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/desktop/src-tauri/Cargo.lock
+      - pnpm-lock.yaml
+      - .github/workflows/audit.yml
+  pull_request:
+    paths:
+      - apps/desktop/src-tauri/Cargo.lock
+      - pnpm-lock.yaml
+      - .github/workflows/audit.yml
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      # Fails on a vulnerability. Unmaintained and unsound warnings are printed; the ones in the tree today come
+      # through Tauri's Linux dependencies (zbus, glib) and are not in the Windows build.
+      - run: cargo audit
+        working-directory: apps/desktop/src-tauri
+
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: pnpm audit

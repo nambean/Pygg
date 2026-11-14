@@ -36,7 +36,8 @@ jobs:
         working-directory: apps/desktop/src-tauri
       - run: cargo clippy --no-default-features --all-targets -- -D warnings
         working-directory: apps/desktop/src-tauri
-      - run: cargo test --lib
+      # The library's tests and the integration tests: real provider error answers, and two gateway processes on one store.
+      - run: cargo test --all-features --lib --tests
         working-directory: apps/desktop/src-tauri
       - run: python scripts/schema-reference.py --check
       # The shipped licence inventory matches Cargo.lock and the interface's packages, and every licence is allowed.
