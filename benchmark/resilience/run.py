@@ -229,7 +229,9 @@ class Pygg:
         return self.port, "/v1/chat/completions", self.token, alias
 
     def headers(self, session):
-        return {"x-smarttaskrouter-session": session} if session else {}
+        # The new name and the old one, which the gateway still reads: works with builds before and after the rename
+        # (the published runs used a build that read only the old one).
+        return {"x-pygg-session": session, "x-smarttaskrouter-session": session} if session else {}
 
     def ledger(self):
         con = sqlite3.connect(f"file:{self.db}?mode=ro", uri=True)
