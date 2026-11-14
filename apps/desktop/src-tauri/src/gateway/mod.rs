@@ -1110,6 +1110,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             key_id: key.as_ref().map(|k| k.id.clone()),
         };
         let started = Instant::now();
+        let sent_ms = db_now();
         let settle_failure = |journal: Attempt, status: Option<u16>, cost: Cost, outcome: &str, error: &str| {
             journal.settle(
                 shared,
@@ -1167,13 +1168,15 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 }
                 // A 429 on one model is a strike against it in `auto`: without a usable reset, or repeated, the model
                 // is held out of the automatic routes for a growing while (`auto::strike`). Named routes still try it.
-                // One key's 429 says nothing of the model while the ring has others.
+                // One key's 429 says nothing of the model while the ring has others. The send time lets a burst of
+                // parallel requests count as one strike.
                 if mark.state == "rate_limited" && model_scope && on_key.is_none() {
                     let reset = match failure {
                         Failure::Http(e) => e.retry_after,
                         _ => None,
                     };
-                    let _ = shared.with_db(|db| auto::strike(db, &provider.id, &model_id, reset, message, db_now()));
+                    let _ = shared
+                        .with_db(|db| auto::strike(db, &provider.id, &model_id, reset, message, sent_ms, db_now()));
                 }
             }
             if decision.next == Next::OtherGroups {

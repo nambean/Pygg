@@ -238,15 +238,22 @@ const USABLE_RESET: Duration = Duration::from_secs(1);
 /// 2026-11-13: 18 fallbacks on Gemini's Gemma models). So each 429 on a model is a strike, and a strike without a
 /// usable reset, or a second strike in a row, holds the model out of `auto` and `auto/cheap` for `HOLD_BASE`, doubled
 /// each time, up to `HOLD_CAP`. A client naming the model, or a combo, still reaches it. An answer clears the hold.
+///
+/// One burst is one strike: the requests already in flight when the first 429 came back answer 429 too, and counting
+/// each would hold the model for 80 minutes after four parallel requests instead of 10 (the resilience benchmark,
+/// 2026-11-14). So a 429 to a request sent before the last strike was recorded repeats that strike.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Hold {
-    /// 429 answers in a row.
+    /// 429 answers in a row, a burst of them counted once.
     pub strikes: u32,
     /// Held out of the ranking until then, if at all.
     pub until_ms: Option<i64>,
     /// What the provider said last, in a few words.
     pub reason: String,
+    /// When the last strike was recorded (0 in a hold stored before this was kept).
+    #[serde(default)]
+    pub struck_ms: i64,
 }
 
 fn hold_key(provider_id: &str, model_id: &str) -> String {
@@ -262,20 +269,35 @@ pub fn hold(conn: &Connection, provider_id: &str, model_id: &str, now: i64) -> O
     (hold.until_ms.is_some_and(|until| until > now)).then_some(hold)
 }
 
-/// Records a 429 on the model: a strike, and a hold where the strike is the second in a row or the provider stated
-/// no reset the route could wait for. Returns the hold now in force, if one is.
+/// Records a 429 on the model, answering a request sent at `sent_ms`: a strike, and a hold where the strike is the
+/// second in a row or the provider stated no reset the route could wait for. A request sent before the last strike
+/// was recorded is of the same burst: its 429 adds no strike, though one without a usable reset still holds the model.
+/// Returns the hold now in force, if one is.
 pub fn strike(
-    conn: &Connection, provider_id: &str, model_id: &str, reset: Option<Duration>, reason: &str, now: i64,
+    conn: &Connection, provider_id: &str, model_id: &str, reset: Option<Duration>, reason: &str, sent_ms: i64, now: i64,
 ) -> store::Result<Option<Hold>> {
     let key = hold_key(provider_id, model_id);
     let previous: Option<Hold> = store::setting(conn, &key)?.and_then(|s| serde_json::from_str(&s).ok());
-    let strikes = previous.map_or(0, |h| h.strikes) + 1;
     let usable = reset.is_some_and(|r| r >= USABLE_RESET);
+    let previous_strikes = previous.as_ref().map_or(0, |h| h.strikes);
+    let burst = previous.filter(|h| h.strikes > 0 && sent_ms < h.struck_ms);
+    if let Some(burst) = &burst {
+        if burst.until_ms.is_some_and(|until| until > now) {
+            return Ok(Some(burst.clone()));
+        }
+        if usable {
+            return Ok(None);
+        }
+    }
+    let (strikes, struck_ms) = match &burst {
+        Some(burst) => (burst.strikes, burst.struck_ms),
+        None => (previous_strikes + 1, now),
+    };
     let until_ms = (strikes > 1 || !usable).then(|| {
         let wait = HOLD_BASE.saturating_mul(1u32 << (strikes - 1).min(16)).min(HOLD_CAP);
         now + wait.as_millis() as i64
     });
-    let hold = Hold { strikes, until_ms, reason: reason.chars().take(120).collect() };
+    let hold = Hold { strikes, until_ms, reason: reason.chars().take(120).collect(), struck_ms };
     store::set_setting(conn, &key, &serde_json::to_string(&hold).unwrap_or_default())?;
     Ok(until_ms.map(|_| hold))
 }
@@ -683,21 +705,27 @@ mod tests {
         let now = crate::db::now_ms();
         let minutes = |ms: i64| (ms - now) / 60_000;
         // A stated reset the route can wait for: a strike, no hold; the provider's cooldown is enough.
-        assert_eq!(strike(&w.conn, "paid", "mid", Some(Duration::from_secs(120)), "slow down", now).unwrap(), None);
+        assert_eq!(
+            strike(&w.conn, "paid", "mid", Some(Duration::from_secs(120)), "slow down", now, now).unwrap(),
+            None
+        );
         assert_eq!(hold(&w.conn, "paid", "mid", now), None);
         // The second in a row holds it, twice the base; a third, four times.
-        let held = strike(&w.conn, "paid", "mid", Some(Duration::from_secs(120)), "slow down", now).unwrap().unwrap();
+        let held =
+            strike(&w.conn, "paid", "mid", Some(Duration::from_secs(120)), "slow down", now, now).unwrap().unwrap();
         assert_eq!((held.strikes, minutes(held.until_ms.unwrap())), (2, 20));
-        let held = strike(&w.conn, "paid", "mid", Some(Duration::from_secs(120)), "slow down", now).unwrap().unwrap();
+        let held =
+            strike(&w.conn, "paid", "mid", Some(Duration::from_secs(120)), "slow down", now, now).unwrap().unwrap();
         assert_eq!((held.strikes, minutes(held.until_ms.unwrap())), (3, 40));
         // No reset at all (Gemini's quota answer), or one of zero seconds: held from the first strike.
-        let held = strike(&w.conn, "paid", "small", None, "You exceeded your current quota", now).unwrap().unwrap();
+        let held =
+            strike(&w.conn, "paid", "small", None, "You exceeded your current quota", now, now).unwrap().unwrap();
         assert_eq!((held.strikes, minutes(held.until_ms.unwrap())), (1, 10));
-        let held = strike(&w.conn, "paid", "big", Some(Duration::ZERO), "quota", now).unwrap().unwrap();
+        let held = strike(&w.conn, "paid", "big", Some(Duration::ZERO), "quota", now, now).unwrap().unwrap();
         assert_eq!(minutes(held.until_ms.unwrap()), 10);
         // The hold never passes a day, however many strikes.
         for _ in 0..12 {
-            strike(&w.conn, "paid", "big", None, "quota", now).unwrap();
+            strike(&w.conn, "paid", "big", None, "quota", now, now).unwrap();
         }
         assert_eq!(hold(&w.conn, "paid", "big", now).unwrap().until_ms, Some(now + HOLD_CAP.as_millis() as i64));
 
@@ -721,10 +749,40 @@ mod tests {
     }
 
     #[test]
+    fn a_burst_of_429s_to_requests_in_flight_together_is_one_strike() {
+        let w = world();
+        let now = crate::db::now_ms();
+        let minutes = |ms: i64| (ms - now) / 60_000;
+        let sent = now - 2_000;
+        // Four requests sent together; the first 429 holds the model for the base time.
+        let first = strike(&w.conn, "paid", "mid", None, "quota", sent, now).unwrap().unwrap();
+        assert_eq!((first.strikes, minutes(first.until_ms.unwrap())), (1, 10));
+        // The other three, sent before that strike was recorded, repeat it.
+        for later in 1..=3 {
+            let held = strike(&w.conn, "paid", "mid", None, "quota", sent, now + later * 50).unwrap().unwrap();
+            assert_eq!(held, first);
+        }
+        // A request sent after the strike answers 429 again: the second strike, twice as long.
+        let held = strike(&w.conn, "paid", "mid", None, "quota", now + 1_000, now + 2_000).unwrap().unwrap();
+        assert_eq!((held.strikes, (held.until_ms.unwrap() - now - 2_000) / 60_000), (2, 20));
+
+        // A burst whose first 429 stated a usable reset: no hold, and the rest of the burst adds none.
+        let reset = Some(Duration::from_secs(60));
+        assert_eq!(strike(&w.conn, "paid", "small", reset, "slow down", sent, now).unwrap(), None);
+        assert_eq!(strike(&w.conn, "paid", "small", reset, "slow down", sent, now + 50).unwrap(), None);
+        // One of the burst without a reset holds the model, still at one strike.
+        let held = strike(&w.conn, "paid", "small", None, "quota", sent, now + 100).unwrap().unwrap();
+        assert_eq!((held.strikes, held.struck_ms), (1, now));
+        // A hold stored before the strike time was kept still counts each 429.
+        store::set_setting(&w.conn, &hold_key("paid", "big"), r#"{"strikes":1,"untilMs":null,"reason":"x"}"#).unwrap();
+        assert_eq!(strike(&w.conn, "paid", "big", reset, "slow down", sent, now).unwrap().unwrap().strikes, 2);
+    }
+
+    #[test]
     fn each_exclusion_says_what_would_bring_the_model_in() {
         let w = world();
         let now = crate::db::now_ms();
-        strike(&w.conn, "paid", "mid", None, "You exceeded your current quota", now).unwrap();
+        strike(&w.conn, "paid", "mid", None, "You exceeded your current quota", now, now).unwrap();
         let web = store::add_web_provider(&w.conn, "muse-web", "Muse", crate::websession::WARNING_VERSION).unwrap();
         store::update_provider(&w.conn, &web.id, Some(true), None, None).unwrap();
         // A coding tool's request: tools, a short prompt.
