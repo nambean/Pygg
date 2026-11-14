@@ -1,4 +1,4 @@
--- Schema v4: answers to the architect counter-review (docs/reviews/2026-11-11-counter-review-response.md).
+-- Schema v4: answers to the architect counter-review (2026-11-11).
 
 -- CR-02: when the user confirmed that a connection has its own provider quota. NULL with a quota group set
 -- means a confirmation from before this column existed; it is backfilled with the connection's creation time.

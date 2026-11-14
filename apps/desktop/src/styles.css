@@ -77,7 +77,7 @@ button, select, textarea, input { font: inherit; color: inherit; }
 button { cursor: default; }
 /* The focus ring is an outline, not a box-shadow: rules that give a control its own shadow (.button, .text-input,
    .popup-button, …) would otherwise replace the ring, and Windows high contrast drops box-shadows altogether
-   (D12 release checks, docs/reports/2026-11-12-d12-release-checks.md). Chromium outlines follow border-radius. */
+   (ADR-012's release checks). Chromium outlines follow border-radius. */
 :focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 0; }
 .selectable { -webkit-user-select: text; user-select: text; cursor: text; }
 .mono { font-family: var(--mono); font-size: 12px; }
@@ -571,7 +571,10 @@ td.row-buttons .button + .button { margin-inline-start: 4px; }
 .two-columns .group { margin-top: 18px; }
 /* In a half-width table the name column takes what is left and is cut with an ellipsis, so the numbers stay in view. */
 .two-columns .data-table td:first-child { max-width: 0; width: 100%; overflow-wrap: anywhere; }
-.two-columns .data-table td.mono:first-child, .two-columns .data-table td:first-child .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+/* An identifier cell keeps being a table cell (max-width 0 lets it take the width left and cut its end); only an
+   identifier inside a cell becomes a block to cut. A cell made a block of width 0 once hid every model name. */
+.two-columns .data-table td.mono:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.two-columns .data-table td:first-child .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 
 /* Clients */
 .spend { display: flex; flex-direction: column; gap: 3px; min-width: 150px; }

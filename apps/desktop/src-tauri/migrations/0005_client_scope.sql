@@ -1,4 +1,4 @@
--- Schema v5: answers to the follow-up review (docs/reviews/2026-11-11-remaining-gateway-risks-response.md).
+-- Schema v5: answers to the follow-up review of the gateway's remaining risks (2026-11-11).
 
 -- FR-01: the connections a client token may send requests to. NULL means every connection; otherwise a JSON
 -- array of connection ids, and every other connection is skipped for this client, whatever the combo says.

@@ -34,7 +34,10 @@
     "targets": "all",
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "headerImage": "installer/header.bmp",
+        "sidebarImage": "installer/sidebar.bmp",
+        "installerHooks": "installer/installer-hooks.nsh"
       }
     },
     "icon": [

@@ -83,6 +83,13 @@ function inspect() {
     const style = getComputedStyle(el);
     if (style.display === 'none' || style.visibility === 'hidden' || style.position === 'fixed') continue;
     const box = el.getBoundingClientRect();
+    // Text in a box too narrow to show any of it, as the Usage tables' model names were once (a cell made a block of
+    // width 0): nothing overflows, the text is simply gone. A screen-reader-only label (clipped on purpose) is fine.
+    const ownText = [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
+    const clippedOnPurpose = style.position === 'absolute' && (style.clip !== 'auto' || box.width <= 1);
+    if (ownText && !clippedOnPurpose && box.height > 0 && box.width < 4) {
+      report(el, `text hidden in a box ${Math.round(box.width)} px wide: ${name(el)}`);
+    }
     if (box.width === 0 || box.height === 0) continue;
     // Inside a box that scrolls sideways on purpose, content may reach past the window: it is scrolled to, not lost.
     let scroller = el.parentElement;

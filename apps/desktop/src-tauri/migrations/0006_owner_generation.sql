@@ -1,4 +1,4 @@
--- Schema v6: gateway lifecycle (docs/reviews/2026-11-11-gateway-lifecycle-response.md, LC-01).
+-- Schema v6: gateway lifecycle (LC-01).
 -- The ownership generation that journaled an attempt. A gateway that takes the store starts a new generation;
 -- every journal entry of an earlier generation is then known to be finished (its owner released the store only
 -- after all its work was settled) or orphaned (its owner died), and becomes an interrupted ledger entry.
