@@ -283,7 +283,8 @@ pub async fn run(mut args: Vec<String>) {
                 max_tokens: one("max-tokens").and_then(|v| v.parse().ok()), thinking: one("thinking"), effort: one("effort") };
             let plan = shared.with_db(|db| gateway::auto::plan(db, &client, &alias, strategy, &needs)).unwrap_or_else(|e| fail(e));
             for (i, r) in plan.ranked.iter().enumerate() {
-                println!("{:>2}. {}/{}  {}", i + 1, r.provider_id, r.model_id, r.reason);
+                let tried = plan.route.iter().any(|x| x.provider_id == r.provider_id && x.model_id == r.model_id);
+                println!("{:>2}. {}/{}  {}{}", i + 1, r.provider_id, r.model_id, r.reason, if tried { "  [route]" } else { "" });
             }
             println!("{} excluded", plan.excluded.len());
             for e in plan.excluded.iter().take(one("show").and_then(|v| v.parse().ok()).unwrap_or(10)) {

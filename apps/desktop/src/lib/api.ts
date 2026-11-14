@@ -174,9 +174,10 @@ export const CODING_NEEDS = {surfaceAnthropic: false, tools: true, vision: false
 export const CLAUDE_CODE_NEEDS: AutoNeeds = {...CODING_NEEDS, surfaceAnthropic: true, thinking: 'adaptive'};
 export type AutoExclusionKind = 'facts' | 'unavailable' | 'policy' | 'web';
 export type AutoExcluded = { providerId: string; modelId: string; reason: string; kind: AutoExclusionKind };
-export type AutoPlan = { alias: AutoAlias; strategy: 'tier' | 'cheap'; minTier: Tier | null; ranked: AutoRanked[]; excluded: AutoExcluded[] };
-/** How many ranked models make up an auto route. */
-export const AUTO_ROUTE_LENGTH = 5;
+/** route: what a request tries, in order: the ranked models, at most two from a connection while others are eligible
+ *  (auto::route). */
+export type AutoPlan = { alias: AutoAlias; strategy: 'tier' | 'cheap'; minTier: Tier | null; ranked: AutoRanked[]; route: AutoRanked[];
+  excluded: AutoExcluded[] };
 
 export type Target = { providerId: string; modelId: string };
 /** strategy: 'order' (as listed) or 'cheapest' (by each request's estimated cost). */

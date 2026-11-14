@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, Wand2 } from 'lucide-react';
-import { AUTO_ROUTE_LENGTH, type AutoAlias } from '../../lib/api';
+import type { AutoAlias } from '../../lib/api';
 import { plural, t } from '../../lib/i18n';
 import { billingLabel, microUsd } from '../../lib/money';
 import { useGateway } from '../../hooks/useGateway';
@@ -30,7 +30,7 @@ export function AutoRouting() {
       thinking: anthropic && thinking ? thinking : null, effort: anthropic && effort ? effort : null}),
     [alias, clientId, anthropic, tools, vision, inputTokens, limit, thinking, effort]);
   const active = (clients.data ?? []).filter(c => !c.revokedAt);
-  const route = plan.data?.ranked.slice(0, AUTO_ROUTE_LENGTH) ?? [];
+  const route = plan.data?.route ?? [];
   const more = (plan.data?.ranked.length ?? 0) - route.length;
 
   return <section className="group" aria-label={t('Automatic Routing')}>

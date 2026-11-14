@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { KeyRound, TriangleAlert } from 'lucide-react';
-import { TIERS, call, errorText, gatewayChanged, type Client, type Tier } from '../../lib/api';
+import { TIERS, call, errorText, gatewayChanged, type Client, type ClientDefaults, type Tier } from '../../lib/api';
 import { plural, t } from '../../lib/i18n';
 import { isMac } from '../../lib/platform';
 import { microUsd, parseUsd } from '../../lib/money';
@@ -82,13 +82,20 @@ export function Clients({intent, onIntentDone}: {intent?: 'create'; onIntentDone
 function TokenCell({client: c}: {client: Client}) {
   const [token, setToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Reading from the Credential Manager can take a moment (and Windows may ask first): the button says so meanwhile.
+  const [reading, setReading] = useState(false);
+  const show = () => {
+    setReading(true);
+    setError(null);
+    call(api => api.clientToken(c.id)).then(setToken, e => setError(errorText(e))).finally(() => setReading(false));
+  };
   if (token) return <span className="token-reveal"><span className="selectable token-full">{token}</span>
     <CopyButton text={token} label={t('Copy')}/>
     <button type="button" className="link-button" onClick={() => setToken(null)}>{t('Hide')}</button></span>;
   return <span className="token-reveal">{c.tokenPrefix}…
     {!c.revokedAt && c.tokenViewable && <button type="button" className="link-button"
       aria-label={t('Show the key for {name}', {name: c.name})}
-      onClick={() => call(api => api.clientToken(c.id)).then(setToken, e => setError(errorText(e)))}>{t('Show')}</button>}
+      onClick={show} disabled={reading} aria-busy={reading}>{reading ? t('Reading…') : t('Show')}</button>}
     {!c.revokedAt && !c.tokenViewable && <span className="secondary small" title={t('Made before Pygg kept a copy in the Credential Manager, or set in a tool’s own configuration.')}>{t('not viewable')}</span>}
     {error && <small className="warn-text">{error}</small>}</span>;
 }
@@ -126,7 +133,26 @@ function policySummary(c: Client): string {
   return plural(c.maxConcurrency, 'up to {n} request at once', 'up to {n} requests at once') + unknown + scope + retries + tasks + training + strictness;
 }
 
+/** What a new key gets from Policies → Defaults for New API Keys, and the built-in values where a default is not set
+ *  (store::create_client applies the same; Codex UI review, Later 5). */
+function defaultsSummary(d: ClientDefaults, limited: boolean): string {
+  const parts = [
+    t('auto at least {tier}', {tier: d.autoMinTier ?? 'T2'}),
+    plural(d.maxConcurrency ?? 8, 'up to {n} request at once', 'up to {n} requests at once'),
+  ];
+  if (limited) {
+    parts.push((d.unknownCostPolicy ?? 'block') === 'block' ? t('unknown prices blocked') : t('unknown prices allowed'));
+    parts.push(d.strictBudget ? t('strict limit') : t('estimated limit'));
+  }
+  parts.push((d.paidRetries ?? 0) > 0
+    ? plural(d.paidRetries ?? 0, 'retries {n} model after a server error', 'retries up to {n} models after a server error')
+    : t('no paid retries after a server error'));
+  if (d.requireNoTraining) parts.push(t('only providers that do not train on its data'));
+  return parts.join(' · ');
+}
+
 function CreateSheet({onClose}: {onClose: () => void}) {
+  const defaults = useGateway(api => api.clientDefaults());
   const [name, setName] = useState('');
   const [limit, setLimit] = useState('');
   const [busy, setBusy] = useState(false);
@@ -134,6 +160,7 @@ function CreateSheet({onClose}: {onClose: () => void}) {
   const [created, setCreated] = useState<{client: Client; token: string} | null>(null);
   const amount = parseUsd(limit);
   const valid = name.trim() && (amount === null || (Number.isFinite(amount) && amount > 0));
+  const defaultLimit = defaults.data?.monthlyBudgetMicroUsd ?? null;
   const create = () => {
     setBusy(true);
     call(api => api.createClient(name.trim(), amount)).then(r => { setCreated(r); setBusy(false); gatewayChanged(); },
@@ -177,8 +204,16 @@ function CreateSheet({onClose}: {onClose: () => void}) {
         hint={t('Optional. Each request is checked against an estimate of its cost before it is sent, and refused once this month’s spend reaches the limit. The estimate isn’t a guarantee: the provider’s bill can be higher.')}>
         <span className={amount !== null && !Number.isFinite(amount) ? 'money-input invalid' : 'money-input'}>
           <span aria-hidden>$</span>
-          <input id="client-limit" inputMode="decimal" value={limit} onChange={e => setLimit(e.target.value)} placeholder={t('No limit')}/>
+          <input id="client-limit" inputMode="decimal" value={limit} onChange={e => setLimit(e.target.value)}
+            placeholder={defaultLimit ? t('Default: {amount}', {amount: microUsd(defaultLimit)}) : t('No limit')}/>
         </span>
+      </FormRow>
+      <FormRow label={t('Policy')}>
+        <p className="sheet-text policy-preview" role="status">{defaults.data
+          ? <>{defaultsSummary(defaults.data, amount !== null || defaultLimit !== null)}.{' '}
+            <span className="secondary">{t('From Policies → Defaults for New API Keys; change it for this key afterwards with Limits….')}</span></>
+          : defaults.error ? <span className="warn-text">{t('Couldn’t read the defaults: {error}', {error: defaults.error})}</span>
+          : t('Reading the defaults…')}</p>
       </FormRow>
     </div>
     {error && <ErrorNote>{error}</ErrorNote>}

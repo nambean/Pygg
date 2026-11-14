@@ -2093,3 +2093,92 @@ fn a_cheapest_combo_orders_its_members_by_this_requests_cost() {
     assert_eq!(order, ["qwen", "cheap", "dear", "unpriced"], "local at $0, then by cost, unknown price last");
     assert!(reasons[&(paid.id.clone(), "unpriced".to_string())].contains("price unknown"));
 }
+
+// ---------- Overhead (production readiness: "no measured overhead") ----------
+
+/// What the gateway adds to a request: the same requests sent to the fake provider directly and through a gateway on a
+/// store file (WAL, every attempt journaled and settled as in the app). Ignored by default; run in release:
+/// `cargo test --release --lib gateway::tests::overhead -- --ignored --nocapture`, with `PYGG_OVERHEAD_OUT=file.json`
+/// to save the figures (benchmark/reports/2026-11-14-gateway-overhead.md).
+#[test]
+#[ignore]
+fn overhead() {
+    fn stats(mut ms: Vec<f64>) -> Value {
+        ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let at = |q: f64| ms[((ms.len() as f64 - 1.0) * q).round() as usize];
+        json!({ "n": ms.len(), "p50": at(0.5), "p95": at(0.95), "p99": at(0.99), "mean": ms.iter().sum::<f64>() / ms.len() as f64 })
+    }
+    rt().block_on(async {
+        let dir = tempfile::tempdir().unwrap();
+        let rig = rig_on_store(&dir.path().join("store.sqlite3")).await;
+        rig.shared.with_db(|db| store::set_client_policy(db, &rig.client_id, Some(64), None)).unwrap();
+        if let Ok(mode) = std::env::var("PYGG_OVERHEAD_SYNC") { rig.shared.with_db(|db| db.execute_batch(&format!("PRAGMA synchronous = {mode}"))).unwrap(); }
+        let endpoint = rig.shared.with_db(store::list_providers).unwrap().into_iter().find(|p| p.id == "main").unwrap().endpoint;
+        let http = reqwest::Client::builder().pool_max_idle_per_host(64).build().unwrap();
+        let direct = |body: Value| http.post(format!("{endpoint}/chat/completions")).bearer_auth("key-1").json(&body).send();
+        let through = |body: Value| http.post(format!("{}/v1/chat/completions", rig.base)).bearer_auth(&rig.token).json(&body).send();
+        let body = |model: &str, stream: bool, chars: usize| {
+            let mut b = json!({ "model": model, "messages": [{ "role": "user", "content": "x".repeat(chars) }] });
+            if stream { b["stream"] = json!(true); b["stream_options"] = json!({ "include_usage": true }); }
+            b
+        };
+        let mut scenarios = Vec::new();
+        // A short prompt and an agent-sized one (400 000 characters, about 100 000 tokens), whole and streamed.
+        for (name, chars, stream, n) in [("short prompt", 20, false, 400), ("short prompt, streamed", 20, true, 400),
+            ("400 kB prompt", 400_000, false, 150), ("400 kB prompt, streamed", 400_000, true, 150)] {
+            let mut sides = Vec::new();
+            for via in ["direct", "gateway"] {
+                let model = if via == "direct" { "fast" } else { "main/fast" };
+                let mut ms = Vec::new();
+                for i in 0..n + 20 {
+                    let started = Instant::now();
+                    let response = if via == "direct" { direct(body(model, stream, chars)).await } else { through(body(model, stream, chars)).await }.unwrap();
+                    assert_eq!(response.status(), 200);
+                    response.bytes().await.unwrap();
+                    if i >= 20 { ms.push(started.elapsed().as_secs_f64() * 1000.0); }
+                }
+                sides.push(stats(ms));
+            }
+            let added = sides[1]["p50"].as_f64().unwrap() - sides[0]["p50"].as_f64().unwrap();
+            println!("{name:<26} direct p50 {:>7.2} ms p95 {:>7.2} | gateway p50 {:>7.2} ms p95 {:>7.2} | added p50 {added:>6.2} ms",
+                sides[0]["p50"].as_f64().unwrap(), sides[0]["p95"].as_f64().unwrap(), sides[1]["p50"].as_f64().unwrap(), sides[1]["p95"].as_f64().unwrap());
+            scenarios.push(json!({ "name": name, "promptChars": chars, "stream": stream, "direct": sides[0], "gateway": sides[1], "addedP50Ms": added }));
+        }
+        // Sixteen clients at once, short prompts: throughput and latency under load.
+        let mut load = Vec::new();
+        for via in ["direct", "gateway"] {
+            let per = 125;
+            let started = Instant::now();
+            let workers: Vec<_> = (0..16).map(|_| {
+                let (http, endpoint, base, token) = (http.clone(), endpoint.clone(), rig.base.clone(), rig.token.clone());
+                tokio::spawn(async move {
+                    let mut ms = Vec::new();
+                    for _ in 0..per {
+                        let t = Instant::now();
+                        let r = if via == "direct" {
+                            http.post(format!("{endpoint}/chat/completions")).bearer_auth("key-1").json(&json!({ "model": "fast", "messages": [] })).send().await
+                        } else {
+                            http.post(format!("{base}/v1/chat/completions")).bearer_auth(&token).json(&json!({ "model": "main/fast", "messages": [] })).send().await
+                        }.unwrap();
+                        assert_eq!(r.status(), 200);
+                        r.bytes().await.unwrap();
+                        ms.push(t.elapsed().as_secs_f64() * 1000.0);
+                    }
+                    ms
+                })
+            }).collect();
+            let mut ms = Vec::new();
+            for w in workers { ms.extend(w.await.unwrap()); }
+            let seconds = started.elapsed().as_secs_f64();
+            let s = stats(ms);
+            println!("16 at once, {via:<7} {:>7.0} requests/s, p50 {:>6.2} ms, p95 {:>6.2} ms", 2000.0 / seconds, s["p50"].as_f64().unwrap(), s["p95"].as_f64().unwrap());
+            load.push(json!({ "via": via, "requestsPerSecond": 2000.0 / seconds, "latency": s }));
+        }
+        let ledger: i64 = rig.shared.with_db(|db| db.query_row("SELECT COUNT(*) FROM usage_events", [], |r| r.get(0))).unwrap();
+        println!("ledger entries written: {ledger}");
+        if let Ok(out) = std::env::var("PYGG_OVERHEAD_OUT") {
+            std::fs::write(out, serde_json::to_string_pretty(&json!({ "scenarios": scenarios, "concurrent16": load,
+                "ledgerEntries": ledger })).unwrap()).unwrap();
+        }
+    });
+}

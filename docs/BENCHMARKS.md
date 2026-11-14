@@ -12,6 +12,7 @@ Pygg is a local gateway between your coding tools and your providers. These runs
 | **`auto/cheap` routing** to the cheapest eligible model | OpenCode with `auto/cheap` on the real repository | 2 / 6 for $0.35: cheap, but free models failed the larger tasks; `auto` with a tier floor is the default for agents | [CCHT](../benchmark/reports/2026-11-13-ccht-real-repository.md) |
 | **Web sessions** (sites without an API, opt-in, unofficial) | 48 short tasks on five sites | 47 / 48 answered correctly, about 18 s each, $0 | [2026-11-13](../benchmark/reports/2026-11-13-web-sessions.md) |
 | **Costs it can trace** | Every attempt in every run | Each recorded as actual, estimated or unknown, never unknown as $0; fallbacks and failed attempts kept | all reports |
+| **Adds little time to a request** | The same requests to a local fake provider directly and through the gateway, 3 runs | About **4 ms** added per short request and **5 ms** per 400 kB prompt, the ledger written to disk before and after each send; about **230 requests/s** with 16 clients at once | [2026-11-14 gateway overhead](../benchmark/reports/2026-11-14-gateway-overhead.md) |
 
 ## What Pygg does not claim
 

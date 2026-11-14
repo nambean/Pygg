@@ -30,6 +30,37 @@ use std::time::Duration;
 pub const ALIASES: [&str; 2] = ["auto", "auto/cheap"];
 /// At most this many ranked models make up the route.
 pub const ROUTE_LENGTH: usize = 5;
+/// At most this many of them from one connection, while others are eligible: a failure of the whole account (no
+/// credit, a rejected key, a spent quota) skips its siblings, so a route of one connection's models ended the request
+/// although another connection could answer (live, 2026-11-14: five SiliconFlow models, its balance empty, Qwen unused).
+pub const PER_CONNECTION: usize = 2;
+
+/// The route: the ranked models in rank order, at most `PER_CONNECTION` from a connection while the ranking has models
+/// of others; slots still free are filled in rank order, so a single connection still gets a full route.
+pub fn route(ranked: &[Ranked]) -> Vec<Ranked> {
+    let mut chosen: Vec<usize> = Vec::new();
+    let mut per: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for (i, r) in ranked.iter().enumerate() {
+        if chosen.len() == ROUTE_LENGTH {
+            break;
+        }
+        let n = per.entry(r.provider_id.as_str()).or_default();
+        if *n < PER_CONNECTION {
+            *n += 1;
+            chosen.push(i);
+        }
+    }
+    for i in 0..ranked.len() {
+        if chosen.len() == ROUTE_LENGTH {
+            break;
+        }
+        if !chosen.contains(&i) {
+            chosen.push(i);
+        }
+    }
+    chosen.sort_unstable();
+    chosen.into_iter().map(|i| ranked[i].clone()).collect()
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -140,8 +171,10 @@ pub struct Plan {
     pub alias: String,
     pub strategy: Strategy,
     pub min_tier: Option<String>,
-    /// Ranked, best first. The route is the first `ROUTE_LENGTH`.
+    /// Ranked, best first.
     pub ranked: Vec<Ranked>,
+    /// What a request tries, in order (`route`).
+    pub route: Vec<Ranked>,
     pub excluded: Vec<Excluded>,
 }
 
@@ -296,7 +329,8 @@ pub fn plan(conn: &Connection, client: &Client, alias: &str, strategy: Strategy,
         };
         order.then_with(|| (&a.provider_id, &a.model_id).cmp(&(&b.provider_id, &b.model_id)))
     });
-    Ok(Plan { alias: alias.to_string(), strategy, min_tier, ranked: ranked.into_iter().map(|(r, _)| r).collect(), excluded })
+    let ranked: Vec<Ranked> = ranked.into_iter().map(|(r, _)| r).collect();
+    Ok(Plan { alias: alias.to_string(), strategy, min_tier, route: route(&ranked), ranked, excluded })
 }
 
 /// Whether one model may serve the request: its estimated cost and how it was stated, or why not.
@@ -431,6 +465,21 @@ pub fn summarize(excluded: &[Excluded], groups: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_route_spans_connections_and_still_fills_from_one() {
+        let r = |p: &str, m: &str| super::Ranked { provider_id: p.into(), model_id: m.into(), tier: None, billing: "free".into(),
+            estimate_micro_usd: 0, reason: String::new() };
+        let names = |route: Vec<super::Ranked>| route.iter().map(|x| format!("{}/{}", x.provider_id, x.model_id)).collect::<Vec<_>>();
+        // Five models of one connection ranked first, then another connection's.
+        let ranked = vec![r("sf", "a"), r("sf", "b"), r("sf", "c"), r("sf", "d"), r("sf", "e"), r("qwen", "plus"), r("qwen", "flash"),
+            r("or", "x")];
+        assert_eq!(names(super::route(&ranked)), ["sf/a", "sf/b", "qwen/plus", "qwen/flash", "or/x"]);
+        // One connection only: the route is still five long, in rank order.
+        assert_eq!(names(super::route(&ranked[..5])), ["sf/a", "sf/b", "sf/c", "sf/d", "sf/e"]);
+        // Two connections, not enough of the second: free slots go back to the first, in rank order.
+        assert_eq!(names(super::route(&ranked[..6])), ["sf/a", "sf/b", "sf/c", "sf/d", "qwen/plus"]);
+    }
+
     use super::*;
     use crate::gateway::pricing::Price;
     use crate::gateway::store::{Capabilities, NewProvider};

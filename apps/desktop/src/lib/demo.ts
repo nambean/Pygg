@@ -499,7 +499,14 @@ export function demoApi(): GatewayApi {
     ranked.sort((a, b) => cheap
       ? a.estimateMicroUsd - b.estimateMicroUsd || billingRank(a.billing) - billingRank(b.billing) || rank(b.tier ?? 'T0') - rank(a.tier ?? 'T0')
       : rank(a.tier!) - rank(b.tier!) || billingRank(a.billing) - billingRank(b.billing) || a.estimateMicroUsd - b.estimateMicroUsd);
-    return {alias, strategy: cheap ? 'cheap' : 'tier', minTier, ranked, excluded};
+    // As auto::route: at most two from a connection while others are eligible, the free slots filled in rank order.
+    const chosen: number[] = [], per = new Map<string, number>();
+    ranked.forEach((r, i) => {
+      if (chosen.length < 5 && (per.get(r.providerId) ?? 0) < 2) { chosen.push(i); per.set(r.providerId, (per.get(r.providerId) ?? 0) + 1); }
+    });
+    ranked.forEach((_, i) => { if (chosen.length < 5 && !chosen.includes(i)) chosen.push(i); });
+    const route = chosen.sort((a, b) => a - b).map(i => ranked[i]);
+    return {alias, strategy: cheap ? 'cheap' : 'tier', minTier, ranked, route, excluded};
   }
 
   return {

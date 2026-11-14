@@ -36,7 +36,11 @@ Checked in the browser preview: the links, the filters they set, one Limit mode 
 3. ~~Query-level filters for Requests~~ (done 2026-11-14: `store::usage_requests_matching` filters by client, model and
    problems or unknown cost over the whole period, with the match count; the client choices come from the period's totals
    and "No client" no longer means "every client"). Paging is still by offset, not a cursor.
-4. Provider rows at 1024 × 640: dots and status on a second line.
-5. Endpoint: the effective policy shown when creating a key; reveal with progress.
-6. ~~Settings: About~~ (done 2026-11-14: version, licence, source, report an issue, third-party licences, where the log and backups are). Retention and diagnostics progress states are still to do.
+4. ~~Provider rows at 1024 × 640~~ (done 2026-11-14: in a list narrower than 760 px the health dots and the status go to a
+   second line, a container query on `.select-list`).
+5. ~~Endpoint: the effective policy when creating a key; reveal with progress~~ (done 2026-11-14: Create API Key shows
+   what the key gets from Policies → Defaults, and the limit field shows the default limit instead of "No limit"; Show
+   says Reading… while the Credential Manager answers).
+6. ~~Settings: About~~ (done 2026-11-14: version, licence, source, report an issue, third-party licences, where the log and backups are). Retention and diagnostics progress states: done 2026-11-14 (the period choice is held and says it is counting or
+   deleting; Save Diagnostics says Saving…; the bundle list names the log tail).
 7. A Narrator and native Windows pass before calling accessibility done.

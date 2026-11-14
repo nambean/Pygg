@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { FileDown } from 'lucide-react';
 import { t } from '../lib/i18n';
 import { call, errorText } from '../lib/api';
-import { ErrorNote } from './ui';
+import { ErrorNote, Spinner } from './ui';
 
 /** Settings → Diagnostics (SCREENS.md §5.8): one redacted zip to send when something goes wrong. The same bundle as
  * `pygg-cli diagnostics --out PATH`; what it holds is listed here before anything is saved (docs/SECURITY.md). */
@@ -22,8 +22,8 @@ export function DiagnosticsSettings() {
       <div className="group-row">
         <span className="group-label">{t('Diagnostics bundle')}
           <small>{t('A zip to send when something goes wrong. It never holds keys, tokens, prompts, agent output, diffs or file contents.')}</small></span>
-        <span className="group-control"><button type="button" className="button" disabled={saving} onClick={save}>
-          <FileDown size={13} aria-hidden/>{t('Save Diagnostics…')}</button></span>
+        <span className="group-control"><button type="button" className="button" disabled={saving} onClick={save} aria-busy={saving}>
+          {saving ? <Spinner label={t('Saving…')}/> : <><FileDown size={13} aria-hidden/>{t('Save Diagnostics…')}</>}</button></span>
       </div>
     </div>
     {result && (result.ok ? <p className="group-footnote" role="status">{result.text}</p> : <ErrorNote>{result.text}</ErrorNote>)}
@@ -35,6 +35,7 @@ export function DiagnosticsSettings() {
         <li>{t('Each client’s name and limits. Not its token.')}</li>
         <li>{t('How many rows each table holds, and the latest 200 requests: models, outcome, tokens and cost. Not the provider’s error text.')}</li>
         <li>{t('Each task’s state and its steps’ states. Not its title, prompt or reasons.')}</li>
+        <li>{t('The last 200 lines of Pygg’s log (logs\pygg.log), already redacted when written.')}</li>
       </ul>
       {t('Every text is cut to 200 characters and passed through the same redaction as task logs. The terminal can save the same zip with pygg-cli diagnostics --out PATH.')}
     </details>

@@ -901,8 +901,6 @@ pub fn create_client(conn: &Connection, name: &str, monthly_budget_micro_usd: Op
     if let Some(n) = defaults.paid_retries { set_client_paid_retries(conn, &id, n)?; }
     if let Some(required) = defaults.require_no_training { set_client_require_no_training(conn, &id, required)?; }
     if let Some(strict) = defaults.strict_budget { set_client_strict_budget(conn, &id, strict)?; }
-    if let Some(strict) = defaults.strict_budget { set_client_strict_budget(conn, &id, strict)?; }
-    if let Some(strict) = defaults.strict_budget { set_client_strict_budget(conn, &id, strict)?; }
     let client = conn
         .query_row(&format!("SELECT {CLIENT_COLUMNS} FROM gateway_clients WHERE id = ?1"), [&id], |r| client_row(conn, r))
         .map_err(err)?;

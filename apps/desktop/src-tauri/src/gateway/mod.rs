@@ -766,7 +766,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                      Pygg → Providers, or ask for a model by name.{}{}", if why.is_empty() { "" } else { " " }, why)));
             }
             let mut route = Vec::new();
-            for ranked in plan.ranked.iter().take(auto::ROUTE_LENGTH) {
+            for ranked in &plan.route {
                 if let Ok(Some(provider)) = shared.with_db(|db| store::get_provider(db, &ranked.provider_id)) {
                     reasons.insert((ranked.provider_id.clone(), ranked.model_id.clone()), ranked.reason.clone());
                     route.push((provider, ranked.model_id.clone()));
