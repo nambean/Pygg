@@ -15,16 +15,15 @@ This page goes from the installer to "my coding tool uses the model `auto`". Whe
 
 ### The desktop app (Windows)
 
-There is no public release yet. Build the installer from source:
+Download `Pygg_0.1.0_x64-setup.exe` (NSIS, per user) or the MSI, with `SHA256SUMS.txt`, from the [`v0.1.0-dev.1` prerelease](https://github.com/nambean/Pygg/releases/tag/v0.1.0-dev.1). Check the download against the checksum before running it:
 
 ```powershell
-pnpm install
-pnpm --filter @smarttaskrouter/desktop tauri:build
+Get-FileHash .\Pygg_0.1.0_x64-setup.exe -Algorithm SHA256   # compare with the line in SHA256SUMS.txt
 ```
 
-This gives `Pygg_0.1.0_x64-setup.exe` (NSIS, per user) and an MSI under `apps/desktop/src-tauri/target/release/bundle`. The build requirements are in the [README](../README.md).
+To build the installers yourself: `pnpm install`, then `pnpm --filter @smarttaskrouter/desktop tauri:build`; they land under `apps/desktop/src-tauri/target/release/bundle`. The build requirements are in the [README](../README.md).
 
-Run the installer. It is not signed, so Windows may ask you to confirm before it runs. It installs for the current user:
+Run the installer. It is not code-signed, so SmartScreen says "Windows protected your PC": choose **More info → Run anyway**. It installs for the current user:
 
 - `%LOCALAPPDATA%\Pygg\Pygg.exe`, with a Start-menu shortcut;
 - `pygg-cli.exe` next to it, the command line (see [Command line](#command-line));
