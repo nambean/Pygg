@@ -32,6 +32,7 @@ const states = [
   {screen: 'connections', name: 'a model row menu', steps: `click('OpenRouter'); await wait(800); click('More actions', -1); await wait(300);`, expect: '[role=menu]'},
   {screen: 'connections', name: 'Edit Price sheet', steps: `click('OpenRouter'); await wait(800); click('More actions', 4); await wait(300);
     click('Edit Price'); await wait(500);`, expect: '[role=dialog]'},
+  {screen: 'connections', name: 'a web session backed off (DeepSeek)', steps: `click('DeepSeek'); await wait(800);`, expect: '.warn-text'},
   {screen: 'connections', name: 'Connect sheet', steps: `click('Connect Provider'); await wait(800);`, expect: '[role=dialog]'},
   {screen: 'combos', name: 'combos tested', steps: `for (let i = 0; i < 6; i++) click('Test', i); await wait(1500);`, expect: '.combo-test'},
   {screen: 'combos', name: 'combo editor', steps: `click('Edit…', -1); await wait(600);`, expect: '[role=dialog]'},

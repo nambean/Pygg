@@ -268,6 +268,10 @@ export type CheckAllResult = {checked: number; failed: number; webSkipped: numbe
 export type WebGuard = {
   hourUnits: number; hourRequests: number; hourUnitsCap: number; hourRequestsCap: number; todayUnits: number; todayUnitsCap: number;
   maxPromptChars: number; restingUntil: number | null; backoffUntil: number | null; backoffReason: string | null;
+  /** Requests in the last `burstWindowMin` minutes and how many fit; the site's ceiling on the daily limit, its least rest. */
+  burstRequests: number; burstRequestsCap: number; burstWindowMin: number; dailyLimitMax: number; restBaseSecs: number;
+  /** Why this site's limits are lower than other sites', if they are (DeepSeek). */
+  siteNote: string | null;
 };
 
 export type UsageBucket = {

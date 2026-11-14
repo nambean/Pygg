@@ -194,6 +194,15 @@ pub struct WebGuardView {
     pub today_units: u32,
     pub today_units_cap: u32,
     pub max_prompt_chars: usize,
+    /// Requests in the last `burst_window_min` minutes, and how many fit there.
+    pub burst_requests: u32,
+    pub burst_requests_cap: u32,
+    pub burst_window_min: u32,
+    /// The highest daily request limit this site may have, and the least rest after a reply, in seconds.
+    pub daily_limit_max: u32,
+    pub rest_base_secs: u32,
+    /// Why this site's limits are lower than other sites', if they are.
+    pub site_note: Option<String>,
     /// When the rest after the last reply ends, if it has not.
     pub resting_until: Option<i64>,
     /// Backed off after a sign of trouble: until when, and Pygg's reason.
@@ -206,9 +215,13 @@ fn web_guard_view(state: &AppState, provider: &Provider) -> Option<WebGuardView>
     let now = crate::db::now_ms();
     let account = state.shared.with_db(|db| store::web_guard(db, &provider.id, now)).ok()?;
     let (hour_units, hour_requests) = account.hour(now);
-    let limit = provider.web_daily_limit.unwrap_or(crate::websession::DEFAULT_DAILY_LIMIT);
-    Some(WebGuardView { hour_units, hour_requests, hour_units_cap: guard::HOUR_UNITS, hour_requests_cap: guard::HOUR_REQUESTS,
-        today_units: account.today(now), today_units_cap: limit * guard::DAY_UNITS_PER_REQUEST, max_prompt_chars: guard::MAX_PROMPT_CHARS,
+    let limits = guard::limits(&provider.kind);
+    let limit = limits.daily_limit(provider.web_daily_limit.unwrap_or(crate::websession::DEFAULT_DAILY_LIMIT));
+    Some(WebGuardView { hour_units, hour_requests, hour_units_cap: limits.hour_units, hour_requests_cap: limits.hour_requests,
+        today_units: account.today(now), today_units_cap: limit * guard::DAY_UNITS_PER_REQUEST, max_prompt_chars: limits.max_prompt_chars,
+        burst_requests: account.burst(now, limits.burst_window_ms), burst_requests_cap: limits.burst_requests,
+        burst_window_min: (limits.burst_window_ms / 60_000) as u32, daily_limit_max: limits.max_daily_limit,
+        rest_base_secs: (limits.rest_base_ms / 1000) as u32, site_note: limits.note.map(str::to_string),
         resting_until: account.next_at.filter(|at| *at > now),
         backoff_until: account.backoff_until.filter(|at| *at > now),
         backoff_reason: account.backoff_until.filter(|at| *at > now).and(account.backoff_reason) })
@@ -227,7 +240,8 @@ fn view(state: &AppState, provider: Provider) -> ConnectionView {
     ConnectionView {
         web,
         web_ack_current: web && provider.web_ack_version == Some(crate::websession::WARNING_VERSION),
-        web_daily_limit: web.then(|| provider.web_daily_limit.unwrap_or(crate::websession::DEFAULT_DAILY_LIMIT)),
+        web_daily_limit: web.then(|| crate::websession::guard::limits(&provider.kind)
+            .daily_limit(provider.web_daily_limit.unwrap_or(crate::websession::DEFAULT_DAILY_LIMIT))),
         web_requests_today: if web { state.shared.with_db(|db| store::web_requests_today(db, &provider.id, crate::db::now_ms())).ok() } else { None },
         web_guard: if web { web_guard_view(state, &provider) } else { None },
         last_check: state.shared.with_db(|db| store::last_check(db, &provider.id)).ok().flatten(),

@@ -607,7 +607,7 @@ fn the_web_guard_refuses_a_pasted_file_and_rests_after_trouble() {
         // A back-off from earlier trouble refuses the next request with a Retry-After, before the page is touched.
         {
             let db = rig.db.lock().unwrap();
-            store::web_guard_trouble(&db, &rig.muse.id, NO_REPLY, now, 60_000, now).unwrap();
+            store::web_guard_trouble(&db, &rig.muse.id, &guard::Trouble::new(NO_REPLY, 1), now, 60_000, now).unwrap();
         }
         let before = rig.page.navigations.load(Ordering::SeqCst);
         let refused = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
@@ -847,7 +847,7 @@ fn a_sign_in_check_keeps_the_guards_pace_and_a_skipped_one_is_not_a_check() {
         assert_eq!(rig.page.navigations.load(Ordering::SeqCst), 0, "the page was not loaded");
 
         store::web_guard_resume(&rig.db.lock().unwrap(), &rig.muse.id).unwrap();
-        store::web_guard_trouble(&rig.db.lock().unwrap(), &rig.muse.id, CHALLENGE, now, 60_000, now).unwrap();
+        store::web_guard_trouble(&rig.db.lock().unwrap(), &rig.muse.id, &guard::Trouble::new(CHALLENGE, 6), now, 60_000, now).unwrap();
         assert!(matches!(rig.service.check(&rig.muse.id).await.unwrap(), Checked::Skipped(why) if why.starts_with(CHECK_BACKED_OFF)));
 
         store::web_guard_resume(&rig.db.lock().unwrap(), &rig.muse.id).unwrap();
@@ -879,4 +879,78 @@ fn a_prompt_that_reached_one_site_is_not_sent_to_another_web_session() {
         // The ledger has one attempt: the second account was passed over before its page was touched.
         assert_eq!(_shared.with_db(|db| store::usage_summary(db, 0, 10)).unwrap().recent.len(), 1);
     });
+}
+
+// ---------- The web guard's hardening (2026-11-14) ----------
+
+#[test]
+fn a_site_asking_to_slow_down_is_an_error_and_backs_the_account_off() {
+    rt().block_on(async {
+        let busy = read(1, "The server is busy. Please try again later.", false);
+        let rig = rig(FakePage::new(vec![ready()], vec![read(0, "", false), busy])).await;
+        let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+        assert_eq!(response.status(), 429);
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["error"]["code"], "site_slow_down");
+        let account = store::web_guard(&rig.db.lock().unwrap(), &rig.muse.id, crate::db::now_ms()).unwrap();
+        assert_eq!(account.backoff_reason.as_deref(), Some(SLOW_DOWN));
+        assert_eq!(WebError::SlowDown.trouble().unwrap().floor, 6, "half an hour at least");
+        assert_eq!(WebError::Quota.trouble().unwrap().floor, 12, "an hour at least");
+    });
+}
+
+#[test]
+fn a_slow_down_the_user_asked_about_is_an_answer() {
+    rt().block_on(async {
+        let answer = read(1, "It means the server is busy.", false);
+        let page = FakePage::new(vec![ready()], vec![read(0, "", false), answer]);
+        let reply = converse(page.as_ref(), muse(), "What does 'server is busy' mean?", &fast(), &mut |_: &str| {}).await.unwrap();
+        assert_eq!(reply.text, "It means the server is busy.");
+    });
+}
+
+#[test]
+fn deepseek_takes_shorter_prompts_and_a_lower_daily_limit() {
+    rt().block_on(async {
+        let rig = rig(hello_page()).await;
+        rig.db.lock().unwrap().execute("UPDATE providers SET kind = 'deepseek-web' WHERE id = ?1", [&rig.muse.id]).unwrap();
+        let prompt = "x".repeat(guard::DEEPSEEK_LIMITS.max_prompt_chars + 1);
+        let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": prompt }] })).await;
+        assert_eq!(response.status(), 413);
+        let body: Value = response.json().await.unwrap();
+        assert!(body["error"]["message"].as_str().unwrap().contains("4000"), "{body}");
+        assert_eq!(rig.page.navigations.load(Ordering::SeqCst), 0, "nothing reached the site");
+
+        let conn = rig.db.lock().unwrap();
+        assert!(store::set_web_daily_limit(&conn, &rig.muse.id, Some(31)).is_err(), "above DeepSeek's ceiling");
+        store::set_web_daily_limit(&conn, &rig.muse.id, Some(30)).unwrap();
+        // A limit set higher before the ceiling existed is held under it.
+        conn.execute("UPDATE providers SET web_daily_limit = 1000 WHERE id = ?1", [&rig.muse.id]).unwrap();
+        for i in 0..30 {
+            store::web_guard_reserve(&conn, &rig.muse.id, crate::db::now_ms() - 3 * guard::HOUR_MS + i, 1, 0).unwrap();
+        }
+        let provider = store::get_provider(&conn, &rig.muse.id).unwrap().unwrap();
+        drop(conn);
+        if crate::db::now_ms().rem_euclid(guard::DAY_MS) > 3 * guard::HOUR_MS {
+            let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
+            assert_eq!(response.status(), 429);
+            let body: Value = response.json().await.unwrap();
+            assert_eq!(body["error"]["code"], "daily_limit");
+        }
+        assert_eq!(guard::limits(&provider.kind).daily_limit(provider.web_daily_limit.unwrap()), 30);
+    });
+}
+
+#[test]
+fn the_guard_has_no_off_switch_outside_tests() {
+    // The app's timing is the default; a timing with no pace or back-off is raised to the floors.
+    let zero = fast().guarded();
+    assert_eq!(zero.gap, Duration::from_secs(PACE_SECS));
+    assert_eq!(zero.backoff, Duration::from_millis(guard::BACKOFF_BASE_MS as u64));
+    assert_eq!(Timing::default().guarded().gap, Timing::default().gap);
+    // The rest after a reply is never shorter than the site's base, whatever the service's pace.
+    for r in RECIPES {
+        let l = guard::limits(r.preset);
+        assert!(guard::rest_ms(l.rest_base(1), 1, 0) >= guard::REST_BASE_MS, "{}", r.preset);
+    }
 }

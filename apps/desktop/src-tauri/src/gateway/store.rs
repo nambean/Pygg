@@ -224,8 +224,11 @@ pub fn set_web_state(conn: &Connection, provider_id: &str, state: &str, reason: 
 
 /// A web session's daily request limit; `None` returns it to Pygg's default.
 pub fn set_web_daily_limit(conn: &Connection, provider_id: &str, limit: Option<u32>) -> Result<()> {
-    if limit.is_some_and(|n| !(1..=1000).contains(&n)) {
-        return Err("A daily limit is 1 to 1,000 requests".into());
+    let kind: String = conn.query_row("SELECT kind FROM providers WHERE id = ?1", [provider_id], |r| r.get(0))
+        .optional().map_err(err)?.ok_or("No such connection")?;
+    let max = crate::websession::guard::limits(&kind).max_daily_limit;
+    if limit.is_some_and(|n| !(1..=max).contains(&n)) {
+        return Err(format!("A daily limit for this site is 1 to {max} requests"));
     }
     conn.execute("UPDATE providers SET web_daily_limit = ?2 WHERE id = ?1", params![provider_id, limit]).map(|_| ()).map_err(err)
 }
@@ -270,24 +273,24 @@ pub fn web_guard_reserve(conn: &Connection, provider_id: &str, at: i64, weight: 
 /// clean reply.
 #[allow(clippy::too_many_arguments)]
 pub fn web_guard_after(conn: &Connection, provider_id: &str, row: i64, outcome: &str, next_at: i64,
-    trouble: Option<&str>, backoff_base_ms: i64, now: i64) -> Result<()> {
+    trouble: Option<&crate::websession::guard::Trouble>, backoff_base_ms: i64, now: i64) -> Result<()> {
     conn.execute("UPDATE web_pace SET outcome = ?2 WHERE rowid = ?1", params![row, outcome]).map_err(err)?;
     match trouble {
-        Some(reason) => web_guard_trouble(conn, provider_id, reason, next_at, backoff_base_ms, now),
+        Some(trouble) => web_guard_trouble(conn, provider_id, trouble, next_at, backoff_base_ms, now),
         None => conn.execute("UPDATE providers SET web_next_at = ?2, web_strikes = 0, web_backoff_until = NULL, \
                 web_backoff_reason = NULL WHERE id = ?1", params![provider_id, next_at]).map(|_| ()).map_err(err),
     }
 }
 
 /// A sign of trouble on a web session's site (after a request, or seen by a sign-in check): the account rests at least
-/// until `next_at`, and backs off for longer with each sign in a row.
-pub fn web_guard_trouble(conn: &Connection, provider_id: &str, reason: &str, next_at: i64, backoff_base_ms: i64, now: i64)
-    -> Result<()> {
+/// until `next_at`, and backs off for longer with each sign in a row, never less than the kind of trouble asks.
+pub fn web_guard_trouble(conn: &Connection, provider_id: &str, trouble: &crate::websession::guard::Trouble, next_at: i64,
+    backoff_base_ms: i64, now: i64) -> Result<()> {
     let strikes: i64 = conn.query_row("SELECT web_strikes FROM providers WHERE id = ?1", [provider_id], |r| r.get(0))
         .optional().map_err(err)?.unwrap_or(0) + 1;
-    let until = now + crate::websession::guard::backoff_ms(backoff_base_ms, strikes as u32);
+    let until = now + trouble.backoff_ms(backoff_base_ms, strikes as u32);
     conn.execute("UPDATE providers SET web_next_at = ?2, web_strikes = ?3, web_backoff_until = ?4, web_backoff_reason = ?5 \
-        WHERE id = ?1", params![provider_id, next_at.max(until), strikes, until, reason]).map(|_| ()).map_err(err)
+        WHERE id = ?1", params![provider_id, next_at.max(until), strikes, until, trouble.reason]).map(|_| ()).map_err(err)
 }
 
 /// A sign-in check loaded the site's page: the account rests at least until `next_at` before the next request or check.
@@ -305,9 +308,11 @@ pub fn web_guard_resume(conn: &Connection, provider_id: &str) -> Result<()> {
 /// Whether the web guard would refuse even a short question to this account now: resting, backed off, or out of its
 /// hour's or day's share. A web pool sends to such an account last.
 pub fn web_resting(conn: &Connection, provider: &Provider, now: i64) -> bool {
-    let limit = provider.web_daily_limit.unwrap_or(crate::websession::DEFAULT_DAILY_LIMIT);
+    use crate::websession::guard;
+    let limits = guard::limits(&provider.kind);
+    let limit = limits.daily_limit(provider.web_daily_limit.unwrap_or(crate::websession::DEFAULT_DAILY_LIMIT));
     web_guard(conn, &provider.id, now).is_ok_and(|account|
-        matches!(crate::websession::guard::decide(&account, 1, now, limit), crate::websession::guard::Verdict::Refuse { .. }))
+        matches!(guard::decide(&account, 1, now, limit, &limits), guard::Verdict::Refuse { .. }))
 }
 
 /// Says what the window last refused to open, keeping the session's state: a sign-in that stalls on an address

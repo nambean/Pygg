@@ -87,6 +87,7 @@ pub const NO_SEND_BUTTON: &str = "The page has changed: Pygg could not find its 
 pub const NO_REPLY: &str = "No reply appeared in time.";
 pub const REPLY_TIMEOUT: &str = "The reply did not finish in time.";
 pub const QUOTA: &str = "The site says this account has reached its usage limit.";
+pub const SLOW_DOWN: &str = "The site asked to slow down (a \"too many requests\" or \"server is busy\" notice), so Pygg rests this account for at least half an hour.";
 pub const NO_WINDOW: &str = "The site's window could not be opened.";
 pub const APP_ONLY: &str = "a web session needs the Pygg app, which drives its window";
 pub const NOT_ACKNOWLEDGED: &str = "its account-risk warning has not been acknowledged";
@@ -138,6 +139,10 @@ const CHALLENGE_SELECTORS: &str = "iframe[src*=\"captcha\" i], iframe[src*=\"cha
 const CHALLENGE_HINTS: &[&str] = &["verify you're human", "verify you are human", "verifying you are human", "are you a robot",
     "security check", "checking your browser", "performing security verification", "unusual activity", "suspicious activity"];
 const QUOTA_HINTS: &[&str] = &["out of credits", "usage limit", "limit reached", "token limit", "reached your limit", "rate limit"];
+/// Words of a short finished "reply" that is the site asking to slow down, in lower case (any site). DeepSeek answers a
+/// busy server with "The server is busy. Please try again later."; others say "too many requests" or "too quickly".
+pub const SLOW_DOWN_HINTS: &[&str] = &["too many requests", "too many messages", "sending messages too quickly",
+    "too quickly", "slow down", "server is busy", "please try again later", "try again in a few minutes"];
 /// Google's sign-in, which several sites offer. Google may refuse to sign in inside an embedded window ("This browser
 /// or app may not be secure"); Pygg does not hide what the window is, so the site's own email sign-in is then the way.
 const GOOGLE: [&str; 2] = ["google.com", "youtube.com"];
@@ -555,7 +560,9 @@ pub enum WebError {
     /// Pygg's own daily limit for this web session is used: 429 until 00:00 UTC; nothing reached the site.
     DailyLimit { limit: u32, retry_after: u64 },
     /// The prompt is longer than a person would type into the site's chat box: 413; nothing reached the site.
-    TooLong { chars: usize },
+    TooLong { chars: usize, max: usize },
+    /// The site asked to slow down: 429; the web guard rests the account at least half an hour.
+    SlowDown,
     /// The web guard says not now (a rest, the hour's or the day's share, a back-off): 429 with a wait; nothing reached
     /// the site.
     Pace { retry_after: u64, why: &'static str },
@@ -565,7 +572,8 @@ impl WebError {
     pub fn status(&self) -> StatusCode {
         match self {
             WebError::NeedsYou { .. } => StatusCode::UNAUTHORIZED,
-            WebError::Busy { .. } | WebError::Quota | WebError::DailyLimit { .. } | WebError::Pace { .. } => StatusCode::TOO_MANY_REQUESTS,
+            WebError::Busy { .. } | WebError::Quota | WebError::SlowDown | WebError::DailyLimit { .. } | WebError::Pace { .. } =>
+                StatusCode::TOO_MANY_REQUESTS,
             WebError::TooLong { .. } => StatusCode::PAYLOAD_TOO_LARGE,
             WebError::PageChanged(_) | WebError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             WebError::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
@@ -578,23 +586,28 @@ impl WebError {
             WebError::NeedsYou { reason, .. } => reason.to_string(),
             WebError::Busy { .. } => "Not sent: the site is answering another request; a web session takes one at a time.".into(),
             WebError::Quota => QUOTA.into(),
+            WebError::SlowDown => SLOW_DOWN.into(),
             WebError::PageChanged(why) | WebError::Timeout(why) | WebError::Unavailable(why) => why.to_string(),
             WebError::BadRequest(why) => why.clone(),
             WebError::DailyLimit { limit, .. } => format!("Not sent: this web session reached its daily limit of {limit} \
                 requests, which keeps its use at a person's pace. It resets at 00:00 UTC; change it in Pygg → Providers."),
-            WebError::TooLong { chars } => format!("Not sent: the prompt is {chars} characters, and a web session takes at most \
-                {} (about 3,000 tokens), what a person would type into a chat box. Long work, such as whole files, belongs on an \
-                API connection.", guard::MAX_PROMPT_CHARS),
+            WebError::TooLong { chars, max } => format!("Not sent: the prompt is {chars} characters, and this site's web \
+                session takes at most {max} (about {} tokens), what a person would type into a chat box. Long work, such as \
+                whole files, belongs on an API connection.", max / 4),
             WebError::Pace { why, .. } => why.to_string(),
         }
     }
 
-    /// A sign of trouble on the page, after which the web guard rests the account (a back-off that doubles).
-    pub fn trouble(&self) -> Option<&'static str> {
+    /// A sign of trouble on the page, after which the web guard rests the account (a back-off that doubles, with a floor
+    /// for the site's own warnings: a usage limit an hour, a request to slow down or a check half an hour, a suspension
+    /// six hours).
+    pub fn trouble(&self) -> Option<guard::Trouble> {
         match self {
-            WebError::Timeout(why) | WebError::PageChanged(why) => Some(why),
-            WebError::Quota => Some(QUOTA),
-            WebError::NeedsYou { reason, .. } if *reason == CHALLENGE || *reason == RESTRICTED => Some(reason),
+            WebError::Timeout(why) | WebError::PageChanged(why) => Some(guard::Trouble::new(why, 1)),
+            WebError::Quota => Some(guard::Trouble::new(QUOTA, 12)),
+            WebError::SlowDown => Some(guard::Trouble::new(SLOW_DOWN, 6)),
+            WebError::NeedsYou { reason, .. } if *reason == CHALLENGE => Some(guard::Trouble::new(CHALLENGE, 6)),
+            WebError::NeedsYou { reason, .. } if *reason == RESTRICTED => Some(guard::Trouble::new(RESTRICTED, 72)),
             _ => None,
         }
     }
@@ -617,6 +630,7 @@ impl WebError {
         };
         let code = match self {
             WebError::Quota => Some("insufficient_quota"),
+            WebError::SlowDown => Some("site_slow_down"),
             WebError::DailyLimit { .. } => Some("daily_limit"),
             WebError::Pace { .. } => Some("web_pace"),
             WebError::TooLong { .. } => Some("prompt_too_long"),
@@ -688,6 +702,14 @@ impl Default for Timing {
 }
 
 impl Timing {
+    /// This timing with the web guard's floors: at least the base pace between requests (`PACE_SECS`) and the base
+    /// back-off after trouble. The guard has no off switch: the app uses this, and only the crate's own tests run with
+    /// less.
+    pub fn guarded(self) -> Timing {
+        let floor = Timing::default();
+        Timing { gap: self.gap.max(floor.gap), backoff: self.backoff.max(floor.backoff), ..self }
+    }
+
     /// The first-word wait for this prompt: `first_word` plus `first_word_per_100_tokens` for every 100 estimated
     /// tokens of it (the gateway's estimate, which leans high), never above `first_word_cap`.
     pub fn first_word_wait(&self, prompt: &str) -> Duration {
@@ -835,6 +857,10 @@ pub async fn converse_marked(page: &dyn Page, recipe: &Recipe, prompt: &str, tim
                 if recipe.quota_hints.iter().any(|h| lower.contains(h)) && text.len() < 600 {
                     return Err(WebError::Quota);
                 }
+                // A short "reply" that asks to slow down is the site's notice, unless the user's own prompt said it.
+                if text.len() < 600 && SLOW_DOWN_HINTS.iter().any(|h| lower.contains(h) && !prompt_lower.contains(h)) {
+                    return Err(WebError::SlowDown);
+                }
                 if text.len() > sent.len() {
                     if let Some(more) = text.strip_prefix(sent.as_str()) {
                         on_text(more);
@@ -920,7 +946,11 @@ pub struct Service {
 }
 
 impl Service {
+    /// Outside the crate's own tests the timing is held at or above the web guard's floors (`Timing::guarded`), so no
+    /// caller can switch the pace or the back-off off by passing a shorter timing.
     pub fn new(db: Arc<Mutex<Connection>>, windows: Arc<dyn Windows>, token: String, timing: Timing) -> Service {
+        #[cfg(not(test))]
+        let timing = timing.guarded();
         Service { db, windows, token, timing, slots: Mutex::default() }
     }
 
@@ -975,10 +1005,16 @@ impl Service {
         turn.finished = Some(Instant::now());
         self.record(provider_id, state, reason);
         let ended = crate::db::now_ms();
-        let rest = ended + guard::rest_ms(self.timing.gap.as_millis() as i64, 1, 0);
-        let trouble = [CHALLENGE, RESTRICTED, NO_PROMPT_BOX].into_iter().find(|t| *t == reason);
+        let limits = guard::limits(&provider.kind);
+        let rest = ended + guard::rest_ms(limits.rest_base(self.timing.gap.as_millis() as i64), 1, 0);
+        let trouble = match reason {
+            r if r == CHALLENGE => Some(guard::Trouble::new(CHALLENGE, 6)),
+            r if r == RESTRICTED => Some(guard::Trouble::new(RESTRICTED, 72)),
+            r if r == NO_PROMPT_BOX => Some(guard::Trouble::new(NO_PROMPT_BOX, 1)),
+            _ => None,
+        };
         let _ = self.with_db(|db| match trouble {
-            Some(t) => store::web_guard_trouble(db, provider_id, t, rest, self.timing.backoff.as_millis() as i64, ended),
+            Some(t) => store::web_guard_trouble(db, provider_id, &t, rest, self.timing.backoff.as_millis() as i64, ended),
             None => store::web_guard_checked(db, provider_id, rest),
         });
         if state == "signed_in" {
@@ -1076,14 +1112,15 @@ async fn admit(service: &Service, provider_id: &str, weight: u32) -> Result<(Pro
             return Err(WebError::BadRequest(format!("Not sent: {CONNECTION_OFF}")));
         }
         let now = crate::db::now_ms();
-        let limit = provider.web_daily_limit.unwrap_or(DEFAULT_DAILY_LIMIT);
+        let limits = guard::limits(&provider.kind);
+        let limit = limits.daily_limit(provider.web_daily_limit.unwrap_or(DEFAULT_DAILY_LIMIT));
         let used = service.with_db(|db| store::web_requests_today(db, provider_id, now)).map_err(|_| unreadable())?;
         if used >= u64::from(limit) {
             let retry_after = ((86_400_000 - now.rem_euclid(86_400_000)) / 1000).max(1) as u64;
             return Err(WebError::DailyLimit { limit, retry_after });
         }
         let account = service.with_db(|db| store::web_guard(db, provider_id, now)).map_err(|_| unreadable())?;
-        match guard::decide(&account, weight, now, limit) {
+        match guard::decide(&account, weight, now, limit, &limits) {
             guard::Verdict::Refuse { retry_after_ms, why } =>
                 return Err(WebError::Pace { retry_after: ((retry_after_ms + 999) / 1000).max(1) as u64, why }),
             guard::Verdict::Go { wait_ms } if wait_ms > 0 && round < 2 => tokio::time::sleep(Duration::from_millis(wait_ms as u64)).await,
@@ -1103,14 +1140,15 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
     let model = body["model"].as_str().unwrap_or(recipe.models[0]).to_string();
     let stream = body["stream"] == true;
     // The web guard: a prompt no person would type into a chat box never reaches the site.
+    let limits = guard::limits(&provider.kind);
     let chars = prompt.chars().count();
-    if chars > guard::MAX_PROMPT_CHARS {
-        return Err(WebError::TooLong { chars }.into());
+    if chars > limits.max_prompt_chars {
+        return Err(WebError::TooLong { chars, max: limits.max_prompt_chars }.into());
     }
 
     // Pygg's own pace limit, before anything reaches the site.
     let now = crate::db::now_ms();
-    let limit = provider.web_daily_limit.unwrap_or(DEFAULT_DAILY_LIMIT);
+    let limit = limits.daily_limit(provider.web_daily_limit.unwrap_or(DEFAULT_DAILY_LIMIT));
     let used = service.with_db(|db| store::web_requests_today(db, provider_id, now)).unwrap_or(0);
     if used >= u64::from(limit) {
         let retry_after = ((86_400_000 - now.rem_euclid(86_400_000)) / 1000).max(1) as u64;
@@ -1123,7 +1161,7 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
     let (provider, recipe) = admit(service, provider_id, weight).await?;
     // The request's weight and a first rest are kept before the site is touched (Codex's fourth review, A1).
     let sent_at = crate::db::now_ms();
-    let gap = service.timing.gap.as_millis() as i64;
+    let gap = limits.rest_base(service.timing.gap.as_millis() as i64);
     let row = service.with_db(|db| store::web_guard_reserve(db, provider_id, sent_at, weight, sent_at + guard::rest_ms(gap, weight, 0)))
         .map_err(|_| WebError::Pace { retry_after: 60, why: GUARD_UNREADABLE })?;
     let page = service.windows.page(&provider, recipe)?;
@@ -1144,11 +1182,11 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
         // backs off after a sign of trouble (or clears the back-off after a clean reply).
         let reply_chars = result.as_ref().map(|r| r.text.chars().count()).unwrap_or(0);
         let ended = crate::db::now_ms();
-        let rest = guard::rest_ms(task_service.timing.gap.as_millis() as i64, weight, reply_chars);
+        let rest = guard::rest_ms(limits.rest_base(task_service.timing.gap.as_millis() as i64), weight, reply_chars);
         let trouble = result.as_ref().err().and_then(WebError::trouble);
         let backoff = task_service.timing.backoff.as_millis() as i64;
         let _ = task_service.with_db(|db| store::web_guard_after(db, &id, row,
-            if result.is_ok() { "ok" } else { "error" }, ended + rest, trouble, backoff, ended));
+            if result.is_ok() { "ok" } else { "error" }, ended + rest, trouble.as_ref(), backoff, ended));
         turn.finished = Some(Instant::now());
         drop(turn);
         let _ = tx.send(Event::Done(result));

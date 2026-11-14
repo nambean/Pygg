@@ -360,6 +360,12 @@ export function demoApi(): GatewayApi {
         e.error = 'Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day. This message comes straight from the provider and is long on purpose.';
       }
     }
+    // A DeepSeek web session backed off after the site asked to slow down: the web guard's longest notes (ADR-035).
+    connections.push({id: 'deepseek-web-stress', kind: 'deepseek-web', label: 'DeepSeek — personal account, signed in on this computer',
+      endpoint: 'https://chat.deepseek.com', enabled: true, credentialRef: null, defaultBilling: 'free', dataUseTerms: 'unknown',
+      termsSource: null, termsCheckedAt: null, createdAt: now, key: false, wire: 'openai', separateQuota: false, quotaConfirmedAt: null,
+      web: true, webAckCurrent: true, webActs: false, webAckAt: now, webState: 'signed_in', webStateAt: now, webStateReason: 'Signed in.'});
+    addModels('deepseek-web-stress', ['deepseek']);
   }
 
   let retention: Retention = {days: null, lastRun: null};
@@ -384,8 +390,12 @@ export function demoApi(): GatewayApi {
       ...demoHealth(c),
       // Illustrative: the web guard after a long prompt and a timeout (ADR-035, migration 0028).
       ...(c.web ? {webGuard: {hourUnits: 7, hourRequests: 3, hourUnitsCap: 20, hourRequestsCap: 15, todayUnits: 12, todayUnitsCap: 100,
-        maxPromptChars: 12_000, restingUntil: Date.now() + 70_000, backoffUntil: c.kind === 'grok-web' ? Date.now() + 5 * 60_000 : null,
-        backoffReason: c.kind === 'grok-web' ? 'No reply appeared in time.' : null}} : {}),
+        maxPromptChars: c.kind === 'deepseek-web' ? 4_000 : 12_000, burstRequests: 2, burstRequestsCap: c.kind === 'deepseek-web' ? 3 : 5,
+        burstWindowMin: 10, dailyLimitMax: c.kind === 'deepseek-web' ? 30 : 100, restBaseSecs: c.kind === 'deepseek-web' ? 30 : 10,
+        siteNote: c.kind === 'deepseek-web' ? "DeepSeek suspended an account for Pygg's pace on 2026-11-13, so its limits are lower than other sites'." : null,
+        restingUntil: Date.now() + 70_000, backoffUntil: c.kind === 'grok-web' || c.id === 'deepseek-web-stress' ? Date.now() + 35 * 60_000 : null,
+        backoffReason: c.kind === 'grok-web' ? 'No reply appeared in time.' : c.id === 'deepseek-web-stress'
+          ? 'The site asked to slow down (a "too many requests" or "server is busy" notice), so Pygg rests this account for at least half an hour.' : null}} : {}),
       limits: c.kind === 'qwen' ? planLimits() : c.kind === 'anthropic' ? [{modelId: 'claude-sonnet-4-5', httpStatus: 200, observedAt: Date.now() - 6 * 60_000, headers: {
         'anthropic-ratelimit-requests-limit': '50', 'anthropic-ratelimit-requests-remaining': '49',
         'anthropic-ratelimit-tokens-remaining': '39000', 'anthropic-ratelimit-tokens-reset': '2026-11-12T02:31:00Z'}}] : []};

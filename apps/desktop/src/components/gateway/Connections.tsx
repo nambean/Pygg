@@ -197,7 +197,8 @@ function WebPaceRow({connection: c}: {connection: Connection}) {
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { setValue(String(c.webDailyLimit ?? 50)); }, [c.webDailyLimit]);
   const n = Number(value);
-  const valid = Number.isInteger(n) && n >= 1 && n <= 1000;
+  const max = c.webGuard?.dailyLimitMax ?? 100;
+  const valid = Number.isInteger(n) && n >= 1 && n <= max;
   const save = () => {
     if (!valid || n === c.webDailyLimit) return;
     setError(null);
@@ -208,6 +209,7 @@ function WebPaceRow({connection: c}: {connection: Connection}) {
       <small>{t('{used} of {limit} requests sent today (UTC). At the limit Pygg sends nothing until 00:00 UTC.',
         {used: String(c.webRequestsToday ?? 0), limit: String(c.webDailyLimit ?? 50)})}</small>
       {c.webGuard && <WebGuardNote connection={c} guard={c.webGuard}/>}
+      {!valid && <small className="warn-text">{t('This site takes a daily limit of 1 to {max} requests.', {max: String(max)})}</small>}
       {error && <small className="warn-text">{error}</small>}</span>
     <span className="group-control">
       <input id={`web-limit-${c.id}`} className="text-input narrow-input" inputMode="numeric" value={value} aria-invalid={!valid}
@@ -222,9 +224,12 @@ function WebGuardNote({connection: c, guard: g}: {connection: Connection; guard:
   const time = (at: number) => new Date(at).toLocaleTimeString(locale(), {hour: '2-digit', minute: '2-digit'});
   const resume = () => { setError(null); call(api => api.resumeWebSession(c.id)).then(gatewayChanged, e => setError(errorText(e))); };
   return <>
-    <small>{t('This hour: {units} of {unitsCap} units, {requests} of {requestsCap} requests. Today: {today} of {todayCap} units. A unit is a request, and one more for each 2,000 characters of prompt; a prompt over {max} characters is not sent. After each reply Pygg waits a set time that grows with the prompt and the reply (at most 3 minutes); it slows Pygg down, and does not make an account safe.',
+    <small>{t('This hour: {units} of {unitsCap} units, {requests} of {requestsCap} requests. Last {window} min: {burst} of {burstCap} requests. Today: {today} of {todayCap} units. A unit is a request, and one more for each 2,000 characters of prompt; a prompt over {max} characters is not sent. After each reply Pygg waits at least {rest} s, longer for a long prompt or reply (at most 3 minutes); it slows Pygg down, and does not make an account safe.',
       {units: String(g.hourUnits), unitsCap: String(g.hourUnitsCap), requests: String(g.hourRequests), requestsCap: String(g.hourRequestsCap),
-        today: String(g.todayUnits), todayCap: String(g.todayUnitsCap), max: g.maxPromptChars.toLocaleString(locale())})}</small>
+        window: String(g.burstWindowMin), burst: String(g.burstRequests), burstCap: String(g.burstRequestsCap),
+        today: String(g.todayUnits), todayCap: String(g.todayUnitsCap), max: g.maxPromptChars.toLocaleString(locale()), rest: String(g.restBaseSecs)})}</small>
+    <small className="secondary">{t('These limits are always on and cannot be raised. When the site itself warns (a usage limit, "too many requests", a check), Pygg rests the account for at least half an hour, an hour after a usage limit, and longer each time in a row.')}</small>
+    {g.siteNote && <small className="warn-text">{g.siteNote}</small>}
     {g.restingUntil && !g.backoffUntil && <small className="secondary">{t('Resting until {time}.', {time: time(g.restingUntil)})}</small>}
     {g.backoffUntil && <small className="warn-text">{t('Backed off until {time}: {reason}', {time: time(g.backoffUntil), reason: g.backoffReason ?? ''})}{' '}
       <button type="button" className="link-button" onClick={resume}>{t('Resume Now')}</button></small>}
