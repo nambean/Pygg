@@ -1,0 +1,23 @@
+# LiteLLM proxy for the prompt-cache replay (cache_replay.py). Image: ghcr.io/berriai/litellm:v1.106.2
+# (sha256:7294b90f868c5c38c99b83021c7ba46f9b439e95f8e32964c925c7d2563a03f7).
+model_list:
+  # Defaults: what an OpenAI-format client sends is translated to Anthropic's API as it is.
+  - model_name: haiku
+    litellm_params:
+      model: anthropic/claude-haiku-5-5
+      api_base: "http://pyggbench-fake2:9910/x"
+      api_key: fake-anthropic-key
+  # LiteLLM's documented prompt-caching setup (docs.litellm.ai/docs/tutorials/prompt_caching): markers injected on
+  # the system message and on the last message.
+  - model_name: haiku-inject
+    litellm_params:
+      model: anthropic/claude-haiku-5-5
+      api_base: "http://pyggbench-fake2:9910/y"
+      api_key: fake-anthropic-key
+      cache_control_injection_points:
+        - location: message
+          role: system
+        - location: message
+          index: -1
+general_settings:
+  master_key: sk-bench-master

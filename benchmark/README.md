@@ -15,6 +15,7 @@ benchmark/
   runs/                   raw output of local runs, one JSON line per case and run (git-ignored)
   results/<run>/          raw results of published runs, with SHA256SUMS (committed)
   reports/                one written-up report per published run (committed)
+  resilience/             the fault-injecting fake provider and the runs that compare gateways against it
 ```
 
 `case.json`:
@@ -112,6 +113,11 @@ For a provider that takes no tools, `--agent "python -I scripts/bench-web-agent.
 | `scripts/handoff-ab.py ARM=RESULTS.jsonl …` | Paired comparison of task-engine handoff arms from `bench --engine` runs |
 | `scripts/bench-web.py --models muse/muse,chatgpt/chatgpt,…` | Short checked tasks through the running gateway's web sessions, at Pygg's pace; `PYGG_BENCH_KEY` holds the Pygg API key. Results in `results.jsonl` and `summary.md` |
 | `cargo test --release --lib gateway::tests::overhead -- --ignored --nocapture` | What the gateway adds to a request, against the fake provider; `PYGG_OVERHEAD_OUT=file.json` saves the figures |
+| `scripts/bench-ci.py RESULTS.jsonl […]` | Pass rate (Wilson), money and gateway tokens per solved run (bootstrap intervals) and the share of input read from cache, per results file |
+| `benchmark/resilience/fake_provider.py [PORT]` | A fake provider (OpenAI Chat Completions, Anthropic Messages with a simulated prompt cache) whose failures are set per provider and key at run time (`POST /_admin/config`); run it in a `python:3.11-slim` container on a Docker network so gateways in containers reach it |
+| `benchmark/resilience/run.py --gateway direct\|pygg\|litellm --out DIR` | Fault scenarios (402, 429, 401, 5xx, unreachable, dropped, cut stream, hang, key rings, affinity, `auto` hold) through a gateway against the fake; `summarise.py DIR` makes the tables. `PYGG_GATEWAY_EXE` names the headless `gateway` binary; LiteLLM runs from a digest-pinned image with `litellm-config.yaml` |
+| `benchmark/resilience/cache_replay.py --api chat\|responses --out DIR` | One agent session replayed through Pygg and LiteLLM to the fake's Anthropic API: cache markers, cache reads and `max_tokens` per gateway |
+| `cargo test --release --lib websession::tests::guard_bench -- --ignored --nocapture --test-threads 1` | The web guard against an agent's load on a fake chat site, and 24 h of its decisions on a virtual clock |
 
 ## Cost
 

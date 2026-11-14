@@ -955,3 +955,266 @@ fn the_guard_has_no_off_switch_outside_tests() {
         assert!(guard::rest_ms(l.rest_base(1), 1, 0) >= guard::REST_BASE_MS, "{}", r.preset);
     }
 }
+
+// ---------- The web guard under an agent's load (benchmark; ignored) ----------
+//
+//   cargo test --release --lib websession::tests::guard_bench -- --ignored --nocapture --test-threads 1
+//
+// Prints one JSON line per measurement (`GUARD {...}`); benchmark/reports/2026-11-15-web-guard.md reads them.
+
+/// A fake chat site for the guard benchmark: each new chat answers the prompt typed into it once, or, from the
+/// `warn_from`-th prompt on, shows a usage-limit notice in place of an answer. It records what reached it.
+struct Site {
+    typed: Mutex<Vec<(i64, usize)>>,
+    in_chat: std::sync::atomic::AtomicBool,
+    warn_from: Option<usize>,
+}
+
+impl Site {
+    fn new(warn_from: Option<usize>) -> Arc<Site> {
+        Arc::new(Site { typed: Mutex::default(), in_chat: std::sync::atomic::AtomicBool::new(false), warn_from })
+    }
+    fn reached(&self) -> usize {
+        self.typed.lock().unwrap().len()
+    }
+}
+
+impl Page for Site {
+    fn navigate(&self, _url: &str) -> BoxFuture<'_, Result<(), WebError>> {
+        self.in_chat.store(false, Ordering::SeqCst);
+        Box::pin(async { Ok(()) })
+    }
+
+    fn eval(&self, script: String) -> BoxFuture<'_, Result<Value, WebError>> {
+        Box::pin(async move {
+            Ok(if script.contains("__pyggOld = true") {
+                json!(true)
+            } else if script.contains("hasInput") {
+                ready()
+            } else if script.contains("execCommand") {
+                let start = script.find(".set.call(box, ").unwrap() + ".set.call(box, ".len();
+                let end = script[start..].find(");\n").unwrap();
+                let prompt: String = serde_json::from_str(&script[start..start + end]).unwrap_or_default();
+                self.typed.lock().unwrap().push((crate::db::now_ms(), prompt.chars().count()));
+                self.in_chat.store(true, Ordering::SeqCst);
+                json!({ "ok": true })
+            } else if script.contains("'clicked'") {
+                json!("clicked")
+            } else if script.contains("denied++") {
+                json!(0)
+            } else if script.contains("replies.length") {
+                if !self.in_chat.load(Ordering::SeqCst) {
+                    read(0, "", false)
+                } else {
+                    let n = self.reached();
+                    if self.warn_from.is_some_and(|w| n >= w) {
+                        read(1, "You have reached your usage limit.", false)
+                    } else {
+                        read(1, &format!("Answer number {n}: four."), false)
+                    }
+                }
+            } else {
+                Value::Null
+            })
+        })
+    }
+}
+
+struct SiteWindows(Arc<Site>);
+
+impl Windows for SiteWindows {
+    fn page(&self, _provider: &Provider, _recipe: &'static Recipe) -> Result<Arc<dyn Page>, WebError> {
+        Ok(self.0.clone())
+    }
+    fn show(&self, _provider: &Provider, _recipe: &'static Recipe) -> Result<(), String> {
+        Ok(())
+    }
+    fn forget(&self, _provider_id: &str, _profile: &str) {}
+    fn signed_in(&self, _provider_id: &str) {}
+}
+
+/// The gateway in front of the web endpoint, with one web session of `preset` and the app's pace and back-off (the
+/// floors `Timing::guarded` holds the app to); only the page polling is fast.
+async fn guard_rig(preset: &str, site: Arc<Site>) -> (String, String, Arc<Mutex<Connection>>, Provider) {
+    let conn = crate::db::open_in_memory().unwrap();
+    let provider = store::add_web_provider(&conn, preset, "Bench site", WARNING_VERSION).unwrap();
+    store::update_provider(&conn, &provider.id, Some(true), None, None).unwrap();
+    let db = Arc::new(Mutex::new(conn));
+    let service = Arc::new(Service::new(db.clone(), Arc::new(SiteWindows(site)), "web-token".into(), fast().guarded()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let link = Link { base: format!("http://{}", listener.local_addr().unwrap()), token: "web-token".into() };
+    tokio::spawn(serve(listener, service));
+    let shared = Shared::new(db.clone(), Arc::new(NoSecrets)).with_web(link);
+    let (_, token) = shared.with_db(|db| store::create_client(db, "Agent", None)).unwrap();
+    let server = gateway::start(shared, 0).await.unwrap();
+    let base = format!("http://{}", server.addr);
+    std::mem::forget(server);
+    let model = format!("{}/{}", provider.id, recipe(preset).unwrap().models[0]);
+    (format!("{base}|{token}"), model, db, provider)
+}
+
+/// One request as an agent sends it: status, Retry-After, time taken and Pygg's error code.
+async fn guard_post(target: &str, model: &str, prompt: String) -> (u16, Option<u64>, u128, String) {
+    let started = std::time::Instant::now();
+    let response = gateway_post(target, json!({ "model": model, "messages": [{ "role": "user", "content": prompt }] })).await;
+    let status = response.status().as_u16();
+    let retry = response.headers().get("retry-after").and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok());
+    let body: Value = response.json().await.unwrap_or(Value::Null);
+    let code = body["error"]["code"].as_str().unwrap_or("").to_string();
+    (status, retry, started.elapsed().as_millis(), code)
+}
+
+fn guard_report(site: &str, phase: &str, sent: usize, reached: &Site, results: &[(u16, Option<u64>, u128, String)], extra: Value) {
+    let mut statuses: std::collections::BTreeMap<String, usize> = Default::default();
+    for (status, _, _, code) in results {
+        *statuses.entry(if code.is_empty() { status.to_string() } else { format!("{status} {code}") }).or_default() += 1;
+    }
+    let retry: Vec<u64> = results.iter().filter_map(|r| r.1).collect();
+    let typed = reached.typed.lock().unwrap().clone();
+    let gaps: Vec<i64> = typed.windows(2).map(|w| w[1].0 - w[0].0).collect();
+    println!("GUARD {}", json!({ "kind": "end_to_end", "site": site, "phase": phase, "requests": sent,
+        "reached_site": typed.len(), "prompt_chars_reached": typed.iter().map(|t| t.1).collect::<Vec<_>>(),
+        "min_gap_between_prompts_ms": gaps.iter().min(), "client_statuses": statuses,
+        "retry_after_s": { "min": retry.iter().min(), "max": retry.iter().max() },
+        "slowest_answer_ms": results.iter().map(|r| r.2).max(), "extra": extra }));
+}
+
+#[test]
+#[ignore]
+fn guard_bench_end_to_end() {
+    rt().block_on(async {
+        for preset in ["muse-web", "deepseek-web"] {
+            // 1. An agent's burst: 40 short questions from 4 clients at once, none waiting for a Retry-After.
+            let site = Site::new(None);
+            let (target, model, _, _) = guard_rig(preset, site.clone()).await;
+            let mut handles = Vec::new();
+            for client in 0..4 {
+                let (target, model) = (target.clone(), model.clone());
+                handles.push(tokio::spawn(async move {
+                    let mut out = Vec::new();
+                    for i in 0..10 {
+                        out.push(guard_post(&target, &model, format!("Question {client}-{i}: what is 2 + 2?")).await);
+                    }
+                    out
+                }));
+            }
+            let mut results = Vec::new();
+            for h in handles {
+                results.extend(h.await.unwrap());
+            }
+            guard_report(preset, "burst of 40 short questions, 4 clients", 40, &site, &results, json!({}));
+
+            // 2. Pasted files: the prompts of the run that got a DeepSeek account suspended (8,000 to 24,000
+            //    characters), then prompts just under the site's cap, one after another.
+            let site = Site::new(None);
+            let (target, model, _, _) = guard_rig(preset, site.clone()).await;
+            let cap = guard::limits(preset).max_prompt_chars;
+            let mut results = Vec::new();
+            for chars in [8_000, 16_000, 24_000, 8_000, 16_000, 24_000, cap - 100, cap - 100, cap - 100, cap - 100] {
+                results.push(guard_post(&target, &model, "x".repeat(chars)).await);
+            }
+            guard_report(preset, "10 long prompts (8k-24k chars, then just under the cap)", 10, &site, &results,
+                json!({ "max_prompt_chars": cap }));
+
+            // 3. The site's own warning: the second prompt gets a usage-limit notice; 20 more questions follow.
+            let site = Site::new(Some(2));
+            let (target, model, db, provider) = guard_rig(preset, site.clone()).await;
+            let mut results = Vec::new();
+            for i in 0..22 {
+                results.push(guard_post(&target, &model, format!("Question {i}: what is 2 + 2?")).await);
+            }
+            let account = store::web_guard(&db.lock().unwrap(), &provider.id, crate::db::now_ms()).unwrap();
+            let backoff_s = account.backoff_until.map(|u| (u - crate::db::now_ms()) / 1000);
+            guard_report(preset, "usage-limit notice on prompt 2, then 20 more questions", 22, &site, &results,
+                json!({ "backoff_left_s": backoff_s, "backoff_reason": account.backoff_reason }));
+
+            // 4. No switch: a daily limit set far above the site's ceiling is held under it.
+            let limits = guard::limits(preset);
+            println!("GUARD {}", json!({ "kind": "ceiling", "site": preset, "daily_limit_set": 1000,
+                "daily_limit_in_force": limits.daily_limit(1000), "max_prompt_chars": limits.max_prompt_chars,
+                "hour_units": limits.hour_units, "hour_requests": limits.hour_requests,
+                "burst": format!("{} per {} min", limits.burst_requests, limits.burst_window_ms / 60_000),
+                "rest_base_s": limits.rest_base(Timing::default().gap.as_millis() as i64) / 1000 }));
+        }
+    });
+}
+
+/// The guard's own decisions on a virtual clock, with the bookkeeping the web service does around them (the weight
+/// kept when a request goes, the rest after its reply, the day's request count): what an agent that asks again
+/// `every_ms` after each answer or refusal gets through in `hours`.
+fn guard_simulate(preset: &str, prompt_chars: &[usize], reply_chars: usize, reply_ms: i64, every_ms: i64, hours: i64) -> Value {
+    let limits = guard::limits(preset);
+    let daily = limits.daily_limit(DEFAULT_DAILY_LIMIT);
+    let base = limits.rest_base(Timing::default().gap.as_millis() as i64);
+    let start: i64 = 1_794_614_400_000; // 2026-11-14 00:00 UTC
+    let end = start + hours * guard::HOUR_MS;
+    let mut account = guard::Account::default();
+    let mut sends: Vec<(i64, u32, usize)> = Vec::new();
+    let mut refused: std::collections::BTreeMap<&str, u64> = Default::default();
+    let (mut now, mut i) = (start, 0usize);
+    while now < end {
+        let chars = prompt_chars[i % prompt_chars.len()];
+        i += 1;
+        if chars > limits.max_prompt_chars {
+            *refused.entry("prompt too long (413)").or_default() += 1;
+            now += every_ms;
+            continue;
+        }
+        let day_start = now - now.rem_euclid(guard::DAY_MS);
+        if sends.iter().filter(|(at, _, _)| *at >= day_start).count() as u32 >= daily {
+            *refused.entry("daily request limit").or_default() += 1;
+            now += every_ms;
+            continue;
+        }
+        account.sent.retain(|(at, _)| *at > now - guard::DAY_MS);
+        let weight = guard::weight(chars);
+        match guard::decide(&account, weight, now, daily, &limits) {
+            guard::Verdict::Go { wait_ms } => {
+                let at = now + wait_ms;
+                account.sent.push((at, weight));
+                sends.push((at, weight, chars));
+                let ended = at + reply_ms;
+                account.next_at = Some(ended + guard::rest_ms(base, weight, reply_chars));
+                now = ended + every_ms;
+            }
+            guard::Verdict::Refuse { why, .. } => {
+                let label = match why {
+                    guard::WHY_HOUR => "hour's share", guard::WHY_BURST => "10-minute burst", guard::WHY_DAY => "day's units",
+                    guard::WHY_REST => "resting after a reply", _ => "back-off",
+                };
+                *refused.entry(label).or_default() += 1;
+                now += every_ms;
+            }
+        }
+    }
+    let window = |ms: i64| sends.iter().map(|(t, _, _)| sends.iter().filter(|(u, _, _)| *u >= *t && *u < t + ms).count()).max().unwrap_or(0);
+    let units_hour = sends.iter().map(|(t, _, _)| sends.iter().filter(|(u, _, _)| *u >= *t && *u < t + guard::HOUR_MS)
+        .map(|(_, w, _)| *w).sum::<u32>()).max().unwrap_or(0);
+    let gaps: Vec<i64> = sends.windows(2).map(|w| w[1].0 - w[0].0).collect();
+    let first_15: Vec<&(i64, u32, usize)> = sends.iter().filter(|(t, _, _)| *t < start + 15 * 60_000).collect();
+    json!({ "kind": "simulation", "site": preset, "prompt_chars": prompt_chars, "reply_chars": reply_chars,
+        "client_asks_again_after_s": every_ms / 1000, "hours": hours, "sent": sends.len(),
+        "sent_first_15_min": first_15.len(), "chars_sent_first_15_min": first_15.iter().map(|s| s.2).sum::<usize>(),
+        "max_in_any_10_min": window(10 * 60_000), "max_in_any_hour": window(guard::HOUR_MS),
+        "max_units_in_any_hour": units_hour, "chars_sent": sends.iter().map(|s| s.2).sum::<usize>(),
+        "min_gap_s": gaps.iter().min().map(|g| g / 1000), "refused": refused })
+}
+
+#[test]
+#[ignore]
+fn guard_bench_simulation() {
+    for preset in ["muse-web", "chatgpt-web", "deepseek-web"] {
+        let cap = guard::limits(preset).max_prompt_chars;
+        let workloads: [(&str, Vec<usize>, usize); 4] = [
+            ("short questions", vec![300], 1_200),
+            ("the suspended run's prompts", vec![8_000, 16_000, 24_000, 12_000, 20_000, 6_000], 4_000),
+            ("pasted context just under the cap", vec![cap - 100], 3_000),
+            ("pasted context of 3,900 characters", vec![3_900], 2_000),
+        ];
+        for (name, prompts, reply) in workloads {
+            let mut v = guard_simulate(preset, &prompts, reply, 15_000, 2_000, 24);
+            v["workload"] = json!(name);
+            println!("GUARD {v}");
+        }
+    }
+}

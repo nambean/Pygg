@@ -133,6 +133,17 @@ Real agents, real models, checks the agent cannot edit, about $16.7 of a $20 bud
 
 Not claimed: a quality ranking of models (a handful of tasks each), a provider's bill (costs are the ledger at list prices), or "60–95% fewer tokens". A longer web-session run on coding tasks got the owner's DeepSeek account suspended for three days ([report](benchmark/reports/2026-11-13-web-coding.md)); the guard has been stricter since.
 
+**Next to LiteLLM**, measured with the same fake provider and requests (LiteLLM 1.106.2, defaults plus fallbacks; other projects compared from their docs in [BENCHMARKS.md](docs/BENCHMARKS.md#pygg-next-to-other-gateways)):
+
+| When the primary provider… | Pygg | LiteLLM proxy |
+| --- | --- | --- |
+| is rate-limited, out of credit or unreachable | 100% served, **1.04** provider requests each, ~70 ms | 100% served, 4 provider requests each, ~4.6 s (88 s with `Retry-After: 30`) |
+| fails with 500 or drops the connection | 96% / 0% served: never re-sent unless you allow it (100% for a 500 with one retry allowed) | 100% served, after 3 attempts at the failing provider each |
+| is Claude, reached by an OpenAI-format agent | **89.5%** of the prompt read from cache, automatically | 0% by default; 89.5% (Chat Completions) or 39.7% (Codex's Responses API) with injection points configured |
+| sits behind a key ring of several accounts | sessions stay on one key: 60 / 60 | 0 / 60 by default, 60 / 60 with affinity on |
+
+Where Pygg is worse: about 230 requests/s on one PC (LiteLLM publishes 1,170 on four instances), no timeout fallback for a hung provider, and a 5xx or dropped connection reaches your agent as an error by default. Reports: [resilience](benchmark/reports/2026-11-14-resilience.md), [tokens and cost](benchmark/reports/2026-11-14-token-savings.md), [web guard](benchmark/reports/2026-11-14-web-guard.md).
+
 ## What's inside
 
 ```text

@@ -1,0 +1,80 @@
+{
+ "what": "live check 2026-11-14: Anthropic API (api.anthropic.com) with a key ring of two invalid keys, then local Ollama (qwen2.5-coder:7b), combo live; 3 requests (whole, streamed, whole) in one session",
+ "gateway": "80d35d2",
+ "ledger": [
+  {
+   "request_id": "6912d089240a4c2d86304c864221d492",
+   "attempt": 1,
+   "provider": "anthropic-revoked-keys",
+   "model": "claude-haiku-5-5",
+   "outcome": "fallback",
+   "http_status": 401,
+   "latency_ms": 317,
+   "error": "Anthropic (revoked keys) answered HTTP 401: invalid x-api-key",
+   "cost_status": "estimated",
+   "route_kind": "combo"
+  },
+  {
+   "request_id": "6912d089240a4c2d86304c864221d492",
+   "attempt": 2,
+   "provider": "anthropic-revoked-keys",
+   "model": "claude-haiku-5-5",
+   "outcome": "fallback",
+   "http_status": 401,
+   "latency_ms": 605,
+   "error": "Anthropic (revoked keys) answered HTTP 401: invalid x-api-key",
+   "cost_status": "estimated",
+   "route_kind": "combo"
+  },
+  {
+   "request_id": "6912d089240a4c2d86304c864221d492",
+   "attempt": 3,
+   "provider": "ollama",
+   "model": "qwen2.5-coder:7b",
+   "outcome": "ok",
+   "http_status": 200,
+   "latency_ms": 7949,
+   "error": null,
+   "cost_status": "estimated",
+   "route_kind": "combo"
+  },
+  {
+   "request_id": "bdd98ff739f64eef9973e7533c0b1520",
+   "attempt": 1,
+   "provider": "ollama",
+   "model": "qwen2.5-coder:7b",
+   "outcome": "ok",
+   "http_status": 200,
+   "latency_ms": 42,
+   "error": null,
+   "cost_status": "estimated",
+   "route_kind": "combo+pinned"
+  },
+  {
+   "request_id": "11e18d779faf4ad5b3fb8e26608a8b49",
+   "attempt": 1,
+   "provider": "ollama",
+   "model": "qwen2.5-coder:7b",
+   "outcome": "ok",
+   "http_status": 200,
+   "latency_ms": 40,
+   "error": null,
+   "cost_status": "estimated",
+   "route_kind": "combo+pinned"
+  }
+ ],
+ "key_health": [
+  {
+   "label": "First key",
+   "state": "invalid_credentials",
+   "http_status": 401,
+   "until_ms": null
+  },
+  {
+   "label": "Account 2",
+   "state": "invalid_credentials",
+   "http_status": 401,
+   "until_ms": null
+  }
+ ]
+}

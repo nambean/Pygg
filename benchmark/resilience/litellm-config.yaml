@@ -1,0 +1,25 @@
+# LiteLLM proxy for the resilience benchmark: the same targets as Pygg's setup in run.py, with LiteLLM's documented
+# defaults and one addition, the fallbacks (Pygg's combos). Image: ghcr.io/berriai/litellm:v1.106.2
+# (sha256:7294b90f868c5c38c99b83021c7ba46f9b439e95f8e32964c925c7d2563a03f7), the version LiteLLM's 2026-10-21
+# incident post recommends pinning.
+model_list:
+  - model_name: bench
+    litellm_params: {model: openai/fake-model, api_base: "http://pyggbench-fake:9900/a/v1", api_key: key-a1}
+  - model_name: bench-b
+    litellm_params: {model: openai/fake-model, api_base: "http://pyggbench-fake:9900/b/v1", api_key: key-b1}
+  - model_name: down
+    litellm_params: {model: openai/fake-model, api_base: "http://pyggbench-fake:9901/d/v1", api_key: key-d1}
+  # A key ring: three accounts' keys for one model, as three deployments of one model group.
+  - model_name: ring
+    litellm_params: {model: openai/fake-model, api_base: "http://pyggbench-fake:9900/r/v1", api_key: key-r1}
+  - model_name: ring
+    litellm_params: {model: openai/fake-model, api_base: "http://pyggbench-fake:9900/r/v1", api_key: key-r2}
+  - model_name: ring
+    litellm_params: {model: openai/fake-model, api_base: "http://pyggbench-fake:9900/r/v1", api_key: key-r3}
+router_settings:
+  fallbacks:
+    - bench: [bench-b]
+    - ring: [bench-b]
+    - down: [bench-b]
+general_settings:
+  master_key: sk-bench-master
