@@ -617,6 +617,18 @@ td.row-buttons .button + .button { margin-inline-start: 4px; }
 .member-text { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow-wrap: anywhere; }
 .member-text .mono { overflow-wrap: anywhere; }
 .member-text small { font-size: 11px; color: var(--secondary); }
+/* Add model: a search field over a list that stays open (ModelPicker). */
+.model-picker { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.picker-list { max-height: 220px; overflow-y: auto; border: 1px solid var(--separator); border-radius: 8px; padding: 4px;
+  background: var(--field); }
+.picker-group { padding: 6px 8px 2px; font-size: 11px; font-weight: 600; color: var(--secondary); overflow-wrap: anywhere; }
+.picker-option { display: flex; flex-direction: column; gap: 1px; padding: 5px 8px; border-radius: 6px; min-width: 0; }
+.picker-option .mono { font-size: 12px; overflow-wrap: anywhere; }
+.picker-option small { font-size: 11px; color: var(--secondary); }
+.picker-option.active { background: var(--accent); color: #fff; }
+.picker-option.active small { color: rgba(255, 255, 255, .85); }
+.picker-none, .picker-empty { margin: 0; padding: 8px; font-size: 12px; }
+@media (forced-colors: active) { .picker-option.active { background: Highlight; color: HighlightText; forced-color-adjust: none; } }
 
 /* Sheets (DownFetch) */
 .sheet-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: start center;

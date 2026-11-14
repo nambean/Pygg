@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowRight, ArrowUp, GripVertical, LayoutTemplate, ListOrdered, Trash2, X } from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { ArrowDown, ArrowRight, ArrowUp, GripVertical, LayoutTemplate, ListOrdered, Search, Trash2, X } from 'lucide-react';
 import { call, errorText, gatewayChanged, type Combo, type Connection, type Model, type Target } from '../../lib/api';
 import { plural, t } from '../../lib/i18n';
 import { billingLabel } from '../../lib/money';
@@ -150,13 +150,72 @@ function sharedGroups(members: Target[], connections: Connection[]): string[][] 
   return [...groups.values()].filter(s => s.size > 1).map(s => [...s]);
 }
 
+/**
+ * Finds a model to add by typing any part of its id or its connection's name (UI review 2026-11-14: a native select of
+ * 40 similar `:free` ids was hard to use). Every word typed must match. The list stays open under the field; the
+ * arrow keys move through it, Enter adds, and the field keeps focus so several models can be added in a row.
+ */
+function ModelPicker({id, options, members, onPick}: {
+  id: string; options: {connection: Connection; models: Model[]}[]; members: Target[]; onPick: (m: Model) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [active, setActive] = useState(0);
+  const list = useRef<HTMLDivElement>(null);
+  const prefix = useId();
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const groups = options.map(g => ({connection: g.connection, models: g.models.filter(m => {
+    const text = `${m.providerId}/${m.modelId} ${g.connection.label}`.toLowerCase();
+    return words.every(w => text.includes(w));
+  })})).filter(g => g.models.length);
+  const shown = groups.flatMap(g => g.models);
+  const index = Math.min(active, Math.max(shown.length - 1, 0));
+  const optionId = (i: number) => `${prefix}-option-${i}`;
+  const added = (m: Model) => members.some(x => x.providerId === m.providerId && x.modelId === m.modelId);
+  useEffect(() => {
+    list.current?.querySelector(`[data-index="${index}"]`)?.scrollIntoView({block: 'nearest'});
+  }, [index]);
+  const pick = (m: Model | undefined) => { if (m) onPick(m); };
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(index + 1, shown.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(Math.max(index - 1, 0)); }
+    else if (e.key === 'Enter') { e.preventDefault(); pick(shown[index]); }
+    else if (e.key === 'Escape' && query) { e.preventDefault(); e.stopPropagation(); setQuery(''); setActive(0); }
+  };
+  let n = -1;
+  return <div className="model-picker">
+    <div className="input-with-icon">
+      <Search size={14} aria-hidden className="secondary"/>
+      <input id={id} className="text-input" type="search" value={query} spellCheck={false} autoComplete="off"
+        placeholder={t('Type part of a model or provider name')} role="combobox" aria-expanded="true" aria-autocomplete="list"
+        aria-controls={`${prefix}-list`} aria-activedescendant={shown.length ? optionId(index) : undefined}
+        onChange={e => { setQuery(e.target.value); setActive(0); }} onKeyDown={onKeyDown}/>
+    </div>
+    <div className="picker-list" id={`${prefix}-list`} role="listbox" aria-label={t('Models')} ref={list}>
+      {groups.map(g => <div key={g.connection.id} role="group" aria-label={g.connection.label}>
+        <div className="picker-group" aria-hidden>{g.connection.label}</div>
+        {g.models.map(m => {
+          n += 1;
+          const i = n;
+          return <div key={m.modelId} id={optionId(i)} role="option" aria-selected={i === index} data-index={i}
+            className={`picker-option${i === index ? ' active' : ''}`}
+            onMouseDown={e => e.preventDefault()} onMouseMove={() => { if (i !== index) setActive(i); }} onClick={() => pick(m)}>
+            <span className="mono">{m.modelId}</span>
+            <small>{[billingLabel(m.billing), m.capabilities.tier, added(m) ? t('in this combo') : null].filter(Boolean).join(' · ')}</small>
+          </div>;
+        })}
+      </div>)}
+      {!shown.length && <p className="picker-none secondary">{t('No model matches “{query}”.', {query})}</p>}
+    </div>
+    <p className="sr-only" role="status">{query ? plural(shown.length, '{n} model matches', '{n} models match') : ''}</p>
+  </div>;
+}
+
 function ComboSheet({combo, connections, models, existing, onClose}: {
   combo: Combo | null; connections: Connection[]; models: Model[]; existing: Combo[]; onClose: () => void;
 }) {
   const [name, setName] = useState(combo?.name ?? (existing.length ? '' : 'coding'));
   const [members, setMembers] = useState<Target[]>(combo?.members ?? []);
   const [strategy, setStrategy] = useState<'order' | 'cheapest'>(combo?.strategy ?? 'order');
-  const [adding, setAdding] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -184,11 +243,7 @@ function ComboSheet({combo, connections, models, existing, onClose}: {
     setDragged(null);
     setOver(null);
   };
-  const add = (value: string) => {
-    const [providerId, ...rest] = value.split('/');
-    if (providerId && rest.length) setMembers(list => [...list, {providerId, modelId: rest.join('/')}]);
-    setAdding('');
-  };
+  const add = (m: Model) => setMembers(list => [...list, {providerId: m.providerId, modelId: m.modelId}]);
   const save = () => {
     setBusy(true);
     call(async api => {
@@ -252,13 +307,9 @@ function ComboSheet({combo, connections, models, existing, onClose}: {
         {connections: labels.join(', ')})}</p>)}
     <div className="form">
       <FormRow label={t('Add model')} htmlFor="combo-add">
-        <select id="combo-add" className="popup-button wide" value={adding} onChange={e => add(e.target.value)} disabled={!options.length}>
-          <option value="">{options.length ? t('Choose a model…') : connections.some(c => c.enabled)
-            ? t('No model is turned on: turn one on in Providers') : t('Connect a provider first')}</option>
-          {options.map(g => <optgroup key={g.connection.id} label={g.connection.label}>
-            {g.models.map(m => <option key={m.modelId} value={`${m.providerId}/${m.modelId}`}>{m.modelId}</option>)}
-          </optgroup>)}
-        </select>
+        {options.length ? <ModelPicker id="combo-add" options={options} members={members} onPick={add}/>
+          : <p className="secondary picker-empty">{connections.some(c => c.enabled)
+            ? t('No model is turned on: turn one on in Providers') : t('Connect a provider first')}</p>}
       </FormRow>
     </div>
     {error && <ErrorNote>{error}</ErrorNote>}
