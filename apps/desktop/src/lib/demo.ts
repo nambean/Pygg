@@ -836,6 +836,15 @@ export function demoApi(): GatewayApi {
         recent: [...list].sort((a, b) => b.createdAt - a.createdAt).slice(0, 200)};
       return touch(summary);
     },
+    usageRequestsMatching: async (days, filter, offset, limit) => {
+      const since = Date.now() - days * 86_400_000;
+      const rows = events.filter(e => e.createdAt >= since
+        && (filter.client === null || (e.client ?? '') === filter.client)
+        && (filter.model === null || `${e.provider}/${e.model}` === filter.model)
+        && (filter.show === null || (filter.show === 'unknown' ? e.costStatus === 'unknown' : e.outcome !== 'ok')))
+        .sort((a, b) => b.createdAt - a.createdAt);
+      return touch({rows: rows.slice(offset, offset + limit), total: rows.length});
+    },
     usageRequests: async (days, offset, limit) => {
       const since = Date.now() - days * 86_400_000;
       return touch(events.filter(e => e.createdAt >= since).sort((a, b) => b.createdAt - a.createdAt).slice(offset, offset + limit));

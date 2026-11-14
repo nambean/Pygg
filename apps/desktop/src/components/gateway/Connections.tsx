@@ -7,7 +7,7 @@ import { locale, plural, t } from '../../lib/i18n';
 import { billingLabel, parseUsd, priceText } from '../../lib/money';
 import { isMac } from '../../lib/platform';
 import { useGateway } from '../../hooks/useGateway';
-import { Badge, ConfirmSheet, Empty, ErrorNote, FormRow, Segmented, Sheet, Spinner, Switch } from '../ui';
+import { Badge, ConfirmSheet, Empty, ErrorNote, FormRow, Segmented, Sheet, Spinner, Switch, rovingIndex } from '../ui';
 import { ProviderLogo } from './ProviderLogo';
 
 const STORE = isMac ? 'Keychain' : 'Windows Credential Manager';
@@ -667,6 +667,19 @@ function PresetPicker({presets, selected, onSelect}: {presets: Preset[]; selecte
     (!q || presetName(p).toLowerCase().includes(q) || p.id.includes(q))
     && (filter === 'all' || (filter === 'free' ? p.offer === 'free' || p.offer === 'credits'
       : filter === 'local' ? p.offer === 'local' : p.wire === 'anthropic')));
+  // One Tab stop for every provider (the first shown, or the one last focused): the arrow keys, Home and End move
+  // through them in reading order, Enter or Space picks one (Codex review: Later 2). Picking opens the provider's form,
+  // so moving does not pick, unlike a radio group.
+  const order = OFFER_GROUPS.flatMap(g => shown.filter(p => p.offer === g.offer));
+  const [focused, setFocused] = useState<string | null>(null);
+  const stop = order.some(p => p.id === focused) ? focused : order.some(p => p.id === selected) ? selected : order[0]?.id;
+  const keyDown = (e: React.KeyboardEvent<HTMLButtonElement>, id: string) => {
+    const next = rovingIndex(e.key, order.findIndex(p => p.id === id), order.length);
+    if (next === null) return;
+    e.preventDefault();
+    setFocused(order[next].id);
+    e.currentTarget.closest('.preset-picker')?.querySelector<HTMLElement>(`[data-preset="${CSS.escape(order[next].id)}"]`)?.focus();
+  };
   return <div className="preset-picker">
     <div className="preset-tools">
       <span className="search-field">
@@ -679,13 +692,16 @@ function PresetPicker({presets, selected, onSelect}: {presets: Preset[]; selecte
         {value: 'local', label: t('Local')}, {value: 'anthropic', label: t('Anthropic API')}]}/>
     </div>
     {shown.length === 0 && <p className="secondary preset-empty">{t('No provider matches. Custom (OpenAI) connects any compatible endpoint.')}</p>}
-    {OFFER_GROUPS.map(group => {
+    <div role="group" aria-label={t('Providers')} aria-describedby="preset-keys">
+      <span id="preset-keys" className="sr-only">{t('Arrow keys move between providers; Enter picks one.')}</span>
+      {OFFER_GROUPS.map(group => {
       const members = shown.filter(p => p.offer === group.offer);
       if (members.length === 0) return null;
       return <section key={group.offer} className="preset-group" aria-label={group.title()}>
         <h3>{group.title()}<span className="secondary"> · {group.hint()}</span></h3>
-        <div className="preset-grid" role="radiogroup" aria-label={group.title()}>
-          {members.map(p => <button key={p.id} type="button" role="radio" aria-checked={p.id === selected}
+        <div className="preset-grid" role="group" aria-label={group.title()}>
+          {members.map(p => <button key={p.id} type="button" aria-pressed={p.id === selected}
+            tabIndex={p.id === stop ? 0 : -1} data-preset={p.id} onKeyDown={e => keyDown(e, p.id)} onFocus={() => setFocused(p.id)}
             className={p.id === selected ? 'preset selected' : 'preset'} onClick={() => onSelect(p.id)}
             title={p.offerNote ?? undefined}>
             <ProviderLogo kind={p.id} name={p.name}/>
@@ -697,7 +713,7 @@ function PresetPicker({presets, selected, onSelect}: {presets: Preset[]; selecte
           </button>)}
         </div>
       </section>;
-    })}
+    })}</div>
   </div>;
 }
 

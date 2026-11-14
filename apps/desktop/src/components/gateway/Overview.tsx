@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ArrowRight, CircleAlert, CircleCheck, Circle, Power, Settings2, TerminalSquare } from 'lucide-react';
-import { CODING_NEEDS, call, errorText, gatewayChanged, type GatewayStatus, type UsageEvent } from '../../lib/api';
+import { CLAUDE_CODE_NEEDS, CODING_NEEDS, call, errorText, gatewayChanged, type GatewayStatus, type UsageEvent } from '../../lib/api';
 import { t } from '../../lib/i18n';
 import { isMac } from '../../lib/platform';
 import { costText, microUsd, sourceText, tokens } from '../../lib/money';
@@ -34,12 +34,15 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
   const savings = useSavings(1);
   // Whether auto has a model for a coding agent's request (tools, a short prompt): the check behind "ready".
   const codingPlan = useGateway(api => api.autoSimulate(null, 'auto', CODING_NEEDS));
+  // Claude Code's requests are Anthropic-format with thinking: a setup that serves only them is ready too.
+  const claudePlan = useGateway(api => api.autoSimulate(null, 'auto', CLAUDE_CODE_NEEDS));
   const [configuring, setConfiguring] = useState(false);
 
   const activeClients = clients.data?.filter(c => !c.revokedAt) ?? [];
   // A connection counts once it can serve: on, with its key, and with models listed.
   const usable = (connections.data ?? []).some(c => c.enabled && !(c.needsKey && !c.hasKey) && c.models > 0);
-  const eligible = codingPlan.data?.ranked.length ?? null;
+  const eligible = codingPlan.data || claudePlan.data
+    ? Math.max(codingPlan.data?.ranked.length ?? 0, claudePlan.data?.ranked.length ?? 0) : null;
   // A tool counts as set up once Pygg set it up, or once a key of the user's own has been used.
   const toolSetUp = !!launcher.data?.setUp || (integrations.data ?? []).some(i => i.kind === 'gateway' && i.state === 'set_up')
     || activeClients.some(c => c.lastUsedAt && c.name !== 'Pygg (model tests)' && !c.name.endsWith('(MCP)'));

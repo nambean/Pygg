@@ -170,6 +170,8 @@ export type AutoRanked = { providerId: string; modelId: string; tier: Tier | nul
  *  OpenAI format. Eligibility depends on the request; this is the one that matters most. */
 export const CODING_NEEDS = {surfaceAnthropic: false, tools: true, vision: false, inputTokens: 2000, maxTokens: 1000,
   thinking: null, effort: null};
+/** Claude Code's request: the Anthropic format, tools, and adaptive thinking, which a Claude model must take (Codex review 7). */
+export const CLAUDE_CODE_NEEDS: AutoNeeds = {...CODING_NEEDS, surfaceAnthropic: true, thinking: 'adaptive'};
 export type AutoExclusionKind = 'facts' | 'unavailable' | 'policy' | 'web';
 export type AutoExcluded = { providerId: string; modelId: string; reason: string; kind: AutoExclusionKind };
 export type AutoPlan = { alias: AutoAlias; strategy: 'tier' | 'cheap'; minTier: Tier | null; ranked: AutoRanked[]; excluded: AutoExcluded[] };
@@ -215,6 +217,10 @@ export type TokenMix = {
   tokens: TokenParts; cost: TokenParts; requests: number; withTokens: number; unsplitMicroUsd: number;
   unknownCostRequests: number; byClient: TokenMixGroup[]; byModel: TokenMixGroup[];
 };
+
+/** Usage → Requests filters, applied in the store's query over the whole period (store::RequestFilter). */
+export type RequestFilter = { client: string | null; model: string | null; show: 'problems' | 'unknown' | null };
+export type RequestPage = { rows: UsageEvent[]; total: number };
 
 export type CostStatus = 'actual' | 'estimated' | 'unknown';
 export type Outcome = 'ok' | 'fallback' | 'error' | 'client_disconnected' | 'stream_error' | 'interrupted';
@@ -424,6 +430,7 @@ export interface GatewayApi {
   usage(days: number): Promise<UsageSummary>;
   /** A page of the period's requests, newest first: `limit` of them from `offset` (Usage → Requests, 200 at a time). */
   usageRequests(days: number, offset: number, limit: number): Promise<UsageEvent[]>;
+  usageRequestsMatching(days: number, filter: RequestFilter, offset: number, limit: number): Promise<RequestPage>;
   usageTokenMix(days: number): Promise<TokenMix>;
   usageRouting(days: number): Promise<RoutingSummary>;
   /** Usage per hour for one day, per day for longer, on this computer's clock. */
@@ -546,6 +553,7 @@ const native: GatewayApi = {
   autoSimulate: (clientId, alias, needs) => invoke('auto_simulate', {clientId, alias, needs}),
   usage: days => invoke('usage_summary', {days}),
   usageRequests: (days, offset, limit) => invoke('usage_requests', {days, offset, limit}),
+  usageRequestsMatching: (days, filter, offset, limit) => invoke('usage_requests_matching', {days, filter, offset, limit}),
   usageTokenMix: days => invoke('usage_token_mix', {days}),
   usageRouting: days => invoke('usage_routing', {days}),
   usageOverTime: days => invoke('usage_over_time', {days, offsetMinutes: -new Date().getTimezoneOffset()}),

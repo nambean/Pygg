@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, ChartColumn, ChevronRight, Cpu, FileDown } from 'lucide-react';
 import { call, errorText, type CostStatus, type LocalUsage, type Outcome, type SubscriptionUsage, type TaskQuality, type UsageEvent,
-  type UsageGroup } from '../../lib/api';
+  type RequestFilter, type UsageGroup } from '../../lib/api';
 import { ago, windowText } from '../../lib/format';
 import { locale, plural, t } from '../../lib/i18n';
 import { costText, microUsd, sourceText, tokens } from '../../lib/money';
@@ -47,7 +47,8 @@ export function Usage({onOpenTools, intent, onIntentDone}: {onOpenTools?: () => 
   const overTime = useGateway(api => api.usageOverTime(Number(range)), [range], 15_000);
   const savings = useSavings(Number(range));
   const [show, setShow] = useState<'all' | 'problems' | 'unknown'>('all');
-  const [client, setClient] = useState('');
+  // null is every client; '' the requests that came without one.
+  const [client, setClient] = useState<string | null>(null);
   const [model, setModel] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
   useEffect(() => {
@@ -88,11 +89,40 @@ export function Usage({onOpenTools, intent, onIntentDone}: {onOpenTools?: () => 
       }),
       e => setLoadingMore(errorText(e))).finally(() => setPaging(false));
   };
-  const rows = useMemo(() => recent.filter(e =>
-    (show === 'all' || (show === 'unknown' ? e.costStatus === 'unknown' : e.outcome !== 'ok'))
-    && (!client || (e.client ?? '') === client) && (!model || `${e.provider}/${e.model}` === model)), [recent, show, client, model]);
-  const clients = useMemo(() => [...new Set(recent.map(e => e.client ?? ''))].sort(), [recent]);
-  const models = useMemo(() => [...new Set(recent.map(e => `${e.provider}/${e.model}`))].sort(), [recent]);
+  // A filter searches the whole period in the store's query (Codex review 7), page by page; without one, the summary's
+  // first page and Show More's.
+  const filtering = show !== 'all' || client !== null || model !== '';
+  const filterKey = JSON.stringify([range, client, model, show]);
+  const [matched, setMatched] = useState<{key: string; rows: UsageEvent[]; total: number} | null>(null);
+  const [matchError, setMatchError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!filtering) return;
+    let current = true;
+    setMatchError(null);
+    const filter: RequestFilter = {client, model: model || null, show: show === 'all' ? null : show};
+    call(api => api.usageRequestsMatching(Number(range), filter, 0, PAGE)).then(
+      page => { if (current) setMatched({key: filterKey, rows: page.rows, total: page.total}); },
+      e => { if (current) setMatchError(errorText(e)); });
+    return () => { current = false; };
+  }, [filtering, filterKey, range, client, model, show, usage.data]);
+  const rows = filtering ? (matched?.key === filterKey ? matched.rows : []) : recent;
+  const rowsTotal = filtering ? (matched?.key === filterKey ? matched.total : 0) : total;
+  const moreMatching = () => {
+    if (paging || !matched) return;
+    setPaging(true);
+    const key = filterKey;
+    const filter: RequestFilter = {client, model: model || null, show: show === 'all' ? null : show};
+    call(api => api.usageRequestsMatching(Number(range), filter, matched.rows.length, PAGE)).then(
+      page => setMatched(m => {
+        if (!m || m.key !== key) return m;
+        const seen = new Set(m.rows.map(e => e.id));
+        return {...m, rows: [...m.rows, ...page.rows.filter(e => !seen.has(e.id))], total: page.total};
+      }),
+      e => setLoadingMore(errorText(e))).finally(() => setPaging(false));
+  };
+  // The choices come from the whole period's totals, not from the rows loaded.
+  const clients = useMemo(() => (usage.data?.byClient ?? []).map(g => g.key).sort(), [usage.data]);
+  const models = useMemo(() => (usage.data?.byModel ?? []).map(g => g.key).sort(), [usage.data]);
   const [exporting, setExporting] = useState(false);
   const [exported, setExported] = useState<{ok: boolean; text: string} | null>(null);
   const exportCsv = () => {
@@ -103,6 +133,7 @@ export function Usage({onOpenTools, intent, onIntentDone}: {onOpenTools?: () => 
   };
   // A row of the summaries opens the requests behind it, as request logs in other gateways do: the Requests view, filtered.
   const pick = (set: (v: string) => void, value: string) => { set(value); setOpenId(null); setPart('requests'); };
+  const EVERY = '\u0001every';
 
   const bar = <div className="page-bar">
     <Segmented label={t('Usage view')} value={view} onChange={setView} options={[
@@ -167,8 +198,9 @@ export function Usage({onOpenTools, intent, onIntentDone}: {onOpenTools?: () => 
         <div className="group-heading">
           <h2>{t('Requests')}</h2>
           <span className="heading-actions">
-            <select className="popup-button" value={client} onChange={e => setClient(e.target.value)} aria-label={t('Client')}>
-              <option value="">{t('Every client')}</option>
+            <select className="popup-button" value={client ?? EVERY} onChange={e => setClient(e.target.value === EVERY ? null : e.target.value)}
+              aria-label={t('Client')}>
+              <option value={EVERY}>{t('Every client')}</option>
               {clients.map(c => <option key={c} value={c}>{c || t('No client')}</option>)}
             </select>
             <select className="popup-button" value={model} onChange={e => setModel(e.target.value)} aria-label={t('Model')}>
@@ -180,8 +212,8 @@ export function Usage({onOpenTools, intent, onIntentDone}: {onOpenTools?: () => 
               <option value="problems">{t('Fallbacks and failures')}</option>
               <option value="unknown">{t('Unknown cost')}</option>
             </select>
-            {(client || model || show !== 'all') && <button type="button" className="link-button"
-              onClick={() => { setClient(''); setModel(''); setShow('all'); }}>{t('Clear Filters')}</button>}
+            {filtering && <button type="button" className="link-button"
+              onClick={() => { setClient(null); setModel(''); setShow('all'); }}>{t('Clear Filters')}</button>}
           </span>
         </div>
         <div className="group-box table-box">
@@ -194,17 +226,20 @@ export function Usage({onOpenTools, intent, onIntentDone}: {onOpenTools?: () => 
             <tbody>
               {rows.map(e => <LedgerRow key={e.id} event={e} open={openId === e.id} onToggle={() => setOpenId(openId === e.id ? null : e.id)}
                 chain={e.requestId ? recent.filter(o => o.requestId === e.requestId).sort((a, b) => (a.attempt ?? 1) - (b.attempt ?? 1)) : []}/>)}
-              {rows.length === 0 && <tr><td colSpan={8} className="table-empty">{recent.length < total
-                ? t('No matches among the {n} attempts loaded. Show More loads older ones.', {n: recent.length})
-                : t('Nothing to show for this filter.')}</td></tr>}
+              {rows.length === 0 && <tr><td colSpan={8} className="table-empty">{filtering && matched?.key !== filterKey && !matchError
+                ? t('Searching the period…') : t('Nothing matches in this period.')}</td></tr>}
             </tbody>
           </table>
         </div>
-        {recent.length < total && <button type="button" className="link-button table-more" onClick={showMore} disabled={paging}>
-          {paging ? t('Loading older attempts…') : t('Show {n} more', {n: Math.min(PAGE, total - recent.length)})}</button>}
+        {matchError && <ErrorNote>{matchError}</ErrorNote>}
+        {rows.length < rowsTotal && <button type="button" className="link-button table-more" onClick={filtering ? moreMatching : showMore}
+          disabled={paging}>
+          {paging ? t('Loading older attempts…') : t('Show {n} more', {n: Math.min(PAGE, rowsTotal - rows.length)})}</button>}
         {loadingMore && <ErrorNote>{loadingMore}</ErrorNote>}
-        <p className="group-footnote">{recent.length < total
-          ? t('Showing the {shown} most recent of {total} requests in this period; Show More goes further back, and Export CSV has them all.', {shown: recent.length, total})
+        <p className="group-footnote">{filtering
+          ? t('{n} of the period’s attempts match these filters; {shown} shown, newest first.', {n: rowsTotal, shown: rows.length})
+          : rows.length < rowsTotal
+          ? t('Showing the {shown} most recent of {total} requests in this period; Show More goes further back, and Export CSV has them all.', {shown: rows.length, total: rowsTotal})
           : t('Every request of this period is listed, newest first.')}{' '}
           {t('Failed attempts before a fallback are listed too. A request the provider refused before answering is usually not billed; one cut off after it started may have been, so its cost shows as unknown or estimated.')}</p>
       </section>

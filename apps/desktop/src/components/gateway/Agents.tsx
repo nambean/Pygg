@@ -242,9 +242,10 @@ export function Integrations({kind, status, note}: {kind: 'mcp' | 'gateway'; sta
                 : i.state === 'removed_elsewhere' ? t('Pygg set this up, and the entry is gone. Remove revokes its token.')
                 : i.state === 'not_installed' ? t('Not found on this computer.')
                 : i.configPath}
-              {i.kind === 'gateway' && i.state === 'set_up' && <><br/>{t('Use it with:')} <span className="mono">{i.id === CODEX_GATEWAY ? 'pygg run codex' : 'pygg run opencode'}</span>
-                {' · '}{t('each launch keeps its own routing session')}</>}
+              {i.kind === 'gateway' && i.state === 'set_up' && <><br/>{t('Start it through Pygg; each launch keeps its own routing session:')}</>}
               {i.detail && <><br/><span className="mono">{i.detail}</span></>}
+              {i.kind === 'gateway' && i.state === 'set_up' &&
+                <CodeBlock code={i.id === CODEX_GATEWAY ? 'pygg run codex' : 'pygg run opencode'} label={t('Launch command')}/>}
             </small>
             {status && i.state === 'set_up' && status(i)}
             {note && canSetUp && note(i)}

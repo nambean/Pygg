@@ -846,6 +846,14 @@ pub fn usage_summary(state: State<'_, AppState>, days: u32) -> Res<UsageSummary>
 
 /// Usage → Requests, a page at a time: `limit` requests of the last `days` from `offset`, newest first.
 #[tauri::command]
+pub fn usage_requests_matching(state: State<'_, AppState>, days: u32, filter: store::RequestFilter, offset: u32, limit: u32)
+    -> Res<store::RequestPage> {
+    let since = crate::db::now_ms() - days.clamp(1, 366) as i64 * 86_400_000;
+    state.shared.with_db(|db| store::usage_requests_matching(db, since, &filter, offset as usize, limit.clamp(1, 500) as usize))
+}
+
+/// A page of the period's requests, newest first.
+#[tauri::command]
 pub fn usage_requests(state: State<'_, AppState>, days: u32, offset: u32, limit: u32) -> Res<Vec<store::UsageEvent>> {
     let days = days.clamp(1, 366) as i64;
     let since = crate::db::now_ms() - days * 86_400_000;

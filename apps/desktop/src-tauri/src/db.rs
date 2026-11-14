@@ -61,6 +61,45 @@ fn configure(conn: &Connection) -> rusqlite::Result<()> {
     conn.busy_timeout(std::time::Duration::from_secs(5))
 }
 
+/// Why a store could not be opened or used, for what the app tells the user (fault tests in `faults.rs`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Problem {
+    /// Not a database, or its pages are damaged: a daily copy can replace it.
+    Damaged,
+    /// Another process holds the write lock longer than the busy timeout.
+    Busy,
+    /// The disk (or the store's page limit) is full.
+    Full,
+    /// Written by a newer Pygg: an older one must not write it.
+    Newer,
+    Other,
+}
+
+pub fn problem(e: &rusqlite::Error) -> Problem {
+    use rusqlite::ErrorCode::*;
+    match e {
+        rusqlite::Error::InvalidQuery => Problem::Newer,
+        rusqlite::Error::SqliteFailure(f, _) => match f.code {
+            NotADatabase | DatabaseCorrupt => Problem::Damaged,
+            DatabaseBusy | DatabaseLocked => Problem::Busy,
+            DiskFull => Problem::Full,
+            _ => Problem::Other,
+        },
+        _ => Problem::Other,
+    }
+}
+
+/// A quick structural check (`PRAGMA quick_check`): a store whose header opens can still have damaged pages, which
+/// would fail later, mid-request. The app runs it once at start-up; it reads every page, without checking indexes'
+/// contents, so it stays fast for a store of this size.
+pub fn check(conn: &Connection) -> rusqlite::Result<()> {
+    let result: String = conn.query_row("PRAGMA quick_check(1)", [], |r| r.get(0))?;
+    if result == "ok" {
+        return Ok(());
+    }
+    Err(rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT), Some(result)))
+}
+
 pub fn version(conn: &Connection) -> rusqlite::Result<u32> {
     conn.query_row("PRAGMA user_version", [], |row| row.get(0))
 }

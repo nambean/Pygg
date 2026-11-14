@@ -6,22 +6,24 @@
 
 | Area | Codex's assessment | Since then |
 | --- | --- | --- |
-| Correctness under failure | Not ready: unbounded response bodies, a client that stops reading holds an attempt for ever, no corrupt-store path, no fault tests | Bodies capped at 64 MiB (`read_body`); a streamed piece waits at most 2 minutes for the client (`deliver`), then the client counts as gone; a store that cannot be opened is logged with where its daily copies are. Fault-injection tests still to do |
+| Correctness under failure | Not ready: unbounded response bodies, a client that stops reading holds an attempt for ever, no corrupt-store path, no fault tests | Bodies capped at 64 MiB (`read_body`); a streamed piece waits at most 2 minutes for the client (`deliver`), then the client counts as gone; a store that cannot be opened says why in a message box and, when damaged, offers to restore the newest daily copy (the damaged file kept aside; `startup.rs`); a quick structural check runs at start-up. **Fault tests** (`faults.rs`, 9): a writer killed mid-transaction by a real process abort, a lock held briefly and past the timeout, a full disk during settlement, a non-database store, damaged pages behind a good header, a newer store |
 | Money | Ready with caveats: a strict limit reserves an *estimate* of the most a request could cost, not a cap on the provider's invoice; known $0 depends on the billing type being right | Wording says so in Policies and the key sheet ("the bill can differ"); README's verdict says it |
 | Security | Ready with caveats: loopback, Host checks, Credential Manager and an allowlisted diagnostics bundle are sound; CSV exports carry provider error text; web sessions stay experimental | Docs corrected (`/health` needs no key; web sessions record $0 by default) |
 | Operability | Not ready: no app log, no store backup, no recovery procedure, no updater | **App log** `logs/pygg.log`, redacted, rotated at 1 MB keeping two, panics included, its last 200 lines in the diagnostics bundle (`applog.rs`). **Daily store copies** `backups/store-<date>.sqlite3` with `VACUUM INTO`, newest three kept, restore by copying one back (`backup.rs`). No updater yet |
-| Distribution | Not ready: unsigned installers, no clean-machine test, MSI scope and WebView2 policy not checked, no complete dependency licence inventory | Owner's steps below |
+| Distribution | Not ready: unsigned installers, no clean-machine test, MSI scope and WebView2 policy not checked, no complete dependency licence inventory | **Licence inventory**: `scripts/licences.py` lists the 301 Rust crates and 6 npm packages shipped, with their licence texts, into `THIRD-PARTY-LICENSES.md`, installed next to Pygg.exe with LICENSE.txt and linked from Settings → About; CI fails when it is stale or a licence is not on the allow list. Signing and clean-machine tests: owner's steps below |
 | Performance | Not ready for a claim: no measured overhead, soak or large-ledger figures | Benchmarked for tokens, not latency yet |
 | Platform | Ready with caveats for Windows x64 only | README and npm say Windows x64 only |
-| Tests and CI | Ready with caveats: 307 Rust unit and end-to-end tests with a fake provider, CI on Windows; no packaged-artifact, native-UI or fault tests | CI added 2026-11-14 |
+| Tests and CI | Ready with caveats: 307 Rust unit and end-to-end tests with a fake provider, CI on Windows; no packaged-artifact, native-UI or fault tests | CI added 2026-11-14; 317 tests with the fault tests |
 
 ## Release blockers left
 
 1. **Code signing** of the installers and the CLI (needs a certificate: the owner's decision and cost).
 2. **Clean-machine tests** of the signed NSIS and MSI installers: install, upgrade over the previous version, uninstall, WebView2 present and absent, per-user scope.
 3. **A packaged smoke test** of the exact npm tarballs and installers being released (the steps in `packages/npm/PUBLISHING.md`).
-4. **Fault-injection tests**: process kill mid-request, disk full during settlement, a locked store, a corrupt store at start-up.
-5. **A dependency licence inventory** generated from Cargo and npm and shipped with the installer.
+4. ~~**Fault-injection tests**~~: done 2026-11-14 (`faults.rs`, above). Still manual: pulling the power during a write, a
+   real full disk rather than SQLite's page limit.
+5. ~~**A dependency licence inventory**~~: done 2026-11-14 (`scripts/licences.py`, above). Five crates publish no licence
+   file, only an SPDX name (alloc-stdlib, selectors, webview2-com and its two siblings); the inventory says so.
 6. **Web sessions stay outside any production guarantee**: opt-in, unofficial, an account-risk warning, and the guard (ADR-035).
 
 ## First month after release

@@ -26,10 +26,17 @@ Checked in the browser preview: the links, the filters they set, one Limit mode 
 
 ## Later (in order)
 
-1. Readiness by tool and format (Home's check is OpenAI-format; Claude Code's thinking needs), and Codex/OpenCode launch commands as copyable blocks.
-2. Provider picker as a real radio group (arrow keys); hints associated with every selector; focus to the heading after page navigation and a Skip to content; charts with one Tab stop.
-3. Query-level filters for Requests (the whole period, not the loaded pages) and a stable cursor.
+1. ~~Readiness by tool and format~~ (done 2026-11-14: Home and CLI Tools check Claude Code with its Anthropic format and
+   adaptive thinking, `CLAUDE_CODE_NEEDS`; Agents shows `pygg run codex` / `pygg run opencode` as copyable blocks).
+2. ~~Keyboard and screen reader basics~~ (done 2026-11-14): the provider picker has one Tab stop, the arrow keys, Home and
+   End move through every provider and Enter picks one (not a radio group: picking opens the provider's form, so moving
+   must not pick); every hint is the description of its control (`FormRow` without a field id becomes a named group;
+   settings rows through `useRowHints`); after page navigation focus goes to the page heading unless the page focused
+   something itself; **Skip to content** is the first Tab stop; the usage chart is one Tab stop with arrow keys.
+3. ~~Query-level filters for Requests~~ (done 2026-11-14: `store::usage_requests_matching` filters by client, model and
+   problems or unknown cost over the whole period, with the match count; the client choices come from the period's totals
+   and "No client" no longer means "every client"). Paging is still by offset, not a cursor.
 4. Provider rows at 1024 × 640: dots and status on a second line.
 5. Endpoint: the effective policy shown when creating a key; reveal with progress.
-6. Settings: About (version, licence, source, report an issue); retention and diagnostics progress states.
+6. ~~Settings: About~~ (done 2026-11-14: version, licence, source, report an issue, third-party licences, where the log and backups are). Retention and diagnostics progress states are still to do.
 7. A Narrator and native Windows pass before calling accessibility done.

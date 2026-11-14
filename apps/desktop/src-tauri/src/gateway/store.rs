@@ -2402,18 +2402,50 @@ pub fn usage_summary(conn: &Connection, since: i64, recent_limit: usize) -> Resu
 
 /// A page of the requests since `since`, newest first: `limit` of them from `offset` (Usage → Requests, 200 at a time).
 pub fn usage_requests(conn: &Connection, since: i64, offset: usize, limit: usize) -> Result<Vec<UsageEvent>> {
+    usage_requests_matching(conn, since, &RequestFilter::default(), offset, limit).map(|page| page.rows)
+}
+
+/// What Usage → Requests filters by, applied in the query so a filter searches the whole period, not the pages loaded
+/// (Codex review 7): a client's name (empty for requests without one), `connection/model`, and `problems` (not
+/// answered) or `unknown` (unknown cost).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RequestFilter {
+    pub client: Option<String>,
+    pub model: Option<String>,
+    pub show: Option<String>,
+}
+
+/// A page of the requests that match, and how many match in all.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestPage {
+    pub rows: Vec<UsageEvent>,
+    pub total: u64,
+}
+
+const REQUEST_MATCH: &str = "u.created_at >= ?1 AND (?4 IS NULL OR COALESCE(c.name, '') = ?4) \
+    AND (?5 IS NULL OR u.provider || '/' || u.model = ?5) \
+    AND (?6 IS NULL OR (?6 = 'problems' AND u.outcome <> 'ok') OR (?6 = 'unknown' AND u.cost_status = 'unknown'))";
+
+pub fn usage_requests_matching(conn: &Connection, since: i64, filter: &RequestFilter, offset: usize, limit: usize)
+    -> Result<RequestPage> {
+    let show = filter.show.as_deref().filter(|s| *s == "problems" || *s == "unknown");
+    let values = params![since, limit as i64, offset as i64, filter.client, filter.model, show];
+    let total: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id \
+        WHERE {REQUEST_MATCH}"), values, |r| r.get(0)).map_err(err)?;
     let mut stmt = conn
-        .prepare(
+        .prepare(&format!(
             "SELECT u.id, u.created_at, c.name, u.provider, u.model, u.requested_model, u.input_tokens, u.output_tokens, \
              u.cost_micro_usd, u.cost_status, u.source, u.outcome, u.http_status, u.latency_ms, u.error, \
              u.cache_tokens, u.cache_write_tokens, u.session_key, u.route_mode, u.at_risk_micro_usd, u.route_reason, \
              u.request_id, u.attempt, u.billing, u.route_kind, u.cache_hint \
              FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id \
-             WHERE u.created_at >= ?1 ORDER BY u.created_at DESC, u.id DESC LIMIT ?2 OFFSET ?3",
-        )
+             WHERE {REQUEST_MATCH} ORDER BY u.created_at DESC, u.id DESC LIMIT ?2 OFFSET ?3",
+        ))
         .map_err(err)?;
     let rows = stmt
-        .query_map(params![since, limit as i64, offset as i64], |r| {
+        .query_map(values, |r| {
             let u = |i: usize| r.get::<_, Option<i64>>(i).map(|v| v.map(|v| v.max(0) as u64));
             Ok(UsageEvent {
                 id: r.get(0)?,
@@ -2447,7 +2479,7 @@ pub fn usage_requests(conn: &Connection, since: i64, offset: usize, limit: usize
         .map_err(err)?
         .collect::<rusqlite::Result<_>>()
         .map_err(err)?;
-    Ok(rows)
+    Ok(RequestPage { rows, total: total.max(0) as u64 })
 }
 
 // ---------- Subscriptions and local runtime (Usage tabs, SCREENS.md §5.6) ----------
@@ -2963,6 +2995,15 @@ mod tests {
         assert_eq!(all.len(), 3);
         assert_eq!([page(0, 2), page(2, 2)].concat(), all);
         assert!(page(3, 2).is_empty());
+        // Filters search the whole period in the query, and say how many match.
+        let matching = |client: Option<&str>, model: Option<&str>, show: Option<&str>, limit| usage_requests_matching(&conn, 0,
+            &RequestFilter { client: client.map(String::from), model: model.map(String::from), show: show.map(String::from) }, 0, limit).unwrap();
+        assert_eq!(matching(None, None, Some("problems"), 10).total, 1);
+        assert_eq!(matching(None, None, Some("unknown"), 10).total, 1);
+        let codex = matching(Some("Codex"), None, None, 1);
+        assert_eq!((codex.total, codex.rows.len()), (3, 1), "the count is of every match, the page of one");
+        assert_eq!(matching(Some(""), None, None, 10).total, 0, "no request without a client");
+        assert_eq!(matching(None, Some(&format!("{}/flash", p.id)), None, 10).total, 3);
         let client = list_clients(&conn).unwrap().remove(0);
         assert_eq!((client.month_spend_micro_usd, client.month_unknown_requests), (3000, 1));
         // The health strip: the fallback counts against the connection, the unknown-cost answer is an answer.

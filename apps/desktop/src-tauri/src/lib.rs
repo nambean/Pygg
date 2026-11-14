@@ -22,6 +22,9 @@ pub mod redact;
 pub mod retention;
 pub mod shell;
 pub mod snap;
+mod startup;
+#[cfg(test)]
+mod faults;
 pub mod tasks;
 pub mod vault;
 pub mod websession;
@@ -96,13 +99,9 @@ pub fn run() {
             applog::init(&dir);
             applog::info(&format!("Pygg {} starting", env!("CARGO_PKG_VERSION")));
             let path = dir.join("store.sqlite3");
-            let conn = match db::open(&path) {
+            let conn = match db::open(&path).and_then(|conn| db::check(&conn).map(|()| conn)) {
                 Ok(conn) => conn,
-                Err(e) => {
-                    // A store that cannot be opened says where its daily copies are (backup.rs).
-                    applog::line("error", &format!("could not open {}: {e}. Daily copies are in {}; quit Pygg and copy one over store.sqlite3 to restore it.", path.display(), backup::folder(&dir).display()));
-                    return Err(e.into());
-                }
+                Err(e) => startup::store_failed(&dir, &path, &e)?,
             };
             match backup::daily(&conn, &dir, db::now_ms()) {
                 Ok(Some(copy)) => applog::info(&format!("backed up the store to {}", copy.display())),
@@ -292,6 +291,7 @@ pub fn run() {
             commands::connection_clear_health,
             commands::usage_summary,
             commands::usage_requests,
+            commands::usage_requests_matching,
             commands::usage_token_mix,
             commands::usage_routing,
             commands::usage_over_time,

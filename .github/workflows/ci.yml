@@ -29,3 +29,5 @@ jobs:
       - run: cargo test --lib
         working-directory: apps/desktop/src-tauri
       - run: python scripts/schema-reference.py --check
+      # The shipped licence inventory matches Cargo.lock and the interface's packages, and every licence is allowed.
+      - run: python scripts/licences.py --check

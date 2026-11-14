@@ -26,6 +26,25 @@ pub fn list(data_dir: &Path) -> Vec<PathBuf> {
     found
 }
 
+/// Puts the newest daily copy in place of a store that cannot be used. The damaged store, with its `-wal` and `-shm`, is
+/// moved aside as `store.sqlite3.damaged-<time>` (nothing is deleted); returns the copy restored and where the damaged
+/// store went. Changes made after the copy are lost, which the app says before asking.
+pub fn restore_newest(data_dir: &Path, now_ms: i64) -> Result<(PathBuf, PathBuf), String> {
+    let copy = list(data_dir).pop().ok_or_else(|| "there is no daily copy to restore".to_string())?;
+    let store = data_dir.join("store.sqlite3");
+    let stamp = crate::gateway::store::iso_utc(now_ms)[..19].replace([':', '-'], "").replace('T', "-");
+    let aside = data_dir.join(format!("store.sqlite3.damaged-{stamp}"));
+    for suffix in ["", "-wal", "-shm"] {
+        let from = PathBuf::from(format!("{}{suffix}", store.display()));
+        if from.exists() {
+            let to = PathBuf::from(format!("{}{suffix}", aside.display()));
+            std::fs::rename(&from, &to).map_err(|e| format!("moving {} aside: {e}", from.display()))?;
+        }
+    }
+    std::fs::copy(&copy, &store).map_err(|e| format!("copying {} to {}: {e}", copy.display(), store.display()))?;
+    Ok((copy, aside))
+}
+
 /// Writes a copy unless the newest is younger than `EVERY_MS`; returns the new copy, if one was made.
 pub fn daily(conn: &Connection, data_dir: &Path, now_ms: i64) -> Result<Option<PathBuf>, String> {
     let dir = folder(data_dir);

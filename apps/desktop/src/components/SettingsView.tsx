@@ -48,7 +48,39 @@ export function SettingsView({language, onLanguage, onGateway}: {language: Langu
     </section>
     <DiagnosticsSettings/>
     <DataRetentionSettings/>
+    <About/>
   </div>;
+}
+
+const REPOSITORY = 'https://github.com/nambean/smarttaskrouter';
+
+/** About (Codex review 7): the version, the licence, where to read the source and report a problem, and where Pygg keeps
+ *  its log and the store's daily copies (applog.rs, backup.rs). */
+function About() {
+  return <section className="group">
+    <h2>{t('About')}</h2>
+    <div className="group-box">
+      <div className="group-row">
+        <span className="group-label">{t('Pygg {version}', {version: '0.1.0'})}<small>{t('Developer preview for Windows x64. MIT licence.')}</small></span>
+        <span className="group-control">
+          <a className="button small" href={REPOSITORY} target="_blank" rel="noreferrer">{t('Source Code')}</a>{' '}
+          <a className="button small" href={`${REPOSITORY}/issues/new/choose`} target="_blank" rel="noreferrer">{t('Report an Issue')}</a>
+        </span>
+      </div>
+      <div className="group-row">
+        <span className="group-label">{t('Third-party licences')}
+          <small>{t('The open-source packages built into Pygg and their licences. A copy, THIRD-PARTY-LICENSES.md, is installed next to Pygg.exe.')}</small></span>
+        <span className="group-control">
+          <a className="button small" href={`${REPOSITORY}/blob/main/apps/desktop/src-tauri/licenses/THIRD-PARTY-LICENSES.md`} target="_blank"
+            rel="noreferrer">{t('View Licences')}</a>
+        </span>
+      </div>
+      <div className="group-row">
+        <span className="group-label">{t('Log and backups')}
+          <small>{t('In Pygg’s data folder (%APPDATA%\\app.smarttaskrouter.desktop): logs\\pygg.log, redacted, which Save Diagnostics includes; and backups\\, a copy of the store made each day, the newest three kept. To restore one, quit Pygg and copy it over store.sqlite3.')}</small></span>
+      </div>
+    </div>
+  </section>;
 }
 
 /** The tray and notifications: tasks started from an IDE run while the window is closed. */

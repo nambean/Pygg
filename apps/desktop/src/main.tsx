@@ -22,7 +22,7 @@ import { TaskDetail } from './components/TaskDetail';
 import { TaskList } from './components/TaskList';
 import { needsChecks, WorkspacesView } from './components/WorkspacesView';
 import { WindowControls } from './components/WindowControls';
-import { ErrorNote, Segmented, Spinner } from './components/ui';
+import { ErrorNote, Segmented, Spinner, useRowHints } from './components/ui';
 import { CliTools } from './components/gateway/CliTools';
 import { Combos } from './components/gateway/Combos';
 import { Endpoint } from './components/gateway/Endpoint';
@@ -182,8 +182,26 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
     : t('Settings');
   const isTaskScreen = view.kind === 'tasks' || view.kind === 'task' || view.kind === 'new' || view.kind === 'workspaces';
   const primary = isGateway(view.kind) ? PRIMARY[view.kind] : undefined;
+  useRowHints();
+  // After moving to another page, focus goes to its heading so a screen reader says where it is and Tab starts at the
+  // top of the page, unless the page already put focus in itself (a search field, a sheet). Not on start.
+  const heading = useRef<HTMLHeadingElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const page = view.kind === 'task' ? `task:${view.id}` : view.kind;
+  const firstPage = useRef(true);
+  useEffect(() => {
+    if (firstPage.current) { firstPage.current = false; return; }
+    const id = requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (active && active !== document.body && content.current?.contains(active)) return;
+      if (active?.closest('[role="dialog"]')) return;
+      heading.current?.focus({preventScroll: true});
+    });
+    return () => cancelAnimationFrame(id);
+  }, [page]);
 
   return <div className={`window${isMac || customChrome ? ' has-lights' : ''}${sidebarOpen ? '' : ' sidebar-hidden'}`}>
+    <a className="skip-link" href="#content" onClick={e => { e.preventDefault(); content.current?.focus(); }}>{t('Skip to content')}</a>
     {customChrome && <WindowControls/>}
     <aside className="sidebar" aria-label={t('Sidebar')} hidden={!sidebarOpen}>
       <div className="sidebar-header" data-tauri-drag-region>
@@ -226,7 +244,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
           <PanelLeft size={17} strokeWidth={1.75}/>
         </button>
         <div className="toolbar-title" data-tauri-drag-region>
-          <h1>{title}</h1>
+          <h1 ref={heading} tabIndex={-1}>{title}</h1>
           {(view.kind === 'tasks' || view.kind === 'task') &&
             <BudgetSubtitle running={counts.running} waiting={counts.approval} budget={budget.data ?? undefined}/>}
         </div>
@@ -246,7 +264,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         {t('Browser preview with demo data. Nothing is stored or sent; the desktop app runs the real gateway.')}
       </p>}
 
-      <div className="content">
+      <div className="content" id="content" ref={content} tabIndex={-1}>
         {view.kind === 'overview' && <Overview status={status} onStatus={setStatus} navigate={go}/>}
         {view.kind === 'connections' && <Connections intent={intent === 'connect' || intent === 'unpriced' ? intent : undefined}
           onIntentDone={intentDone} onNext={() => go('tools')}/>}

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { SavingsPeriod, UsageBucket } from '../../lib/api';
 import { locale, plural, t } from '../../lib/i18n';
 import { microUsd, tokens } from '../../lib/money';
-import { Segmented } from '../ui';
+import { Segmented, rovingIndex } from '../ui';
 
 /** What the bars measure: known cost, requests, tokens in and out (a switch 9router's usage chart has too), or the
  *  comparison: what the compared answers cost through Pygg against the same tokens at the comparison model. */
@@ -65,6 +65,17 @@ export function CostOverTime({days, buckets, comparison}: {days: number; buckets
   // About six labels under the axis, whatever the number of periods.
   const every = Math.max(1, Math.ceil(rows.length / 6));
   const shown = hover !== null ? rows[hover] : null;
+  // One Tab stop for the chart (the latest period, or the one last looked at); the arrow keys, Home and End move along it.
+  const [stop, setStop] = useState<number | null>(null);
+  const tabStop = stop !== null && stop < rows.length ? stop : rows.length - 1;
+  const keyDown = (e: React.KeyboardEvent<HTMLDivElement>, i: number) => {
+    const next = rovingIndex(e.key, i, rows.length);
+    if (next === null) return;
+    e.preventDefault();
+    setStop(next);
+    setHover(next);
+    (e.currentTarget.parentElement?.children[next] as HTMLElement | undefined)?.focus();
+  };
 
   return <section className="group">
     <div className="group-heading">
@@ -83,12 +94,13 @@ export function CostOverTime({days, buckets, comparison}: {days: number; buckets
         <div className="chart-plot" onMouseLeave={() => setHover(null)}>
           <div className="chart-grid" aria-hidden><span/><span/><span/></div>
           <div className="chart-bars" role="list" aria-label={title}>
-            {rows.map((r, i) => <div key={r.start} role="listitem" tabIndex={0} className={'chart-column' + (hover === i ? ' active' : '')}
+            {rows.map((r, i) => <div key={r.start} role="listitem" tabIndex={i === tabStop ? 0 : -1} onKeyDown={e => keyDown(e, i)}
+              className={'chart-column' + (hover === i ? ' active' : '')}
               aria-label={`${whenLong(r.start)}: ${label(value(r))}`
                 + (metric === 'comparison' ? `, ${t('{amount} through Pygg', {amount: microUsd(at(r)?.routedMicroUsd ?? 0)})}` : '')
                 + (metric !== 'requests' ? `, ${plural(r.requests, '{n} request', '{n} requests')}` : '')
                 + (anyUnknown && r.unknownRequests ? `, ${plural(r.unknownRequests, '{n} with unknown cost', '{n} with unknown cost')}` : '')}
-              onMouseEnter={() => setHover(i)} onFocus={() => setHover(i)} onBlur={() => setHover(null)}>
+              onMouseEnter={() => setHover(i)} onFocus={() => { setHover(i); setStop(i); }} onBlur={() => setHover(null)}>
               {anyUnknown && r.unknownRequests > 0 && <span className="chart-unknown" style={{bottom: `calc(${(value(r) / top) * 100}% + 4px)`}}/>}
               <span className={metric === 'comparison' ? 'chart-bar baseline' : 'chart-bar'}
                 style={{height: value(r) > 0 ? `max(2px, ${(value(r) / top) * 100}%)` : 0}}/>

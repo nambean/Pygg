@@ -2,7 +2,7 @@
  * Small shared controls for the gateway screens, in DownFetch's style: sheets, switches, segmented
  * controls, copy buttons and status badges. Status always pairs an icon or dot with a word (§3.4).
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, CircleAlert, Copy, LoaderCircle } from 'lucide-react';
 import { t } from '../lib/i18n';
@@ -50,16 +50,22 @@ export function Switch({checked, onChange, label, disabled}: {checked: boolean; 
   </label>;
 }
 
+/** Where an arrow key, Home or End moves in a one-Tab-stop group of `count` items (wrapping), or null for any other key. */
+export function rovingIndex(key: string, index: number, count: number): number | null {
+  if (count === 0) return null;
+  return key === 'ArrowRight' || key === 'ArrowDown' ? (index + 1) % count
+    : key === 'ArrowLeft' || key === 'ArrowUp' ? (index - 1 + count) % count
+    : key === 'Home' ? 0 : key === 'End' ? count - 1 : null;
+}
+
 export function Segmented<T extends string>({value, options, onChange, label}: {
   value: T; options: {value: T; label: string}[]; onChange: (value: T) => void; label: string;
 }) {
   // A radio group: one Tab stop (the selected option), arrow keys and Home/End move the choice.
   const index = Math.max(0, options.findIndex(o => o.value === value));
   const keyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    const next = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? (index + 1) % options.length
-      : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? (index - 1 + options.length) % options.length
-      : e.key === 'Home' ? 0 : e.key === 'End' ? options.length - 1 : -1;
-    if (next < 0) return;
+    const next = rovingIndex(e.key, index, options.length);
+    if (next === null) return;
     e.preventDefault();
     onChange(options[next].value);
     (e.currentTarget.children[next] as HTMLElement | undefined)?.focus();
@@ -69,6 +75,30 @@ export function Segmented<T extends string>({value, options, onChange, label}: {
       tabIndex={i === index ? 0 : -1}
       className={o.value === value ? 'selected' : ''} onClick={() => onChange(o.value)}>{o.label}</button>)}
   </div>;
+}
+
+/** Settings rows (`.group-label` with a `label[for]` and a `small` hint): the hint describes the control the label names,
+ *  so a screen reader reads both. Kept current as pages change. */
+export function useRowHints() {
+  useEffect(() => {
+    let frame = 0;
+    let next = 0;
+    const link = () => {
+      frame = 0;
+      for (const row of document.querySelectorAll<HTMLElement>('.group-label')) {
+        const label = row.querySelector<HTMLLabelElement>('label[for]');
+        const hint = row.querySelector<HTMLElement>(':scope > small');
+        const control = label?.htmlFor ? document.getElementById(label.htmlFor) : null;
+        if (!control || !hint || !hint.textContent?.trim()) continue;
+        if (!hint.id) hint.id = `row-hint-${++next}`;
+        if (control.getAttribute('aria-describedby') !== hint.id) control.setAttribute('aria-describedby', hint.id);
+      }
+    };
+    const observer = new MutationObserver(() => { if (!frame) frame = requestAnimationFrame(link); });
+    observer.observe(document.body, {childList: true, subtree: true});
+    link();
+    return () => { observer.disconnect(); if (frame) cancelAnimationFrame(frame); };
+  }, []);
 }
 
 export async function copyText(text: string): Promise<boolean> {
@@ -175,15 +205,17 @@ export function ConfirmSheet({title, message, confirmLabel, onConfirm, onClose, 
 
 /** A labeled row in a sheet form. */
 export function FormRow({label, htmlFor, hint, children}: {label: string; htmlFor?: string; hint?: React.ReactNode; children: React.ReactNode}) {
-  const hintId = htmlFor && hint ? `${htmlFor}-hint` : undefined;
+  const own = useId();
+  const hintId = hint ? `${htmlFor ?? own}-hint` : undefined;
   // The hint describes the field, so a screen reader reads it with the field's label.
   useEffect(() => {
     const field = htmlFor ? document.getElementById(htmlFor) : null;
     if (!field) return;
     if (hintId) field.setAttribute('aria-describedby', hintId); else field.removeAttribute('aria-describedby');
   }, [htmlFor, hintId]);
-  return <div className="form-row">
-    <label className="form-label" htmlFor={htmlFor}>{label}</label>
+  // Without a field id (a segmented control, a switch), the row is a group named by its label and described by its hint.
+  return <div className="form-row" {...(htmlFor ? {} : {role: 'group', 'aria-labelledby': `${own}-label`, 'aria-describedby': hintId})}>
+    <label className="form-label" htmlFor={htmlFor} id={htmlFor ? undefined : `${own}-label`}>{label}</label>
     <div className="form-field">
       {children}
       {hint && <small className="form-hint" id={hintId}>{hint}</small>}

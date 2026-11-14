@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { CircleAlert, CircleCheck, Circle, TerminalSquare } from 'lucide-react';
-import { call, errorText, gatewayChanged, type AutoPlan, type GatewayStatus, type LatestRequest } from '../../lib/api';
+import { CLAUDE_CODE_NEEDS, call, errorText, gatewayChanged, type AutoPlan, type GatewayStatus, type LatestRequest } from '../../lib/api';
 import { t } from '../../lib/i18n';
 import { ago } from '../../lib/format';
 import { useGateway } from '../../hooks/useGateway';
@@ -31,6 +31,8 @@ export function CliTools({status, navigate}: {status: GatewayStatus | null; navi
   // A coding agent's request on each surface: tools, a short prompt, no image. New keys get the Policies defaults.
   const needs = {tools: true, vision: false, inputTokens: 2000, maxTokens: 1000, thinking: null, effort: null};
   const anthropicPlan = useGateway(api => api.autoSimulate(null, 'auto', {surfaceAnthropic: true, ...needs}));
+  // Claude Code also asks Claude models for adaptive thinking: its check includes that (Codex review 7).
+  const claudePlan = useGateway(api => api.autoSimulate(null, 'auto', CLAUDE_CODE_NEEDS));
   const openaiPlan = useGateway(api => api.autoSimulate(null, 'auto', {surfaceAnthropic: false, ...needs}));
   const latestFor = (clientId: string | undefined | null) => clientId ? latest.data?.find(r => r.clientId === clientId) : undefined;
   const byName = (name: string | null) => active.find(c => c.name === name);
@@ -44,7 +46,7 @@ export function CliTools({status, navigate}: {status: GatewayStatus | null; navi
       {noProvider && <p className="client-check failed tool-status no-provider" role="status"><CircleAlert size={13} aria-hidden/>
         <span>{t('Connect a provider before sending requests through Pygg: until one is connected, every tool’s requests would be refused.')}{' '}
           <button type="button" className="link-button" onClick={() => navigate('connections', 'connect')}>{t('Connect Provider…')}</button></span></p>}
-      <ClaudeLauncher latestFor={latestFor} onFailed={client => navigate('usage', `failed:${client}`)} note={noProvider ? null : <Eligibility plan={anthropicPlan.data} tool={t('Claude Code')} navigate={navigate}/>}/>
+      <ClaudeLauncher latestFor={latestFor} onFailed={client => navigate('usage', `failed:${client}`)} note={noProvider ? null : <Eligibility plan={claudePlan.data} tool={t('Claude Code')} navigate={navigate}/>}/>
       <Integrations kind="gateway" status={i => <ToolStatus latest={latestFor(byName(i.clientName)?.id)}
         onFailed={() => navigate('usage', `failed:${i.clientName ?? ''}`)}/>}
         note={i => noProvider ? null : <Eligibility plan={i.id === 'codex-gateway' ? openaiPlan.data : anthropicPlan.data} tool={i.id === 'codex-gateway' ? t('Codex') : t('OpenCode')} navigate={navigate}/>}/>

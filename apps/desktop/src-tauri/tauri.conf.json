@@ -44,6 +44,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "copyright": "© 2026 the Pygg contributors"
+    "copyright": "© 2026 the Pygg contributors",
+    "resources": {
+      "../../../LICENSE": "LICENSE.txt",
+      "licenses/THIRD-PARTY-LICENSES.md": "THIRD-PARTY-LICENSES.md"
+    }
   }
 }

@@ -1119,6 +1119,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                     upstream: same_format.then_some((status, content_type, bytes)),
                     retry_after: retry_after.map(|d| d.as_secs().max(1)) };
                 if next == Next::Stop {
+                    crate::applog::warn(&format!("request {request_id} for {requested}: stopped after {name}: {}", refusal.message));
                     return Err(refusal);
                 }
                 last = Some(refusal);
@@ -1131,6 +1132,8 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         if !skipped.is_empty() {
             refusal.message = format!("{} Also skipped: {}.", refusal.message, skipped.join("; "));
         }
+        // Why a request got no answer goes to the app's log too: the client may retry and hide it (applog.rs).
+        crate::applog::warn(&format!("request {request_id} for {requested}: no answer: {}", refusal.message));
         return Err(refusal);
     }
     let wait = retry_at.map(|at| ((at - db_now()).max(1000) as u64).div_ceil(1000));
@@ -1147,8 +1150,9 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
     } else {
         (StatusCode::BAD_GATEWAY, "api_error")
     };
-    Err(Refusal { retry_after: wait, ..Refusal::new(status, kind, format!("No target could take \"{requested}\": {}.",
-        skipped.join("; "))) })
+    let message = format!("No target could take \"{requested}\": {}.", skipped.join("; "));
+    crate::applog::warn(&format!("request {request_id}: {message}"));
+    Err(Refusal { retry_after: wait, ..Refusal::new(status, kind, message) })
 }
 
 /// The response header that names the client's request in Pygg's ledger (migration 0030), the same for all its attempts.
