@@ -149,10 +149,10 @@ pub async fn run(mut args: Vec<String>) {
         }
         "remove-connection" => {
             let id = one("id").unwrap_or_else(|| fail("--id is required"));
-            if let Some(reference) = shared.with_db(|db| store::remove_provider(db, &id)).unwrap_or_else(|e| fail(e)) {
+            for reference in shared.with_db(|db| store::remove_provider(db, &id)).unwrap_or_else(|e| fail(e)) {
                 vault::remove(&reference).unwrap_or_else(|e| fail(e));
             }
-            println!("Removed {id} and its key");
+            println!("Removed {id} and its keys");
         }
         "refresh-models" => {
             let id = one("id").unwrap_or_else(|| fail("--id is required"));

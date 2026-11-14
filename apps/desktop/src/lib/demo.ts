@@ -7,7 +7,7 @@
 import type { AgentInfo, Integration, Launcher, ClientDefaults, ConnectionCheck, HealthStrip, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, RoutingSummary, TokenMix, TokenMixGroup, TokenParts, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus, SavingsPart, SavingsPeriod,
   Health, Model, Preset, Target, Tier, UsageEvent, UsageBucket, UsageGroup, UsageSummary, Account, Wire,
   LocalUsage, SubscriptionUsage, Retention } from './api';
-import { TIERS, WEB_WARNING_VERSION } from './api';
+import { TIERS, WEB_WARNING_VERSION, type ConnectionKey, type KeyStrategy } from './api';
 import { SAMPLE_WORKSPACES, sampleTasks } from './sample';
 import type { AttemptView, NewTask, TaskDetail, TaskSummary, WorkspaceView } from './tasks';
 
@@ -326,6 +326,9 @@ export function demoApi(): GatewayApi {
     events.length = 0;
   }
 
+  // Key rings (ADR-038), by connection: filled for `?stress` below; their functions are with the connections.
+  const rings = new Map<string, ConnectionKey[]>();
+  const keyStrategies = new Map<string, KeyStrategy>();
   // `?stress` fills the preview with data shaped like a real account (UI review 2026-11-14, after a models table broke on
   // the owner's OpenRouter free models): long model ids, dozens of them, long labels and names, failed tests with long
   // errors. Reviews look at every screen with it as well as with the default data.
@@ -360,6 +363,21 @@ export function demoApi(): GatewayApi {
         e.error = 'Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day. This message comes straight from the provider and is long on purpose.';
       }
     }
+    // OpenRouter with three keys of separate accounts (ADR-038): one rate-limited with a long provider message, one rejected.
+    const later = now + 42 * 60_000;
+    rings.set('openrouter', [
+      {id: 'or-k0', providerId: 'openrouter', label: 'First key', rank: 0, enabled: true, separateAccountAt: null, createdAt: now - 86_400_000,
+        primary: true, health: [], requestsToday: 132, lastUsedAt: now - 40_000, room: 0.62},
+      {id: 'or-k1', providerId: 'openrouter', label: 'Work account — the team’s shared OpenRouter organization, billed monthly by finance',
+        rank: 1, enabled: true, separateAccountAt: now - 3_600_000, createdAt: now - 3_600_000, primary: false, requestsToday: 87,
+        lastUsedAt: now - 300_000, room: 0, health: [{keyId: 'or-k1', modelId: ids[0], state: 'rate_limited', httpStatus: 429, untilMs: later, updatedAt: now,
+          reason: 'Router answered HTTP 429: Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day.'}]},
+      {id: 'or-k2', providerId: 'openrouter', label: 'Old trial account', rank: 2, enabled: true, separateAccountAt: now - 7_200_000,
+        createdAt: now - 7_200_000, primary: false, requestsToday: 3, lastUsedAt: now - 7_000_000, room: null,
+        health: [{keyId: 'or-k2', modelId: '', state: 'invalid_credentials', httpStatus: 401, untilMs: null, updatedAt: now,
+          reason: 'Router answered HTTP 401: User not found.'}]},
+    ]);
+    keyStrategies.set('openrouter', 'quota_aware');
     // A DeepSeek web session backed off after the site asked to slow down: the web guard's longest notes (ADR-035).
     connections.push({id: 'deepseek-web-stress', kind: 'deepseek-web', label: 'DeepSeek — personal account, signed in on this computer',
       endpoint: 'https://chat.deepseek.com', enabled: true, credentialRef: null, defaultBilling: 'free', dataUseTerms: 'unknown',
@@ -377,10 +395,18 @@ export function demoApi(): GatewayApi {
       monthAtRiskMicroUsd: mine.reduce((s, e) => s + (e.costMicroUsd === null ? e.atRiskMicroUsd ?? 0 : 0), 0)};
   }
   const quotaGroup = (c: Stored) => c.separateQuota ? c.id : c.kind;
+  // Key rings (ADR-038): keys of separate accounts on one connection, used in turn. The preview never holds a secret.
+  const NO_SIGN_INS = 'Only API-key connections have several keys. Sign-ins (web sessions, subscriptions) are never rotated.';
+  const keysRefused = (c: Stored) => c.web || PRESETS.find(p => p.id === c.kind)?.offer === 'local' ? NO_SIGN_INS : null;
+  const findKey = (keyId: string) => {
+    for (const [id, keys] of rings) { const k = keys.find(x => x.id === keyId); if (k) return {id, keys, k}; }
+    throw 'No such key';
+  };
   function view(c: Stored): Connection {
     const preset = PRESETS.find(p => p.id === c.kind);
     const {key, ...rest} = c;
-    return {...rest, quotaGroup: quotaGroup(c), presetName: preset?.name ?? c.kind, hasKey: key, needsKey: preset?.needsKey ?? false,
+    return {...rest, keys: rings.get(c.id) ?? [], keyStrategy: keyStrategies.get(c.id) ?? 'in_order', keysRefused: keysRefused(c),
+      quotaGroup: quotaGroup(c), presetName: preset?.name ?? c.kind, hasKey: key, needsKey: preset?.needsKey ?? false,
       freeModels: preset?.freeModels ?? false,
       readsAccount: c.kind === 'openrouter' || c.kind === 'deepseek', account: accounts.get(c.id) ?? null,
       models: models.filter(m => m.providerId === c.id).length,
@@ -389,7 +415,7 @@ export function demoApi(): GatewayApi {
       // Illustrative: what Anthropic's API sends with an answer.
       ...demoHealth(c),
       // Illustrative: the web guard after a long prompt and a timeout (ADR-035, migration 0028).
-      ...(c.web ? {webGuard: {hourUnits: 7, hourRequests: 3, hourUnitsCap: 20, hourRequestsCap: 15, todayUnits: 12, todayUnitsCap: 100,
+      ...(c.web ? {webDailyLimit: c.kind === 'deepseek-web' ? 30 : 50, webGuard: {hourUnits: 7, hourRequests: 3, hourUnitsCap: 20, hourRequestsCap: 15, todayUnits: 12, todayUnitsCap: 100,
         maxPromptChars: c.kind === 'deepseek-web' ? 4_000 : 12_000, burstRequests: 2, burstRequestsCap: c.kind === 'deepseek-web' ? 3 : 5,
         burstWindowMin: 10, dailyLimitMax: c.kind === 'deepseek-web' ? 30 : 100, restBaseSecs: c.kind === 'deepseek-web' ? 30 : 10,
         siteNote: c.kind === 'deepseek-web' ? "DeepSeek suspended an account for Pygg's pace on 2026-11-13, so its limits are lower than other sites'." : null,
@@ -708,6 +734,50 @@ export function demoApi(): GatewayApi {
       c.pool = pool;
       c.poolRank = pool ? connections.filter(x => x.pool === pool).length : null;
       return touch(view(c));
+    },
+    addConnectionKey: async (id, label, apiKey, separateAccount) => {
+      const c = find(id);
+      if (keysRefused(c)) throw NO_SIGN_INS;
+      if (!c.key) throw 'This connection has no key yet: set its key first, then add others.';
+      if (!separateAccount) throw 'Confirm that this key belongs to another account, with its own quota. Several keys of one account share its limits, so Pygg does not rotate them.';
+      if (!apiKey.trim()) throw 'Enter the API key';
+      const name = label.trim();
+      if (!name || name.length > 60) throw 'Give the key a name of 1 to 60 characters, such as the account it belongs to.';
+      const keys = rings.get(id) ?? [];
+      const now = Date.now();
+      if (!keys.length) keys.push({id: `${id}-k0`, providerId: id, label: 'First key', rank: 0, enabled: true, separateAccountAt: null,
+        createdAt: c.createdAt, primary: true, health: [], requestsToday: 0, lastUsedAt: null, room: null});
+      if (keys.some(k => k.label.toLowerCase() === name.toLowerCase())) throw `This connection already has a key named "${name}".`;
+      keys.push({id: `${id}-k${now}`, providerId: id, label: name, rank: keys.length, enabled: true, separateAccountAt: now, createdAt: now,
+        primary: false, health: [], requestsToday: 0, lastUsedAt: null, room: null});
+      rings.set(id, keys);
+      return touch(view(c));
+    },
+    removeConnectionKey: async keyId => {
+      const {keys, k} = findKey(keyId);
+      if (keys.length === 1) throw 'This is the connection’s only key. Replace it, or remove the connection.';
+      keys.splice(keys.indexOf(k), 1);
+      if (k.primary) keys[0].primary = true;
+      if (!keys.some(x => x.enabled)) keys[0].enabled = true;
+      keys.forEach((x, i) => { x.rank = i; });
+      await touch(undefined);
+    },
+    moveConnectionKey: async (keyId, up) => {
+      const {keys, k} = findKey(keyId);
+      const at = keys.indexOf(k), to = up ? at - 1 : at + 1;
+      if (to >= 0 && to < keys.length) [keys[at], keys[to]] = [keys[to], keys[at]];
+      keys.forEach((x, i) => { x.rank = i; });
+      await touch(undefined);
+    },
+    enableConnectionKey: async (keyId, enabled) => {
+      const {keys, k} = findKey(keyId);
+      if (!enabled && !keys.some(x => x.enabled && x !== k)) throw 'This is the only key on; turn another one on first, or turn the connection off.';
+      k.enabled = enabled;
+      await touch(undefined);
+    },
+    setKeyStrategy: async (id, strategy) => {
+      keyStrategies.set(id, strategy);
+      return touch(view(find(id)));
     },
     moveInPool: async (id, up) => {
       const c = find(id);

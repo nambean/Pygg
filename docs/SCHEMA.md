@@ -1,6 +1,6 @@
 # Store schema
 
-> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v30
+> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v31
 
 The local SQLite store (`db.rs`): every table after all migrations, in order. Credentials are never here: a
 connection holds only a reference to its key in the OS credential store (ADR-002). Client tokens are stored as
@@ -189,6 +189,32 @@ Indexes: `feedback_by_metric`, `feedback_by_target`.
 
 8 CHECK constraints (see the migrations).
 
+## `key_health`
+
+| Column | Type | Null | Default | Key | Added in |
+| --- | --- | --- | --- | --- | --- |
+| `key_id` | TEXT | no |  | primary | 0031_key_rings |
+| `model_id` | TEXT | no |  | primary | 0031_key_rings |
+| `state` | TEXT | no |  |  | 0031_key_rings |
+| `reason` | TEXT | no |  |  | 0031_key_rings |
+| `http_status` | INTEGER | yes |  |  | 0031_key_rings |
+| `until_ms` | INTEGER | yes |  |  | 0031_key_rings |
+| `updated_at` | INTEGER | no |  |  | 0031_key_rings |
+
+References: `key_id` → `provider_keys.id` (on delete cascade).
+
+## `key_limits`
+
+| Column | Type | Null | Default | Key | Added in |
+| --- | --- | --- | --- | --- | --- |
+| `key_id` | TEXT | no |  | primary | 0031_key_rings |
+| `model_id` | TEXT | no |  | primary | 0031_key_rings |
+| `headers_json` | TEXT | no |  |  | 0031_key_rings |
+| `http_status` | INTEGER | yes |  |  | 0031_key_rings |
+| `observed_at` | INTEGER | no |  |  | 0031_key_rings |
+
+References: `key_id` → `provider_keys.id` (on delete cascade).
+
 ## `metrics`
 
 | Column | Type | Null | Default | Key | Added in |
@@ -229,6 +255,23 @@ References: `provider_id` → `providers.id` (on delete cascade).
 
 7 CHECK constraints (see the migrations).
 
+## `provider_keys`
+
+| Column | Type | Null | Default | Key | Added in |
+| --- | --- | --- | --- | --- | --- |
+| `id` | TEXT | yes |  | primary | 0031_key_rings |
+| `provider_id` | TEXT | no |  |  | 0031_key_rings |
+| `label` | TEXT | no |  |  | 0031_key_rings |
+| `credential_ref` | TEXT | no |  |  | 0031_key_rings |
+| `rank` | INTEGER | no |  |  | 0031_key_rings |
+| `enabled` | INTEGER | no | `1` |  | 0031_key_rings |
+| `separate_account_at` | INTEGER | yes |  |  | 0031_key_rings |
+| `created_at` | INTEGER | no |  |  | 0031_key_rings |
+
+References: `provider_id` → `providers.id` (on delete cascade).
+
+Indexes: `provider_keys_by_provider`.
+
 ## `providers`
 
 | Column | Type | Null | Default | Key | Added in |
@@ -260,6 +303,8 @@ References: `provider_id` → `providers.id` (on delete cascade).
 | `web_backoff_until` | INTEGER | yes |  |  | 0028_web_guard |
 | `web_backoff_reason` | TEXT | yes |  |  | 0028_web_guard |
 | `web_strikes` | INTEGER | no | `0` |  | 0028_web_guard |
+| `key_strategy` | TEXT | no | `'in_order'` |  | 0031_key_rings |
+| `key_cursor` | INTEGER | no | `0` |  | 0031_key_rings |
 
 5 CHECK constraints (see the migrations).
 
@@ -391,10 +436,11 @@ Indexes: `tool_signatures_by_age`.
 | `billing` | TEXT | yes |  |  | 0030_request_facts |
 | `route_kind` | TEXT | yes |  |  | 0030_request_facts |
 | `cache_hint` | TEXT | yes |  |  | 0030_request_facts |
+| `key_id` | TEXT | yes |  |  | 0031_key_rings |
 
 References: `attempt_id` → `attempts.id`.
 
-Indexes: `usage_by_attempt`, `usage_by_client`, `usage_by_time`, `usage_events_by_request`.
+Indexes: `usage_by_attempt`, `usage_by_client`, `usage_by_time`, `usage_events_by_key`, `usage_events_by_request`.
 
 3 CHECK constraints (see the migrations).
 

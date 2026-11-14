@@ -48,6 +48,23 @@ export type Health = {
   untilMs: number | null; updatedAt: number;
 };
 
+/** How a connection with several keys orders them for a new request (ADR-038). */
+export type KeyStrategy = 'in_order' | 'round_robin' | 'least_used' | 'quota_aware';
+export const KEY_STRATEGIES: KeyStrategy[] = ['in_order', 'round_robin', 'least_used', 'quota_aware'];
+/** A key's cooldown or block: a rejected key until it is replaced (`untilMs` null), a 402 or 429 for a while. */
+export type KeyHealth = {keyId: string; modelId: string; state: HealthState; reason: string; httpStatus: number | null;
+  untilMs: number | null; updatedAt: number};
+/** One key of a connection's key ring, never its secret. */
+export type ConnectionKey = {
+  id: string; providerId: string; label: string; rank: number; enabled: boolean;
+  /** When the user confirmed it is another account's; null for the connection's first key. */
+  separateAccountAt: number | null; createdAt: number;
+  /** The connection's own key, which model lists and checks use. */
+  primary: boolean; health: KeyHealth[]; requestsToday: number; lastUsedAt: number | null;
+  /** The tightest share of its stated limits left, 0 to 1, if its account stated any. */
+  room: number | null;
+};
+
 export type Connection = {
   id: string; kind: string; label: string; endpoint: string; enabled: boolean; credentialRef: string | null;
   defaultBilling: Billing; dataUseTerms: string; createdAt: number;
@@ -80,6 +97,8 @@ export type Connection = {
   webState?: WebState | null;
   webStateReason?: string | null;
   webStateAt?: number | null;
+  /** Its key ring (ADR-038), empty until it has a second key; how it orders them; why it cannot have several. */
+  keys?: ConnectionKey[]; keyStrategy?: KeyStrategy; keysRefused?: string | null;
 };
 
 /** A limit a provider stated: what it allows, what is left, when it resets (ms). */
@@ -238,6 +257,8 @@ export type UsageEvent = {
   requestId?: string | null; attempt?: number | null;
   /** The billing it was sent under, how its route was chosen, and what happened to prompt-cache hints (schema v30). */
   billing?: string | null; routeKind?: string | null; cacheHint?: string | null;
+  /** The key of the connection's key ring that sent it, by name (schema v31, ADR-038). */
+  keyId?: string | null; keyLabel?: string | null;
 };
 
 /** A change of answering model inside a routing session (store::RouteChange). */
@@ -387,6 +408,12 @@ export interface GatewayApi {
   /** Puts a connection in a pool, or takes it out with null (ADR-034). */
   setConnectionPool(id: string, pool: string | null): Promise<Connection>;
   moveInPool(id: string, up: boolean): Promise<void>;
+  /** Key rings (ADR-038): a key from another account, confirmed as such; its order, on/off and removal. */
+  addConnectionKey(id: string, label: string, apiKey: string, separateAccount: boolean): Promise<Connection>;
+  removeConnectionKey(keyId: string): Promise<void>;
+  moveConnectionKey(keyId: string, up: boolean): Promise<void>;
+  enableConnectionKey(keyId: string, enabled: boolean): Promise<void>;
+  setKeyStrategy(id: string, strategy: KeyStrategy): Promise<Connection>;
   /** Records what the provider's terms say about training on requests; no_training needs a source. */
   setConnectionTerms(id: string, terms: 'no_training' | 'may_train' | 'unknown', source: string | null): Promise<Connection>;
   setConnectionKey(id: string, apiKey: string): Promise<Connection>;
@@ -530,6 +557,11 @@ const native: GatewayApi = {
   launcherSetUp: () => invoke('launcher_set_up'),
   launcherRemove: () => invoke('launcher_remove'),
   moveInPool: (id, up) => invoke('connection_move_in_pool', {id, up}),
+  addConnectionKey: (id, label, apiKey, separateAccount) => invoke('connection_key_add', {id, label, apiKey, separateAccount}),
+  removeConnectionKey: keyId => invoke('connection_key_remove', {keyId}),
+  moveConnectionKey: (keyId, up) => invoke('connection_key_move', {keyId, up}),
+  enableConnectionKey: (keyId, enabled) => invoke('connection_key_enable', {keyId, enabled}),
+  setKeyStrategy: (id, strategy) => invoke('connection_key_strategy', {id, strategy}),
   setConnectionTerms: (id, terms, source) => invoke('connection_set_terms', {id, terms, source}),
   removeConnection: id => invoke('connection_remove', {id}),
   refreshModels: id => invoke('connection_refresh_models', {id}),

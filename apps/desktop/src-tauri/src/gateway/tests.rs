@@ -21,6 +21,8 @@ struct Fake {
     flaky_failed: AtomicBool,
     /// The last request body the fake received, for the translation tests.
     last_body: Mutex<Option<Value>>,
+    /// The keys model `ring` was asked with, in order (key rings, ADR-038).
+    keys: Mutex<Vec<String>>,
 }
 
 impl Fake {
@@ -36,6 +38,21 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
     *fake.last_body.lock().unwrap() = Some(body.clone());
     if model == "badkey" {
         return (StatusCode::UNAUTHORIZED, Json(json!({ "error": { "message": "invalid api key" } }))).into_response();
+    }
+    // Model `ring` answers by key, as separate accounts would: one rejected, one rate-limited, the others well.
+    if model == "ring" {
+        let key = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "))
+            .unwrap_or_default().to_string();
+        fake.keys.lock().unwrap().push(key.clone());
+        match key.as_str() {
+            "key-bad" => return (StatusCode::UNAUTHORIZED, Json(json!({ "error": { "message": "invalid api key" } }))).into_response(),
+            "key-limited" => return ([(header::RETRY_AFTER, "120")], (StatusCode::TOO_MANY_REQUESTS,
+                Json(json!({ "error": { "message": "rate limit" } })))).into_response(),
+            _ => return ([("x-ratelimit-limit-requests", "100"), ("x-ratelimit-remaining-requests", "99")],
+                Json(json!({ "id": "c", "object": "chat.completion", "model": model, "choices": [{ "index": 0,
+                "message": { "role": "assistant", "content": format!("answered with {key}") }, "finish_reason": "stop" }],
+                "usage": { "prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15 } }))).into_response(),
+        }
     }
     if headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) != Some("Bearer key-1") {
         return (StatusCode::UNAUTHORIZED, Json(json!({ "error": { "message": "bad key" } }))).into_response();
@@ -287,7 +304,9 @@ async fn rig_on(read_timeout: Duration, store_path: Option<&std::path::Path>) ->
     let _ = router;
     let (client, token) = store::create_client(&conn, "Tests", None).unwrap();
 
-    let secrets = MapSecrets(HashMap::from([("provider-main".to_string(), "key-1".to_string())]));
+    let secrets = MapSecrets(HashMap::from([("provider-main".to_string(), "key-1".to_string()),
+        ("provider-k2".to_string(), "key-2".to_string()), ("provider-limited".to_string(), "key-limited".to_string()),
+        ("provider-bad".to_string(), "key-bad".to_string())]));
     let shared = Shared::with_read_timeout(Arc::new(Mutex::new(conn)), Arc::new(secrets), read_timeout);
     let shared = match store_path { Some(path) => Shared::for_store(shared.db.clone(), shared.secrets.clone(), path), None => shared };
     let server = start(shared.clone(), 0).await.unwrap();
@@ -2180,5 +2199,88 @@ fn overhead() {
             std::fs::write(out, serde_json::to_string_pretty(&json!({ "scenarios": scenarios, "concurrent16": load,
                 "ledgerEntries": ledger })).unwrap()).unwrap();
         }
+    });
+}
+
+// ---------- Key rings (ADR-038) ----------
+
+fn ring_model(rig: &Rig) {
+    rig.shared.with_db(|db| {
+        store::add_model(db, "main", "ring").unwrap();
+        store::update_model(db, "main", "ring", None, None, Some(Some(price()))).unwrap();
+    });
+}
+
+#[test]
+fn a_key_ring_moves_past_a_rate_limited_or_rejected_key_and_the_ledger_names_each_key() {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let rig = rig().await;
+        ring_model(&rig);
+        let limited = rig.shared.with_db(|db| {
+            let limited = keys::add(db, "main", "Limited", "provider-limited", true, crate::db::now_ms()).unwrap();
+            keys::add(db, "main", "Second", "provider-k2", true, crate::db::now_ms()).unwrap();
+            keys::move_key(db, &limited.id, true).unwrap();
+            limited
+        });
+        // Order: Limited, First key, Second. Limited answers 429; the first key answers.
+        let response = rig.post("/v1/chat/completions", chat("main/ring")).await;
+        assert_eq!(response.status(), 200);
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["choices"][0]["message"]["content"], "answered with key-1");
+        assert_eq!(*rig.fake.keys.lock().unwrap(), ["key-limited", "key-1"]);
+        let ledger = rig.ledger();
+        let labels: Vec<(Option<&str>, &str)> = ledger.iter().map(|e| (e.key_label.as_deref(), e.outcome.as_str())).collect();
+        assert_eq!(labels, [(Some("Limited"), "fallback"), (Some("First key"), "ok")]);
+        assert!(rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap().is_empty(), "the connection is not marked");
+        let marks = rig.shared.with_db(|db| keys::health(db, "main", crate::db::now_ms())).unwrap();
+        assert_eq!((marks[0].key_id.as_str(), marks[0].model_id.as_str(), marks[0].state.as_str()),
+            (limited.id.as_str(), "ring", "rate_limited"));
+        assert!(marks[0].until_ms.unwrap() > crate::db::now_ms() + 100_000, "its Retry-After of 120 s");
+
+        // The next request skips the cooling key without asking it.
+        rig.fake.keys.lock().unwrap().clear();
+        assert_eq!(rig.post("/v1/chat/completions", chat("main/ring")).await.status(), 200);
+        assert_eq!(*rig.fake.keys.lock().unwrap(), ["key-1"]);
+
+        // A rejected key is blocked until the user fixes it, and the ring goes on.
+        let bad = rig.shared.with_db(|db| {
+            let bad = keys::add(db, "main", "Bad", "provider-bad", true, crate::db::now_ms()).unwrap();
+            for _ in 0..3 {
+                keys::move_key(db, &bad.id, true).unwrap();
+            }
+            bad
+        });
+        rig.fake.keys.lock().unwrap().clear();
+        assert_eq!(rig.post("/v1/chat/completions", chat("main/ring")).await.status(), 200);
+        assert_eq!(*rig.fake.keys.lock().unwrap(), ["key-bad", "key-1"]);
+        let blocked = rig.shared.with_db(|db| keys::blocking(db, &bad, "anything", crate::db::now_ms())).unwrap().unwrap();
+        assert_eq!((blocked.state.as_str(), blocked.until_ms), ("invalid_credentials", None));
+        assert!(rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap().is_empty());
+    });
+}
+
+#[test]
+fn round_robin_spreads_new_requests_and_a_session_keeps_its_key() {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let rig = rig().await;
+        ring_model(&rig);
+        rig.shared.with_db(|db| {
+            keys::add(db, "main", "Second", "provider-k2", true, crate::db::now_ms()).unwrap();
+            keys::set_strategy(db, "main", "round_robin").unwrap();
+        });
+        for _ in 0..4 {
+            assert_eq!(rig.post("/v1/chat/completions", chat("main/ring")).await.status(), 200);
+        }
+        assert_eq!(*rig.fake.keys.lock().unwrap(), ["key-1", "key-2", "key-1", "key-2"]);
+        rig.fake.keys.lock().unwrap().clear();
+        for _ in 0..3 {
+            assert_eq!(rig.post_session("/v1/chat/completions", "s-1", chat("main/ring")).await.status(), 200);
+        }
+        let used = rig.fake.keys.lock().unwrap().clone();
+        assert!(used.iter().all(|k| *k == used[0]), "one session, one key (its account's prompt cache): {used:?}");
+        // The ring's stated limits are kept per key, for the quota-aware order.
+        let ring = rig.shared.with_db(|db| keys::list(db, "main")).unwrap();
+        let windows = rig.shared.with_db(|db| keys::windows(db, &ring[0].id, "ring")).unwrap();
+        assert_eq!(windows.iter().find(|w| w.kind == "requests").and_then(|w| w.remaining), Some(99));
     });
 }

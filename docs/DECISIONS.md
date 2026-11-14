@@ -180,7 +180,7 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 
 **Status:** proposed. See [CLI / IDE / npm / tiers](CLI_IDE_NPM_PROVIDER_TIERS.md).
 
-## ADR-023 — Authorized multi-account rotation with session affinity (proposed)
+## ADR-023 — Authorized multi-account rotation with session affinity (proposed; built as ADR-034 and ADR-038)
 
 **Decision:** Per-provider authorized Account Pools may use Fill First, Round Robin, Sticky Round Robin and later cost-aware/weighted selection. Persist account/model affinity across normal conversation turns for cache and context continuity, subject to hard eligibility and policy filters. Retry or fallback only safely before stream output, with per-account health, explicit quota groups and reset-aware cooldown. Enforce client-key allowlists and atomic reservations across concurrent requests.
 
@@ -397,6 +397,24 @@ The orchestrator (worktrees, checks, the cascade) becomes a layer on top of the 
 **Not done.** linux-arm64 and musl builds (added when someone asks; the launcher already explains their absence), code signing and notarisation (owner: no signing during development), publishing (the owner's step: PUBLISHING.md).
 
 **Consequences.** One command on three systems, each download one program (5 to 6 MB packed). A new platform is a row in `PLATFORMS` (npm-pack.mjs and the launcher), an optional dependency and a CI matrix entry. The window's code must stay behind `#[cfg(feature = "app")]`, which `cargo check --no-default-features` and the Linux job catch.
+
+## ADR-038 — Key rings: several API keys of separate accounts on one connection, used in turn (2026-11-14)
+
+**Context.** The owner asked for the planned multi-account rotation ([Account Rotation](ACCOUNT_API_ROTATION.md), ROADMAP E): several API keys or accounts per provider, rotated in order, round-robin, least-used or by the rate limits the provider states, with per-key cooldowns and blocks, the key that answered in the ledger, and the keys on Providers. ADR-034 already pools separate connections as `<pool>/<model>`; a pool member is a whole connection (endpoint, models, prices), so ten accounts mean ten copies of the same model list, and clients must ask for the pool's name.
+
+**Decision.** A connection may hold a **key ring**: its own key plus keys of other accounts, each confirmed by the user as another account with its own quota (the ADR-034 rule, kept: several keys of one account share its limits, and rotating them would only get around them). Requests keep naming `connection/model`, combos and `auto` unchanged.
+- **Order per connection** (`providers.key_strategy`): `in_order` (the user's order, the default), `round_robin` (the next key first, request by request, `providers.key_cursor`), `least_used` (fewest requests today, from the ledger) or `quota_aware` (most room left by the limits that key's account last stated, read by `quota.rs` from its own rate-limit headers, `key_limits`; a key whose stated limit is used up goes last; without stated limits, least used). A session goes back to the key that answered it (its account's prompt cache), whatever the order.
+- **Per-key cooldowns and blocks**, decided by `policy.rs` as before: a 401 (or a rejected-key 400) blocks the key until the user replaces or removes it; a 402, an out-of-credit answer or a 429 cools the key (the whole key, or the one model for a 429) for the provider's Retry-After or Pygg's default; the next key is tried at once. Such a failure marks the key (`key_health`), not the connection, and a key's 429 does not strike the model out of `auto` while the ring has other keys. Other failures (unreachable, 5xx, a timeout) stay the connection's, with their rules (no retry after a server error unless the client allows one). Quota groups still hold: the ring's own keys go on, other connections of the group do not get the request.
+- **The ledger names the key** (`usage_events.key_id`, shown by name in Usage → a request's details); a removed key's requests keep its id.
+- **Secrets** stay in the system's credential store, one reference per key (`provider_keys.credential_ref`); nothing reads, logs or returns a key. A key already on the connection is refused by comparing in memory. Removing the connection deletes every key's secret; removing the connection's own key makes the next key its key, for model lists and checks.
+- **Never rotated:** web sessions (ADR-035), subscription sign-ins and agents' own sign-ins (ADR-026), local runtimes. They have no ring; Providers does not offer one.
+- **Providers → a connection → API keys:** the keys in order with their state (Ready, Rate-limited on a model until a time, Key rejected, Off) and the provider's reason, requests today, last use and the room their stated limits leave; move up and down, on and off (the last key on stays on), remove (with a confirmation), the order, and **Add Key from Another Account…** (a name, the key, and the confirmation of another account).
+
+**Built.** Schema v31 (`provider_keys`, `key_health`, `key_limits`, `providers.key_strategy` and `key_cursor`, `usage_events.key_id`), `gateway/keys.rs`, the gateway's expansion of a ring into one attempt per key, the commands `connection_key_*`, Providers and Usage, and `?stress` data with a ring of three keys (one cooling, one rejected). Tests: 8 of the store's rules and each order (`gateway/keys/tests.rs`), 2 through the gateway against a provider that answers by key (`gateway/tests.rs`: a rate-limited and a rejected key skipped, the ledger naming each key, round robin, a session keeping its key, limits kept per key).
+
+**Not done.** Weights and a sticky turn count (§3), a simulator, per-key budgets. Pools (ADR-034) stay for accounts that need connections of their own (another endpoint, other models or prices).
+
+**Consequences.** One connection carries several accounts; when one is rate-limited, out of credit or rejected the next answers in the same request, and Providers and Usage say which key did what. The rule against rotating one account's keys depends on the user's confirmation, as a pool's does: Pygg cannot check it.
 
 ## Open decisions (not yet finalized)
 

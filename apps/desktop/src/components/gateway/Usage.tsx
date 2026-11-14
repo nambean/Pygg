@@ -440,6 +440,7 @@ function LedgerRow({event: e, open, onToggle, chain}: {event: UsageEvent; open: 
         {e.routeMode && <><dt>{t('Route')}</dt><dd>{e.routeMode === 'native' ? t('Passed through in the same format')
           : t('Translated ({mode})', {mode: e.routeMode.replace('translated:', '')})}</dd></>}
         {e.routeKind && <><dt>{t('How the route was chosen')}</dt><dd>{routeKindText(e.routeKind)}</dd></>}
+        {e.keyLabel && <><dt>{t('Key')}</dt><dd>{t('{key}, of the connection’s keys', {key: e.keyLabel})}</dd></>}
         {e.routeReason && <><dt>{t('Why this model')}</dt><dd>{e.routeReason}</dd></>}
         {e.billing && <><dt>{t('Billing when sent')}</dt><dd>{e.billing}</dd></>}
         {e.cacheHint && <><dt>{t('Prompt-cache hints')}</dt><dd>{cacheHintText(e.cacheHint)}</dd></>}

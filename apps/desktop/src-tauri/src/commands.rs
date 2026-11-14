@@ -181,6 +181,11 @@ pub struct ConnectionView {
     pub health_strip: store::HealthStrip,
     /// The site's assistant can act for the user (Muse).
     pub web_acts: bool,
+    /// Its key ring (ADR-038): every key with its state, use today and stated room, without secrets; empty until it has
+    /// a second key. How it orders them, and why it cannot have several keys, if it cannot.
+    pub keys: Vec<gateway::keys::KeyView>,
+    pub key_strategy: String,
+    pub keys_refused: Option<String>,
 }
 
 /// What the web guard allows a web session now: its hour's and day's shares by weight, its rest and its back-off.
@@ -247,6 +252,9 @@ fn view(state: &AppState, provider: Provider) -> ConnectionView {
         last_check: state.shared.with_db(|db| store::last_check(db, &provider.id)).ok().flatten(),
         health_strip: state.shared.with_db(|db| store::health_strip(db, &provider.id, crate::db::now_ms())).unwrap_or_default(),
         web_acts: preset.is_some_and(|p| p.web_acts),
+        keys: state.shared.with_db(|db| gateway::keys::views(db, &provider, crate::db::now_ms())).unwrap_or_default(),
+        key_strategy: state.shared.with_db(|db| gateway::keys::strategy(db, &provider.id)).unwrap_or_else(|_| "in_order".into()),
+        keys_refused: gateway::keys::can_have_keys(&provider).err(),
         limits,
         account,
         reads_account: gateway::quota::account_endpoint(&provider.kind).is_some(),
@@ -386,7 +394,7 @@ pub fn connection_set_terms(state: State<'_, AppState>, id: String, terms: Strin
 #[tauri::command]
 pub fn connection_remove(state: State<'_, AppState>, id: String) -> Res<()> {
     let profile = state.shared.with_db(|db| store::get_provider(db, &id))?.and_then(|p| p.web_profile);
-    let reference = state.shared.with_db(|db| store::remove_provider(db, &id))?;
+    let references = state.shared.with_db(|db| store::remove_provider(db, &id))?;
     // A web session's window closes and its profile folder, with the sign-in, is deleted (ADR-035).
     if let Some(profile) = profile {
         match &state.web {
@@ -395,7 +403,7 @@ pub fn connection_remove(state: State<'_, AppState>, id: String) -> Res<()> {
         }
     }
     sync_opencode(&state);
-    if let Some(reference) = reference {
+    for reference in references {
         vault::remove(&reference).map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -596,6 +604,62 @@ pub async fn model_test(state: State<'_, AppState>, provider_id: String, model_i
 #[tauri::command]
 pub async fn combo_test(state: State<'_, AppState>, name: String) -> Res<gateway::model_test::TestResult> {
     gateway::model_test::run_requested(&state.shared, &name).await
+}
+
+// ---------- Key rings (ADR-038) ----------
+
+/// Adds a key from another account to the connection's key ring. The secret goes to the system's credential store;
+/// the store keeps only its reference. A key already on the connection is refused (compared in memory, never logged).
+#[tauri::command]
+pub fn connection_key_add(state: State<'_, AppState>, id: String, label: String, api_key: String, separate_account: bool)
+    -> Res<ConnectionView> {
+    let key = api_key.trim();
+    if key.is_empty() {
+        return Err("Enter the API key".into());
+    }
+    let provider = state.shared.with_db(|db| store::get_provider(db, &id))?.ok_or("Connection not found")?;
+    gateway::keys::can_have_keys(&provider)?;
+    if !separate_account {
+        return Err(gateway::keys::SEPARATE_ACCOUNT.into());
+    }
+    let mut existing = state.shared.with_db(|db| gateway::keys::refs(db, &id))?;
+    existing.extend(provider.credential_ref.clone());
+    if existing.iter().any(|reference| vault::read(reference).ok().flatten().as_deref() == Some(key)) {
+        return Err("This key is already on this connection.".into());
+    }
+    let reference = vault::new_reference();
+    vault::store(&reference, key).map_err(|e| e.to_string())?;
+    if let Err(e) = state.shared.with_db(|db| gateway::keys::add(db, &id, &label, &reference, true, crate::db::now_ms())) {
+        let _ = vault::remove(&reference);
+        return Err(e);
+    }
+    let provider = state.shared.with_db(|db| store::get_provider(db, &id))?.ok_or("Connection not found")?;
+    Ok(view(&state, provider))
+}
+
+/// Removes a key from its connection's ring and deletes its secret.
+#[tauri::command]
+pub fn connection_key_remove(state: State<'_, AppState>, key_id: String) -> Res<()> {
+    let reference = state.shared.with_db(|db| gateway::keys::remove(db, &key_id))?;
+    vault::remove(&reference).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn connection_key_move(state: State<'_, AppState>, key_id: String, up: bool) -> Res<()> {
+    state.shared.with_db(|db| gateway::keys::move_key(db, &key_id, up))
+}
+
+#[tauri::command]
+pub fn connection_key_enable(state: State<'_, AppState>, key_id: String, enabled: bool) -> Res<()> {
+    state.shared.with_db(|db| gateway::keys::set_enabled(db, &key_id, enabled))
+}
+
+/// How the connection orders its keys for a new request: in_order, round_robin, least_used or quota_aware.
+#[tauri::command]
+pub fn connection_key_strategy(state: State<'_, AppState>, id: String, strategy: String) -> Res<ConnectionView> {
+    state.shared.with_db(|db| gateway::keys::set_strategy(db, &id, &strategy))?;
+    let provider = state.shared.with_db(|db| store::get_provider(db, &id))?.ok_or("Connection not found")?;
+    Ok(view(&state, provider))
 }
 
 /// Puts a connection in a pool, or takes it out with `None` (ADR-034).

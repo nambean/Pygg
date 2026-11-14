@@ -25,6 +25,7 @@ pub mod anthropic;
 pub mod auto;
 pub mod catalog;
 pub mod checker;
+pub mod keys;
 pub mod openai_to_anthropic;
 pub mod policy;
 pub mod presets;
@@ -795,12 +796,28 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         }
     }
 
+    // A connection with a key ring (ADR-038) is tried key by key, in its strategy's order, the key that answered this
+    // session first; a key that is cooling or blocked is skipped with its reason below.
+    let mut keyed: Vec<(Provider, String, Option<keys::Key>)> = Vec::with_capacity(targets.len());
+    for (provider, model_id) in targets {
+        let ring = if presets::is_web(&provider.kind) { Vec::new() } else {
+            let sticky = incoming.session.and_then(|s| shared.with_db(|db| keys::session_key(db, &client.id, s, &provider.id, &model_id))
+                .ok().flatten());
+            shared.with_db(|db| keys::order(db, &provider, &model_id, sticky.as_deref(), db_now())).unwrap_or_default()
+        };
+        if ring.is_empty() {
+            keyed.push((provider, model_id, None));
+        } else {
+            keyed.extend(ring.into_iter().map(|key| (provider.clone(), model_id.clone(), Some(key))));
+        }
+    }
+
     // One id for the client's request, shared by its attempts, and how its route was chosen (migration 0030).
     let request_id = uuid::Uuid::new_v4().simple().to_string();
     let route_kind = route_kind(shared, requested);
     let mut journaled = 0u32;
 
-    let count = targets.len();
+    let count = keyed.len();
     let mut sent = 0;
     let mut last: Option<Refusal> = None;
     let mut skipped: Vec<String> = Vec::new();
@@ -818,9 +835,12 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
     // review, A8). An API target still may, under the rules below.
     let mut web_sent = false;
 
-    for (index, (provider, model_id)) in targets.into_iter().enumerate() {
+    for (index, (provider, model_id, key)) in keyed.into_iter().enumerate() {
         let outcome_if_failed = if index + 1 < count { "fallback" } else { "error" };
-        let name = format!("{}/{model_id}", provider.id);
+        let name = match &key {
+            Some(key) => format!("{}/{model_id} (key \"{}\")", provider.id, key.label),
+            None => format!("{}/{model_id}", provider.id),
+        };
         let route_reason = reasons.get(&(provider.id.clone(), model_id.clone())).cloned();
 
         // A client restricted to some connections, or to providers that do not train on its data, never reaches
@@ -877,6 +897,15 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             skipped.push(format!("{name}: shares limits with {}, which is {} ({})", holder.label,
                 hold.state.replace('_', " "), hold.reason));
             continue;
+        }
+        if let Some(key) = &key {
+            if let Ok(Some(mark)) = shared.with_db(|db| keys::blocking(db, key, &model_id, db_now())) {
+                if let Some(until) = mark.until_ms {
+                    retry_at = Some(retry_at.map_or(until, |r: i64| r.min(until)));
+                }
+                skipped.push(format!("{name}: {} ({})", mark.state.replace('_', " "), mark.reason));
+                continue;
+            }
         }
 
         let (billing, price) = shared.with_db(|db| store::pricing_for(db, &provider, &model_id)).unwrap_or_default();
@@ -945,7 +974,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         let pinned_here = pinned_target.as_ref().is_some_and(|p| p.provider_id == provider.id && p.model_id == model_id);
         let facts = store::AttemptFacts { request_id: request_id.clone(), attempt: journaled, billing: billing.clone(),
             route_kind: if pinned_here { format!("{route_kind}+pinned") } else { route_kind.clone() },
-            cache_hint: cache_hint(incoming, &provider, mode).to_string() };
+            cache_hint: cache_hint(incoming, &provider, mode).to_string(), key_id: key.as_ref().map(|k| k.id.clone()) };
         let started = Instant::now();
         let settle_failure = |journal: Attempt, status: Option<u16>, cost: Cost, outcome: &str, error: &str| {
             journal.settle(shared, &UsageRecord {
@@ -954,7 +983,9 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                     started.elapsed().as_millis() as u64, error)
             });
         };
+        let marked_key = key.clone();
         let mut apply = |failure: &Failure, message: &str, provider: &Provider| -> policy::Decision {
+            let key = &marked_key;
             let decision = policy::decide(failure);
             if let Some(mark) = &decision.mark {
                 let until = mark.cooldown.map(|d| db_now() + d.as_millis() as i64);
@@ -965,10 +996,17 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                     && shared.with_db(|db| store::free_without_credit(db, &provider.id, &model_id)).unwrap_or(false));
                 let model = if model_scope { model_id.as_str() } else { "" };
                 let status = match failure { Failure::Http(e) => Some(e.status), _ => None };
-                let _ = shared.with_db(|db| store::mark_health(db, &provider.id, model, mark.state, message, status, until));
+                // A rejected key, no credit or a rate limit belongs to the key's account: with a key ring it marks that
+                // key, and the connection's other keys go on (ADR-038).
+                let on_key = key.as_ref().filter(|_| keys::KEY_STATES.contains(&mark.state));
+                match on_key {
+                    Some(key) => { let _ = shared.with_db(|db| keys::mark(db, &key.id, model, mark.state, message, status, until)); }
+                    None => { let _ = shared.with_db(|db| store::mark_health(db, &provider.id, model, mark.state, message, status, until)); }
+                }
                 // A 429 on one model is a strike against it in `auto`: without a usable reset, or repeated, the model
                 // is held out of the automatic routes for a growing while (`auto::strike`). Named routes still try it.
-                if mark.state == "rate_limited" && model_scope {
+                // One key's 429 says nothing of the model while the ring has others.
+                if mark.state == "rate_limited" && model_scope && on_key.is_none() {
                     let reset = match failure { Failure::Http(e) => e.retry_after, _ => None };
                     let _ = shared.with_db(|db| auto::strike(db, &provider.id, &model_id, reset, message, db_now()));
                 }
@@ -979,14 +1017,23 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             decision
         };
 
-        let key = match &provider.credential_ref {
+        // The ring's key for this attempt, or the connection's own.
+        let reference = key.as_ref().map(|k| k.credential_ref.clone()).or_else(|| provider.credential_ref.clone());
+        let ring_key = key;
+        let key = match &reference {
             _ if web => shared.web.as_ref().map(|link| link.token.clone()),
             Some(reference) => match shared.secrets.read(reference) {
                 Ok(Some(key)) => Some(key),
                 Ok(None) => {
-                    let message = format!("No key is stored for {}", provider.label);
+                    let message = match &ring_key {
+                        Some(k) => format!("No key is stored for {} (key \"{}\")", provider.label, k.label),
+                        None => format!("No key is stored for {}", provider.label),
+                    };
                     settle_failure(journal, None, Cost::Estimated { micro_usd: 0, source: "not sent".into() }, outcome_if_failed, &message);
-                    let _ = shared.with_db(|db| store::mark_health(db, &provider.id, "", "invalid_credentials", &message, None, None));
+                    let _ = shared.with_db(|db| match &ring_key {
+                        Some(k) => keys::mark(db, &k.id, "", "invalid_credentials", &message, None, None),
+                        None => store::mark_health(db, &provider.id, "", "invalid_credentials", &message, None, None),
+                    });
                     last = Some(Refusal::new(StatusCode::BAD_GATEWAY, "api_error", message));
                     continue;
                 }
@@ -1061,8 +1108,11 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 last = Some(Refusal::new(StatusCode::BAD_GATEWAY, "api_error", message));
             }
             Ok(response) if response.status().is_success() => {
-                note_limits(shared, &provider.id, &model_id, response.status().as_u16(), response.headers());
+                note_limits(shared, &provider.id, &model_id, ring_key.as_ref(), response.status().as_u16(), response.headers());
                 let _ = shared.with_db(|db| store::mark_healthy(db, &provider.id, &model_id));
+                if let Some(k) = &ring_key {
+                    let _ = shared.with_db(|db| keys::healthy(db, &k.id, &model_id));
+                }
                 let _ = shared.with_db(|db| auto::clear_hold(db, &provider.id, &model_id));
                 let pinned = pinned_target.as_ref().is_some_and(|p| p.provider_id == provider.id && p.model_id == model_id);
                 let auto_header = auto_plan.as_ref().and_then(|plan| plan.ranked.iter()
@@ -1084,7 +1134,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 let status = response.status();
                 let headers = response.headers().clone();
                 web_sent |= web && headers.contains_key(crate::websession::SENT_HEADER);
-                note_limits(shared, &provider.id, &model_id, status.as_u16(), &headers);
+                note_limits(shared, &provider.id, &model_id, ring_key.as_ref(), status.as_u16(), &headers);
                 let content_type = headers.get(header::CONTENT_TYPE).cloned();
                 let bytes = read_limited(response, MAX_ERROR_BODY).await;
                 let error = policy::ProviderError::from_response(status.as_u16(), &headers, &bytes);
@@ -1341,13 +1391,17 @@ pub fn record_success(shared: &Shared, mut forwarded: Forwarded, usage: Option<&
 
 /// Keeps the rate-limit headers a provider sent with an answer, to show as "as the provider last said" (PV-06,
 /// ADR-030). Recording is best effort: a failed write never fails the request.
-fn note_limits(shared: &Shared, provider_id: &str, model_id: &str, status: u16, headers: &HeaderMap) {
+fn note_limits(shared: &Shared, provider_id: &str, model_id: &str, key: Option<&keys::Key>, status: u16, headers: &HeaderMap) {
     let pairs: Vec<(String, String)> = headers.iter()
         .filter(|(n, _)| store::is_limit_header(n.as_str()))
         .filter_map(|(n, v)| v.to_str().ok().map(|v| (n.as_str().to_string(), v.to_string())))
         .collect();
     if !pairs.is_empty() {
         let _ = shared.with_db(|db| store::record_limits(db, provider_id, model_id, status, &pairs));
+        // And per key, for the ring's quota-aware order (ADR-038).
+        if let Some(key) = key {
+            let _ = shared.with_db(|db| keys::record_limits(db, &key.id, model_id, status, &pairs));
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AppWindow, KeyRound, Plug, Plus, RefreshCw, Search, ShieldAlert, Trash2 } from 'lucide-react';
-import { BILLINGS, CODING_NEEDS, TIERS, WEB_WARNING_VERSION, call, errorText, gatewayChanged, type Billing, type Connection, type HealthStrip, type WebGuard, type Health, type Model,
+import { BILLINGS, CODING_NEEDS, KEY_STRATEGIES, TIERS, WEB_WARNING_VERSION, call, errorText, gatewayChanged, type Billing, type Connection,
+  type ConnectionKey, type HealthStrip, type KeyStrategy, type WebGuard, type Health, type Model,
   type Preset, type ModelTest, type Reliability, type Tier, type WebState, type AutoPlan, type AutoExcluded, type AutoExclusionKind } from '../../lib/api';
 import { ago, windowText } from '../../lib/format';
 import { locale, plural, t } from '../../lib/i18n';
@@ -305,7 +306,8 @@ function ConnectionDetail({connection: c, onRemoved, initialShow = 'all', plan}:
   const reliability = useGateway(api => api.reliability(c.id), [c.id], 30_000);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState<{ok: boolean; text: string} | null>(null);
-  const [sheet, setSheet] = useState<'key' | 'remove' | 'add-model' | 'quota' | {price: Model} | {caps: Model} | null>(null);
+  const [sheet, setSheet] = useState<'key' | 'remove' | 'add-model' | 'quota' | 'add-ring-key' | {price: Model} | {caps: Model}
+    | {removeKey: ConnectionKey} | null>(null);
   const [query, setQuery] = useState('');
   const [show, setShow] = useState<ModelShow>(initialShow);
   // What auto makes of each model for a coding tool's request: eligible, or why not.
@@ -382,6 +384,8 @@ function ConnectionDetail({connection: c, onRemoved, initialShow = 'all', plan}:
       </div>
       {c.health.length > 0 && <div className="group-row stacked"><HealthList connection={c}/></div>}
       {c.readsAccount && <AccountRow connection={c}/>}
+      {!c.web && !c.keysRefused && <KeyRingRow connection={c} onAdd={() => setSheet('add-ring-key')}
+        onRemove={key => setSheet({removeKey: key})}/>}
       {(c.limits?.length ?? 0) > 0 && <div className="group-row stacked">
         <span className="group-label">{t('Rate limits, as the provider last said')}
           <small>{t('Read from the headers of its last answer for each model. While a limit is used up, auto skips that model until it resets; a provider that sends none shows nothing here.')}</small></span>
@@ -495,6 +499,15 @@ function ConnectionDetail({connection: c, onRemoved, initialShow = 'all', plan}:
       </div>}
 
     {sheet === 'key' && <KeySheet connection={c} onClose={() => setSheet(null)}/>}
+    {sheet === 'add-ring-key' && <RingKeySheet connection={c} onClose={() => setSheet(null)}/>}
+    {sheet && typeof sheet === 'object' && 'removeKey' in sheet && <ConfirmSheet title={t('Remove the key “{name}”?', {name: sheet.removeKey.label})}
+      confirmLabel={t('Remove Key')}
+      message={<>
+        <p>{t('It is deleted from {store}, and this connection stops using it. Usage already recorded is kept, with its name.', {store: STORE})}</p>
+        {sheet.removeKey.primary && <p>{t('It is the connection’s own key: the next key takes its place for model lists and checks.')}</p>}
+      </>}
+      onClose={() => setSheet(null)}
+      onConfirm={async () => { await call(api => api.removeConnectionKey(sheet.removeKey.id)); gatewayChanged(); }}/>}
     {sheet === 'add-model' && <AddModelSheet connection={c} onClose={() => setSheet(null)} onAdded={() => { models.reload(); gatewayChanged(); }}/>}
     {sheet === 'quota' && <ConfirmSheet title={t('Confirm an independent quota for {name}?', {name: c.label})}
       confirmLabel={t('Confirm Independent Quota')} destructive={false}
@@ -970,6 +983,123 @@ function WebSessionRows({connection: c}: {connection: Connection}) {
       <span className="group-control value">{t('The site’s web page, driven by Pygg')}</span>
     </div>
   </>;
+}
+
+const keyStrategyLabel = (s: KeyStrategy) => ({in_order: t('In order'), round_robin: t('Round robin'), least_used: t('Least used today'),
+  quota_aware: t('Most room left')}[s]);
+const keyStrategyHint = (s: KeyStrategy) => ({
+  in_order: t('Each request tries the keys in this order and moves to the next when one is rate-limited, out of credit or rejected.'),
+  round_robin: t('Each new request starts with the next key in turn; a session stays on the key that answered it.'),
+  least_used: t('Each new request starts with the key that sent the fewest requests today (UTC).'),
+  quota_aware: t('Each new request starts with the key whose account last stated the most room left in its rate limits; a key whose stated limit is used up goes last. Without stated limits, the least used goes first.'),
+}[s]);
+
+/** What a key's marks mean now: blocked until it is replaced, cooling for a while, or ready. */
+function keyState(k: ConnectionKey): {tone: 'ok' | 'warn' | 'error' | 'off'; text: string; reason?: string} {
+  if (!k.enabled) return {tone: 'off', text: t('Off')};
+  const blocked = k.health.find(h => h.untilMs === null);
+  if (blocked) return {tone: 'error', text: healthLabel({...blocked, providerId: k.providerId}), reason: blocked.reason};
+  const cooling = k.health[0];
+  if (cooling) {
+    const until = new Date(cooling.untilMs ?? 0).toLocaleTimeString(locale(), {hour: '2-digit', minute: '2-digit'});
+    return {tone: 'warn', text: cooling.modelId
+      ? t('{state} on {model} until {time}', {state: healthLabel({...cooling, providerId: k.providerId}), model: cooling.modelId, time: until})
+      : t('{state} until {time}', {state: healthLabel({...cooling, providerId: k.providerId}), time: until}), reason: cooling.reason};
+  }
+  return {tone: 'ok', text: t('Ready')};
+}
+
+/**
+ * The connection's key ring (ADR-038): keys of separate accounts, each with its own quota, used in turn by the chosen
+ * order. A 401 blocks a key, a 402 or 429 cools it, and the next key answers; Usage names the key of each request.
+ * Sign-ins (web sessions, subscriptions) never have one.
+ */
+function KeyRingRow({connection: c, onAdd, onRemove}: {connection: Connection; onAdd: () => void; onRemove: (key: ConnectionKey) => void}) {
+  const [error, setError] = useState<string | null>(null);
+  const keys = c.keys ?? [];
+  const strategy = c.keyStrategy ?? 'in_order';
+  const act = (f: () => Promise<unknown>) => { setError(null); f().then(gatewayChanged, e => setError(errorText(e))); };
+  const ring = keys.length >= 2;
+  return <div className="group-row stacked">
+    <span className="group-label">{t('API keys')}
+      <small>{ring ? keyStrategyHint(strategy)
+        : t('One key. Add a key from another account you hold, with its own quota, and Pygg uses the keys in turn: when one is rate-limited, out of credit or rejected, the next one answers. Several keys of one account share its limits, so Pygg does not take them.')}</small>
+      {error && <small className="warn-text">{error}</small>}</span>
+    {ring && <ol className="key-ring">
+      {keys.map((k, i) => {
+        const state = keyState(k);
+        return <li key={k.id} className={k.enabled ? '' : 'disabled-row'}>
+          <span className="key-ring-name">
+            <span className="key-ring-label">{k.label}</span>
+            {k.primary && <small className="secondary">{t('the connection’s key')}</small>}
+            <Badge tone={state.tone}>{state.text}</Badge>
+          </span>
+          <span className="key-ring-actions">
+            <button type="button" className="button small" disabled={i === 0} aria-label={t('Earlier')}
+              onClick={() => act(() => call(api => api.moveConnectionKey(k.id, true)))}>↑</button>
+            <button type="button" className="button small" disabled={i === keys.length - 1} aria-label={t('Later')}
+              onClick={() => act(() => call(api => api.moveConnectionKey(k.id, false)))}>↓</button>
+            <Switch checked={k.enabled} label={t('Use the key “{name}”', {name: k.label})}
+              onChange={enabled => act(() => call(api => api.enableConnectionKey(k.id, enabled)))}/>
+            <button type="button" className="button small" aria-label={t('Remove the key “{name}”', {name: k.label})} onClick={() => onRemove(k)}>
+              <Trash2 size={12} aria-hidden/></button>
+          </span>
+          <small className="key-ring-use secondary">{[
+            plural(k.requestsToday, '{n} request today', '{n} requests today'),
+            k.lastUsedAt ? t('last used {ago}', {ago: ago(k.lastUsedAt)}) : t('not used yet'),
+            k.room !== null ? t('{pct}% of its stated limit left', {pct: String(Math.round(k.room * 100))}) : null,
+          ].filter(Boolean).join(' · ')}</small>
+          {state.reason && <small className="key-ring-reason secondary selectable" title={state.reason}>{state.reason}</small>}
+        </li>;
+      })}
+    </ol>}
+    <span className="group-control key-ring-controls">
+      {ring && <select className="popup-button" value={strategy} aria-label={t('Key order')}
+        onChange={e => act(() => call(api => api.setKeyStrategy(c.id, e.target.value as KeyStrategy)))}>
+        {KEY_STRATEGIES.map(s => <option key={s} value={s}>{keyStrategyLabel(s)}</option>)}
+      </select>}
+      <button type="button" className="button small" onClick={onAdd} disabled={!c.hasKey}
+        title={c.hasKey ? undefined : t('Set this connection’s key first.')}><Plus size={12} aria-hidden/>{t('Add Key from Another Account…')}</button>
+    </span>
+  </div>;
+}
+
+/** Adds a key from another account to the ring; the user confirms it has its own quota (ADR-034, ADR-038). */
+function RingKeySheet({connection: c, onClose}: {connection: Connection; onClose: () => void}) {
+  const [label, setLabel] = useState('');
+  const [key, setKey] = useState('');
+  const [separate, setSeparate] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const save = () => {
+    setBusy(true);
+    call(api => api.addConnectionKey(c.id, label, key, separate)).then(() => { gatewayChanged(); onClose(); },
+      e => { setError(errorText(e)); setBusy(false); });
+  };
+  return <Sheet title={t('Add a Key to {name}', {name: c.label})}
+    subtitle={t('The key is kept in {store}; Pygg never shows or logs it.', {store: STORE})} onClose={onClose} busy={busy} className="narrow"
+    footer={<>
+      <span className="spacer"/>
+      <button type="button" className="button" onClick={onClose} disabled={busy}>{t('Cancel')}</button>
+      <button type="button" className="button prominent" onClick={save} disabled={busy || !key.trim() || !label.trim() || !separate}>
+        {t('Add Key')}</button>
+    </>}>
+    <div className="form">
+      <FormRow label={t('Name')} htmlFor="ring-key-label" hint={t('Which account it belongs to, such as “Work” or “Second account”.')}>
+        <input id="ring-key-label" className="text-input" value={label} maxLength={60} onChange={e => setLabel(e.target.value)} autoFocus/>
+      </FormRow>
+      <FormRow label={t('API Key')} htmlFor="ring-key">
+        <input id="ring-key" className="text-input mono" type="password" value={key} autoComplete="off" spellCheck={false}
+          onChange={e => setKey(e.target.value)}/>
+      </FormRow>
+      <label className="check-row top">
+        <input type="checkbox" checked={separate} onChange={e => setSeparate(e.target.checked)}/>
+        <span>{t('This key belongs to another {provider} account, with its own quota.', {provider: c.presetName})}
+          <small className="secondary">{t('Several keys of one account or organization share its rate limits and credit; rotating them only gets around those limits, which providers’ terms forbid. Pygg never rotates sign-ins (web sessions, subscriptions).')}</small></span>
+      </label>
+    </div>
+    {error && <ErrorNote>{error}</ErrorNote>}
+  </Sheet>;
 }
 
 function KeySheet({connection: c, onClose}: {connection: Connection; onClose: () => void}) {

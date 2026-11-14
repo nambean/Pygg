@@ -333,10 +333,16 @@ pub fn web_profiles(conn: &Connection) -> Result<Vec<String>> {
 
 /// Removes the connection with its models and combo entries; returns its credential reference so the
 /// caller can remove the secret too.
-pub fn remove_provider(conn: &Connection, id: &str) -> Result<Option<String>> {
-    let reference = get_provider(conn, id)?.and_then(|p| p.credential_ref);
+pub fn remove_provider(conn: &Connection, id: &str) -> Result<Vec<String>> {
+    let mut references: Vec<String> = get_provider(conn, id)?.and_then(|p| p.credential_ref).into_iter().collect();
+    // Its key ring's keys go with it (ADR-038): their rows by the foreign key, their secrets by the caller.
+    for reference in super::keys::refs(conn, id)? {
+        if !references.contains(&reference) {
+            references.push(reference);
+        }
+    }
     conn.execute("DELETE FROM providers WHERE id = ?1", [id]).map_err(err)?;
-    Ok(reference)
+    Ok(references)
 }
 
 pub fn update_provider(conn: &Connection, id: &str, enabled: Option<bool>, billing: Option<&str>,
@@ -1403,6 +1409,7 @@ pub fn list_limits(conn: &Connection, provider_id: &str) -> Result<Vec<RateLimit
 /// Clears the connection's health entries, and the holds `auto` put on its models after 429 answers.
 pub fn clear_health(conn: &Connection, provider_id: &str) -> Result<()> {
     conn.execute("DELETE FROM connection_health WHERE provider_id = ?1", [provider_id]).map(|_| ()).map_err(err)?;
+    super::keys::clear_health(conn, provider_id)?;
     super::auto::clear_holds(conn, provider_id)
 }
 
@@ -1784,6 +1791,8 @@ pub struct AttemptFacts {
     pub route_kind: String,
     /// The client's prompt-cache hints: `preserved`, `translated`, `dropped`, or `none` when it sent none.
     pub cache_hint: String,
+    /// The key of the connection's key ring that sent it (ADR-038); `None` for a connection with one key.
+    pub key_id: Option<String>,
 }
 
 impl<'a> UsageRecord<'a> {
@@ -1852,9 +1861,9 @@ fn insert_usage(conn: &Connection, r: &UsageRecord, at_risk_micro: Option<u64>) 
         "INSERT INTO usage_events (id, client_id, provider, model, input_tokens, output_tokens, cache_tokens, \
          cost_micro_usd, cost_status, source, created_at, outcome, http_status, latency_ms, requested_model, error, \
          cache_write_tokens, session_key, route_mode, at_risk_micro_usd, route_reason, repeated_tokens, request_id, attempt, \
-         billing, route_kind, cache_hint) \
+         billing, route_kind, cache_hint, key_id) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, \
-         ?25, ?26, ?27)",
+         ?25, ?26, ?27, ?28)",
         params![
             uuid::Uuid::new_v4().to_string(), r.client_id, r.provider_id, r.model_id,
             r.input_tokens.map(|v| v as i64), r.output_tokens.map(|v| v as i64), r.cache_tokens.map(|v| v as i64),
@@ -1863,6 +1872,7 @@ fn insert_usage(conn: &Connection, r: &UsageRecord, at_risk_micro: Option<u64>) 
             r.cache_write_tokens.map(|v| v as i64), r.session_key, r.route_mode, at_risk_micro.map(|v| v as i64), r.route_reason,
             r.repeated_tokens.map(|v| v as i64), r.facts.map(|f| f.request_id.as_str()), r.facts.map(|f| f.attempt as i64),
             r.facts.map(|f| f.billing.as_str()), r.facts.map(|f| f.route_kind.as_str()), r.facts.map(|f| f.cache_hint.as_str()),
+            r.facts.and_then(|f| f.key_id.as_deref()),
         ],
     )?;
     if let Some(client) = r.client_id {
@@ -1905,6 +1915,9 @@ pub struct UsageEvent {
     pub billing: Option<String>,
     pub route_kind: Option<String>,
     pub cache_hint: Option<String>,
+    /// The key of the connection's key ring that sent it, and its name (ADR-038); never the secret.
+    pub key_id: Option<String>,
+    pub key_label: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -2442,8 +2455,8 @@ pub fn usage_requests_matching(conn: &Connection, since: i64, filter: &RequestFi
             "SELECT u.id, u.created_at, c.name, u.provider, u.model, u.requested_model, u.input_tokens, u.output_tokens, \
              u.cost_micro_usd, u.cost_status, u.source, u.outcome, u.http_status, u.latency_ms, u.error, \
              u.cache_tokens, u.cache_write_tokens, u.session_key, u.route_mode, u.at_risk_micro_usd, u.route_reason, \
-             u.request_id, u.attempt, u.billing, u.route_kind, u.cache_hint \
-             FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id \
+             u.request_id, u.attempt, u.billing, u.route_kind, u.cache_hint, u.key_id, k.label \
+             FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id LEFT JOIN provider_keys k ON k.id = u.key_id \
              WHERE {REQUEST_MATCH} ORDER BY u.created_at DESC, u.id DESC LIMIT ?2 OFFSET ?3",
         ))
         .map_err(err)?;
@@ -2477,6 +2490,8 @@ pub fn usage_requests_matching(conn: &Connection, since: i64, filter: &RequestFi
                 billing: r.get(23)?,
                 route_kind: r.get(24)?,
                 cache_hint: r.get(25)?,
+                key_id: r.get(26)?,
+                key_label: r.get(27)?,
             })
         })
         .map_err(err)?
@@ -2908,7 +2923,7 @@ mod tests {
         let p = gemini(&conn);
         let record = |request: &str, attempt: u32, model: &str, outcome: &str, status: u16, session: Option<&str>, written: u64| {
             let facts = AttemptFacts { request_id: request.into(), attempt, billing: "paid".into(), route_kind: "auto".into(),
-                cache_hint: "none".into() };
+                cache_hint: "none".into(), key_id: None };
             record_usage(&conn, &UsageRecord { client_id: None, provider_id: &p.id, model_id: model, requested_model: "auto",
                 input_tokens: Some(100), output_tokens: Some(10), cache_tokens: Some(0), cost: &Cost::Estimated { micro_usd: 7, source: "x".into() },
                 outcome, http_status: Some(status), latency_ms: 1, error: None, cache_write_tokens: Some(written), session_key: session,
