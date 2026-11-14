@@ -5,6 +5,9 @@
 //!       the store. For a computer where the app is not open on this store: the app runs tasks itself.
 //!   gateway [--db PATH] add-connection --preset gemini [--label NAME] [--key-env VAR] [--billing TYPE] [--endpoint URL]
 //!   gateway [--db PATH] remove-connection --id ID
+//!   gateway [--db PATH] key --id CONNECTION --label NAME --key-env VAR --separate-account yes [--strategy S]
+//!       adds another account's key to the connection's key ring (ADR-038); S: in_order, round_robin, least_used,
+//!       quota_aware
 //!   gateway [--db PATH] refresh-models --id ID
 //!   gateway [--db PATH] create-client --name NAME [--monthly-usd N]
 //!   gateway [--db PATH] combo --name NAME --member CONNECTION/MODEL [--member …]
@@ -46,6 +49,8 @@ const HELP: &str = "usage: gateway [--db PATH] <command> [--flag value …]
   serve [--port N] [--tasks yes]
   add-connection --preset KIND [--label NAME] [--key-env VAR] [--billing TYPE] [--endpoint URL]
   remove-connection --id ID
+  key --id CONNECTION --label NAME --key-env VAR --separate-account yes [--strategy S]
+                                         add another account's key to the connection's key ring
   refresh-models --id ID
   lookup [--refresh yes]                 fill model facts from the models.dev catalog
   test-model --model CONNECTION/MODEL    one short request (a paid model costs a little)
@@ -153,6 +158,34 @@ pub async fn run(mut args: Vec<String>) {
                 vault::remove(&reference).unwrap_or_else(|e| fail(e));
             }
             println!("Removed {id} and its keys");
+        }
+        "key" => {
+            // Another account's key on the connection's ring (ADR-038). The user states it is another account's:
+            // keys of one account share its limits, so rotating them would only get around them.
+            let id = one("id").unwrap_or_else(|| fail("--id is required"));
+            let label = one("label").unwrap_or_else(|| fail("--label is required"));
+            let var = one("key-env").unwrap_or_else(|| fail("--key-env is required"));
+            let separate = one("separate-account").as_deref() == Some("yes");
+            if !separate {
+                fail(gateway::keys::SEPARATE_ACCOUNT);
+            }
+            let key = std::env::var(&var).unwrap_or_else(|_| fail(format!("{var} is not set")));
+            let reference = vault::new_reference();
+            vault::store(&reference, key.trim()).unwrap_or_else(|e| fail(e));
+            let added = shared.with_db(|db| -> store::Result<gateway::keys::Key> {
+                let added = gateway::keys::add(db, &id, &label, &reference, true, db::now_ms())?;
+                if let Some(strategy) = one("strategy") {
+                    gateway::keys::set_strategy(db, &id, &strategy)?;
+                }
+                Ok(added)
+            });
+            match added {
+                Ok(k) => println!("Added key {} ({}) to {id}", k.label, k.id),
+                Err(e) => {
+                    let _ = vault::remove(&reference);
+                    fail(e)
+                }
+            }
         }
         "refresh-models" => {
             let id = one("id").unwrap_or_else(|| fail("--id is required"));
