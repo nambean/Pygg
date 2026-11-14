@@ -38,7 +38,7 @@ serde = { version = "1", features = ["derive"] }
 # CR-08), so a tool schema reaches the model as the client wrote it.
 serde_json = { version = "1", features = ["preserve_order"] }
 # Local store: tasks, attempts, ledger, approvals (src/db.rs). Bundled so every platform has the same SQLite.
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.42", features = ["bundled"] }
 # Provider credentials live in the OS credential store, never in the database (src/vault.rs, ADR-002).
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 # Agent and check processes with timeouts and cancellation (src/process.rs).

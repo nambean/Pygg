@@ -53,7 +53,7 @@ pub fn clean_endpoint(endpoint: &str) -> String {
 /// Rows of an allowlisted query as JSON objects keyed by column name; text is cut and redacted.
 fn rows(conn: &Connection, sql: &str) -> Result<Vec<Value>, String> {
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
-    let names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+    let names: Vec<String> = stmt.column_names().map(|s| s.to_string()).collect();
     let mut out = Vec::new();
     let mut query = stmt.query([]).map_err(|e| e.to_string())?;
     while let Some(row) = query.next().map_err(|e| e.to_string())? {
