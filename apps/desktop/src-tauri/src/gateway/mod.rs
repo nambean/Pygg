@@ -1636,12 +1636,12 @@ pub async fn pump(upstream: reqwest::Response, tx: &mpsc::Sender<Result<Bytes, s
         match chunk {
             Ok(chunk) => {
                 watch(&chunk);
-                if !deliver(&tx, Ok(chunk)).await {
+                if !deliver(tx, Ok(chunk)).await {
                     return ("client_disconnected", None);
                 }
             }
             Err(e) => {
-                let _ = deliver(&tx, Err(std::io::Error::other("upstream stream failed"))).await;
+                let _ = deliver(tx, Err(std::io::Error::other("upstream stream failed"))).await;
                 return ("stream_error", Some(crate::redact::redact(&e.to_string(), &[])));
             }
         }

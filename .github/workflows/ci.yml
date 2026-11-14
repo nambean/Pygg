@@ -23,15 +23,23 @@ jobs:
       # The desktop crate embeds the built interface, so it is built before the Rust tests.
       - run: pnpm build
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri
+      # No lint warnings, in the app and in the console program built without the window (ADR-037).
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+        working-directory: apps/desktop/src-tauri
+      - run: cargo clippy --no-default-features --all-targets -- -D warnings
+        working-directory: apps/desktop/src-tauri
       - run: cargo test --lib
         working-directory: apps/desktop/src-tauri
       - run: python scripts/schema-reference.py --check
       # The shipped licence inventory matches Cargo.lock and the interface's packages, and every licence is allowed.
       - run: python scripts/licences.py --check
-      # Every screen and the states that broke before, with long real-shaped data, at 1024, 1440 and 1990 px: nothing
+      # Every screen and the states that broke before, with long real-shaped data, at 1024, 1440 and 1990 px and at
+      # Windows text sizes of 125 and 150 % (819 and 683 px): nothing
       # may be wider than the box that holds it (UI review 2026-11-14).
       - name: Layout check
         shell: pwsh

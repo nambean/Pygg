@@ -451,7 +451,7 @@ pub fn summarize(excluded: &[Excluded], groups: usize) -> String {
             }
         }
     }
-    found.sort_by(|a, b| b.3.cmp(&a.3));
+    found.sort_by_key(|g| std::cmp::Reverse(g.3));
     let mut parts: Vec<String> = found.iter().take(groups).map(|(connection, _, example, count)| match count {
         1 => example.clone(),
         n => format!("{example} (and {} more on {connection} for the same reason)", n - 1),

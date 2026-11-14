@@ -798,17 +798,17 @@ pub async fn apply(id: &str, server: &Server, homes: &Homes, backup_dir: &Path, 
     };
     match edit {
         Edit::OpenCode(current) if id == OPENCODE_GATEWAY => {
-            let updated = with_opencode_provider(current, opencode_provider(server, &token)).map_err(&undo)?;
-            write_opencode(&config, &updated).map_err(&undo)?;
+            let updated = with_opencode_provider(current, opencode_provider(server, &token)).map_err(undo)?;
+            write_opencode(&config, &updated).map_err(undo)?;
         }
         Edit::OpenCode(current) => {
-            let updated = with_opencode_entry(current, opencode_entry(server, &token)).map_err(&undo)?;
-            write_opencode(&config, &updated).map_err(&undo)?;
+            let updated = with_opencode_entry(current, opencode_entry(server, &token)).map_err(undo)?;
+            write_opencode(&config, &updated).map_err(undo)?;
         }
         Edit::Codex(current) => {
-            let updated = with_codex_provider(current, server, &token).map_err(&undo)?;
-            write_codex(&config, &updated).map_err(&undo)?;
-            write_codex_profile(&codex_profile_path(&config)).map_err(&undo)?;
+            let updated = with_codex_provider(current, server, &token).map_err(undo)?;
+            write_codex(&config, &updated).map_err(undo)?;
+            write_codex_profile(&codex_profile_path(&config)).map_err(undo)?;
         }
         Edit::Command => {
             let out = run(&launch, add_args(id, server, &token)).await;

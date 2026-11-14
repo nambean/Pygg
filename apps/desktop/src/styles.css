@@ -241,7 +241,6 @@ button { cursor: default; }
 .placeholder p { font-size: 13px; }
 .placeholder .mono { font-size: 11px; margin-top: 4px; }
 .placeholder .button { margin-top: 8px; }
-.placeholder-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .placeholder-icon { color: var(--secondary); margin-bottom: 4px; }
 
 /* ---------- Task list ---------- */

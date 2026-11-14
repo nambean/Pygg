@@ -1033,11 +1033,9 @@ fn resume_point(attempts: &[AttemptView]) -> Option<(usize, Option<String>)> {
 pub type Cancel = watch::Receiver<bool>;
 
 /// Resolves once the task is stopped; never, if whoever could stop it is gone.
-pub fn canceled(mut rx: Cancel) -> impl std::future::Future<Output = ()> + Send + 'static {
-    async move {
-        if rx.wait_for(|stopped| *stopped).await.is_err() {
-            std::future::pending::<()>().await;
-        }
+pub async fn canceled(mut rx: Cancel) {
+    if rx.wait_for(|stopped| *stopped).await.is_err() {
+        std::future::pending::<()>().await;
     }
 }
 

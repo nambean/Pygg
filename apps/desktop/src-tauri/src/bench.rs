@@ -8,7 +8,7 @@
 //! reports nothing is recorded as `unknown`, never as $0. Metering through the gateway comes in Phase 1.
 
 use crate::checks::{self, CheckResult};
-use crate::isolation::{self, DiffStat};
+use crate::isolation::{self};
 use crate::process::{self, Exit, Spec};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -432,7 +432,7 @@ pub async fn run_case(case: &Case, rungs: &[Rung], cascade: bool, config: &Confi
             }
         }
         let passed = tampered.is_empty() && results.len() == case.file.checks.len() && results.iter().all(|r| r.passed);
-        let stat = isolation::changes(&worktree).unwrap_or(DiffStat::default());
+        let stat = isolation::changes(&worktree).unwrap_or_default();
         isolation::discard(&worktree).map_err(|e| e.to_string())?;
         attempts.push(AttemptRecord {
             number,

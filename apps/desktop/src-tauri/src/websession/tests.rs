@@ -399,7 +399,7 @@ fn a_removed_connections_profile_is_deleted_and_nothing_else() {
         std::fs::create_dir_all(root.path().join(name).join("EBWebView")).unwrap();
         std::fs::write(root.path().join(name).join("EBWebView").join("Cookies"), "x").unwrap();
     }
-    assert_eq!(sweep(root.path(), &[keep.clone()]), 1);
+    assert_eq!(sweep(root.path(), std::slice::from_ref(&keep)), 1);
     assert!(root.path().join(&keep).exists());
     assert!(!root.path().join(&gone).exists());
     assert!(root.path().join("notes").exists(), "a folder Pygg did not make is never deleted");
@@ -921,16 +921,17 @@ fn deepseek_takes_shorter_prompts_and_a_lower_daily_limit() {
         assert!(body["error"]["message"].as_str().unwrap().contains("4000"), "{body}");
         assert_eq!(rig.page.navigations.load(Ordering::SeqCst), 0, "nothing reached the site");
 
-        let conn = rig.db.lock().unwrap();
-        assert!(store::set_web_daily_limit(&conn, &rig.muse.id, Some(31)).is_err(), "above DeepSeek's ceiling");
-        store::set_web_daily_limit(&conn, &rig.muse.id, Some(30)).unwrap();
-        // A limit set higher before the ceiling existed is held under it.
-        conn.execute("UPDATE providers SET web_daily_limit = 1000 WHERE id = ?1", [&rig.muse.id]).unwrap();
-        for i in 0..30 {
-            store::web_guard_reserve(&conn, &rig.muse.id, crate::db::now_ms() - 3 * guard::HOUR_MS + i, 1, 0).unwrap();
-        }
-        let provider = store::get_provider(&conn, &rig.muse.id).unwrap().unwrap();
-        drop(conn);
+        let provider = {
+            let conn = rig.db.lock().unwrap();
+            assert!(store::set_web_daily_limit(&conn, &rig.muse.id, Some(31)).is_err(), "above DeepSeek's ceiling");
+            store::set_web_daily_limit(&conn, &rig.muse.id, Some(30)).unwrap();
+            // A limit set higher before the ceiling existed is held under it.
+            conn.execute("UPDATE providers SET web_daily_limit = 1000 WHERE id = ?1", [&rig.muse.id]).unwrap();
+            for i in 0..30 {
+                store::web_guard_reserve(&conn, &rig.muse.id, crate::db::now_ms() - 3 * guard::HOUR_MS + i, 1, 0).unwrap();
+            }
+            store::get_provider(&conn, &rig.muse.id).unwrap().unwrap()
+        };
         if crate::db::now_ms().rem_euclid(guard::DAY_MS) > 3 * guard::HOUR_MS {
             let response = rig.post("web-token", json!({ "model": "muse", "messages": [{ "role": "user", "content": "hi" }] })).await;
             assert_eq!(response.status(), 429);

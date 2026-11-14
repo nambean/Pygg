@@ -43,7 +43,7 @@ pub fn load(path: &Path) -> Option<(Value, bool)> {
     let text = std::fs::read_to_string(path).ok()?;
     let catalog = serde_json::from_str::<Value>(&text).ok().filter(Value::is_object)?;
     let stale = std::fs::metadata(path).and_then(|m| m.modified()).ok()
-        .and_then(|t| t.elapsed().ok()).map_or(true, |age| age > MAX_AGE);
+        .and_then(|t| t.elapsed().ok()).is_none_or(|age| age > MAX_AGE);
     Some((catalog, stale))
 }
 

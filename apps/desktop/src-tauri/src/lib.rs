@@ -1,6 +1,12 @@
 //! Pygg desktop core (repository: SmartTaskRouter). One crate with modules (docs/DECISIONS.md, ADR-005): the interface
 //! talks to it through Tauri commands (src/commands.rs), and the local gateway runs in the same process.
 
+// Allowed on purpose, so `cargo clippy -- -D warnings` holds in CI:
+// - the gateway's handlers return `Result<_, Response>`, an axum answer, as their error;
+// - Tauri commands take their arguments by name from the interface, so some take many;
+// - a few tuples of query rows are clearer inline than behind a one-use alias.
+#![allow(clippy::result_large_err, clippy::too_many_arguments, clippy::type_complexity)]
+
 pub mod agents;
 pub mod applog;
 pub mod backup;

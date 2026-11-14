@@ -740,7 +740,7 @@ pub struct PriceInput {
 }
 
 fn micro(usd: f64) -> Res<u64> {
-    if usd.is_finite() && usd >= 0.0 && usd < 10_000.0 {
+    if usd.is_finite() && (0.0..10_000.0).contains(&usd) {
         Ok((usd * 1_000_000.0).round() as u64)
     } else {
         Err("Enter a price from 0 to 10,000 USD per million tokens".into())

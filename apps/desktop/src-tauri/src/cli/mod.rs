@@ -325,6 +325,53 @@ async fn diagnostics(args: &[String]) -> Result<PathBuf, String> {
     Ok(out)
 }
 
+/// Runs `pygg-cli` with its arguments (without the program's name); the exit code says whether all was well.
+pub async fn run(mut args: Vec<String>) -> i32 {
+    if args.is_empty() {
+        return read::home().await;
+    }
+    let command = args.remove(0);
+    // A command's own --help, before anything is opened.
+    let help = |text: &str| { println!("{text}"); 0 };
+    match command.as_str() {
+        "-V" | "--version" | "version" => { println!("pygg-cli {}", env!("CARGO_PKG_VERSION")); 0 }
+        "status" if wants_help(&args) => help(STATUS_HELP),
+        "status" => read::finish(status(&args).await),
+        "doctor" if wants_help(&args) => help(DOCTOR_HELP),
+        "doctor" => read::finish(doctor(&args).await),
+        "providers" | "provider" if wants_help(&args) => help(read::PROVIDERS_HELP),
+        "providers" | "provider" => read::finish(read::providers(&args)),
+        "models" | "model" if wants_help(&args) => help(read::MODELS_HELP),
+        "models" | "model" => read::finish(read::models(&args)),
+        "logs" | "log" if wants_help(&args) => help(read::LOGS_HELP),
+        "logs" | "log" => read::finish(read::logs(&args)),
+        "usage" if wants_help(&args) => help(read::USAGE_HELP),
+        "usage" => read::finish(read::usage(&args)),
+        // `pygg mcp setup …` registers the server; a bare `pygg mcp` is started by the program before its runtime
+        // (bin/pygg-cli.rs), since the MCP server runs its own.
+        "mcp" if args.first().map(String::as_str) == Some("setup") => setup::run_mcp(args[1..].to_vec()).await,
+        "mcp" => { eprintln!("pygg: start the MCP server as `pygg mcp`; register it with `pygg mcp setup`."); 2 }
+        "gateway" => { gateway::run(args).await; 0 }
+        "agent" => { agent::run(args).await; 0 }
+        "setup" => setup::run(args).await,
+        "run" => run::run(args).await,
+        "diagnostics" if wants_help(&args) => help(DIAGNOSTICS_HELP),
+        "diagnostics" => match diagnostics(&args).await {
+            Ok(path) => { println!("Saved {} (no keys, tokens, prompts or agent output; see README.txt inside)", path.display()); 0 }
+            Err(e) => { eprintln!("pygg: {e}"); 1 }
+        },
+        "-h" | "--help" | "help" => { println!("{HELP}\n\n{GET_STARTED}"); 0 }
+        other => {
+            match suggest(other) {
+                Some(close) => eprintln!("pygg: unknown command {other}. Did you mean `pygg {close}`?"),
+                None => eprintln!("pygg: unknown command {other}."),
+            }
+            eprintln!("Use: pygg --help (or `pygg` alone for where to start)");
+            2
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -405,52 +452,5 @@ mod tests {
         assert_eq!(&bytes[..4], b"PK");
         assert!(String::from_utf8_lossy(&bytes).contains("not answering"));
         assert!(rt.block_on(diagnostics(&args[..2])).unwrap_err().contains("--out"));
-    }
-}
-
-/// Runs `pygg-cli` with its arguments (without the program's name); the exit code says whether all was well.
-pub async fn run(mut args: Vec<String>) -> i32 {
-    if args.is_empty() {
-        return read::home().await;
-    }
-    let command = args.remove(0);
-    // A command's own --help, before anything is opened.
-    let help = |text: &str| { println!("{text}"); 0 };
-    match command.as_str() {
-        "-V" | "--version" | "version" => { println!("pygg-cli {}", env!("CARGO_PKG_VERSION")); 0 }
-        "status" if wants_help(&args) => help(STATUS_HELP),
-        "status" => read::finish(status(&args).await),
-        "doctor" if wants_help(&args) => help(DOCTOR_HELP),
-        "doctor" => read::finish(doctor(&args).await),
-        "providers" | "provider" if wants_help(&args) => help(read::PROVIDERS_HELP),
-        "providers" | "provider" => read::finish(read::providers(&args)),
-        "models" | "model" if wants_help(&args) => help(read::MODELS_HELP),
-        "models" | "model" => read::finish(read::models(&args)),
-        "logs" | "log" if wants_help(&args) => help(read::LOGS_HELP),
-        "logs" | "log" => read::finish(read::logs(&args)),
-        "usage" if wants_help(&args) => help(read::USAGE_HELP),
-        "usage" => read::finish(read::usage(&args)),
-        // `pygg mcp setup …` registers the server; a bare `pygg mcp` is started by the program before its runtime
-        // (bin/pygg-cli.rs), since the MCP server runs its own.
-        "mcp" if args.first().map(String::as_str) == Some("setup") => setup::run_mcp(args[1..].to_vec()).await,
-        "mcp" => { eprintln!("pygg: start the MCP server as `pygg mcp`; register it with `pygg mcp setup`."); 2 }
-        "gateway" => { gateway::run(args).await; 0 }
-        "agent" => { agent::run(args).await; 0 }
-        "setup" => setup::run(args).await,
-        "run" => run::run(args).await,
-        "diagnostics" if wants_help(&args) => help(DIAGNOSTICS_HELP),
-        "diagnostics" => match diagnostics(&args).await {
-            Ok(path) => { println!("Saved {} (no keys, tokens, prompts or agent output; see README.txt inside)", path.display()); 0 }
-            Err(e) => { eprintln!("pygg: {e}"); 1 }
-        },
-        "-h" | "--help" | "help" => { println!("{HELP}\n\n{GET_STARTED}"); 0 }
-        other => {
-            match suggest(other) {
-                Some(close) => eprintln!("pygg: unknown command {other}. Did you mean `pygg {close}`?"),
-                None => eprintln!("pygg: unknown command {other}."),
-            }
-            eprintln!("Use: pygg --help (or `pygg` alone for where to start)");
-            2
-        }
     }
 }

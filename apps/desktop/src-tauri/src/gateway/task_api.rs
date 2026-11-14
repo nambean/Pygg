@@ -316,7 +316,7 @@ mod tests {
         let (status, task) = api.send(reqwest::Method::GET, &format!("/pygg/v1/tasks/{id}?wait=30"), None, &api.token).await;
         assert_eq!(status, 200);
         assert_eq!(task["state"], "needs_review", "no approved check, so the result waits for review: {task}");
-        let workspace = api.shared.with_db(|db| tasks::list_workspaces(db)).unwrap();
+        let workspace = api.shared.with_db(tasks::list_workspaces).unwrap();
         assert_eq!(workspace.len(), 1);
         assert!(std::path::Path::new(&workspace[0].path).ends_with("repo"), "the folder resolves to its repository");
 

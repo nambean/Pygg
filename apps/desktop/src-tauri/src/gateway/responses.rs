@@ -952,7 +952,7 @@ fn sse_response(forwarded: &Forwarded) -> (mpsc::Sender<Result<Bytes, std::io::E
 
 async fn send_all(tx: &mpsc::Sender<Result<Bytes, std::io::Error>>, events: Vec<String>) -> bool {
     for event in events {
-        if !super::deliver(&tx, Ok(Bytes::from(event))).await {
+        if !super::deliver(tx, Ok(Bytes::from(event))).await {
             return false;
         }
     }
