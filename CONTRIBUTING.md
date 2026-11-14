@@ -36,7 +36,7 @@ python scripts/schema-reference.py --check
 python scripts/licences.py --check
 ```
 
-CI runs all of these on Windows, and the layout check below. A separate workflow runs `cargo audit` and `pnpm audit` when a lockfile changes and every Monday; a known vulnerability fails it.
+CI runs all of these on Windows, and the layout check below. A separate workflow runs `cargo audit` and `pnpm audit` when a lockfile changes and every Monday; a known vulnerability fails it. CodeQL scans the Rust, TypeScript, Python and workflow code on every push and weekly. Actions in the workflows are pinned to commit SHAs; Dependabot proposes updates monthly.
 
 - **No lint warnings.** Clippy runs with `-D warnings` for the app (`--all-features`) and for the console program (`--no-default-features`). Three lints are allowed on purpose, with the reason, at the top of `apps/desktop/src-tauri/src/lib.rs`; do not add more without a reason there.
 - **Every change to the core comes with tests.** Gateway behaviour is tested end to end against the fake provider in `gateway/tests.rs`. A provider's real error shape goes in `tests/fixtures/provider-errors`, captured with `scripts/capture-provider-errors.ps1`, which never saves a body that contains a key.

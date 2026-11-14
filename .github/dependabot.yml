@@ -1,0 +1,14 @@
+# The workflows' actions are pinned to commit SHAs; Dependabot proposes newer ones once a month, in one pull request.
+# Rust crates and npm packages get Dependabot's security updates only (repository settings); routine upgrades are
+# done by hand with the licence and audit checks.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: ci
