@@ -24,7 +24,7 @@ Routes a coding tool's model requests through Pygg's gateway, with the model aut
 
   pygg setup              the tools, whether each is installed and set up, and what to type next
   pygg setup claude       `pygg run claude` then starts Claude Code through Pygg; plain `claude` keeps your Claude
-                          sign-in. Pygg makes a key for it, kept in the Windows Credential Manager; no file changes.
+                          sign-in. Pygg makes a key for it, kept in the system's credential store; no file changes.
   pygg setup codex        adds Pygg's provider and profile to Codex's config.toml; then `pygg run codex`
   pygg setup opencode     adds Pygg's provider to OpenCode's opencode.json; then `pygg run opencode`
 
@@ -64,7 +64,7 @@ impl Store for Db {
 
 fn server(conn: &Connection) -> Result<integrations::Server, String> {
     let program = std::env::current_exe().map_err(|e| e.to_string())?.to_string_lossy().into_owned();
-    let port: u16 = crate::gateway::store::setting(conn, crate::commands::PORT_KEY).ok().flatten().and_then(|p| p.parse().ok())
+    let port: u16 = crate::gateway::store::setting(conn, crate::gateway::PORT_KEY).ok().flatten().and_then(|p| p.parse().ok())
         .unwrap_or(crate::gateway::DEFAULT_PORT);
     Ok(integrations::Server { program, args: vec!["mcp".into()],
         url: (port != crate::gateway::DEFAULT_PORT).then(|| format!("http://127.0.0.1:{port}")),
@@ -182,7 +182,7 @@ async fn apply(id: &'static str, tool: &str, store: &Path, opts: &Opts) -> Resul
     }
     // The running gateway looks keys up in the store on each request: nothing to restart.
     if !crate::gateway::store_in_use(store) {
-        println!("Pygg's gateway is not running with this store: open the Pygg app before using the tool.");
+        println!("Pygg's gateway is not running with this store. Before using the tool: {}.", super::START_GATEWAY);
     }
     Ok(0)
 }
@@ -190,7 +190,8 @@ async fn apply(id: &'static str, tool: &str, store: &Path, opts: &Opts) -> Resul
 /// `pygg setup claude [--dry-run | --remove]`: the Claude Code launcher.
 fn launcher(store: &Path, opts: &Opts) -> Result<i32, Fail> {
     if opts.has("dry-run") {
-        println!("Setting up Claude Code makes the Pygg API key \"{}\" and keeps it in the Windows Credential Manager;", crate::launcher::CLIENT_NAME);
+        println!("Setting up Claude Code makes the Pygg API key \"{}\" and keeps it in {};", crate::launcher::CLIENT_NAME,
+            crate::vault::STORE_NAME);
         println!("no file changes. Then `pygg run claude` starts Claude Code through Pygg with the model auto, and plain");
         println!("`claude` keeps your Claude sign-in.\n\nNothing was written. Run `pygg setup claude` to do it.");
         return Ok(0);
@@ -198,8 +199,8 @@ fn launcher(store: &Path, opts: &Opts) -> Result<i32, Fail> {
     let conn = crate::db::open(store).map_err(|e| Fail::op(format!("{}: {e}", store.display())))?;
     let result = if opts.has("remove") { crate::launcher::remove(&conn) } else { crate::launcher::set_up(&conn, crate::db::now_ms()) };
     match result.map_err(Fail::op)? {
-        s if s.set_up => println!("Set up: the key is in the Windows Credential Manager, no file changed.\nNext: pygg run claude"),
-        _ => println!("Removed: the launcher's key is revoked and deleted from the Credential Manager."),
+        s if s.set_up => println!("Set up: the key is in {}, no file changed.\nNext: pygg run claude", crate::vault::STORE_NAME),
+        _ => println!("Removed: the launcher's key is revoked and deleted from {}.", crate::vault::STORE_NAME),
     }
     Ok(0)
 }

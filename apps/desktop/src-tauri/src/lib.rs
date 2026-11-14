@@ -7,6 +7,7 @@ pub mod backup;
 pub mod bench;
 pub mod checks;
 pub mod cli;
+#[cfg(feature = "app")]
 pub mod commands;
 pub mod db;
 pub mod diagnostics;
@@ -20,8 +21,11 @@ pub mod messages;
 pub mod process;
 pub mod redact;
 pub mod retention;
+#[cfg(feature = "app")]
 pub mod shell;
+#[cfg(feature = "app")]
 pub mod snap;
+#[cfg(feature = "app")]
 mod startup;
 #[cfg(test)]
 mod faults;
@@ -29,11 +33,16 @@ pub mod tasks;
 pub mod vault;
 pub mod websession;
 
+#[cfg(feature = "app")]
 use commands::AppState;
+#[cfg(feature = "app")]
 use serde::Serialize;
+#[cfg(feature = "app")]
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "app")]
 use tauri::Manager;
 
+#[cfg(feature = "app")]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthStatus {
@@ -43,6 +52,7 @@ pub struct HealthStatus {
     pub gateway: &'static str,
 }
 
+#[cfg(feature = "app")]
 #[tauri::command]
 async fn health_check(state: tauri::State<'_, AppState>) -> Result<HealthStatus, String> {
     let gateway = commands::gateway_status(state).await?.state;
@@ -53,6 +63,7 @@ async fn health_check(state: tauri::State<'_, AppState>) -> Result<HealthStatus,
 /// shrinks to fit the monitor's work area and is centered. The 1024×640 minimum gives way too when the work area
 /// itself is smaller, as on a 1920×1080 screen at 175% or 200%, or 1366×768 at 125% (D12 release checks): a window
 /// larger than the screen cannot be moved or resized back into view.
+#[cfg(feature = "app")]
 fn fit_to_screen(app: &tauri::App) {
     let Some(window) = app.get_webview_window("main") else { return };
     let Ok(Some(monitor)) = window.current_monitor() else { return };
@@ -67,11 +78,12 @@ fn fit_to_screen(app: &tauri::App) {
 }
 
 /// The window's minimum size on a work area of this logical size: 1024×640, or the whole work area when it is smaller.
+#[cfg(feature = "app")]
 fn fitted_minimum(area_width: f64, area_height: f64) -> (f64, f64) {
     (1024f64.min(area_width), 640f64.min(area_height))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "app"))]
 mod tests {
     #[test]
     fn the_minimum_window_fits_a_scaled_screen() {
@@ -82,6 +94,7 @@ mod tests {
     }
 }
 
+#[cfg(feature = "app")]
 pub fn run() {
     tauri::Builder::default()
         // First: a second launch only brings the running window forward.

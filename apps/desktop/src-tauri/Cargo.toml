@@ -12,15 +12,27 @@ default-run = "smarttaskrouter-desktop"
 name = "smarttaskrouter_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# The window (Tauri) is the `app` feature, on by default. `pygg-cli` and the other console programs build without it
+# (`cargo build --release --no-default-features --bin pygg-cli`), so the npm package's native program builds on Linux
+# and macOS with no webview libraries (ADR-037).
+[features]
+default = ["app"]
+app = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-single-instance", "dep:tauri-plugin-notification", "dep:tauri-plugin-dialog"]
+
+[[bin]]
+name = "smarttaskrouter-desktop"
+path = "src/main.rs"
+required-features = ["app"]
+
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2", features = [], optional = true }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon"], optional = true }
 # A second launch focuses the running window instead of starting another core (and another gateway).
-tauri-plugin-single-instance = "2"
-tauri-plugin-notification = "2"
-tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = { version = "2", optional = true }
+tauri-plugin-notification = { version = "2", optional = true }
+tauri-plugin-dialog = { version = "2", optional = true }
 serde = { version = "1", features = ["derive"] }
 # preserve_order: a request passed through to a provider keeps its keys in the client's order (counter-review
 # CR-08), so a tool schema reaches the model as the client wrote it.
@@ -56,6 +68,11 @@ windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gd
 [target.'cfg(unix)'.dependencies]
 # Ending a whole process group on timeout or cancel.
 libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Linux keeps credentials in the desktop's Secret Service (GNOME Keyring, KWallet), with D-Bus built in so the npm
+# program needs no libdbus at run time beyond the session bus itself (ADR-037).
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored"] }
 
 [dev-dependencies]
 tempfile = "3"

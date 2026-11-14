@@ -14,7 +14,7 @@ pub const HELP: &str = "usage: pygg run [--model M] [--db PATH] claude [argument
        pygg run [--db PATH] codex [arguments for codex…]
 
 claude: starts Claude Code with its requests going through Pygg: the gateway's address, the launcher's own Pygg API
-key (kept in the Windows Credential Manager, never in a file) and the model auto, for this launch only. Claude Code's
+key (kept in the system's credential store, never in a file) and the model auto, for this launch only. Claude Code's
 own settings and sign-in are not changed; run plain `claude` to use them as before.
 
   --model M   a model for every slot instead of auto: auto/cheap, a combo, or connection/model
@@ -83,11 +83,11 @@ Use: pygg run --help");
         }
         None
     };
-    let port: u16 = crate::gateway::store::setting(&conn, crate::commands::PORT_KEY).ok().flatten()
+    let port: u16 = crate::gateway::store::setting(&conn, crate::gateway::PORT_KEY).ok().flatten()
         .and_then(|p| p.parse().ok()).unwrap_or(crate::gateway::DEFAULT_PORT);
     drop(conn);
     if let Err(e) = super::health(port).await {
-        eprintln!("Pygg's gateway on http://127.0.0.1:{port}: {e}. Start the Pygg app first.");
+        eprintln!("Pygg's gateway on http://127.0.0.1:{port}: {e}. Next: {}.", super::START_GATEWAY);
         return 1;
     }
     let Some(launch) = crate::agents::locate(tool) else {

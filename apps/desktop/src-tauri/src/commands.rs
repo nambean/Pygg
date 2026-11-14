@@ -24,7 +24,7 @@ pub struct AppState {
 
 type Res<T> = Result<T, String>;
 
-pub(crate) const PORT_KEY: &str = "gateway.port";
+pub(crate) use crate::gateway::PORT_KEY;
 const AUTOSTART_KEY: &str = "gateway.autostart";
 
 impl AppState {

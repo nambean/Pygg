@@ -58,9 +58,53 @@ Experimental task integration (on hold)
   mcp                         the MCP server itself, which the tool starts
   agent <command> ...         agent CLIs: detect, run, task, quality
 
-Every command takes --db PATH (another store); `pygg <command> --help` says more.
-Connect providers in the Pygg desktop app, which also runs the gateway: https://github.com/nambean/smarttaskrouter
+Every command takes --db PATH (another store; PYGG_DATA_DIR sets the folder for all); `pygg <command> --help` says more.
 Exit codes: 0 done, 1 failed, 2 wrong usage, 3 a check found a problem; `run` returns the tool's own.";
+
+/// Where providers are connected and the gateway runs, on this platform: the desktop app on Windows; elsewhere, where
+/// no app is published yet, the headless gateway (ADR-037).
+#[cfg(windows)]
+pub(crate) const GET_STARTED: &str = "Connect providers in the Pygg desktop app, which also runs the gateway: https://github.com/nambean/smarttaskrouter";
+#[cfg(not(windows))]
+pub(crate) const GET_STARTED: &str = "The Pygg desktop app is Windows only for now. Here, connect a provider and run the gateway from the terminal:
+  pygg gateway add-connection --preset openrouter --key-env OPENROUTER_API_KEY
+  pygg gateway serve";
+#[cfg(windows)]
+pub(crate) const START_GATEWAY: &str = "open the Pygg desktop app; it runs the gateway";
+#[cfg(not(windows))]
+pub(crate) const START_GATEWAY: &str = "start the gateway with `pygg gateway serve` (in a terminal of its own)";
+#[cfg(windows)]
+pub(crate) const CONNECT_PROVIDER: &str = "connect a provider in the Pygg desktop app (Providers > Connect Provider)";
+#[cfg(not(windows))]
+pub(crate) const CONNECT_PROVIDER: &str = "connect a provider: pygg gateway add-connection --preset KIND --key-env VAR";
+#[cfg(windows)]
+pub(crate) const MAKE_STORE: &str = "open the Pygg desktop app once";
+#[cfg(not(windows))]
+pub(crate) const MAKE_STORE: &str = "run `pygg gateway list` once, which makes it";
+
+/// Every command `pygg` knows, for "did you mean" (`suggest`).
+const COMMANDS: &[&str] = &["setup", "run", "status", "doctor", "providers", "models", "logs", "usage", "gateway",
+    "diagnostics", "mcp", "agent", "help", "version"];
+
+/// The known command closest to a mistyped one, if it is a slip (at most two letters off) and not a guess.
+fn suggest(typed: &str) -> Option<&'static str> {
+    fn distance(a: &str, b: &str) -> usize {
+        let b: Vec<char> = b.chars().collect();
+        let mut row: Vec<usize> = (0..=b.len()).collect();
+        for (i, ca) in a.chars().enumerate() {
+            let mut prev = row[0];
+            row[0] = i + 1;
+            for (j, cb) in b.iter().enumerate() {
+                let here = row[j + 1];
+                row[j + 1] = (prev + usize::from(ca != *cb)).min(row[j] + 1).min(here + 1);
+                prev = here;
+            }
+        }
+        row[b.len()]
+    }
+    let typed = typed.to_lowercase();
+    COMMANDS.iter().map(|c| (distance(&typed, c), *c)).filter(|(d, c)| *d <= 2.min(c.len() / 2)).min().map(|(_, c)| c)
+}
 
 /// Whether the arguments ask for help.
 pub fn wants_help(args: &[String]) -> bool {
@@ -69,9 +113,24 @@ pub fn wants_help(args: &[String]) -> bool {
 
 /// The app's own store, as the app and `gateway` find it.
 pub fn default_store() -> Option<PathBuf> {
-    let base = std::env::var_os("APPDATA").map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))?;
-    Some(base.join("app.smarttaskrouter.desktop").join("store.sqlite3"))
+    data_dir(|name| std::env::var_os(name), std::env::consts::OS).map(|dir| dir.join("store.sqlite3"))
+}
+
+/// Pygg's data folder: `PYGG_DATA_DIR` when set (as the app reads it), else where the app keeps it on each platform,
+/// Tauri's app data folder for `app.smarttaskrouter.desktop`: `%APPDATA%` on Windows, `~/Library/Application Support`
+/// on macOS, `$XDG_DATA_HOME` or `~/.local/share` elsewhere.
+pub fn data_dir(env: impl Fn(&str) -> Option<std::ffi::OsString>, os: &str) -> Option<PathBuf> {
+    const ID: &str = "app.smarttaskrouter.desktop";
+    if let Some(dir) = env("PYGG_DATA_DIR").filter(|d| !d.is_empty()) {
+        return Some(PathBuf::from(dir));
+    }
+    let home = || env("HOME").filter(|h| !h.is_empty()).map(PathBuf::from);
+    let base = match os {
+        "windows" => env("APPDATA").map(PathBuf::from).or_else(|| home().map(|h| h.join("AppData").join("Roaming"))),
+        "macos" => home().map(|h| h.join("Library").join("Application Support")),
+        _ => env("XDG_DATA_HOME").filter(|d| !d.is_empty()).map(PathBuf::from).or_else(|| home().map(|h| h.join(".local").join("share"))),
+    }?;
+    Some(base.join(ID))
 }
 
 pub(crate) fn flag(args: &[String], name: &str) -> Option<String> {
@@ -157,13 +216,13 @@ async fn status_of(opts: &Opts) -> Result<(StoreOut, GatewayOut, bool), Fail> {
 fn print_status(store: &StoreOut, gateway: &GatewayOut) {
     match (&store.path, store.exists) {
         (Some(p), true) => println!("Store       {p} ({})", if store.served { "served by a running Pygg" } else { "not served" }),
-        (Some(p), false) => println!("Store       {p} (not created yet: open the Pygg desktop app once)"),
+        (Some(p), false) => println!("Store       {p} (not created yet: {MAKE_STORE})"),
         (None, _) => println!("Store       not found: pass --db PATH"),
     }
     match store.schema {
         Some(v) if v == store.expected_schema => println!("Schema      v{v}, as this program expects"),
         Some(v) if v < store.expected_schema =>
-            println!("Schema      v{v}; this program knows v{}. Open the Pygg app once to update it.", store.expected_schema),
+            println!("Schema      v{v}; this program knows v{}. To update it, {MAKE_STORE}.", store.expected_schema),
         Some(v) => println!("Schema      v{v} is newer than this program (v{}): update @pygg/cli", store.expected_schema),
         None => {}
     }
@@ -173,7 +232,7 @@ fn print_status(store: &StoreOut, gateway: &GatewayOut) {
             println!("            {e}");
         }
     } else {
-        println!("Gateway     {}: {}. Open the Pygg desktop app; it runs the gateway.", gateway.url,
+        println!("Gateway     {}: {}. Next: {START_GATEWAY}.", gateway.url,
             gateway.error.as_deref().unwrap_or("not answering"));
     }
 }
@@ -182,6 +241,12 @@ const STATUS_HELP: &str = "usage: pygg status [--json] [--port N] [--db PATH]
 
 Whether Pygg's gateway answers, on which store, and whether the store's schema is the one this program knows.
 Exit code 3 when something is not as it should be. The port is --port, else the one Pygg saved, else 8741.";
+
+const DIAGNOSTICS_HELP: &str = "usage: pygg diagnostics --out PATH [--db PATH] [--port N]
+
+Saves the redacted diagnostics bundle (a zip) of Pygg's store, as Settings > Diagnostics does: versions, schema, the
+gateway's state, connections and recent request outcomes. No keys, tokens, prompts or agent output. Reads the store
+without changing it.";
 
 const DOCTOR_HELP: &str = "usage: pygg doctor [--json] [--port N] [--db PATH]
 
@@ -230,7 +295,7 @@ async fn doctor(args: &[String]) -> Result<i32, Fail> {
         if attention.is_empty() {
             println!("\nProviders   none needs attention");
         } else {
-            println!("\nProviders that need attention (pygg providers; fix them in the Pygg app)");
+            println!("\nProviders that need attention (pygg providers)");
             for a in &attention {
                 println!("  {a}");
             }
@@ -296,6 +361,36 @@ mod tests {
     }
 
     #[test]
+    fn the_store_is_where_the_app_keeps_it_on_each_platform() {
+        use std::ffi::OsString;
+        let env = |pairs: &'static [(&'static str, &'static str)]| move |name: &str|
+            pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| OsString::from(v));
+        let id = "app.smarttaskrouter.desktop";
+        assert_eq!(data_dir(env(&[("APPDATA", "C:/Users/a/AppData/Roaming")]), "windows").unwrap(),
+            PathBuf::from("C:/Users/a/AppData/Roaming").join(id));
+        assert_eq!(data_dir(env(&[("HOME", "/Users/a")]), "macos").unwrap(),
+            PathBuf::from("/Users/a/Library/Application Support").join(id));
+        assert_eq!(data_dir(env(&[("HOME", "/home/a")]), "linux").unwrap(), PathBuf::from("/home/a/.local/share").join(id));
+        assert_eq!(data_dir(env(&[("HOME", "/home/a"), ("XDG_DATA_HOME", "/data")]), "linux").unwrap(), PathBuf::from("/data").join(id));
+        // PYGG_DATA_DIR is the folder itself, as the app reads it.
+        assert_eq!(data_dir(env(&[("HOME", "/home/a"), ("PYGG_DATA_DIR", "/tmp/try")]), "linux").unwrap(), PathBuf::from("/tmp/try"));
+        assert_eq!(data_dir(env(&[]), "linux"), None);
+    }
+
+    #[test]
+    fn a_slip_of_the_keyboard_gets_a_suggestion_and_a_guess_does_not() {
+        assert_eq!(suggest("stauts"), Some("status"));
+        assert_eq!(suggest("provider"), Some("providers"));
+        assert_eq!(suggest("Setpu"), Some("setup"));
+        assert_eq!(suggest("lgos"), Some("logs"));
+        assert_eq!(suggest("deploy"), None);
+        assert_eq!(suggest("x"), None);
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        assert_eq!(rt.block_on(run(vec!["stauts".into()])), 2, "an unknown command is wrong usage");
+        assert_eq!(rt.block_on(run(vec!["diagnostics".into(), "--help".into()])), 0);
+    }
+
+    #[test]
     fn diagnostics_writes_a_zip_without_migrating_the_store() {
         let dir = tempfile::tempdir().unwrap();
         let store = dir.path().join("store.sqlite3");
@@ -343,13 +438,18 @@ pub async fn run(mut args: Vec<String>) -> i32 {
         "agent" => { agent::run(args).await; 0 }
         "setup" => setup::run(args).await,
         "run" => run::run(args).await,
+        "diagnostics" if wants_help(&args) => help(DIAGNOSTICS_HELP),
         "diagnostics" => match diagnostics(&args).await {
             Ok(path) => { println!("Saved {} (no keys, tokens, prompts or agent output; see README.txt inside)", path.display()); 0 }
             Err(e) => { eprintln!("pygg: {e}"); 1 }
         },
-        "-h" | "--help" | "help" => help(HELP),
+        "-h" | "--help" | "help" => { println!("{HELP}\n\n{GET_STARTED}"); 0 }
         other => {
-            eprintln!("pygg: unknown command {other}.\nUse: pygg --help (or `pygg` alone for where to start)");
+            match suggest(other) {
+                Some(close) => eprintln!("pygg: unknown command {other}. Did you mean `pygg {close}`?"),
+                None => eprintln!("pygg: unknown command {other}."),
+            }
+            eprintln!("Use: pygg --help (or `pygg` alone for where to start)");
             2
         }
     }

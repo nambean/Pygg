@@ -15,6 +15,7 @@
 //!   the reply leaves the window, and errors carry Pygg's own wording only.
 
 pub mod guard;
+#[cfg(feature = "app")]
 pub mod window;
 
 use crate::gateway::store::{self, Provider};

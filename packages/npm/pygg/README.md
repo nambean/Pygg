@@ -2,7 +2,7 @@
 
 `pygg`: route your AI coding tools (Claude Code, Codex, OpenCode) through Pygg, a local gateway that picks a model for each request from the providers you connected, and records what each request cost.
 
-**npm installs this command only.** The [Pygg desktop app](https://github.com/nambean/smarttaskrouter) runs the gateway and is where you connect providers; your coding tools are installed as usual. **`@dev` is the Windows x64 developer preview**: the native program is not code-signed, so Windows SmartScreen or an antivirus may warn about it.
+**npm installs this command only**, on Windows x64, macOS (Apple silicon and Intel) and Linux x64 (glibc): npm fetches the native program for your computer only. On Windows the [Pygg desktop app](https://github.com/nambean/smarttaskrouter) runs the gateway and is where you connect providers; on macOS and Linux, where there is no app yet, `pygg gateway add-connection` and `pygg gateway serve` do it from the terminal. Your coding tools are installed as usual. **`@dev` is a developer preview**: the native program is not code-signed, so Windows SmartScreen, macOS Gatekeeper or an antivirus may warn about it.
 
 ## Start here
 
@@ -19,7 +19,7 @@ pygg
 3. Set up a tool and start it through Pygg:
 
 ```
-pygg setup claude          # Claude Code: a key of its own, kept in the Windows Credential Manager; no file changes
+pygg setup claude          # Claude Code: a key of its own, kept in the system's credential store; no file changes
 pygg run claude            # Claude Code through Pygg, with the model auto; plain `claude` keeps your Claude sign-in
 
 pygg setup codex           # Codex: Pygg's provider and profile in config.toml, after a backup
@@ -73,7 +73,9 @@ If PowerShell refuses to run scripts, call `pygg.cmd` instead of `pygg`. `pygg -
 
 ## How it works
 
-`pygg` is a small Node launcher. It runs the native `pygg-cli` program from the package `@pygg/win32-x64`, which npm installs with it, with the same arguments and standard streams, and exits with its code. Without that package it uses an installed Pygg app's `pygg-cli.exe` (`%LOCALAPPDATA%\Pygg`). `PYGG_CLI`, set to the full path of a `pygg-cli` program, takes precedence over both.
+`pygg` is a small Node launcher. It runs the native `pygg-cli` program from the package for your computer (`@pygg/win32-x64`, `@pygg/darwin-arm64`, `@pygg/darwin-x64` or `@pygg/linux-x64`), which npm installs with it as an optional dependency, with the same arguments and standard streams, and exits with its code. On Windows, without that package, it uses an installed Pygg app's `pygg-cli.exe` (`%LOCALAPPDATA%\Pygg`). `PYGG_CLI`, set to the full path of a `pygg-cli` program, takes precedence. Where no program is published (Alpine and other musl Linux, Windows on Arm with an Arm Node, other systems), or npm skipped it (`--omit=optional`), `pygg` says so and what to do.
+
+On macOS and Linux the API keys Pygg makes are kept in the Keychain or the desktop keyring (Secret Service); the store is in `~/Library/Application Support/app.smarttaskrouter.desktop` or `~/.local/share/app.smarttaskrouter.desktop` (`PYGG_DATA_DIR` changes it).
 
 Two things the command does not do: it never starts a gateway by itself (the app serves it, or `pygg gateway serve` does, on purpose), and it never takes an API key on the command line.
 

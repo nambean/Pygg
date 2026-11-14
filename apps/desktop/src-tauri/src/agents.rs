@@ -530,6 +530,8 @@ mod tests {
         assert_eq!((u.input_tokens, u.output_tokens, u.model.as_deref(), u.result.as_deref()), (Some(50), Some(5), Some("gemini-x"), Some("Ok")));
     }
 
+    // An npm shim is a Windows `.cmd` file; elsewhere npm links the script itself.
+    #[cfg(windows)]
     #[test]
     fn an_npm_shim_is_started_through_its_target() {
         let dir = tempfile::tempdir().unwrap();

@@ -112,8 +112,8 @@ pub fn store_path(opts: &Opts) -> Option<PathBuf> {
 pub fn open_read(opts: &Opts) -> Result<Connection, Fail> {
     let path = store_path(opts).ok_or_else(|| Fail::op("no store found: pass --db PATH"))?;
     if !path.is_file() {
-        return Err(Fail::op(format!("Pygg's store was not found at {}.\nOpen the Pygg desktop app once, then connect a provider.",
-            path.display())));
+        return Err(Fail::op(format!("Pygg's store was not found at {}.\nNext: {}, then {}.",
+            path.display(), super::MAKE_STORE, super::CONNECT_PROVIDER)));
     }
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
         .map_err(|e| Fail::op(format!("could not open {}: {e}", path.display())))?;
@@ -122,8 +122,8 @@ pub fn open_read(opts: &Opts) -> Result<Connection, Fail> {
         .map_err(|e| Fail::op(format!("could not read {}: {e}", path.display())))?;
     let ours = crate::db::SCHEMA_VERSION;
     if schema < ours {
-        return Err(Fail::op(format!("the store is at schema v{schema}, older than this program (v{ours}).\nOpen the Pygg \
-            desktop app once to update it. The store was not changed.")));
+        return Err(Fail::op(format!("the store is at schema v{schema}, older than this program (v{ours}).\nTo update it, {}. \
+            The store was not changed.", super::MAKE_STORE)));
     }
     if schema > ours {
         return Err(Fail::op(format!("the store is at schema v{schema}, newer than this program (v{ours}).\nUpdate @pygg/cli \
@@ -137,7 +137,7 @@ pub fn gateway_port(opts: &Opts, conn: Option<&Connection>) -> Result<u16, Fail>
     if let Some(p) = opts.value("port") {
         return p.parse().ok().filter(|p| *p > 0).ok_or_else(|| Fail::usage(format!("--port {p} is not a port number.")));
     }
-    Ok(conn.and_then(|c| store::setting(c, crate::commands::PORT_KEY).ok().flatten()).and_then(|p| p.parse().ok())
+    Ok(conn.and_then(|c| store::setting(c, crate::gateway::PORT_KEY).ok().flatten()).and_then(|p| p.parse().ok())
         .unwrap_or(crate::gateway::DEFAULT_PORT))
 }
 
@@ -274,7 +274,7 @@ pub fn providers(args: &[String]) -> Result<i32, Fail> {
     match opts.words.first().map(String::as_str) {
         None | Some("list") if opts.words.len() <= 1 => {}
         Some(other) => return Err(Fail::usage(format!("pygg providers {other}: not a providers command.\nUse: pygg providers list \
-            (connect, check and change providers in the Pygg desktop app)"))),
+            (to add one, {})", super::CONNECT_PROVIDER))),
         None => {}
     }
     let conn = open_read(&opts)?;
@@ -283,7 +283,7 @@ pub fn providers(args: &[String]) -> Result<i32, Fail> {
         return Ok(print_json(json!({ "schemaVersion": JSON_SCHEMA, "providers": list })));
     }
     if list.is_empty() {
-        println!("No providers yet. Open the Pygg desktop app and choose Connect Provider.");
+        println!("No providers yet. Next: {}.", super::CONNECT_PROVIDER);
         return Ok(0);
     }
     println!("Saved connections - nothing was sent to any provider\n");
@@ -403,9 +403,9 @@ pub fn models(args: &[String]) -> Result<i32, Fail> {
     let total = list.len();
     let list: Vec<ModelOut> = if limit == 0 { list } else { list.into_iter().take(limit).collect() };
     if list.is_empty() {
-        println!("{}", if providers.is_empty() { "No providers yet. Open the Pygg desktop app and choose Connect Provider." }
-            else if search.is_some() || !words.is_empty() { "No model matches." }
-            else { "No enabled models. Enable models in the Pygg desktop app (Providers), or use --all." });
+        println!("{}", if providers.is_empty() { format!("No providers yet. Next: {}.", super::CONNECT_PROVIDER) }
+            else if search.is_some() || !words.is_empty() { "No model matches.".to_string() }
+            else { "No enabled models. Enable models in the Pygg desktop app (Providers) or with `pygg gateway model`, or use --all.".to_string() });
         return Ok(0);
     }
     println!("{} models{}\n", if all { "All" } else { "Enabled" }, if all { "" } else { " of enabled connections" });
@@ -606,10 +606,9 @@ pub async fn home() -> i32 {
         Ok(c) => c,
         Err(f) => {
             println!("Store      {}", f.message.lines().next().unwrap_or_default());
-            println!("\nNext: install and open the Pygg desktop app, then connect a provider.");
-            println!("      https://github.com/nambean/smarttaskrouter");
+            println!("\n{}", super::GET_STARTED);
             println!("Then: pygg setup");
-            println!("\nnpm installs this command only; the Pygg desktop app runs the gateway. `pygg --help` lists every command.");
+            println!("\n`pygg --help` lists every command.");
             return 0;
         }
     };
@@ -623,9 +622,9 @@ pub async fn home() -> i32 {
     println!("Tools      {}", if set_up.is_empty() { "none set up".to_string() } else { format!("set up: {}", set_up.join(", ")) });
     println!();
     if gateway.is_err() {
-        println!("Next: open the Pygg desktop app; it runs the gateway.");
+        println!("Next: {}.", super::START_GATEWAY);
     } else if on == 0 {
-        println!("Next: connect a provider in the Pygg desktop app (Providers > Connect Provider).");
+        println!("Next: {}.", super::CONNECT_PROVIDER);
     } else if set_up.is_empty() {
         println!("Next:\n  pygg setup claude     (or codex, opencode)\n  pygg run claude");
     } else {

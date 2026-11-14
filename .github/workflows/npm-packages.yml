@@ -1,0 +1,126 @@
+# The npm packages of the `pygg` command (ADR-037): `pygg-cli` built without the window for each published platform,
+# packed as @pygg/<platform>, the launcher @pygg/cli packed and tested, and each platform's package installed back from
+# the tarballs and run. Nothing is published: the packages are this run's artifacts, and publishing is the owner's step
+# (packages/npm/PUBLISHING.md).
+name: npm packages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cli:
+    name: pygg-cli ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: win32-x64, os: windows-latest, target: x86_64-pc-windows-msvc, exe: pygg-cli.exe }
+          # 22.04's glibc (2.35), so the program also runs on distributions older than the newest runner.
+          - { platform: linux-x64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, exe: pygg-cli }
+          - { platform: darwin-arm64, os: macos-latest, target: aarch64-apple-darwin, exe: pygg-cli }
+          # Built on the Apple-silicon runner for Intel Macs; Xcode's toolchain has both.
+          - { platform: darwin-x64, os: macos-latest, target: x86_64-apple-darwin, exe: pygg-cli }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+          key: cli-${{ matrix.target }}
+      - name: Build (no window, no webview libraries)
+        run: cargo build --release --locked --no-default-features --bin pygg-cli --target ${{ matrix.target }}
+        working-directory: apps/desktop/src-tauri
+      - name: Core tests without the window (Linux)
+        # The gateway, store, CLI and web guard on Linux; the window's code is not built here.
+        if: matrix.platform == 'linux-x64'
+        run: cargo test --locked --no-default-features --lib
+        working-directory: apps/desktop/src-tauri
+      - name: Run it
+        # The Intel build cannot run on the Apple-silicon runner without Rosetta; the install job runs it where it can.
+        if: matrix.platform != 'darwin-x64'
+        run: |
+          exe=apps/desktop/src-tauri/target/${{ matrix.target }}/release/${{ matrix.exe }}
+          "$exe" --version
+          "$exe" --help > /dev/null
+          # No store and nothing listening: a problem found, exit 3; a mistyped command is wrong usage, exit 2.
+          set +e
+          "$exe" status --db "$RUNNER_TEMP/none.sqlite3" --port 9; code=$?
+          [ "$code" = 3 ] || { echo "status exited $code, expected 3"; exit 1; }
+          "$exe" stauts; code=$?
+          [ "$code" = 2 ] || { echo "a mistyped command exited $code, expected 2"; exit 1; }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pack @pygg/${{ matrix.platform }}
+        run: node scripts/npm-pack.mjs --platform ${{ matrix.platform }} --exe apps/desktop/src-tauri/target/${{ matrix.target }}/release/${{ matrix.exe }} --out dist/npm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ matrix.platform }}
+          path: dist/npm/*.tgz
+          if-no-files-found: error
+
+  launcher:
+    name: launcher @pygg/cli
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test packages/npm/pygg/test/launcher.test.js
+      - run: node scripts/npm-pack.mjs --launcher --out dist/npm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-launcher
+          path: dist/npm/*.tgz
+          if-no-files-found: error
+
+  install:
+    name: install on ${{ matrix.os }}
+    needs: [cli, launcher]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, platform: win32-x64 }
+          - { os: ubuntu-latest, platform: linux-x64 }
+          - { os: macos-latest, platform: darwin-arm64 }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: npm-*
+          merge-multiple: true
+          path: packages
+      - name: Install the launcher and this platform's package from the tarballs, and run pygg
+        run: |
+          mkdir try && cd try && npm init -y > /dev/null
+          npm install --no-audit --no-fund ../packages/pygg-${{ matrix.platform }}-*.tgz ../packages/pygg-cli-*.tgz
+          npx --no-install pygg --launcher-info
+          npx --no-install pygg --version
+          set +e
+          npx --no-install pygg stauts; code=$?
+          [ "$code" = 2 ] || { echo "a mistyped command exited $code through the launcher, expected 2"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        if: matrix.platform == 'linux-x64'
+        with:
+          name: npm-packages-all
+          path: packages/*.tgz

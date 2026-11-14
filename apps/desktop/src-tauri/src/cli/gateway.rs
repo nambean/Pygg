@@ -36,10 +36,7 @@ fn fail(message: impl std::fmt::Display) -> ! {
 }
 
 fn default_db() -> PathBuf {
-    let base = std::env::var_os("APPDATA").map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
-        .unwrap_or_else(|| fail("cannot find the app data folder; pass --db"));
-    base.join("app.smarttaskrouter.desktop").join("store.sqlite3")
+    super::default_store().unwrap_or_else(|| fail("cannot find Pygg's data folder; pass --db PATH or set PYGG_DATA_DIR"))
 }
 
 /// Runs `gateway` with its arguments (without the program's name): from `gateway.exe` and from `pygg-cli gateway`.

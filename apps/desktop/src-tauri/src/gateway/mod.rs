@@ -64,6 +64,8 @@ use store::{Client, Provider, Target, UsageRecord};
 use tokio::sync::{mpsc, oneshot};
 
 pub const DEFAULT_PORT: u16 = 8741;
+/// The setting that holds the port the app's gateway listens on, when it is not the default.
+pub const PORT_KEY: &str = "gateway.port";
 /// The header a client sets to keep one session on one model (`ANTHROPIC_CUSTOM_HEADERS` in Claude Code).
 pub const SESSION_HEADER: &str = "x-smarttaskrouter-session";
 /// Output tokens assumed when a request sets no limit, for the reservation only.

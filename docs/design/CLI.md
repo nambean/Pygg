@@ -1,6 +1,6 @@
 # The `pygg` command line
 
-> **Status:** Current · first release built 2026-11-14 after [Codex's review](../reviews/2026-11-14-codex-cli-review.md) (section 6) · the owner: "Pygg's CLI and npm are too thin and hard to use", pointing at [OmniRoute's CLI reference](https://github.com/cheaper-inference/OmniRoute/blob/release/v3.8.54/docs/reference/CLI-TOOLS.md) · built: [Implementation Status](../IMPLEMENTATION-STATUS.md) · npm: [packages/npm](../../packages/npm/pygg/README.md)
+> **Status:** Current · first release built 2026-11-14 after [Codex's review](../reviews/2026-11-14-codex-cli-review.md) (section 6) · the owner: "Pygg's CLI and npm are too thin and hard to use", pointing at [OmniRoute's CLI reference](https://github.com/cheaper-inference/OmniRoute/blob/release/v3.8.54/docs/reference/CLI-TOOLS.md) · built: [Implementation Status](../IMPLEMENTATION-STATUS.md) · npm: [packages/npm](../../packages/npm/pygg/README.md) · every platform: [ADR-037](../DECISIONS.md) (2026-11-14)
 
 ## 1. What is wrong today
 

@@ -4,6 +4,14 @@
 // The engineering name, kept when the product became Pygg: keys already stored under it must stay readable.
 const SERVICE: &str = "SmartTaskRouter";
 
+/// What the platform's credential store is called, for messages.
+#[cfg(windows)]
+pub const STORE_NAME: &str = "the Windows Credential Manager";
+#[cfg(target_os = "macos")]
+pub const STORE_NAME: &str = "the macOS Keychain";
+#[cfg(not(any(windows, target_os = "macos")))]
+pub const STORE_NAME: &str = "the desktop keyring (Secret Service)";
+
 #[derive(Debug)]
 pub enum VaultError {
     /// The credential store refused or is unavailable. The message never contains the secret.
