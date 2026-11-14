@@ -1255,7 +1255,7 @@ function demoIntegrations(touch: <T>(value: T) => Promise<T>) {
   const list: Integration[] = [
     {id: 'claude-code', name: 'Claude Code', installed: true, state: 'set_up', configPath: `${home}\\.claude.json`,
       detail: 'pygg: · Scope: User config (available in all your projects) · Status: ✓ Connected', clientName: 'Claude Code (MCP)',
-      setUpAt: Date.now() - 86_400_000, backup: `${home}\\AppData\\Roaming\\SmartTaskRouter\\integration-backups\\claude-code-1-.claude.json`},
+      setUpAt: Date.now() - 86_400_000, backup: `${home}\\AppData\\Roaming\\app.smarttaskrouter.desktop\\integration-backups\\claude-code-1-.claude.json`},
     {id: 'codex', name: 'Codex CLI', installed: true, state: 'not_set_up', configPath: `${home}\\.codex\\config.toml`,
       detail: null, clientName: null, setUpAt: null, backup: null},
     {id: 'opencode', name: 'OpenCode', installed: true, state: 'set_up_elsewhere', configPath: `${home}\\.config\\opencode\\opencode.json`,
@@ -1274,7 +1274,7 @@ function demoIntegrations(touch: <T>(value: T) => Promise<T>) {
       const i = find(id);
       const change = id === 'opencode-gateway'
         ? JSON.stringify({provider: {pygg: {npm: '@ai-sdk/anthropic', name: 'Pygg', options: {baseURL: 'http://127.0.0.1:8741/v1',
-            apiKey: '<new-token>', headers: {'x-smarttaskrouter-session': '{env:PYGG_ATTEMPT_ID}'}},
+            apiKey: '<new-token>', headers: {'x-pygg-session': '{env:PYGG_ATTEMPT_ID}'}},
             models: {auto: {name: 'auto', tool_call: true}, 'auto/cheap': {name: 'auto/cheap', tool_call: true},
               'anthropic/claude-haiku-5-5': {name: 'anthropic/claude-haiku-5-5', tool_call: true, limit: {context: 200000, output: 64000}}}}}}, null, 2)
         : id === 'codex-gateway'
@@ -1284,7 +1284,7 @@ name = "Pygg"
 base_url = "http://127.0.0.1:8741/v1"
 wire_api = "responses"
 experimental_bearer_token = "<new-token>"
-env_http_headers = { x-smarttaskrouter-session = "PYGG_ATTEMPT_ID" }
+env_http_headers = { x-pygg-session = "PYGG_ATTEMPT_ID" }
 
 # A new file next to it: pygg.config.toml
 # Codex's models through Pygg's gateway, added by Pygg (Agents > From Your IDE): codex --profile pygg
@@ -1297,14 +1297,14 @@ model = "auto"
         : `claude mcp add --scope user pygg -e PYGG_TOKEN=<new-token> -- ${exe} mcp`;
       return touch<IntegrationPlan>({id, name: i.name, kind: i.kind ?? 'mcp', configPath: i.configPath, configExists: true, change,
         method: id.startsWith('opencode') || id === 'codex-gateway' ? 'file' : 'command', clientName: modelsClient(id, i.name),
-        backupDir: `${home}\\AppData\\Roaming\\SmartTaskRouter\\integration-backups`});
+        backupDir: `${home}\\AppData\\Roaming\\app.smarttaskrouter.desktop\\integration-backups`});
     },
     applyIntegration: async (id: string) => {
       const i = find(id);
       if (i.state === 'set_up') throw `Pygg is already set up in ${i.name}`;
       if (i.state === 'set_up_elsewhere') throw `${i.name} already has an MCP server named pygg, set up outside Pygg. Remove it here first, or keep using it.`;
       Object.assign(i, {state: 'set_up', clientName: modelsClient(id, i.name), setUpAt: Date.now(),
-        backup: `${home}\\AppData\\Roaming\\SmartTaskRouter\\integration-backups\\${id}-${Date.now()}`});
+        backup: `${home}\\AppData\\Roaming\\app.smarttaskrouter.desktop\\integration-backups\\${id}-${Date.now()}`});
       await sleep(600);
       return clone(i);
     },

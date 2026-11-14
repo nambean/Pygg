@@ -35,7 +35,7 @@ Report a vulnerability privately, not in a public issue: through the repository'
 - **A web session's window is a browser while the user signs in.** Whatever the user opens there in that time is kept in that connection's profile folder, as a browser would keep it.
 - **A web session acts as the user on the site.** The site's terms may forbid automated use, and the account can be limited or banned; the user accepts this per connection (ADR-035). For an agent like Muse, what a client sends through Pygg is sent from the user's account, though Pygg denies every action the agent asks to take.
 - **Keys of several accounts on one connection.** Pygg cannot check that the keys of a key ring belong to separate accounts; the user confirms it (ADR-038).
-- **`SMARTTASKROUTER_CAPTURE_DIR`**, a debugging aid, writes translated streams (whole model answers) to that folder. Leave it unset except when diagnosing.
+- **`PYGG_CAPTURE_DIR`**, a debugging aid, writes translated streams (whole model answers) to that folder. Leave it unset except when diagnosing.
 
 ## Not covered yet
 

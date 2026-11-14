@@ -17,7 +17,7 @@
 //! 4. The first few ranked models become the route, tried in order with the usual error-scoped fallback,
 //!    quota groups, budget holds and retry policy. An explicit session stays on the model that answered it.
 //!
-//! The reason for the choice is returned in `x-smarttaskrouter-auto` and kept in the ledger.
+//! The reason for the choice is returned in `x-pygg-auto` and kept in the ledger.
 
 use super::store::{self, Client, Model, Provider};
 use super::{estimate_input_tokens, Surface, DEFAULT_OUTPUT_ESTIMATE};

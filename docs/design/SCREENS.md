@@ -407,7 +407,7 @@ Where tools send their requests, and the keys they use (`Endpoint.tsx`, `Clients
   A Pygg API key is sent as the bearer token or `x-api-key`.
 - **API Keys:** Pygg's own keys, one per app.
   - The table shows each key's name, the token (Show reads it back from the Credential Manager), last used, and this month's spend, with **Limits…** and **Revoke…**. A revoked key can be deleted.
-  - **Create API Key…** asks for a name, an optional monthly limit and a policy, then shows the key with **Copy API Key** and how to set it as `SMARTTASKROUTER_TOKEN`.
+  - **Create API Key…** asks for a name, an optional monthly limit and a policy, then shows the key with **Copy API Key** and how to set it as `PYGG_API_KEY`.
   - **Limits…** covers the monthly limit, a strict limit, unknown price, requests at once, behaviour after a server error, the auto minimum tier, whether the key may start tasks, data use, and which connections it may use.
 
 ### 5.8 Settings

@@ -63,7 +63,7 @@ export function manifest(platform, version) {
     version,
     description: `The native pygg-cli program for ${platform}, used by @pygg/cli (the pygg command). Developer preview, unsigned.`,
     license: 'MIT',
-    repository: { type: 'git', url: 'git+https://github.com/nambean/smarttaskrouter.git' },
+    repository: { type: 'git', url: 'git+https://github.com/nambean/Pygg.git' },
     os: [p.os],
     cpu: [p.cpu],
     ...(p.libc ? { libc: [p.libc] } : {}),

@@ -173,7 +173,7 @@ Built as ADR-034 (pools of connections) and ADR-038 (key rings). Its safety rule
 - native, same-format Anthropic passthrough with prompt-cache parity;
 - fallback only on errors that allow it;
 - atomic budget and usage accounting, with reservations;
-- explicit session affinity (`x-smarttaskrouter-session`), never derived from prompt content;
+- explicit session affinity (`x-pygg-session`), never derived from prompt content;
 - explainable, rule-based `auto`.
 
 External clients own their prompts, history and compaction. The gateway never inserts memory or rewrites a client's prompt; the one addition is ADR-036's cache marker on translated turns.
@@ -258,7 +258,7 @@ This replaces the parts of [design/SCREENS.md](design/SCREENS.md) that assume ta
 - **One new translator, Responses ↔ Chat Completions.** An Anthropic-format connection is reached through the existing Chat Completions → Messages translator, so there is one translator per pair of formats.
 - **Native passthrough only where a preset says so** (`Preset::serves_responses`): OpenAI.
 - **Custom tools** (Codex's `apply_patch`) cross as functions with one string parameter, `input`, carrying the grammar in the description. **Namespace tools** are flattened as `<namespace>__<name>`. Both are matched back by name from the request's own tool list; nothing is kept between requests.
-- **Reasoning** comes back as a `reasoning` item, and goes back as `reasoning_content` to providers that take it. Another provider's encrypted reasoning, hosted tools and top-level fields that are not carried are named in `x-smarttaskrouter-dropped`. Nothing is dropped silently.
+- **Reasoning** comes back as a `reasoning` item, and goes back as `reasoning_content` to providers that take it. Another provider's encrypted reasoning, hosted tools and top-level fields that are not carried are named in `x-pygg-dropped`. Nothing is dropped silently.
 - **Pygg stores no responses.** `previous_response_id`, `conversation` and `background` are refused with 400; the client sends the whole conversation.
 
 **Why:** Codex CLI speaks only the Responses API, so without it Codex could not use Pygg as a gateway.
@@ -320,7 +320,7 @@ This replaces the parts of [design/SCREENS.md](design/SCREENS.md) that assume ta
 ## ADR-036 — How Pygg saves tokens: keep the cache, route per session, measure before compressing
 
 **Decision, in this order:**
-1. **Keep the provider's cache working.** It is the largest saving and costs no quality. Sessions keep a launch on one model (`pygg run`, `x-smarttaskrouter-session`); fallbacks happen only on failure. When Pygg translates an OpenAI-format turn that carries tools for Anthropic's own API, it turns on Anthropic's automatic caching with one top-level `cache_control`, since the client cannot (`gateway::adds_cache`; the ledger says `added`). A request the client marked, a native Anthropic request, a turn without tools and other providers' Anthropic-format endpoints are not changed.
+1. **Keep the provider's cache working.** It is the largest saving and costs no quality. Sessions keep a launch on one model (`pygg run`, `x-pygg-session`); fallbacks happen only on failure. When Pygg translates an OpenAI-format turn that carries tools for Anthropic's own API, it turns on Anthropic's automatic caching with one top-level `cache_control`, since the client cannot (`gateway::adds_cache`; the ledger says `added`). A request the client marked, a native Anthropic request, a turn without tools and other providers' Anthropic-format endpoints are not changed.
 2. **Route per session or task, not per request.** `auto` chooses when a session starts and stays. A per-prompt learned router is not built.
 3. **Show where tokens go before changing anything** (Usage → Token Mix and Routing): cache share, cache writes after a model change, attempts and fallbacks.
 4. **Compression only in shadow** until measurements show it pays. An agent's history is never rewritten; a filter on new tool output is at most an opt-in experiment.

@@ -101,7 +101,7 @@ pub fn environment(base_url: &str, token: &str, model: &str, session: &str) -> V
     for slot in ["ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"] {
         env.push((slot.into(), model.into()));
     }
-    env.push(("ANTHROPIC_CUSTOM_HEADERS".into(), format!("x-smarttaskrouter-session: {session}")));
+    env.push(("ANTHROPIC_CUSTOM_HEADERS".into(), format!("x-pygg-session: {session}")));
     env
 }
 
@@ -122,7 +122,7 @@ mod tests {
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
         assert_eq!(get("ANTHROPIC_BASE_URL"), Some("http://127.0.0.1:8741"));
         assert_eq!(get("ANTHROPIC_DEFAULT_HAIKU_MODEL"), Some("auto"));
-        assert_eq!(get("ANTHROPIC_CUSTOM_HEADERS"), Some("x-smarttaskrouter-session: s1"));
+        assert_eq!(get("ANTHROPIC_CUSTOM_HEADERS"), Some("x-pygg-session: s1"));
         assert!(removed_variables().any(|v| v == "ANTHROPIC_API_KEY"));
         assert!(removed_variables().any(|v| v == "CLAUDECODE"));
     }

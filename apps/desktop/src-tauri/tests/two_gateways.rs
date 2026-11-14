@@ -53,7 +53,7 @@ fn a_second_process_is_refused_and_a_killed_owner_leaves_no_stale_lock() {
         conn.busy_timeout(Duration::from_secs(5)).unwrap();
         conn.execute("INSERT INTO budget_reservations (id, client_id, reserved_micro, created_at, provider_id, model_id, \
             requested_model, route_mode) SELECT 'a1', id, 2500, ?1, 'main', 'fast', 'main/fast', 'native' FROM gateway_clients",
-            [smarttaskrouter_desktop_lib::db::now_ms()]).unwrap();
+            [pygg_desktop_lib::db::now_ms()]).unwrap();
     }
 
     let mut second = serve(&db);

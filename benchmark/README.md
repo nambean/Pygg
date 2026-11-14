@@ -63,7 +63,7 @@ Each attempt runs in its own Git worktree and is discarded afterwards. Checks ru
 
 ### Through the gateway
 
-With `--gateway-db`, each attempt runs with its own session key in `PYGG_BENCH_SESSION`. The agent's configuration sends it as `x-smarttaskrouter-session`, and the attempt's cost is what the gateway's ledger recorded for that session, at the gateway's prices: the agent cannot know which model a route chose. Requests on a subscription count as quota, not money. An attempt that sent nothing through the gateway (a model the agent reaches directly) is costed from the agent's own report. Put a spending limit on the gateway key too, and make it strict (Endpoint → API Keys → Limits): the gateway then holds each request at the most it could cost, so the limit cannot be passed.
+With `--gateway-db`, each attempt runs with its own session key in `PYGG_BENCH_SESSION`. The agent's configuration sends it as `x-pygg-session`, and the attempt's cost is what the gateway's ledger recorded for that session, at the gateway's prices: the agent cannot know which model a route chose. Requests on a subscription count as quota, not money. An attempt that sent nothing through the gateway (a model the agent reaches directly) is costed from the agent's own report. Put a spending limit on the gateway key too, and make it strict (Endpoint → API Keys → Limits): the gateway then holds each request at the most it could cost, so the limit cannot be passed.
 
 OpenCode through the gateway's Anthropic surface: a provider in the file `OPENCODE_CONFIG` points to.
 
@@ -75,7 +75,7 @@ OpenCode through the gateway's Anthropic surface: a provider in the file `OPENCO
       "options": {
         "baseURL": "http://127.0.0.1:<port>/v1",
         "apiKey": "{file:<file with the Pygg API key>}",
-        "headers": { "x-smarttaskrouter-session": "{env:PYGG_BENCH_SESSION}" }
+        "headers": { "x-pygg-session": "{env:PYGG_BENCH_SESSION}" }
       },
       "models": {
         "auto": { "tool_call": true, "limit": { "context": 128000, "output": 32000 } },

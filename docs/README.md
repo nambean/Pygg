@@ -2,7 +2,7 @@
 
 > **Status:** Current · the index of every project document, grouped by reader, and the rules they follow · reviewed 2026-11-14
 
-**Pygg** — *One Flow. Many Agents.* A local AI gateway that routes coding agents across the providers you connected and records what every request cost ([branding](../branding/README.md)). Smart tasks, run by agent CLIs and started from an IDE, are experimental and on hold. The repository is [nambean/Pygg](https://github.com/nambean/Pygg); some technical identifiers keep the engineering name **SmartTaskRouter**.
+**Pygg** — *One Flow. Many Agents.* A local AI gateway that routes coding agents across the providers you connected and records what every request cost ([branding](../branding/README.md)). Smart tasks, run by agent CLIs and started from an IDE, are experimental and on hold. The repository is [nambean/Pygg](https://github.com/nambean/Pygg). Only the app's data folder (`app.smarttaskrouter.desktop`) and its credential service name keep the engineering name SmartTaskRouter.
 
 Every document here is final: it describes Pygg as it is now. How it got there is in the git history.
 
@@ -56,7 +56,7 @@ When documents disagree: **IMPLEMENTATION-STATUS** says what is built and how it
 
 - **Final only.** A document says what is true now. When something changes, change the sentence to the new truth. No dated logs ("Update 2026-…", "Live verification on …"), no "last update" prose, no review records, progress reports or superseded plans in `docs/`: Codex consultations and progress reports go to the chat or the session notes, and history stays in git. A measured result is the exception: it is a report under `benchmark/reports/`, left as run.
 - **Status line.** Each document opens with `> **Status:** Current · <what it is> · reviewed <date>` (IMPLEMENTATION-STATUS and ROADMAP say Authoritative).
-- **Names.** The product is **Pygg** in prose. **SmartTaskRouter** stays only where it is an identifier: `x-smarttaskrouter-*` headers, `SMARTTASKROUTER_*` variables, package and crate names, and file names.
+- **Names.** The product is **Pygg** everywhere: prose, the repository, packages, crates, `x-pygg-*` headers and `PYGG_*` variables. The engineering name SmartTaskRouter stays in two identifiers only, so existing data stays readable: the app identifier `app.smarttaskrouter.desktop` (it names the folder that holds the user's store) and the credential service name `SmartTaskRouter`. The gateway still reads the old session header `x-smarttaskrouter-session`, which clients set up before the rename send.
 - **Claims carry their evidence.** "Built" names its code; "verified" says how (unit test, fake provider, live run with which provider). Untested is said plainly.
 - **Costs are honest.** Unknown is never $0; an estimate says what it was estimated from; a subscription's use is quota, not money.
 - **Owner decisions** (licence, budget, scope) are recorded as ADRs and cited by number.

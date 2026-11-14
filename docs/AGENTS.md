@@ -37,7 +37,7 @@ ANTHROPIC_MODEL                 auto (or --model: auto/cheap, a combo, <connecti
 ANTHROPIC_DEFAULT_OPUS_MODEL    the same
 ANTHROPIC_DEFAULT_SONNET_MODEL  the same
 ANTHROPIC_DEFAULT_HAIKU_MODEL   the same
-ANTHROPIC_CUSTOM_HEADERS        x-smarttaskrouter-session: launch-<uuid>
+ANTHROPIC_CUSTOM_HEADERS        x-pygg-session: launch-<uuid>
 ```
 
 `ANTHROPIC_API_KEY`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX` and a host session's variables are removed first. A plain `claude` keeps the user's sign-in and plan. **Remove** revokes the key and deletes it from the credential store.
@@ -57,7 +57,7 @@ name = "Pygg"
 base_url = "http://127.0.0.1:8741/v1"
 wire_api = "responses"
 experimental_bearer_token = "<a Pygg API key of its own>"
-env_http_headers = { "x-smarttaskrouter-session" = "PYGG_ATTEMPT_ID" }
+env_http_headers = { "x-pygg-session" = "PYGG_ATTEMPT_ID" }
 
 # pygg.config.toml, a new file next to it
 model_provider = "pygg"
@@ -70,7 +70,7 @@ model = "auto"
 - Removal deletes the profile file only while it still selects Pygg's provider. While `model_provider = "pygg"` is Codex's default, removal is refused. Apply then remove leaves `config.toml` byte-identical (a file without a final newline gets one).
 - **`auto` follows the client's minimum tier** (T2 by default). With only cheaper models connected it refuses and says why: name the model, or lower the minimum in Endpoint → API Keys → Limits….
 - **Tools.** For a model it does not know, Codex uses fallback metadata: its shell and function tools, but no `apply_patch`, so it edits through the shell. A model catalog (`model_catalog_json`, listing the model with `apply_patch_tool_type = "freeform"` and `base_instructions`) gives it `apply_patch`, which crosses as a function with one string parameter. Pygg does not write this catalog yet.
-- **What does not cross:** OpenAI's encrypted reasoning, hosted tools (`web_search`), `prompt_cache_key` and `client_metadata`, named in `x-smarttaskrouter-dropped`. Pygg stores no responses, so `previous_response_id` is refused; Codex sends the whole conversation with `store = false`.
+- **What does not cross:** OpenAI's encrypted reasoning, hosted tools (`web_search`), `prompt_cache_key` and `client_metadata`, named in `x-pygg-dropped`. Pygg stores no responses, so `previous_response_id` is refused; Codex sends the whole conversation with `store = false`.
 - **Prompt cache.** A Codex turn with tools translated for Anthropic's own API gets Anthropic's automatic caching (ADR-036).
 - **Windows sandbox:** in a fresh `CODEX_HOME`, `-s workspace-write` falls back to read-only until `[windows] sandbox = "unelevated"` (or the user's own elevated setup) is set.
 
@@ -88,7 +88,7 @@ Verified: unit tests in `integrations.rs`; live with Codex CLI 0.163.0: set-up, 
     "options": {
       "baseURL": "http://127.0.0.1:8741/v1",
       "apiKey": "<a Pygg API key of its own>",
-      "headers": { "x-smarttaskrouter-session": "{env:PYGG_ATTEMPT_ID}" }
+      "headers": { "x-pygg-session": "{env:PYGG_ATTEMPT_ID}" }
     },
     "models": { "auto": { "name": "auto", "tool_call": true } }
   }

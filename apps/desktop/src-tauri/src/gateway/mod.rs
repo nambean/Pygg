@@ -17,7 +17,7 @@
 //!   can be higher (CR-03). Spend that may have been charged but cannot be stated counts against the limit at
 //!   the amount held. Clients have a cap on requests in flight and by default cannot use a target whose price
 //!   is unknown. Handlers run detached, so a client that disconnects early still leaves a ledger entry.
-//! - **Explicit sessions are pinned** (P0-4): a request with `x-smarttaskrouter-session` goes back to the
+//! - **Explicit sessions are pinned** (P0-4): a request with `x-pygg-session` goes back to the
 //!   model that last answered that session. Sessions are never guessed from prompt content.
 //! - Every upstream attempt is written to the usage ledger with its cost and that cost's provenance.
 
@@ -68,7 +68,9 @@ pub const DEFAULT_PORT: u16 = 8741;
 /// The setting that holds the port the app's gateway listens on, when it is not the default.
 pub const PORT_KEY: &str = "gateway.port";
 /// The header a client sets to keep one session on one model (`ANTHROPIC_CUSTOM_HEADERS` in Claude Code).
-pub const SESSION_HEADER: &str = "x-smarttaskrouter-session";
+pub const SESSION_HEADER: &str = "x-pygg-session";
+/// The session header's name before the rename to Pygg. Still read, so clients set up before it keep their sessions.
+pub const LEGACY_SESSION_HEADER: &str = "x-smarttaskrouter-session";
 /// Output tokens assumed when a request sets no limit, for the reservation only.
 const DEFAULT_OUTPUT_ESTIMATE: u64 = 4096;
 /// Why a web session was passed over after another web session's site may have taken the prompt.
@@ -453,8 +455,8 @@ where
 
 async fn loopback_host_only(request: Request, next: Middleware, port: u16) -> Response {
     // A request log for checking what a client sends (which paths, whether each carries a session id).
-    // Off unless SMARTTASKROUTER_LOG_REQUESTS is set; it never prints tokens or bodies.
-    if std::env::var_os("SMARTTASKROUTER_LOG_REQUESTS").is_some() {
+    // Off unless PYGG_LOG_REQUESTS is set; it never prints tokens or bodies.
+    if std::env::var_os("PYGG_LOG_REQUESTS").is_some() {
         let h = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok()).unwrap_or("-").to_string();
         eprintln!("{} {} {} session={} ua={}", crate::db::now_ms(), request.method(), request.uri().path(),
             h(SESSION_HEADER), h("user-agent"));
@@ -544,7 +546,7 @@ pub fn authenticate(shared: &Shared, headers: &HeaderMap) -> Result<Client, Refu
 
 /// The explicit session a request belongs to, if the client named one. Never derived from the prompt.
 pub fn session_key(headers: &HeaderMap) -> Option<String> {
-    let value = headers.get(SESSION_HEADER)?.to_str().ok()?.trim();
+    let value = headers.get(SESSION_HEADER).or_else(|| headers.get(LEGACY_SESSION_HEADER))?.to_str().ok()?.trim();
     let ok = !value.is_empty() && value.len() <= 128 && value.chars().all(|c| c.is_ascii_graphic());
     ok.then(|| value.to_string())
 }
@@ -556,11 +558,11 @@ async fn list_models(State(shared): State<Shared>, headers: HeaderMap) -> Respon
     };
     let listed = shared.with_db(|db| -> store::Result<Vec<Value>> {
         let mut data: Vec<Value> = auto::ALIASES.iter()
-            .map(|alias| json!({ "id": alias, "object": "model", "created": 0, "owned_by": "smarttaskrouter auto" }))
+            .map(|alias| json!({ "id": alias, "object": "model", "created": 0, "owned_by": "pygg auto" }))
             .collect();
         data.extend(store::list_combos(db)?
             .into_iter()
-            .map(|c| json!({ "id": c.name, "object": "model", "created": 0, "owned_by": "smarttaskrouter combo" })));
+            .map(|c| json!({ "id": c.name, "object": "model", "created": 0, "owned_by": "pygg combo" })));
         let providers = store::list_providers(db)?;
         // A pool's models, as `<pool>/<model>` (ADR-034): those an enabled member the client may use offers.
         let mut pooled = std::collections::BTreeSet::new();
@@ -570,7 +572,7 @@ async fn list_models(State(shared): State<Shared>, headers: HeaderMap) -> Respon
                 pooled.insert(format!("{pool}/{}", model.model_id));
             }
         }
-        data.extend(pooled.into_iter().map(|id| json!({ "id": id, "object": "model", "created": 0, "owned_by": "smarttaskrouter pool" })));
+        data.extend(pooled.into_iter().map(|id| json!({ "id": id, "object": "model", "created": 0, "owned_by": "pygg pool" })));
         for model in store::list_models(db, None)? {
             let allowed = providers.iter().any(|p| p.id == model.provider_id && p.enabled && client.allows(p).is_ok());
             if model.enabled && allowed {
@@ -1419,25 +1421,25 @@ pub fn provider_headers(from: &HeaderMap, to: &mut HeaderMap) {
 pub fn route_headers(response: &mut Response, forwarded: &Forwarded) {
     let headers = response.headers_mut();
     if let Ok(value) = HeaderValue::from_str(&format!("{}/{}", forwarded.provider.id, forwarded.model_id)) {
-        headers.insert("x-smarttaskrouter-route", value);
+        headers.insert("x-pygg-route", value);
     }
-    headers.insert("x-smarttaskrouter-attempts", HeaderValue::from(forwarded.attempt));
+    headers.insert("x-pygg-attempts", HeaderValue::from(forwarded.attempt));
     if let Ok(value) = HeaderValue::from_str(&forwarded.facts.request_id) {
         headers.insert(REQUEST_ID_HEADER, value);
     }
     if let Some(value) = forwarded.auto_header.as_deref().and_then(|h| HeaderValue::from_str(h).ok()) {
-        headers.insert("x-smarttaskrouter-auto", value);
+        headers.insert("x-pygg-auto", value);
     }
     if let Ok(value) = HeaderValue::from_str(forwarded.mode.label()) {
-        headers.insert("x-smarttaskrouter-mode", value);
+        headers.insert("x-pygg-mode", value);
     }
     if !forwarded.dropped.is_empty() {
         if let Ok(value) = HeaderValue::from_str(&forwarded.dropped.join(",")) {
-            headers.insert("x-smarttaskrouter-dropped", value);
+            headers.insert("x-pygg-dropped", value);
         }
     }
     if forwarded.session.is_some() {
-        headers.insert("x-smarttaskrouter-session",
+        headers.insert("x-pygg-session",
             HeaderValue::from_static(if forwarded.pinned { "pinned" } else { "new" }));
     }
 }

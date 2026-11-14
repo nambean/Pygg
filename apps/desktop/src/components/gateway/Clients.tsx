@@ -169,8 +169,8 @@ function CreateSheet({onClose}: {onClose: () => void}) {
 
   if (created) {
     const persist = isMac
-      ? `echo 'export SMARTTASKROUTER_TOKEN="${created.token}"' >> ~/.zshrc`
-      : `[Environment]::SetEnvironmentVariable('SMARTTASKROUTER_TOKEN', '${created.token}', 'User')`;
+      ? `echo 'export PYGG_API_KEY="${created.token}"' >> ~/.zshrc`
+      : `[Environment]::SetEnvironmentVariable('PYGG_API_KEY', '${created.token}', 'User')`;
     return <Sheet title={t('API Key for {name}', {name: created.client.name})} onClose={onClose} footer={<>
       <span className="spacer"/>
       <button type="button" className="button prominent" onClick={onClose}>{t('Done')}</button>
@@ -182,7 +182,7 @@ function CreateSheet({onClose}: {onClose: () => void}) {
         <code className="mono selectable">{created.token}</code>
         <CopyButton text={created.token} label={t('Copy API Key')} prominent/>
       </div>
-      <p className="sheet-text">{t('The snippets in CLI Tools → Set Up by Hand read it from SMARTTASKROUTER_TOKEN. To set that for your user:')}</p>
+      <p className="sheet-text">{t('The snippets in CLI Tools → Set Up by Hand read it from PYGG_API_KEY. To set that for your user:')}</p>
       <div className="token-box">
         <code className="mono selectable small-code">{persist}</code>
         <CopyButton text={persist}/>

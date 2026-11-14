@@ -195,7 +195,7 @@ pub struct TaskRequest {
     #[serde(default)]
     pub max_budget_usd: Option<f64>,
     /// The task attempt this run is, given to the agent as `PYGG_ATTEMPT_ID`. An agent the user pointed at the
-    /// gateway can send it as its session (`x-smarttaskrouter-session`), so the gateway's ledger says which
+    /// gateway can send it as its session (`x-pygg-session`), so the gateway's ledger says which
     /// attempt each request belonged to; the benchmark costs attempts that way.
     #[serde(default)]
     pub attempt_id: Option<String>,
@@ -355,7 +355,7 @@ fn last_json_document(text: &str) -> Option<Value> {
 pub const ATTEMPT_ENV: &str = "PYGG_ATTEMPT_ID";
 
 /// `ANTHROPIC_CUSTOM_HEADERS` for a Claude Code run that goes through a gateway (`ANTHROPIC_BASE_URL` set): the
-/// headers already set, then `x-smarttaskrouter-session: <attempt>`. `None` for another agent, or for Claude Code
+/// headers already set, then `x-pygg-session: <attempt>`. `None` for another agent, or for Claude Code
 /// talking to Anthropic directly, which would not use the header.
 pub fn claude_session_headers(agent: &str, attempt: &str, var: impl Fn(&str) -> Option<String>) -> Option<String> {
     if agent != "claude-code" || var("ANTHROPIC_BASE_URL").filter(|v| !v.trim().is_empty()).is_none() {
@@ -363,7 +363,10 @@ pub fn claude_session_headers(agent: &str, attempt: &str, var: impl Fn(&str) -> 
     }
     let header = format!("{}: {attempt}", crate::gateway::SESSION_HEADER);
     let kept: Vec<String> = var("ANTHROPIC_CUSTOM_HEADERS").unwrap_or_default().lines()
-        .filter(|l| !l.trim().is_empty() && !l.to_ascii_lowercase().starts_with(crate::gateway::SESSION_HEADER))
+        .filter(|l| {
+            let l = l.trim().to_ascii_lowercase();
+            !l.is_empty() && !l.starts_with(crate::gateway::SESSION_HEADER) && !l.starts_with(crate::gateway::LEGACY_SESSION_HEADER)
+        })
         .map(String::from).collect();
     Some(kept.into_iter().chain(std::iter::once(header)).collect::<Vec<_>>().join("\n"))
 }
@@ -506,8 +509,8 @@ mod tests {
         assert_eq!(claude_session_headers("claude-code", "a1", env(&[])), None, "straight to Anthropic: no header");
         assert_eq!(claude_session_headers("codex", "a1", env(&[("ANTHROPIC_BASE_URL", "http://127.0.0.1:8741")])), None);
         assert_eq!(claude_session_headers("claude-code", "a1", env(&[("ANTHROPIC_BASE_URL", "http://127.0.0.1:8741"),
-            ("ANTHROPIC_CUSTOM_HEADERS", "x-team: blue\nx-smarttaskrouter-session: old")])).as_deref(),
-            Some("x-team: blue\nx-smarttaskrouter-session: a1"));
+            ("ANTHROPIC_CUSTOM_HEADERS", "x-team: blue\nX-SmartTaskRouter-Session: older\nx-pygg-session: old")])).as_deref(),
+            Some("x-team: blue\nx-pygg-session: a1"));
         assert!(budget_arguments("codex", Some(0.5)).is_empty() && budget_arguments("claude-code", None).is_empty());
     }
 

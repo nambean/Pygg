@@ -261,7 +261,7 @@ export function ClientSetup({baseUrl, routes, hasToken, onCreateToken}: {
       <p className="client-setup-note">
         {notes[kind]}{' '}
         {hasToken
-          ? t('Set SMARTTASKROUTER_TOKEN to the Pygg API key you saved when you created it.')
+          ? t('Set PYGG_API_KEY to the Pygg API key you saved when you created it.')
           : <>{t('You’ll need a Pygg API key first.')} <button type="button" className="link-button" onClick={onCreateToken}>{t('Create API Key…')}</button></>}
       </p>
     </div>
@@ -277,22 +277,22 @@ export function snippetFor(kind: ClientKind, shell: Shell, baseUrl: string, mode
       ['ANTHROPIC_DEFAULT_HAIKU_MODEL', model]];
     // A fresh session id per terminal keeps each Claude Code session on one model, and so on one prompt cache.
     return shell === 'powershell'
-      ? vars.map(([k, v]) => `$env:${k} = ${v === '%TOKEN%' ? '$env:SMARTTASKROUTER_TOKEN' : `"${v}"`}`).join('\n')
-        + '\n$env:ANTHROPIC_CUSTOM_HEADERS = "x-smarttaskrouter-session: $([guid]::NewGuid())"\nclaude'
-      : vars.map(([k, v]) => `export ${k}=${v === '%TOKEN%' ? '"$SMARTTASKROUTER_TOKEN"' : `"${v}"`}`).join('\n')
-        + '\nexport ANTHROPIC_CUSTOM_HEADERS="x-smarttaskrouter-session: $(uuidgen)"\nclaude';
+      ? vars.map(([k, v]) => `$env:${k} = ${v === '%TOKEN%' ? '$env:PYGG_API_KEY' : `"${v}"`}`).join('\n')
+        + '\n$env:ANTHROPIC_CUSTOM_HEADERS = "x-pygg-session: $([guid]::NewGuid())"\nclaude'
+      : vars.map(([k, v]) => `export ${k}=${v === '%TOKEN%' ? '"$PYGG_API_KEY"' : `"${v}"`}`).join('\n')
+        + '\nexport ANTHROPIC_CUSTOM_HEADERS="x-pygg-session: $(uuidgen)"\nclaude';
   }
   if (kind === 'editor') {
-    return [`Provider:  OpenAI Compatible`, `Base URL:  ${v1}`, `API key:   your Pygg API key (SMARTTASKROUTER_TOKEN)`,
+    return [`Provider:  OpenAI Compatible`, `Base URL:  ${v1}`, `API key:   your Pygg API key (PYGG_API_KEY)`,
       `Model:     ${model}`].join('\n');
   }
   if (kind === 'opencode') {
     return JSON.stringify({
       $schema: 'https://opencode.ai/config.json',
-      provider: {smarttaskrouter: {npm: '@ai-sdk/openai-compatible', name: 'Pygg',
-        options: {baseURL: v1, apiKey: '{env:SMARTTASKROUTER_TOKEN}', headers: {'x-smarttaskrouter-session': '{env:PYGG_ATTEMPT_ID}'}},
+      provider: {pygg: {npm: '@ai-sdk/openai-compatible', name: 'Pygg',
+        options: {baseURL: v1, apiKey: '{env:PYGG_API_KEY}', headers: {'x-pygg-session': '{env:PYGG_ATTEMPT_ID}'}},
         models: {[model]: {name: model}}}},
-      model: `smarttaskrouter/${model}`,
+      model: `pygg/${model}`,
     }, null, 2);
   }
   if (kind === 'sdk') {
@@ -300,16 +300,16 @@ export function snippetFor(kind: ClientKind, shell: Shell, baseUrl: string, mode
       'import os',
       'from openai import OpenAI',
       '',
-      `client = OpenAI(base_url="${v1}", api_key=os.environ["SMARTTASKROUTER_TOKEN"],`,
-      '                default_headers={"x-smarttaskrouter-session": "my-conversation"})',
+      `client = OpenAI(base_url="${v1}", api_key=os.environ["PYGG_API_KEY"],`,
+      '                default_headers={"x-pygg-session": "my-conversation"})',
       `reply = client.chat.completions.create(model="${model}", messages=[{"role": "user", "content": "Hello"}])`,
       'print(reply.choices[0].message.content)',
     ].join('\n');
   }
   return shell === 'powershell'
     ? [`Invoke-RestMethod ${v1}/chat/completions -Method Post \``,
-       `  -Headers @{ Authorization = "Bearer $env:SMARTTASKROUTER_TOKEN" } -ContentType 'application/json' \``,
+       `  -Headers @{ Authorization = "Bearer $env:PYGG_API_KEY" } -ContentType 'application/json' \``,
        `  -Body '${json}'`].join('\n')
-    : [`curl ${v1}/chat/completions \\`, '  -H "Authorization: Bearer $SMARTTASKROUTER_TOKEN" \\',
+    : [`curl ${v1}/chat/completions \\`, '  -H "Authorization: Bearer $PYGG_API_KEY" \\',
        '  -H "Content-Type: application/json" \\', `  -d '${json}'`].join('\n');
 }

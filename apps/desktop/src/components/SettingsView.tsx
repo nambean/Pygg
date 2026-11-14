@@ -52,7 +52,7 @@ export function SettingsView({language, onLanguage, onGateway}: {language: Langu
   </div>;
 }
 
-const REPOSITORY = 'https://github.com/nambean/smarttaskrouter';
+const REPOSITORY = 'https://github.com/nambean/Pygg';
 
 /** About (Codex review 7): the version, the licence, where to read the source and report a problem, and where Pygg keeps
  *  its log and the store's daily copies (applog.rs, backup.rs). */

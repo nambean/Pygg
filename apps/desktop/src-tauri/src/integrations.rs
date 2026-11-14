@@ -953,7 +953,7 @@ mod tests {
         assert_eq!(entry["npm"], "@ai-sdk/anthropic");
         assert_eq!(entry["options"]["baseURL"], "http://127.0.0.1:8741/v1");
         assert_eq!(entry["options"]["apiKey"], "str-m");
-        assert_eq!(entry["options"]["headers"]["x-smarttaskrouter-session"], "{env:PYGG_ATTEMPT_ID}");
+        assert_eq!(entry["options"]["headers"]["x-pygg-session"], "{env:PYGG_ATTEMPT_ID}");
         let models = entry["models"].as_object().unwrap();
         assert_eq!(models.keys().collect::<Vec<_>>(), ["auto", "anthropic/claude-haiku-5-5", "ollama/qwen3:8b", "x/embed"]);
         assert_eq!(models["anthropic/claude-haiku-5-5"]["limit"], json!({"context": 200000, "output": 64000}));
@@ -1137,7 +1137,7 @@ mod tests {
             assert_eq!(p["base_url"].as_str(), Some("http://127.0.0.1:8741/v1"));
             assert_eq!(p["wire_api"].as_str(), Some("responses"));
             assert_eq!(p["experimental_bearer_token"].as_str(), Some("str-c"));
-            assert_eq!(p["env_http_headers"]["x-smarttaskrouter-session"].as_str(), Some("PYGG_ATTEMPT_ID"));
+            assert_eq!(p["env_http_headers"]["x-pygg-session"].as_str(), Some("PYGG_ATTEMPT_ID"));
             // The user's own default stays theirs.
             assert_eq!(d.get("model_provider").and_then(|v| v.as_str()), if n == 0 { Some("openai") } else { None });
             assert!(with_codex_provider(doc.clone(), &server(None), "t").unwrap_err().contains("already has a model provider"));

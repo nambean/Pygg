@@ -193,7 +193,7 @@ pub fn keep_as_branch(worktree: &Worktree, branch: &str, message: &str) -> Resul
 pub fn init_repository(dir: &Path, message: &str) -> Result<String, IsolationError> {
     git(dir, &["init", "--quiet", "--initial-branch=main"])?;
     git(dir, &["config", "user.name", "Pygg Bench"])?;
-    git(dir, &["config", "user.email", "bench@smarttaskrouter.localhost"])?;
+    git(dir, &["config", "user.email", "bench@pygg.localhost"])?;
     // Fixtures compare byte-for-byte across platforms.
     git(dir, &["config", "core.autocrlf", "false"])?;
     git(dir, &["add", "--all"])?;

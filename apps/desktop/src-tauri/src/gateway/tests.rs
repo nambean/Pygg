@@ -418,8 +418,8 @@ fn routes_a_connection_model_and_prices_it() {
         let rig = rig().await;
         let response = rig.post("/v1/chat/completions", chat("main/fast")).await;
         assert_eq!(response.status(), 200);
-        assert_eq!(response.headers()["x-smarttaskrouter-route"], "main/fast");
-        assert_eq!(response.headers()["x-smarttaskrouter-mode"], "native");
+        assert_eq!(response.headers()["x-pygg-route"], "main/fast");
+        assert_eq!(response.headers()["x-pygg-mode"], "native");
         let body: Value = response.json().await.unwrap();
         assert_eq!(body["choices"][0]["message"]["content"], "pong");
         let event = &rig.ledger()[0];
@@ -470,7 +470,7 @@ fn a_combo_falls_back_across_groups_and_cools_failing_targets_down() {
         rig.allow_paid_retries(1);
         let response = rig.post("/v1/chat/completions", chat("coding")).await;
         assert_eq!(response.status(), 200);
-        assert_eq!(response.headers()["x-smarttaskrouter-route"], "backup/steady");
+        assert_eq!(response.headers()["x-pygg-route"], "backup/steady");
         let outcomes: Vec<(String, Option<u16>)> = rig.ledger().into_iter().map(|e| (e.outcome, e.http_status)).collect();
         assert_eq!(outcomes, [("fallback".into(), Some(429)), ("fallback".into(), Some(503)), ("ok".into(), Some(200))]);
         // One request, three attempts in order, each with the billing and route it was sent under (migration 0030), and
@@ -506,7 +506,7 @@ fn a_quota_refusal_never_moves_to_a_sibling_key_of_the_same_organization() {
         rig.shared.with_db(|db| store::update_provider(db, "sibling", None, None, Some(true))).unwrap();
         let response = rig.post("/v1/chat/completions", chat("siblings")).await;
         assert_eq!(response.status(), 200);
-        assert_eq!(response.headers()["x-smarttaskrouter-route"], "sibling/steady");
+        assert_eq!(response.headers()["x-pygg-route"], "sibling/steady");
     });
 }
 
@@ -624,18 +624,18 @@ fn an_explicit_session_stays_on_the_model_that_answered_it() {
         rig.allow_paid_retries(1);
         // The first model is overloaded once (503 with Retry-After: 0), so the session lands on the backup.
         let first = rig.post_session("/v1/chat/completions", "s-1", chat("pinme")).await;
-        assert_eq!(first.headers()["x-smarttaskrouter-route"], "backup/steady");
-        assert_eq!(first.headers()["x-smarttaskrouter-session"], "new");
+        assert_eq!(first.headers()["x-pygg-route"], "backup/steady");
+        assert_eq!(first.headers()["x-pygg-session"], "new");
 
         // A request without a session goes back to the first model, which works again.
         let other = rig.post("/v1/chat/completions", chat("pinme")).await;
-        assert_eq!(other.headers()["x-smarttaskrouter-route"], "main/flaky");
+        assert_eq!(other.headers()["x-pygg-route"], "main/flaky");
 
         // The session stays where it landed: same model, same cache.
         let again = rig.post_session("/v1/chat/completions", "s-1", chat("pinme")).await;
-        assert_eq!(again.headers()["x-smarttaskrouter-route"], "backup/steady");
-        assert_eq!(again.headers()["x-smarttaskrouter-session"], "pinned");
-        assert_eq!(again.headers()["x-smarttaskrouter-attempts"], "1");
+        assert_eq!(again.headers()["x-pygg-route"], "backup/steady");
+        assert_eq!(again.headers()["x-pygg-session"], "pinned");
+        assert_eq!(again.headers()["x-pygg-attempts"], "1");
         assert_eq!(rig.ledger().last().unwrap().session_key.as_deref(), Some("s-1"));
     });
 }
@@ -656,8 +656,8 @@ fn an_anthropic_request_to_an_anthropic_connection_passes_through_unchanged() {
             .header("anthropic-version", "2023-06-01").header("anthropic-beta", "prompt-caching-test")
             .json(&claude_request(false)).send().await.unwrap();
         assert_eq!(response.status(), 200);
-        assert_eq!(response.headers()["x-smarttaskrouter-mode"], "native");
-        assert!(response.headers().get("x-smarttaskrouter-dropped").is_none());
+        assert_eq!(response.headers()["x-pygg-mode"], "native");
+        assert!(response.headers().get("x-pygg-dropped").is_none());
         let body: Value = response.json().await.unwrap();
         // Cache markers, thinking and the beta header all reached the provider.
         assert_eq!(body["content"][0]["text"], "cache_control=true thinking=true beta=prompt-caching-test");
@@ -683,8 +683,8 @@ fn an_openai_request_reaches_an_anthropic_connection_through_translation() {
         request["seed"] = json!(3);
         let response = rig.post("/v1/chat/completions", request).await;
         assert_eq!(response.status(), 200);
-        assert_eq!(response.headers()["x-smarttaskrouter-mode"], "translated:openai->anthropic");
-        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "seed");
+        assert_eq!(response.headers()["x-pygg-mode"], "translated:openai->anthropic");
+        assert_eq!(response.headers()["x-pygg-dropped"], "seed");
         let body: Value = response.json().await.unwrap();
         assert_eq!(body["object"], "chat.completion");
         assert_eq!(body["choices"][0]["message"]["content"], "cache_control=false thinking=false beta=-");
@@ -758,7 +758,7 @@ fn reasoning_crosses_an_openai_to_anthropic_translation_both_ways() {
                 { "role": "user", "content": "again" }] });
         let response = rig.post("/v1/chat/completions", request(false)).await;
         assert_eq!(response.status(), 200);
-        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "reasoning_content,temperature (with thinking)");
+        assert_eq!(response.headers()["x-pygg-dropped"], "reasoning_content,temperature (with thinking)");
         let sent = rig.fake.last_body.lock().unwrap().clone().unwrap();
         assert_eq!(sent["thinking"], json!({ "type": "adaptive", "display": "summarized" }));
         assert_eq!(sent["output_config"], json!({ "effort": "high" }), "xhigh is not listed: the nearest lower level");
@@ -784,7 +784,7 @@ fn reasoning_crosses_an_openai_to_anthropic_translation_both_ways() {
         // DeepSeek's switch on its own: thinking at the model's default level.
         let deepseek = json!({ "model": "claude/thinker", "thinking": { "type": "enabled" }, "messages": [{ "role": "user", "content": "ping" }] });
         let response = rig.post("/v1/chat/completions", deepseek).await;
-        assert!(response.headers().get("x-smarttaskrouter-dropped").is_none());
+        assert!(response.headers().get("x-pygg-dropped").is_none());
         let sent = rig.fake.last_body.lock().unwrap().clone().unwrap();
         assert_eq!((sent["thinking"]["type"].as_str(), sent.get("output_config")), (Some("adaptive"), None));
     });
@@ -799,20 +799,20 @@ fn reasoning_effort_is_dropped_and_named_where_claude_cannot_take_it() {
         let mut unknown = chat("claude/sonnet");
         unknown["reasoning_effort"] = json!("low");
         let response = rig.post("/v1/chat/completions", unknown).await;
-        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "reasoning_effort (unknown whether the model thinks)");
+        assert_eq!(response.headers()["x-pygg-dropped"], "reasoning_effort (unknown whether the model thinks)");
         assert!(rig.fake.last_body.lock().unwrap().clone().unwrap()["thinking"].is_null());
         // Anthropic refuses thinking with a forced tool choice.
         let forced = json!({ "model": "claude/thinker", "reasoning_effort": "high", "tool_choice": "required",
             "tools": [{ "type": "function", "function": { "name": "read", "parameters": { "type": "object" } } }],
             "messages": [{ "role": "user", "content": "ping" }] });
         let response = rig.post("/v1/chat/completions", forced).await;
-        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "reasoning_effort (with a forced tool choice)");
+        assert_eq!(response.headers()["x-pygg-dropped"], "reasoning_effort (with a forced tool choice)");
         assert!(rig.fake.last_body.lock().unwrap().clone().unwrap()["thinking"].is_null());
         // `none` sends nothing: Claude's own default applies.
         let mut none = chat("claude/thinker");
         none["reasoning_effort"] = json!("none");
         let response = rig.post("/v1/chat/completions", none).await;
-        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "reasoning_effort (none)");
+        assert_eq!(response.headers()["x-pygg-dropped"], "reasoning_effort (none)");
         let body: Value = response.json().await.unwrap();
         assert!(body["choices"][0]["message"].get("reasoning_content").is_none(), "an empty thought is not sent: {body}");
     });
@@ -832,7 +832,7 @@ fn a_responses_client_gets_claudes_thinking_as_a_reasoning_summary() {
         };
         let response = rig.post("/v1/responses", request(false, "low")).await;
         assert_eq!(response.status(), 200);
-        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "web_search tool,prompt_cache_key");
+        assert_eq!(response.headers()["x-pygg-dropped"], "web_search tool,prompt_cache_key");
         let sent = rig.fake.last_body.lock().unwrap().clone().unwrap();
         assert_eq!(sent["output_config"]["effort"], "low");
         let body: Value = response.json().await.unwrap();
@@ -850,7 +850,7 @@ fn a_responses_client_gets_claudes_thinking_as_a_reasoning_summary() {
         // A level the model cannot take is named by the Responses API's own name; thinking is still asked for.
         add_thinker(&rig, &["high"]);
         let response = rig.post("/v1/responses", request(false, "minimal")).await;
-        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "web_search tool,prompt_cache_key,reasoning.effort (level)");
+        assert_eq!(response.headers()["x-pygg-dropped"], "web_search tool,prompt_cache_key,reasoning.effort (level)");
         let body: Value = response.json().await.unwrap();
         assert_eq!(body["output"][0]["summary"][0]["text"], "thinking=adaptive effort=-");
     });
@@ -865,13 +865,13 @@ fn a_translation_keeps_cache_markers_only_where_the_provider_accepts_them() {
             "messages": [{ "role": "user", "content": "ping" }] });
 
         let kept = rig.post("/v1/messages", request("router/m")).await;
-        assert_eq!(kept.headers()["x-smarttaskrouter-mode"], "translated:anthropic->openai");
-        assert!(kept.headers().get("x-smarttaskrouter-dropped").is_none(), "nothing was lost");
+        assert_eq!(kept.headers()["x-pygg-mode"], "translated:anthropic->openai");
+        assert!(kept.headers().get("x-pygg-dropped").is_none(), "nothing was lost");
         let body: Value = kept.json().await.unwrap();
         assert_eq!(body["content"][0]["text"], "pong cache:yes");
 
         let dropped = rig.post("/v1/messages", request("main/fast")).await;
-        assert_eq!(dropped.headers()["x-smarttaskrouter-dropped"], "cache_control");
+        assert_eq!(dropped.headers()["x-pygg-dropped"], "cache_control");
         let body: Value = dropped.json().await.unwrap();
         assert_eq!(body["content"][0]["text"], "pong");
     });
@@ -1161,22 +1161,25 @@ fn a_session_id_is_scoped_to_its_client_and_validated() {
         let rig = rig().await;
         rig.allow_paid_retries(1);
         let first = rig.post_session("/v1/chat/completions", "shared-id", chat("pinme")).await;
-        assert_eq!(first.headers()["x-smarttaskrouter-route"], "backup/steady");
+        assert_eq!(first.headers()["x-pygg-route"], "backup/steady");
         // Another client naming the same session is not sent to the first client's pin.
         let (_, other) = rig.shared.with_db(|db| store::create_client(db, "Other", None)).unwrap();
         let theirs = rig.http.post(format!("{}/v1/chat/completions", rig.base)).bearer_auth(&other)
             .header(SESSION_HEADER, "shared-id").json(&chat("pinme")).send().await.unwrap();
-        assert_eq!(theirs.headers()["x-smarttaskrouter-route"], "main/flaky");
-        assert_eq!(theirs.headers()["x-smarttaskrouter-session"], "new");
+        assert_eq!(theirs.headers()["x-pygg-route"], "main/flaky");
+        assert_eq!(theirs.headers()["x-pygg-session"], "new");
         // An id that is too long is ignored, not truncated into someone else's.
         let long = rig.post_session("/v1/chat/completions", &"x".repeat(200), chat("main/fast")).await;
-        assert!(long.headers().get("x-smarttaskrouter-session").is_none());
+        assert!(long.headers().get("x-pygg-session").is_none());
     });
     let mut headers = HeaderMap::new();
     headers.insert(SESSION_HEADER, HeaderValue::from_bytes("phiên-1".as_bytes()).unwrap());
     assert_eq!(session_key(&headers), None, "non-ASCII ids are ignored");
     headers.insert(SESSION_HEADER, HeaderValue::from_static("a b"));
     assert_eq!(session_key(&headers), None);
+    let mut legacy = HeaderMap::new();
+    legacy.insert(LEGACY_SESSION_HEADER, HeaderValue::from_static("before-the-rename"));
+    assert_eq!(session_key(&legacy).as_deref(), Some("before-the-rename"), "the old header name is still read");
 }
 
 #[test]
@@ -1254,7 +1257,7 @@ fn a_restricted_client_never_reaches_a_connection_outside_its_list() {
         // B falls back as the combo says (Main is cooling down, so B goes straight to Backup).
         let vetted = rig.http.post(format!("{}/v1/chat/completions", rig.base)).bearer_auth(&b_token).json(&chat("private"))
             .send().await.unwrap();
-        assert_eq!(vetted.headers()["x-smarttaskrouter-route"], "backup/steady");
+        assert_eq!(vetted.headers()["x-pygg-route"], "backup/steady");
 
         // The model list shows A only what it may use.
         let models: Value = rig.http.get(format!("{}/v1/models", rig.base)).bearer_auth(&rig.token).send().await.unwrap()
@@ -1285,7 +1288,7 @@ fn a_client_that_requires_no_training_reaches_only_connections_recorded_so() {
 
         // Main's terms are not recorded, so it counts as may-train: the combo goes straight to Backup.
         let answer = rig.post("/v1/chat/completions", chat("careful")).await;
-        assert_eq!(answer.headers()["x-smarttaskrouter-route"], "backup/steady");
+        assert_eq!(answer.headers()["x-pygg-route"], "backup/steady");
         assert_eq!(rig.fake.count("fast"), 0);
         // A direct request to Main is refused, and says why.
         let direct = rig.post("/v1/chat/completions", chat("main/fast")).await;
@@ -1432,7 +1435,7 @@ fn a_server_error_stops_by_default_and_retries_only_when_the_client_allows_it() 
         rig.shared.with_db(|db| store::clear_health(db, "main")).unwrap();
         rig.allow_paid_retries(1);
         let retried = rig.post("/v1/chat/completions", chat("overloaded")).await;
-        assert_eq!(retried.headers()["x-smarttaskrouter-route"], "backup/steady");
+        assert_eq!(retried.headers()["x-pygg-route"], "backup/steady");
         let outcomes: Vec<String> = rig.ledger().into_iter().rev().take(2).map(|e| e.outcome).collect();
         assert_eq!(outcomes, ["ok", "fallback"]);
 
@@ -1715,19 +1718,19 @@ fn auto_routes_to_the_lowest_eligible_tier_and_says_why() {
         let response = rig.post("/v1/chat/completions", chat("auto")).await;
         assert_eq!(response.status(), 200);
         // Same tier, and Backup is free: it comes first.
-        assert_eq!(response.headers()["x-smarttaskrouter-route"], "backup/steady");
-        let why = response.headers()["x-smarttaskrouter-auto"].to_str().unwrap().to_string();
+        assert_eq!(response.headers()["x-pygg-route"], "backup/steady");
+        let why = response.headers()["x-pygg-auto"].to_str().unwrap().to_string();
         assert!(why.starts_with("auto; backup/steady ranked 1 of 2 (lowest eligible tier first): tier T2 (minimum T2); free"), "{why}");
         assert!(rig.ledger().pop().unwrap().route_reason.unwrap().contains("tier T2"));
 
         // A request with tools needs a model known to take them: Backup's support is unknown.
         let tools = rig.post("/v1/chat/completions", json!({ "model": "auto", "messages": [],
             "tools": [{ "type": "function", "function": { "name": "f", "parameters": { "type": "object" } } }] })).await;
-        assert_eq!(tools.headers()["x-smarttaskrouter-route"], "main/fast");
+        assert_eq!(tools.headers()["x-pygg-route"], "main/fast");
 
         // auto/cheap: the free one, by estimated cost.
         let cheap = rig.post("/v1/chat/completions", chat("auto/cheap")).await;
-        assert_eq!(cheap.headers()["x-smarttaskrouter-route"], "backup/steady");
+        assert_eq!(cheap.headers()["x-pygg-route"], "backup/steady");
 
         // The aliases are listed with the models.
         let models: Value = rig.http.get(format!("{}/v1/models", rig.base)).bearer_auth(&rig.token).send().await.unwrap()
@@ -1746,7 +1749,7 @@ fn a_model_answering_429_without_a_reset_is_held_out_of_auto_but_not_of_a_named_
         set_caps(&rig, "main", "fast", "T2", Some(true));
         let first = rig.post("/v1/chat/completions", chat("auto")).await;
         assert_eq!(first.status(), 200);
-        assert_eq!(first.headers()["x-smarttaskrouter-route"], "main/fast");
+        assert_eq!(first.headers()["x-pygg-route"], "main/fast");
         assert_eq!(rig.fake.count("quota429"), 1);
         let outcomes: Vec<(String, Option<u16>)> = rig.ledger().into_iter().map(|e| (e.outcome, e.http_status)).collect();
         assert_eq!(outcomes, [("fallback".into(), Some(429)), ("ok".into(), Some(200))]);
@@ -1756,8 +1759,8 @@ fn a_model_answering_429_without_a_reset_is_held_out_of_auto_but_not_of_a_named_
         assert_eq!(held.strikes, 1);
         assert!(held.until_ms.unwrap() - crate::db::now_ms() > 9 * 60_000, "ten minutes, not the 30 s rate-limit cooldown");
         let again = rig.post("/v1/chat/completions", chat("auto/cheap")).await;
-        assert_eq!(again.headers()["x-smarttaskrouter-route"], "main/fast");
-        let why = again.headers()["x-smarttaskrouter-auto"].to_str().unwrap().to_string();
+        assert_eq!(again.headers()["x-pygg-route"], "main/fast");
+        let why = again.headers()["x-pygg-auto"].to_str().unwrap().to_string();
         assert!(why.contains("excluded, 1 held after 429: backup/quota429"), "{why}");
         assert_eq!(rig.fake.count("quota429"), 1, "not sent to");
 
@@ -1770,12 +1773,12 @@ fn a_model_answering_429_without_a_reset_is_held_out_of_auto_but_not_of_a_named_
         assert_eq!(held.strikes, 2);
         assert!(held.until_ms.unwrap() - crate::db::now_ms() > 19 * 60_000);
         rig.shared.with_db(|db| store::mark_healthy(db, "backup", "quota429")).unwrap();
-        assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-smarttaskrouter-route"], "main/fast");
+        assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-pygg-route"], "main/fast");
         assert_eq!(rig.fake.count("quota429"), 2, "auto still leaves it out");
 
         // Clearing the connection's health in Connections lifts the hold.
         rig.shared.with_db(|db| store::clear_health(db, "backup")).unwrap();
-        assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-smarttaskrouter-route"], "main/fast");
+        assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-pygg-route"], "main/fast");
         assert_eq!(rig.fake.count("quota429"), 3);
     });
 }
@@ -1788,7 +1791,7 @@ fn a_prefill_refusal_falls_back_to_the_next_target_before_anything_reaches_the_c
             { "role": "assistant", "content": "The answer is" }] });
         let response = rig.post("/v1/chat/completions", assistant_last.clone()).await;
         assert_eq!(response.status(), 200);
-        assert_eq!(response.headers()["x-smarttaskrouter-route"], "main/fast");
+        assert_eq!(response.headers()["x-pygg-route"], "main/fast");
         let outcomes: Vec<(String, Option<u16>)> = rig.ledger().into_iter().map(|e| (e.outcome, e.http_status)).collect();
         assert_eq!(outcomes, [("fallback".into(), Some(400)), ("ok".into(), Some(200))]);
         assert!(rig.shared.with_db(|db| store::list_health(db, Some("claude"))).unwrap().is_empty(), "the model is well");
@@ -1822,15 +1825,15 @@ fn an_auto_session_stays_on_its_model_when_a_better_one_appears() {
         let rig = rig().await;
         set_caps(&rig, "main", "fast", "T2", Some(true));
         let first = rig.post_session("/v1/chat/completions", "s-auto", chat("auto")).await;
-        assert_eq!(first.headers()["x-smarttaskrouter-route"], "main/fast");
+        assert_eq!(first.headers()["x-pygg-route"], "main/fast");
         // A free T2 model becomes eligible.
         set_caps(&rig, "backup", "steady", "T2", None);
         let kept = rig.post_session("/v1/chat/completions", "s-auto", chat("auto")).await;
-        assert_eq!(kept.headers()["x-smarttaskrouter-route"], "main/fast", "no switch inside a session");
-        assert!(kept.headers()["x-smarttaskrouter-auto"].to_str().unwrap().ends_with("kept for this session"));
+        assert_eq!(kept.headers()["x-pygg-route"], "main/fast", "no switch inside a session");
+        assert!(kept.headers()["x-pygg-auto"].to_str().unwrap().ends_with("kept for this session"));
         // A new session or no session gets the better choice.
         let fresh = rig.post("/v1/chat/completions", chat("auto")).await;
-        assert_eq!(fresh.headers()["x-smarttaskrouter-route"], "backup/steady");
+        assert_eq!(fresh.headers()["x-pygg-route"], "backup/steady");
     });
 }
 
@@ -1840,11 +1843,11 @@ fn auto_respects_the_client_minimum_tier_and_its_connection_list() {
         let rig = rig().await;
         set_caps(&rig, "main", "fast", "T3", Some(true));
         set_caps(&rig, "backup", "steady", "T1", None);
-        assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-smarttaskrouter-route"], "main/fast");
+        assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-pygg-route"], "main/fast");
         rig.shared.with_db(|db| store::set_client_auto_min_tier(db, &rig.client_id, "T1")).unwrap();
-        assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-smarttaskrouter-route"], "backup/steady");
+        assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-pygg-route"], "backup/steady");
         rig.shared.with_db(|db| store::set_client_connections(db, &rig.client_id, Some(&["main".to_string()]))).unwrap();
-        assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-smarttaskrouter-route"], "main/fast");
+        assert_eq!(rig.post("/v1/chat/completions", chat("auto")).await.headers()["x-pygg-route"], "main/fast");
     });
 }
 
@@ -1923,9 +1926,9 @@ fn a_responses_request_reaches_an_openai_format_connection_through_chat_completi
         let rig = rig().await;
         let response = rig.post("/v1/responses", responses_request("main/fast", false)).await;
         assert_eq!(response.status(), 200);
-        assert_eq!(response.headers()["x-smarttaskrouter-mode"], "translated:responses->openai");
-        assert_eq!(response.headers()["x-smarttaskrouter-route"], "main/fast");
-        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "web_search tool,prompt_cache_key");
+        assert_eq!(response.headers()["x-pygg-mode"], "translated:responses->openai");
+        assert_eq!(response.headers()["x-pygg-route"], "main/fast");
+        assert_eq!(response.headers()["x-pygg-dropped"], "web_search tool,prompt_cache_key");
         let body: Value = response.json().await.unwrap();
         assert_eq!((body["object"].as_str(), body["status"].as_str(), body["model"].as_str()),
             (Some("response"), Some("completed"), Some("main/fast")));
@@ -1991,8 +1994,8 @@ fn a_responses_request_reaches_an_anthropic_connection_through_two_translations(
         let rig = rig().await;
         let response = rig.post("/v1/responses", responses_request("claude/sonnet", false)).await;
         assert_eq!(response.status(), 200);
-        assert_eq!(response.headers()["x-smarttaskrouter-mode"], "translated:responses->anthropic");
-        assert_eq!(response.headers()["x-smarttaskrouter-dropped"], "web_search tool,prompt_cache_key");
+        assert_eq!(response.headers()["x-pygg-mode"], "translated:responses->anthropic");
+        assert_eq!(response.headers()["x-pygg-dropped"], "web_search tool,prompt_cache_key");
         let body: Value = response.json().await.unwrap();
         assert_eq!(body["output"][0]["content"][0]["text"], "cache_control=false thinking=false beta=-");
         assert_eq!((body["usage"]["input_tokens"].as_u64(), body["usage"]["input_tokens_details"]["cached_tokens"].as_u64()),
@@ -2026,8 +2029,8 @@ fn a_provider_that_serves_responses_gets_the_request_unchanged() {
         let request = responses_request(&format!("{}/gpt", openai.id), false);
         let response = rig.post("/v1/responses", request.clone()).await;
         assert_eq!(response.status(), 200);
-        assert_eq!(response.headers()["x-smarttaskrouter-mode"], "native");
-        assert!(response.headers().get("x-smarttaskrouter-dropped").is_none());
+        assert_eq!(response.headers()["x-pygg-mode"], "native");
+        assert!(response.headers().get("x-pygg-dropped").is_none());
         let body: Value = response.json().await.unwrap();
         assert_eq!(body["id"], "resp_up", "the provider's own answer");
         let sent = rig.fake.last_body.lock().unwrap().clone().unwrap();

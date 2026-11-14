@@ -21,7 +21,7 @@ Download `Pygg_0.1.0_x64-setup.exe` (NSIS, per user) or the MSI, with `SHA256SUM
 Get-FileHash .\Pygg_0.1.0_x64-setup.exe -Algorithm SHA256   # compare with the line in SHA256SUMS.txt
 ```
 
-To build the installers yourself: `pnpm install`, then `pnpm --filter @smarttaskrouter/desktop tauri:build`; they land under `apps/desktop/src-tauri/target/release/bundle`. The build requirements are in the [README](../README.md).
+To build the installers yourself: `pnpm install`, then `pnpm --filter @pygg/desktop tauri:build`; they land under `apps/desktop/src-tauri/target/release/bundle`. The build requirements are in the [README](../README.md).
 
 Run the installer. It is not code-signed, so SmartScreen says "Windows protected your PC": choose **More info → Run anyway**. It installs for the current user:
 

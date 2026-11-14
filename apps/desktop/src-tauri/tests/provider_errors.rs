@@ -4,7 +4,7 @@
 
 use axum::http::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::Value;
-use smarttaskrouter_desktop_lib::gateway::policy::{decide, Failure, Next, ProviderError};
+use pygg_desktop_lib::gateway::policy::{decide, Failure, Next, ProviderError};
 
 fn fixture(case: &str) -> (u16, HeaderMap, Vec<u8>) {
     let path = format!("{}/tests/fixtures/provider-errors/{case}.json", env!("CARGO_MANIFEST_DIR"));

@@ -1,7 +1,7 @@
 # Pygg branding
 
 **Product:** Pygg  
-**Engineering repository:** SmartTaskRouter  
+**Repository:** [nambean/Pygg](https://github.com/nambean/Pygg)  
 **Tagline:** One Flow. Many Agents.
 
 ## Brand assets

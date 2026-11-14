@@ -5,7 +5,7 @@
 //!   consecutive turns of one role merged (Anthropic wants them to alternate); `tool` messages become
 //!   `tool_result` blocks in a user turn; assistant `tool_calls` become `tool_use` blocks; images by URL or data
 //!   URL cross; `tools`, `tool_choice`, `max_tokens` (Anthropic requires one: 4096 when the client set none),
-//!   `temperature`, `top_p`, `stop` and `stream` cross. Everything else is named in `x-smarttaskrouter-dropped`.
+//!   `temperature`, `top_p`, `stop` and `stream` cross. Everything else is named in `x-pygg-dropped`.
 //! - **Reasoning asked for (ROADMAP B5):** `reasoning_effort` (`minimal`, `low`, `medium`, `high`, `xhigh`, `max`)
 //!   and DeepSeek's switch `thinking: {"type": "enabled"}` become Anthropic's `thinking`, per what the model takes
 //!   (`ThinkingSupport`, from Pygg's model facts): `adaptive` with `display: "summarized"` (Claude 4.7 and later

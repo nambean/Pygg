@@ -9,7 +9,7 @@
 //! - **To an OpenAI-compatible connection** it is translated to Chat Completions and back, streamed or not.
 //!   Text, images, tool definitions, tool calls and tool results cross. Cache markers cross only to providers that
 //!   document accepting them on content parts (OpenRouter); otherwise they are dropped, and the response says so
-//!   in `x-smarttaskrouter-dropped`.
+//!   in `x-pygg-dropped`.
 //! - **Reasoning** (ROADMAP B5): a provider's `reasoning_content` (Qwen, DeepSeek, Kimi, GLM) or `reasoning`
 //!   (OpenRouter) comes back as a `thinking` block signed `REASONING_SIGNATURE`, streamed or not, and earlier
 //!   thinking goes back as `reasoning_content` to providers that document taking it (`Preset::takes_reasoning`;
@@ -96,7 +96,7 @@ pub fn without_pygg_reasoning(request: &Value) -> Option<Value> {
 
 /// Everything in a request that `to_openai` does not carry, by name, apart from cache markers (which depend
 /// on the target): thinking, block types other than text, image, tool use and tool result, server tools,
-/// and top-level fields with no Chat Completions counterpart. Reported in `x-smarttaskrouter-dropped`, so
+/// and top-level fields with no Chat Completions counterpart. Reported in `x-pygg-dropped`, so
 /// no field is lost without saying so (counter-review CR-08).
 pub fn untranslated(request: &Value, takes_reasoning: bool) -> Vec<String> {
     let mut dropped: Vec<String> = Vec::new();
@@ -713,12 +713,12 @@ async fn translated(shared: Shared, mut forwarded: super::Forwarded, stream: boo
 /// What the client and the ledger are told when a provider's stream held nothing at all.
 pub const EMPTY_ANSWER: &str = "The provider ended its answer without any content";
 
-/// A debugging aid (ROADMAP N4): with `SMARTTASKROUTER_CAPTURE_DIR` set, each translated stream is written there,
+/// A debugging aid (ROADMAP N4): with `PYGG_CAPTURE_DIR` set, each translated stream is written there,
 /// one file per request, as received from the provider (`IN`) and as sent to the client (`OUT`). The file holds the
 /// model's whole answer, so the variable is for diagnosing a client on one's own machine; nothing is written unless
 /// it is set.
 fn capture_file(session: Option<&str>, model: &str) -> Option<std::io::BufWriter<std::fs::File>> {
-    let dir = std::env::var_os("SMARTTASKROUTER_CAPTURE_DIR")?;
+    let dir = std::env::var_os("PYGG_CAPTURE_DIR")?;
     let safe = |s: &str| s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect::<String>();
     let name = format!("{}-{}-{}-{}.txt", crate::db::now_ms(), safe(session.unwrap_or("none")), safe(model),
         &uuid::Uuid::new_v4().simple().to_string()[..6]);
@@ -728,7 +728,7 @@ fn capture_file(session: Option<&str>, model: &str) -> Option<std::io::BufWriter
 
 /// Token counting for Claude Code's context management. An Anthropic connection answers exactly; for
 /// anything else the count is an estimate (about four characters a token), labeled in
-/// `x-smarttaskrouter-estimate`.
+/// `x-pygg-estimate`.
 pub async fn count_tokens(State(shared): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
     let client = match authenticate(&shared, &headers) {
         Ok(client) => client,
@@ -762,7 +762,7 @@ pub async fn count_tokens(State(shared): State<Shared>, headers: HeaderMap, body
     }
     let chars = request["system"].to_string().len() + request["messages"].to_string().len() + request["tools"].to_string().len();
     let mut out = Json(json!({ "input_tokens": chars.div_ceil(4) })).into_response();
-    out.headers_mut().insert("x-smarttaskrouter-estimate", HeaderValue::from_static("characters/4"));
+    out.headers_mut().insert("x-pygg-estimate", HeaderValue::from_static("characters/4"));
     out
 }
 

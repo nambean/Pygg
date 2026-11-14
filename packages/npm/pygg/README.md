@@ -2,7 +2,7 @@
 
 `pygg`: route your AI coding tools (Claude Code, Codex, OpenCode) through Pygg, a local gateway that picks a model for each request from the providers you connected, and records what each request cost.
 
-**npm installs this command only**, on Windows x64, macOS (Apple silicon and Intel) and Linux x64 (glibc): npm fetches the native program for your computer only. On Windows the [Pygg desktop app](https://github.com/nambean/smarttaskrouter) runs the gateway and is where you connect providers; on macOS and Linux, where there is no app yet, `pygg gateway add-connection` and `pygg gateway serve` do it from the terminal. Your coding tools are installed as usual. **`@dev` is a developer preview**: the native program is not code-signed, so Windows SmartScreen, macOS Gatekeeper or an antivirus may warn about it.
+**npm installs this command only**, on Windows x64, macOS (Apple silicon and Intel) and Linux x64 (glibc): npm fetches the native program for your computer only. On Windows the [Pygg desktop app](https://github.com/nambean/Pygg) runs the gateway and is where you connect providers; on macOS and Linux, where there is no app yet, `pygg gateway add-connection` and `pygg gateway serve` do it from the terminal. Your coding tools are installed as usual. **`@dev` is a developer preview**: the native program is not code-signed, so Windows SmartScreen, macOS Gatekeeper or an antivirus may warn about it.
 
 ## Start here
 

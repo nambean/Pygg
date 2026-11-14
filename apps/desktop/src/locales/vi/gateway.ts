@@ -73,8 +73,8 @@ export const gateway: Record<string, string> = {
   'Any OpenAI-compatible SDK works the same way: base URL, token, and a route as the model.':
     'Mọi SDK tương thích OpenAI đều dùng như nhau: base URL, token, và một tuyến ở chỗ tên model.',
   'A quick check from a terminal.': 'Kiểm tra nhanh từ terminal.',
-  'Set SMARTTASKROUTER_TOKEN to the token you saved when you created the client.':
-    'Đặt SMARTTASKROUTER_TOKEN bằng token bạn đã lưu khi tạo client.',
+  'Set PYGG_API_KEY to the token you saved when you created the client.':
+    'Đặt PYGG_API_KEY bằng token bạn đã lưu khi tạo client.',
   'You’ll need a client token first.': 'Bạn cần có token client trước.',
   'Last 24 Hours': '24 giờ qua',
   'Open Usage': 'Mở Mức dùng',
@@ -277,8 +277,8 @@ export const gateway: Record<string, string> = {
   'Token for {name}': 'Token cho {name}',
   'Copy it now. It isn’t stored and can’t be shown again.': 'Hãy sao chép ngay. Token không được lưu và không thể hiển thị lại.',
   'Copy Token': 'Sao chép token',
-  'The setup snippets in Overview read it from SMARTTASKROUTER_TOKEN. To set that for your user:':
-    'Các đoạn cấu hình trong Tổng quan đọc token từ SMARTTASKROUTER_TOKEN. Để đặt biến này cho tài khoản của bạn:',
+  'The setup snippets in Overview read it from PYGG_API_KEY. To set that for your user:':
+    'Các đoạn cấu hình trong Tổng quan đọc token từ PYGG_API_KEY. Để đặt biến này cho tài khoản của bạn:',
   'Open a new terminal afterwards so it sees the variable.': 'Sau đó mở terminal mới để nó nhận biến này.',
   'Create Client Token': 'Tạo token client',
   'For one app, such as Claude Code on this computer.': 'Dành cho một ứng dụng, ví dụ Claude Code trên máy này.',

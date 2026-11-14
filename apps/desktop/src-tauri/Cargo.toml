@@ -1,15 +1,15 @@
 [package]
-name = "smarttaskrouter-desktop"
+name = "pygg-desktop"
 version = "0.1.0"
 description = "Pygg desktop app: task routing core, local gateway and interface shell"
 edition = "2021"
 publish = false
 license = "MIT"
 # The crate also builds the benchmark CLI (src/bin/bench.rs); the app is the default binary.
-default-run = "smarttaskrouter-desktop"
+default-run = "pygg-desktop"
 
 [lib]
-name = "smarttaskrouter_desktop_lib"
+name = "pygg_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 # The window (Tauri) is the `app` feature, on by default. `pygg-cli` and the other console programs build without it
@@ -20,7 +20,7 @@ default = ["app"]
 app = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-single-instance", "dep:tauri-plugin-notification", "dep:tauri-plugin-dialog"]
 
 [[bin]]
-name = "smarttaskrouter-desktop"
+name = "pygg-desktop"
 path = "src/main.rs"
 required-features = ["app"]
 

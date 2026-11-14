@@ -57,7 +57,7 @@ CI runs all of these on Windows, and the layout check below.
 
 ## Writing
 
-- **Names.** The product is **Pygg** in prose. **SmartTaskRouter** stays only where it is an identifier: the repository, `x-smarttaskrouter-*` headers, `SMARTTASKROUTER_*` variables, package and crate names, and file names.
+- **Names.** The product is **Pygg** everywhere: prose, the repository, packages, crates, `x-pygg-*` headers and `PYGG_*` variables. The engineering name SmartTaskRouter stays in two identifiers only, so existing data stays readable: the app identifier `app.smarttaskrouter.desktop` (it names the folder that holds the user's store) and the credential service name `SmartTaskRouter`. The gateway still reads the old session header `x-smarttaskrouter-session`, which clients set up before the rename send.
 - **Plain English**, short sentences, and absolute dates (2026-11-14) where a date is needed.
 - **Claims carry their evidence**, and untested is said plainly.
 - **Costs are honest.** Unknown is never $0; an estimate says what it was estimated from; a subscription's use is quota, not money.

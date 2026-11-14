@@ -1,4 +1,4 @@
-//! Pygg desktop core (repository: SmartTaskRouter). One crate with modules (docs/DECISIONS.md, ADR-005): the interface
+//! Pygg desktop core. One crate with modules (docs/DECISIONS.md, ADR-005): the interface
 //! talks to it through Tauri commands (src/commands.rs), and the local gateway runs in the same process.
 
 // Allowed on purpose, so `cargo clippy -- -D warnings` holds in CI:

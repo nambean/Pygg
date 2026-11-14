@@ -2,5 +2,5 @@
 //! `<Pygg app> mcp`.
 
 fn main() {
-    smarttaskrouter_desktop_lib::mcp::run();
+    pygg_desktop_lib::mcp::run();
 }

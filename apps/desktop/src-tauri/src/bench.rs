@@ -114,7 +114,7 @@ pub struct Config {
     /// the cap is reached, and the run stops after any attempt whose cost is unknown.
     pub budget_micro_usd: Option<u64>,
     /// The store of the gateway the agent is routed through. Each attempt runs with its own session key in
-    /// `PYGG_BENCH_SESSION` (the agent's configuration sends it as `x-smarttaskrouter-session`), and the
+    /// `PYGG_BENCH_SESSION` (the agent's configuration sends it as `x-pygg-session`), and the
     /// attempt's cost is what that gateway's ledger recorded for the session, at the prices set there.
     pub gateway_db: Option<PathBuf>,
     /// Keep going after an attempt whose cost could not be read (a timed-out free model, say). Only for runs whose

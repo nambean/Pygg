@@ -3,7 +3,7 @@
 //!
 //! `pygg run opencode […]` and `pygg run codex […]` (2026-11-14, Codex's fifth discussion, T3): OpenCode or Codex as
 //! set up in CLI Tools, with a **launch session**: a fresh id in `PYGG_ATTEMPT_ID`, which their Pygg provider already
-//! sends as `x-smarttaskrouter-session`, so the gateway keeps that launch on the model that answered it (and on its
+//! sends as `x-pygg-session`, so the gateway keeps that launch on the model that answered it (and on its
 //! prompt cache). An explicit id per launch, never one made from the prompt.
 
 use std::path::PathBuf;

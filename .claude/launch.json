@@ -4,7 +4,7 @@
     {
       "name": "desktop-ui",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@smarttaskrouter/desktop", "dev"],
+      "runtimeArgs": ["--filter", "@pygg/desktop", "dev"],
       "port": 1431
     }
   ]

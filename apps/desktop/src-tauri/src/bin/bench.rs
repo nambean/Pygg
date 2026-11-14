@@ -6,7 +6,7 @@
 //! `single` runs every rung alone (the baselines), `cascade` climbs the rungs on check failure, `all` does both.
 //! Results go to one JSON line per case and run in `--out` (default benchmark/runs), and a summary to stdout.
 
-use smarttaskrouter_desktop_lib::bench::{self, CaseRecord, Config, Rung};
+use pygg_desktop_lib::bench::{self, CaseRecord, Config, Rung};
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -117,7 +117,7 @@ async fn main() {
         gateway_db: args.gateway_db.clone(), allow_unknown: args.allow_unknown, handoff: args.handoff.clone() };
     let mut ledger = bench::Ledger::default();
     std::fs::create_dir_all(&args.out).expect("cannot create the output folder");
-    let stamp = smarttaskrouter_desktop_lib::db::now_ms();
+    let stamp = pygg_desktop_lib::db::now_ms();
     let out_path = args.out.join(format!("{stamp}.jsonl"));
     let mut out = std::fs::File::create(&out_path).expect("cannot create the results file");
 

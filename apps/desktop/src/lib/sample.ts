@@ -7,7 +7,7 @@ import type { DayBudget, TaskSummary, Workspace } from './tasks';
 const minute = 60_000;
 
 export const SAMPLE_WORKSPACES: Workspace[] = [
-  {id: 'ws-str', name: 'smarttaskrouter', path: 'F:\\2026\\smarttaskrouter'},
+  {id: 'ws-str', name: 'pygg', path: 'C:\\src\\pygg'},
   {id: 'ws-docs', name: 'docs-site', path: 'F:\\2026\\docs-site'},
 ];
 

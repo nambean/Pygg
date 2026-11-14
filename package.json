@@ -1,11 +1,11 @@
 {
-  "name": "smarttaskrouter",
+  "name": "pygg",
   "private": true,
   "license": "MIT",
   "version": "0.1.0",
   "packageManager": "pnpm@9.15.9",
   "scripts": {
-    "dev": "pnpm --filter @smarttaskrouter/desktop dev",
+    "dev": "pnpm --filter @pygg/desktop dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "ui-check": "node scripts/ui-overflow-check.mjs"

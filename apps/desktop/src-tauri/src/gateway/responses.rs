@@ -19,7 +19,7 @@
 //! as summary text when the client asked for a summary (`reasoning.summary`), otherwise as reasoning text. Reasoning
 //! sent back goes to providers that take it (`Preset::takes_reasoning`) as `reasoning_content`. Everything else,
 //! including another provider's encrypted reasoning and hosted tools such as `web_search`, is named in
-//! `x-smarttaskrouter-dropped`.
+//! `x-pygg-dropped`.
 //!
 //! Pygg stores no responses: `previous_response_id`, `conversation` and `background` are refused, and a client
 //! sends the whole conversation each time (Codex does, with `store = false`).

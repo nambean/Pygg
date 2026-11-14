@@ -124,7 +124,7 @@ try {
         $u = Usage $r $stream
         $rows += [pscustomobject]@{ arm = $arm.name; stream = $stream; turn = $turn; input = $u.input_tokens
           cache_write = $u.cache_creation_input_tokens; cache_read = $u.cache_read_input_tokens
-          mode = (($r.Headers | Where-Object { $_ -like 'x-smarttaskrouter-mode:*' }) -replace '^[^:]+:\s*', '') }
+          mode = (($r.Headers | Where-Object { $_ -like 'x-pygg-mode:*' }) -replace '^[^:]+:\s*', '') }
       }
     }
   }

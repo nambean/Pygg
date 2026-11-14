@@ -64,7 +64,7 @@ Exit codes: 0 done, 1 failed, 2 wrong usage, 3 a check found a problem; `run` re
 /// Where providers are connected and the gateway runs, on this platform: the desktop app on Windows; elsewhere, where
 /// no app is published yet, the headless gateway (ADR-037).
 #[cfg(windows)]
-pub(crate) const GET_STARTED: &str = "Connect providers in the Pygg desktop app, which also runs the gateway: https://github.com/nambean/smarttaskrouter";
+pub(crate) const GET_STARTED: &str = "Connect providers in the Pygg desktop app, which also runs the gateway: https://github.com/nambean/Pygg";
 #[cfg(not(windows))]
 pub(crate) const GET_STARTED: &str = "The Pygg desktop app is Windows only for now. Here, connect a provider and run the gateway from the terminal:
   pygg gateway add-connection --preset openrouter --key-env OPENROUTER_API_KEY

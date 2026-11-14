@@ -158,7 +158,7 @@ Coding agents ──HTTP──► Gateway 127.0.0.1:8741 (axum) ──► OpenAI
 | **Track** | [Implementation status](docs/IMPLEMENTATION-STATUS.md) · [Roadmap](docs/ROADMAP.md) · [Benchmark reports](benchmark/reports) |
 | **Contribute** | [Contributing](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [Every document, indexed](docs/README.md) |
 
-Some technical identifiers (package and crate names, `x-smarttaskrouter-*` headers) still carry the engineering name SmartTaskRouter. Brand assets are in [branding](branding/README.md).
+Only the app's data folder (`app.smarttaskrouter.desktop`) and its credential service name keep the engineering name SmartTaskRouter, so existing data stays readable. Brand assets are in [branding](branding/README.md).
 
 ## Development
 
@@ -167,9 +167,9 @@ Requirements: Node.js LTS with pnpm 9 (`corepack enable`), stable Rust through r
 ```powershell
 pnpm install
 pnpm dev                                              # the interface at http://127.0.0.1:1431 with demo data (?empty for a first run)
-pnpm --filter @smarttaskrouter/desktop tauri:dev     # the desktop app with the real gateway
+pnpm --filter @pygg/desktop tauri:dev     # the desktop app with the real gateway
 pnpm typecheck
-pnpm --filter @smarttaskrouter/desktop tauri:build   # the installers, under apps/desktop/src-tauri/target/release/bundle
+pnpm --filter @pygg/desktop tauri:build   # the installers, under apps/desktop/src-tauri/target/release/bundle
 pnpm ui-check                                         # every screen at several window sizes, nothing overflowing
 cd apps/desktop/src-tauri; cargo test --lib           # core, gateway, web-session and task engine tests
 node scripts/readme-diagrams.mjs                      # regenerate the README's animated diagrams

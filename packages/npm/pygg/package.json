@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nambean/smarttaskrouter.git",
+    "url": "git+https://github.com/nambean/Pygg.git",
     "directory": "packages/npm/pygg"
   },
   "bin": {
