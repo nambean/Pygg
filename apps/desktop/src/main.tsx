@@ -317,7 +317,7 @@ function SidebarItem({icon, label, title, count, selected, emphasized, shortcut,
   return <li>
     <button type="button" className={selected ? 'sidebar-item selected' : 'sidebar-item'}
       aria-current={selected ? 'page' : undefined} onClick={onSelect}
-      title={shortcut ? `${label} (${shortcut})` : title}>
+      title={shortcut ? `${label} (${shortcut})` : title ?? label}>
       {React.cloneElement(icon as React.ReactElement<{size: number; strokeWidth: number}>, {size: 16, strokeWidth: 1.9})}
       <span>{label}</span>
       {count ? <span className={emphasized ? 'count emphasized' : 'count'}>{count}</span> : null}

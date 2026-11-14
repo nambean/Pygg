@@ -17,7 +17,11 @@ import { join } from 'node:path';
 const args = process.argv.slice(2);
 const base = args.includes('--url') ? args[args.indexOf('--url') + 1] : 'http://localhost:1431';
 const screens = ['overview', 'connections', 'endpoint', 'tools', 'combos', 'usage', 'policies', 'agents', 'guide', 'settings'];
-const sizes = [[1024, 640], [1440, 900], [1990, 1030]];
+// The app's minimum window is 1024 × 640. Windows' Text size setting (Accessibility) zooms web content, so at 125 % and
+// 150 % that window lays out like 819 × 512 and 683 × 427 CSS pixels; those two are checked too.
+const sizes = args.includes('--sizes')
+  ? args[args.indexOf('--sizes') + 1].split(',').map(s => s.split('x').map(Number))
+  : [[1024, 640], [1440, 900], [1990, 1030], [819, 512], [683, 427]];
 
 // States reached by clicking, each from a fresh load of its screen. `steps` runs in the page: `click(text, n)` presses the
 // n-th button whose text or label starts with `text` (negative n counts from the end); `wait(ms)`.

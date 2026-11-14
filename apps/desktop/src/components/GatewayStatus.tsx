@@ -11,7 +11,7 @@ export function GatewayStatus({status, error, onOpen}: {status: Status | null; e
     : status.state === 'running' ? [t('Gateway Running · {port}', {port: status.port}), 'ok']
     : status.state === 'failed' ? [t('Gateway Couldn’t Start'), 'error']
     : [t('Gateway Stopped'), 'off'];
-  return <button type="button" className="runtime-status" onClick={onOpen} title={status?.error ?? t('Open Home')}>
+  return <button type="button" className="runtime-status" onClick={onOpen} title={status?.error ?? text}>
     <span className={`dot ${dot}`} aria-hidden/>
     <span role="status">{text}</span>
   </button>;

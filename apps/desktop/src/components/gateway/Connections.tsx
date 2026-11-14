@@ -283,7 +283,7 @@ function ConnectionRow({connection: c, selected, autoCount, onSelect}: {connecti
     <button type="button" className="select-row-main" onClick={onSelect} aria-current={selected ? 'true' : undefined}>
       <ProviderLogo kind={c.kind} name={c.label} size={17}/>
       <span className="select-row-text">
-        <span className="select-row-title">{c.label} <span className="mono secondary">{c.id}/…</span></span>
+        <span className="select-row-title"><span className="select-row-label" title={c.label}>{c.label}</span> <span className="mono secondary">{c.id}/…</span></span>
         <small>{c.presetName} · {billingLabel(c.defaultBilling)} · {plural(c.models, '{n} model', '{n} models')}
           {autoCount !== undefined && !c.web && c.enabled && c.models > 0 && <> · {t('{n} for auto', {n: autoCount})}</>}</small>
       </span>

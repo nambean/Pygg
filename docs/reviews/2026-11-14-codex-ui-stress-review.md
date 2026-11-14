@@ -71,7 +71,10 @@ window at 1024 px. With the changes above, all 60 runs pass (20 screens and stat
 ## Still to do
 
 - Replay the original failure once in the installed app (WebView2), not only in the browser preview.
-- The check does not cover enlarged text (Windows text size 125–150 %), empty and error states in every sheet, or the
+- ~~Enlarged text~~ (done the same evening: Windows' Text size zooms web content, so the 1024 px window lays out like
+  819 and 683 px at 125 and 150 %; the check runs those two sizes too. Below 900 px the sidebar becomes a rail of icons,
+  and a provider row cuts its label, never its routing prefix.)
+- The check does not cover empty and error states in every sheet, or the
   Tasks screens (on hold).
 - A searchable model picker in the combo editor (a native select of 40 similar ids is hard to use).
 - A Narrator pass (from the morning's list).
