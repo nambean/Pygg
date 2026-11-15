@@ -875,6 +875,11 @@ def main():
         R.add("release_build", "Install", code == 0, {"seconds": secs}, "" if code == 0 else err[-300:])
 
     needs_gateway = {"gateway", "restart", "auto", "setup", "ollama"} & set(want)
+    if needs_gateway:
+        # Windows lets a second server share a port, so a process left from an earlier run would take requests.
+        busy = [p for p in (FAKE_PORT, GW_PORT) if wait_port(p, 0.3)]
+        if busy:
+            sys.exit(f"ports {busy} are in use (a run left behind?); stop that process first")
     fake = gw = None
     vault_before = vault_entries()
     try:
@@ -896,14 +901,19 @@ def main():
             if "setup" in want:
                 setup_checks(R, cli_exe, gw, work)
     finally:
+        # Each step on its own: a failure in one must not leave the fake provider, the gateway or the keys behind.
+        cleanup = []
         if gw:
-            gw.stop()
-            gw.teardown()
-            for name in ("gateway.log", "gateway-restarted.log"):
-                if (gw.work / name).exists():
-                    shutil.copy(gw.work / name, logdir / name)
+            cleanup += [gw.stop, gw.teardown]
+            cleanup += [lambda n=n: (gw.work / n).exists() and shutil.copy(gw.work / n, logdir / n)
+                        for n in ("gateway.log", "gateway-restarted.log")]
         if fake:
-            fake.stop()
+            cleanup.append(fake.stop)
+        for step in cleanup:
+            try:
+                step()
+            except Exception as e:  # noqa: BLE001
+                print(f"cleanup: {type(e).__name__}: {e}", file=sys.stderr)
     if needs_gateway and vault_before is not None:
         left = vault_entries() - vault_before
         R.add("no_credentials_left", "Install", left == 0, {"entries_left": left})
