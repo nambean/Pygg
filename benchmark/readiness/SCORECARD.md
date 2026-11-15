@@ -1,6 +1,6 @@
 # Readiness scorecard
 
-Run 2026-11-15T1128Z on commit `5cd660b` (with uncommitted changes), 607 s. Free and local traffic only. Made by `python -I benchmark/readiness/run.py`; what each gate means is in [docs/ROADMAP.md](../../docs/ROADMAP.md#release-gates).
+Run 2026-11-15T1633Z on commit `34acf94` (with uncommitted changes), 831 s. Free and local traffic only. Made by `python -I benchmark/readiness/run.py`; what each gate means is in [docs/ROADMAP.md](../../docs/ROADMAP.md#release-gates).
 
 | Gate | State | Checks passed | Still needed |
 | --- | --- | --- | --- |
@@ -9,7 +9,7 @@ Run 2026-11-15T1128Z on commit `5cd660b` (with uncommitted changes), 607 s. Free
 | Security | **green** | 4 of 4 | - |
 | Errors | **open** | 4 of 4 | real provider answers not yet captured as fixtures: 403, 429, quota, timeout (13 fixtures today) |
 | Install | **open** | 6 of 6 | clean-machine NSIS install and uninstall; signed installer (release only) |
-| Interface | **open** | 1 of 1 | every screen clicked through in the native window; D12 checks (scaling, snap layouts, Narrator and NVDA, contrast themes); Vietnamese strings 48.0% complete (699 of 1455 found in t() calls; translation is scheduled last) |
+| Interface | **open** | 1 of 1 | every screen clicked through in the native window; D12 checks (scaling, snap layouts, Narrator and NVDA, contrast themes); Vietnamese strings 47.3% complete (699 of 1479 found in t() calls; translation is scheduled last) |
 | Web sessions | **green** | 1 of 1 | - |
 | Performance (tracked) | **green** | 1 of 1 | - |
 | Routing (tracked) | **green** | 3 of 3 | - |
@@ -18,7 +18,7 @@ Run 2026-11-15T1128Z on commit `5cd660b` (with uncommitted changes), 607 s. Free
 
 | Gate | Check | Result | Numbers |
 | --- | --- | --- | --- |
-| Install | `release_build` | pass | seconds 1.2 |
+| Install | `release_build` | pass | seconds 123.6 |
 | Parity | `openai_chat_whole` | pass | status 200, route readiness-a/fake-model |
 | Parity | `openai_chat_stream` | pass | status 200, route readiness-a/fake-model |
 | Parity | `anthropic_messages_whole` | pass | status 200 |
@@ -38,19 +38,19 @@ Run 2026-11-15T1128Z on commit `5cd660b` (with uncommitted changes), 607 s. Free
 | Security | `strict_budget_concurrency` | pass | served 2, refused 6, sent_upstream 2, spent_micro_usd 56 |
 | Security | `loopback_only` | pass | lan_addresses_tried 2, reached 0 |
 | Honesty | `ledger_settled` | pass | upstream_requests 33, ledger_rows 33, unsettled 0 |
-| Honesty | `kill_restart_ledger_whole` | pass | in_flight 6, journaled_before_kill 6, upstream_saw 6, interrupted_entries 6, restart_ms 707, after_restart 200 |
+| Honesty | `kill_restart_ledger_whole` | pass | in_flight 6, journaled_before_kill 6, upstream_saw 6, interrupted_entries 6, restart_ms 722, after_restart 200 |
 | Routing | `auto_cheap_decision` | pass | auto_cheap_pick fake-cheap, without_tools_pick fake-model, excluded_reason does not take tools |
 | Routing | `auto_context_fit` | pass | ranked 2, pick claude-haiku-5-5 |
 | Routing | `auto_cheap_request` | pass | status 200, route readiness-a/fake-cheap |
-| Parity | `ollama_parity` | pass | prompt_tokens_direct 27, prompt_tokens_pygg 27, ledger_tokens 27, direct_s 1.48, pygg_s 1.32 |
-| Install | `setup_codex` | pass | setup_s 0.3, remove_s 0.1, key_made 1, restored True, backups 3 |
-| Install | `setup_opencode` | pass | setup_s 0.2, remove_s 0.3, key_made 1, restored True, backups 5 |
+| Parity | `ollama_parity` | pass | prompt_tokens_direct 27, prompt_tokens_pygg 27, ledger_tokens 27, direct_s 14.32, pygg_s 1.45 |
+| Install | `setup_codex` | pass | setup_s 0.6, remove_s 0.1, key_made 1, restored True, backups 3 |
+| Install | `setup_opencode` | pass | setup_s 0.1, remove_s 0.1, key_made 1, restored True, backups 5 |
 | Install | `setup_claude_launcher` | pass | setup_s 0.1, remove_s 0.1, key_made 1, files_written 0 |
 | Install | `no_credentials_left` | pass | entries_left 0 |
-| Performance | `gateway_overhead` | pass | added_p50_short_ms 3.88, added_p50_400kB_ms 6.01, rps_16_clients 212 |
-| Errors | `provider_error_fixtures` | pass | passed 4, failed 0, seconds 16.3 |
-| Web sessions | `web_guard_tests` | pass | passed 52, failed 0, seconds 197.6 |
-| Interface | `ui_check` | pass | exit 0, findings 0, seconds 330.2 |
-| Install | `npm_install_back` | pass | pack_s 4.4, install_s 1.6, packages 2, npm_version 0.1.0-dev.1, reports pygg-cli 0.1.0 |
+| Performance | `gateway_overhead` | pass | added_p50_short_ms 3.75, added_p50_400kB_ms 5.43, rps_16_clients 221 |
+| Errors | `provider_error_fixtures` | pass | passed 4, failed 0, seconds 90.5 |
+| Web sessions | `web_guard_tests` | pass | passed 52, failed 0, seconds 58.7 |
+| Interface | `ui_check` | pass | exit 0, findings 0, seconds 361.5 |
+| Install | `npm_install_back` | pass | pack_s 4.8, install_s 2.2, packages 2, npm_version 0.1.0-dev.1, reports pygg-cli 0.1.0-dev.1 |
 
-Metrics: vi_strings_pct 48.0, error_fixtures 13.
+Metrics: vi_strings_pct 47.3, error_fixtures 13.
