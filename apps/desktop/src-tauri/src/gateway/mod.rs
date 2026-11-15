@@ -715,6 +715,10 @@ pub struct Forwarded {
     pub session: Option<String>,
     /// The session was already pinned to this target.
     pub pinned: bool,
+    /// A fallback had taken the session away and this answer brought it back to its home.
+    pub went_home: bool,
+    /// The target the session was meant for, kept with its pin.
+    pub home: Option<Target>,
     pub client_id: String,
     pub requested: String,
     /// Why auto routing chose this target, and the header that says so (ROADMAP P0-5).
@@ -884,14 +888,35 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             "No model or combo named \"{requested}\". Use <connection>/<model> or a combo name; GET /v1/models lists them.")));
     }
     // A pinned session goes back to the target that last answered it, while that target is still part of
-    // the route; the others stay behind it as fallbacks.
+    // the route; the others stay behind it as fallbacks. A session that a fallback took away from its home (the
+    // target it was meant for) goes back home once that costs no warm cache (`Pin::goes_home`); the fallback stays
+    // right behind it.
     let mut pinned_target = None;
+    let mut home = targets.first().map(|(p, m)| Target { provider_id: p.id.clone(), model_id: m.clone() });
+    let mut going_home = false;
     if let Some(session) = incoming.session {
-        if let Ok(Some(pin)) = shared.with_db(|db| store::pinned_target(db, &client.id, session, requested)) {
-            if let Some(i) = targets.iter().position(|(p, m)| p.id == pin.provider_id && *m == pin.model_id) {
+        if let Ok(Some(pin)) = shared.with_db(|db| store::session_pin(db, &client.id, session, requested)) {
+            if pin.home.is_some() {
+                home.clone_from(&pin.home);
+            }
+            let at = |targets: &[(Provider, String)], t: &Target| {
+                targets.iter().position(|(p, m)| p.id == t.provider_id && *m == t.model_id)
+            };
+            if let Some(i) = at(&targets, &pin.target) {
                 let target = targets.remove(i);
                 targets.insert(0, target);
-                pinned_target = Some(pin);
+                pinned_target = Some(pin.target.clone());
+            }
+            if let Some(h) = home.as_ref().filter(|_| pin.goes_home(db_now())) {
+                let free = !matches!(
+                    shared.with_db(|db| store::blocking_health(db, &h.provider_id, &h.model_id)),
+                    Ok(Some(_))
+                );
+                if let Some(i) = at(&targets, h).filter(|_| free) {
+                    let target = targets.remove(i);
+                    targets.insert(0, target);
+                    going_home = true;
+                }
             }
         }
     }
@@ -1101,11 +1126,17 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
 
         let pinned_here =
             pinned_target.as_ref().is_some_and(|p| p.provider_id == provider.id && p.model_id == model_id);
+        let home_here =
+            going_home && home.as_ref().is_some_and(|h| h.provider_id == provider.id && h.model_id == model_id);
         let facts = store::AttemptFacts {
             request_id: request_id.clone(),
             attempt: journaled,
             billing: billing.clone(),
-            route_kind: if pinned_here { format!("{route_kind}+pinned") } else { route_kind.clone() },
+            route_kind: match (pinned_here, home_here) {
+                (true, _) => format!("{route_kind}+pinned"),
+                (false, true) => format!("{route_kind}+home"),
+                _ => route_kind.clone(),
+            },
             cache_hint: cache_hint(incoming, &provider, mode).to_string(),
             key_id: key.as_ref().map(|k| k.id.clone()),
         };
@@ -1330,6 +1361,8 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                         let mut header = plan.header(r);
                         if pinned {
                             header.push_str("; kept for this session");
+                        } else if home_here {
+                            header.push_str("; back to this session's first model");
                         }
                         header
                     })
@@ -1346,6 +1379,8 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                     dropped,
                     session: incoming.session.map(String::from),
                     pinned,
+                    went_home: home_here,
+                    home: home.clone(),
                     client_id: client.id.clone(),
                     requested: requested.to_string(),
                     auto_header,
@@ -1660,7 +1695,8 @@ pub fn record_success(
     }
     if let Some(session) = &forwarded.session {
         let target = Target { provider_id: forwarded.provider.id.clone(), model_id: forwarded.model_id.clone() };
-        let _ = shared.with_db(|db| store::pin(db, &forwarded.client_id, session, &forwarded.requested, &target));
+        let home = forwarded.home.as_ref();
+        let _ = shared.with_db(|db| store::pin(db, &forwarded.client_id, session, &forwarded.requested, &target, home));
     }
 }
 
@@ -1719,7 +1755,12 @@ pub fn route_headers(response: &mut Response, forwarded: &Forwarded) {
         }
     }
     if forwarded.session.is_some() {
-        headers.insert("x-pygg-session", HeaderValue::from_static(if forwarded.pinned { "pinned" } else { "new" }));
+        let state = match (forwarded.pinned, forwarded.went_home) {
+            (true, _) => "pinned",
+            (false, true) => "home",
+            _ => "new",
+        };
+        headers.insert("x-pygg-session", HeaderValue::from_static(state));
     }
 }
 

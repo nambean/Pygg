@@ -402,10 +402,12 @@ function GroupTable({title, column, groups, mono, onPick}: {title: string; colum
 
 /** How a route was chosen (schema v30's `route_kind`), in words. */
 function routeKindText(kind: string): string {
-  const [base, pinned] = kind.split('+');
+  const [base, session] = kind.split('+');
   const text = ({auto: t('auto (Pygg’s choice by tier)'), 'auto/cheap': t('auto/cheap (Pygg’s choice by cost)'), combo: t('a combo, in its order'),
     'combo:cheapest': t('a combo, cheapest first'), pool: t('a pool of accounts'), named: t('a model by name')} as Record<string, string>)[base] ?? base;
-  return pinned ? t('{route}; the routing session’s model, kept', {route: text}) : text;
+  if (session === 'pinned') return t('{route}; the routing session’s model, kept', {route: text});
+  if (session === 'home') return t('{route}; the session back on its first model after a fallback', {route: text});
+  return text;
 }
 
 const cacheHintText = (hint: string) => ({added: t('Turned on by Pygg: Anthropic’s automatic caching, which this client cannot ask for'), preserved: t('Kept as the client sent them'), translated: t('Carried into the OpenAI format'),

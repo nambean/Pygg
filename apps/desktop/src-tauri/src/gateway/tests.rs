@@ -811,6 +811,90 @@ fn an_explicit_session_stays_on_the_model_that_answered_it() {
     });
 }
 
+/// ROADMAP item 4: one passing refusal no longer keeps a session away from its home for the pin's two hours.
+#[test]
+fn a_session_goes_back_to_its_first_model_once_no_warm_cache_is_lost() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.allow_paid_retries(1);
+        let first = rig.post_session("/v1/chat/completions", "s-home", chat("pinme")).await;
+        assert_eq!(first.headers()["x-pygg-route"], "backup/steady");
+
+        // The backup's cache is warm and the first model never answered this session: it stays.
+        let warm = rig.post_session("/v1/chat/completions", "s-home", chat("pinme")).await;
+        assert_eq!(warm.headers()["x-pygg-route"], "backup/steady");
+        assert_eq!(warm.headers()["x-pygg-session"], "pinned");
+
+        // Six quiet minutes: both caches are cold, so nothing is lost by going home.
+        let six_minutes = 6 * 60 * 1000;
+        rig.shared
+            .with_db(|db| {
+                db.execute("UPDATE session_affinity SET last_used_at = last_used_at - ?1", [six_minutes])
+                    .map_err(|e| e.to_string())
+            })
+            .unwrap();
+        let home = rig.post_session("/v1/chat/completions", "s-home", chat("pinme")).await;
+        assert_eq!(home.headers()["x-pygg-route"], "main/flaky");
+        assert_eq!(home.headers()["x-pygg-session"], "home");
+        assert_eq!(home.headers()["x-pygg-attempts"], "1");
+
+        // And it stays home.
+        let stays = rig.post_session("/v1/chat/completions", "s-home", chat("pinme")).await;
+        assert_eq!(stays.headers()["x-pygg-route"], "main/flaky");
+        assert_eq!(stays.headers()["x-pygg-session"], "pinned");
+    });
+}
+
+#[test]
+fn a_pin_remembers_its_home_and_when_the_home_last_answered() {
+    let conn = crate::db::open_in_memory().unwrap();
+    let (client, _) = store::create_client(&conn, "Tests", None).unwrap();
+    let mut ids = Vec::new();
+    for label in ["Main", "Backup"] {
+        let provider = store::add_provider(
+            &conn,
+            &NewProvider {
+                kind: "custom",
+                label,
+                endpoint: "http://x.test",
+                credential_ref: None,
+                default_billing: "paid",
+                wire: "openai",
+            },
+        )
+        .unwrap();
+        ids.push(provider.id);
+    }
+    let main = Target { provider_id: ids[0].clone(), model_id: "m".into() };
+    let backup = Target { provider_id: ids[1].clone(), model_id: "m".into() };
+    let pin = |target: &Target| store::pin(&conn, &client.id, "s", "combo", target, Some(&main)).unwrap();
+    let read = || store::session_pin(&conn, &client.id, "s", "combo").unwrap().unwrap();
+
+    pin(&main);
+    let at_home = read();
+    assert_eq!((at_home.home.as_ref(), at_home.home_used_at.is_some()), (Some(&main), true));
+    assert!(!at_home.goes_home(at_home.last_used_at), "already home");
+
+    pin(&backup);
+    let away = read();
+    assert_eq!(away.target, backup);
+    assert_eq!(away.home_used_at, at_home.home_used_at, "the home's last answer is kept while away");
+    let now = away.last_used_at;
+    assert!(away.goes_home(now), "the home answered moments ago: its cache is warm");
+
+    let both_old = store::Pin { home_used_at: Some(now - 20 * 60 * 1000), ..away.clone() };
+    assert!(!both_old.goes_home(now), "the backup's cache is warm, the home's is cold: stay");
+    assert!(both_old.goes_home(now + store::CACHE_WARM_MS), "both cold: go home");
+    let never_home = store::Pin { home_used_at: None, ..away.clone() };
+    assert!(!never_home.goes_home(now + 1000));
+    let no_home = store::Pin { home: None, ..away };
+    assert!(!no_home.goes_home(now + store::CACHE_WARM_MS * 10), "a pin from before migration 0033 stays put");
+
+    // A different home starts with no answer of its own.
+    store::pin(&conn, &client.id, "s", "combo", &main, Some(&backup)).unwrap();
+    assert_eq!(read().home_used_at, None);
+}
+
 // ---------- P0-1: same-format passthrough ----------
 
 fn claude_request(stream: bool) -> Value {
@@ -1477,9 +1561,9 @@ fn expired_session_pins_are_deleted() {
     )
     .unwrap();
     let target = Target { provider_id: provider.id.clone(), model_id: "m".into() };
-    store::pin(&conn, &client.id, "old", "m", &target).unwrap();
+    store::pin(&conn, &client.id, "old", "m", &target, None).unwrap();
     conn.execute("UPDATE session_affinity SET last_used_at = 0", []).unwrap();
-    store::pin(&conn, &client.id, "new", "m", &target).unwrap();
+    store::pin(&conn, &client.id, "new", "m", &target, None).unwrap();
     let left: i64 = conn.query_row("SELECT COUNT(*) FROM session_affinity", [], |r| r.get(0)).unwrap();
     assert_eq!(left, 1);
 }
@@ -1553,6 +1637,7 @@ fn a_restricted_client_never_reaches_a_connection_outside_its_list() {
                     "s-a",
                     "private",
                     &Target { provider_id: "backup".into(), model_id: "steady".into() },
+                    None,
                 )
             })
             .unwrap();

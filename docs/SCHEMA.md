@@ -1,6 +1,6 @@
 # Store schema
 
-> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v32
+> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v33
 
 The local SQLite store (`db.rs`): every table after all migrations, in order. Credentials are never here: a
 connection holds only a reference to its key in the OS credential store (ADR-002). Client tokens are stored as
@@ -343,6 +343,9 @@ References: `stage_id` → `task_stages.id` (on delete cascade).
 | `model_id` | TEXT | no |  |  | 0003_cost_safe_gateway |
 | `created_at` | INTEGER | no |  |  | 0003_cost_safe_gateway |
 | `last_used_at` | INTEGER | no |  |  | 0003_cost_safe_gateway |
+| `home_provider_id` | TEXT | yes |  |  | 0033_session_home |
+| `home_model_id` | TEXT | yes |  |  | 0033_session_home |
+| `home_used_at` | INTEGER | yes |  |  | 0033_session_home |
 
 References: `provider_id` → `providers.id` (on delete cascade); `client_id` → `gateway_clients.id` (on delete cascade).
 

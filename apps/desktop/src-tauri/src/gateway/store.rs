@@ -1823,12 +1823,52 @@ pub fn group_hold(conn: &Connection, provider: &Provider, model_id: &str) -> Res
 /// How long a session stays pinned after its last request.
 pub const AFFINITY_TTL_MS: i64 = 2 * 60 * 60 * 1000;
 
-pub fn pinned_target(conn: &Connection, client_id: &str, session_key: &str, requested: &str) -> Result<Option<Target>> {
+/// How long a provider's prompt cache is taken to stay warm after the request that last used it. The common
+/// default is five minutes (Anthropic's ephemeral cache, OpenAI's automatic one); some last longer, none shorter.
+pub const CACHE_WARM_MS: i64 = 5 * 60 * 1000;
+
+/// Where a session is pinned, and its home: the target the session was meant for before any fallback.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Pin {
+    pub target: Target,
+    pub last_used_at: i64,
+    /// `None` for a pin made before migration 0033, until its next request.
+    pub home: Option<Target>,
+    /// When the home last answered this session; `None` if it never has.
+    pub home_used_at: Option<i64>,
+}
+
+impl Pin {
+    /// A session away from home goes back once the home's cache is still warm, or once the fallback's has gone cold
+    /// too (both cold: nothing is lost by going back). While the fallback's cache is warm and the home's is not, it
+    /// stays. Checked only when a request starts, never between the attempts of one.
+    pub fn goes_home(&self, now: i64) -> bool {
+        let Some(home) = &self.home else { return false };
+        if *home == self.target {
+            return false;
+        }
+        let home_warm = self.home_used_at.is_some_and(|at| now - at < CACHE_WARM_MS);
+        let away_cold = now - self.last_used_at >= CACHE_WARM_MS;
+        home_warm || away_cold
+    }
+}
+
+pub fn session_pin(conn: &Connection, client_id: &str, session_key: &str, requested: &str) -> Result<Option<Pin>> {
     conn.query_row(
-        "SELECT provider_id, model_id FROM session_affinity WHERE client_id = ?1 AND session_key = ?2 \
-         AND requested_model = ?3 AND last_used_at >= ?4",
+        "SELECT provider_id, model_id, last_used_at, home_provider_id, home_model_id, home_used_at          FROM session_affinity WHERE client_id = ?1 AND session_key = ?2 AND requested_model = ?3 AND last_used_at >= ?4",
         params![client_id, session_key, requested, now_ms() - AFFINITY_TTL_MS],
-        |r| Ok(Target { provider_id: r.get(0)?, model_id: r.get(1)? }),
+        |r| {
+            let home = match (r.get::<_, Option<String>>(3)?, r.get::<_, Option<String>>(4)?) {
+                (Some(provider_id), Some(model_id)) => Some(Target { provider_id, model_id }),
+                _ => None,
+            };
+            Ok(Pin {
+                target: Target { provider_id: r.get(0)?, model_id: r.get(1)? },
+                last_used_at: r.get(2)?,
+                home,
+                home_used_at: r.get(5)?,
+            })
+        },
     )
     .optional()
     .map_err(err)
@@ -1844,15 +1884,17 @@ pub fn purge_sessions(conn: &Connection, client_id: Option<&str>) -> Result<usiz
     .map_err(err)
 }
 
-pub fn pin(conn: &Connection, client_id: &str, session_key: &str, requested: &str, target: &Target) -> Result<()> {
+/// Pins a session to the target that answered it. `home` is the target the session was meant for (the one it is
+/// pinned to when `None`); the home's last answer is kept while the home stays the same.
+pub fn pin(
+    conn: &Connection, client_id: &str, session_key: &str, requested: &str, target: &Target, home: Option<&Target>,
+) -> Result<()> {
     let now = now_ms();
+    let home = home.unwrap_or(target);
     purge_sessions(conn, Some(client_id))?;
     conn.execute(
-        "INSERT INTO session_affinity (client_id, session_key, requested_model, provider_id, model_id, created_at, last_used_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6) ON CONFLICT(client_id, session_key, requested_model) DO UPDATE SET \
-         provider_id = ?4, model_id = ?5, last_used_at = ?6, \
-         created_at = CASE WHEN provider_id = ?4 AND model_id = ?5 THEN created_at ELSE ?6 END",
-        params![client_id, session_key, requested, target.provider_id, target.model_id, now],
+        "INSERT INTO session_affinity (client_id, session_key, requested_model, provider_id, model_id, created_at,          last_used_at, home_provider_id, home_model_id, home_used_at)          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?8, CASE WHEN ?4 = ?7 AND ?5 = ?8 THEN ?6 END)          ON CONFLICT(client_id, session_key, requested_model) DO UPDATE SET          provider_id = ?4, model_id = ?5, last_used_at = ?6,          created_at = CASE WHEN provider_id = ?4 AND model_id = ?5 THEN created_at ELSE ?6 END,          home_used_at = CASE WHEN ?4 = ?7 AND ?5 = ?8 THEN ?6            WHEN home_provider_id IS ?7 AND home_model_id IS ?8 THEN home_used_at END,          home_provider_id = ?7, home_model_id = ?8",
+        params![client_id, session_key, requested, target.provider_id, target.model_id, now, home.provider_id, home.model_id],
     )
     .map(|_| ())
     .map_err(err)
