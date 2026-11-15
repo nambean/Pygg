@@ -796,16 +796,23 @@ def open_items():
         items.setdefault("Errors", []).append(f"real provider answers not yet captured as fixtures: {', '.join(missing)} "
                                               f"({len(fixtures)} fixtures today)")
     src = ROOT / "apps" / "desktop" / "src"
+    # A quoted string: a character that is neither the quote nor a backslash, or a backslash and the next character.
+    # The two alternatives never match the same text, so the pattern cannot backtrack (CodeQL py/redos).
+    lit = r"""'((?:[^'\\\n]|\\.)+)'|"((?:[^"\\\n]|\\.)+)\""""
+
+    def text(m):
+        return (m.group(1) if m.group(1) is not None else m.group(2)).replace("\\'", "'").replace('\\"', '"')
+
     used = set()
     for p in src.rglob("*.ts*"):
         if "locales" in p.parts:
             continue
-        for m in re.finditer(r"""\b(?:t|plural)\(\s*(['"])((?:\\.|(?!\1).)+)\1""", p.read_text(encoding="utf-8")):
-            used.add(m.group(2).replace("\\'", "'").replace('\\"', '"'))
+        for m in re.finditer(r"\b(?:t|plural)\(\s*(?:" + lit + ")", p.read_text(encoding="utf-8")):
+            used.add(text(m))
     vi = set()
     for p in (src / "locales" / "vi").glob("*.ts"):
-        for m in re.finditer(r"""^\s*(['"])((?:\\.|(?!\1).)+)\1\s*:""", p.read_text(encoding="utf-8"), re.M):
-            vi.add(m.group(2).replace("\\'", "'").replace('\\"', '"'))
+        for m in re.finditer(r"^[ \t]*(?:" + lit + r")[ \t]*:", p.read_text(encoding="utf-8"), re.M):
+            vi.add(text(m))
     covered = len(used & vi)
     pct = round(100 * covered / len(used), 1) if used else 0
     if pct < 100:
