@@ -16,6 +16,7 @@ benchmark/
   results/<run>/          raw results of published runs, with SHA256SUMS (committed)
   reports/                one written-up report per published run (committed)
   resilience/             the fault-injecting fake provider and the runs that compare gateways against it
+  readiness/              the readiness benchmark: run.py, the latest SCORECARD.md and trend.jsonl (one line per run)
 ```
 
 `case.json`:
@@ -104,6 +105,10 @@ A rung is then `pygg/auto`, `pygg/<combo>` or `pygg/<connection>/<model>`; OpenC
 For a provider that takes no tools, `--agent "python -I scripts/bench-web-agent.py {prompt_file} {model} {workdir}"` sends one request through the running gateway with the task and every fixture file, writes the files that come back, and exits; the checks then run. It reads a Markdown reply and the page-text form a web session returns. `PYGG_BENCH_KEY_FILE` names a file holding a Pygg API key. The cost is unknown to the bench, so run with `--allow-unknown yes`.
 
 **Do not point it at a web-session account you need.** Its prompts are long, and a run of them got an account suspended. Pygg's web guard now refuses prompts over 12,000 characters and caps each account's hour by weight, so most cases are refused on a web session.
+
+## Readiness
+
+`python -I benchmark/readiness/run.py` scores the current build against the release gates in [docs/ROADMAP.md](../docs/ROADMAP.md#release-gates), with free and local traffic only: the fake provider, and Ollama (`qwen3:8b`) when it answers on port 11434. It builds the headless binaries, then checks both API formats, streaming, tools, the prompt cache, sessions, fallback on 429, 401 and 404, a strict budget under concurrency, loopback only, the ledger (also across a gateway killed with requests in flight), `auto` decisions, `pygg setup` and `--remove` on scratch configurations, the overhead test, the provider-error and web-guard tests, `pnpm ui-check` and the npm packages installed from their tarballs. A gate is red when a check failed, open when its checks pass but it still needs evidence the harness cannot produce (listed), green otherwise. It takes about 10 minutes; `--skip ui,npm` or `--only gateway` runs part of it (a partial run is not added to the trend). Each run writes `runs/<time>-<commit>/` (git-ignored); a full run also replaces `SCORECARD.md` and adds a line to `trend.jsonl`. It sends nothing to a paid provider or a web session.
 
 ## Other scripts
 

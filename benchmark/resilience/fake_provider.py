@@ -14,6 +14,7 @@ A rule for `provider:key` wins over the provider's rule. Modes:
     ok                 answer normally
     429 | 402 | 401 | 403 | 500 | 502 | 503 | 504
                        answer that status with an OpenAI-style error body (429 carries Retry-After when set)
+    404                the model does not exist (OpenAI's `model_not_found`)
     quota              429 with OpenAI's `insufficient_quota` code (an account out of credit)
     flaky              500 for a share `p` of requests (deterministic: every request whose counter hits the
                        share), otherwise ok
@@ -21,6 +22,9 @@ A rule for `provider:key` wins over the provider's rule. Modes:
     drop               read the request, then close the connection without an answer
     midstream          for a streamed request: status 200 and two content chunks, then close the connection
                        (a whole request is answered as `drop`)
+
+A request that offers tools and ends with a user message whose text contains `use a tool` is answered with a call to
+the first tool, `{"path": "README.md"}` (whole or streamed); any other request is answered with text.
 
 It also speaks Anthropic's Messages API (`/<provider>/v1/messages`, whole and streamed) with a simulated prompt
 cache, for the token benchmark: the prompt is cut into blocks (tools, system, then each message's content blocks); a
@@ -256,6 +260,10 @@ class Handler(BaseHTTPRequestHandler):
         if mode == "401":
             time.sleep(latency / 4)
             return self._error(401, "Incorrect API key provided.", "invalid_api_key", "invalid_request_error")
+        if mode == "404":
+            time.sleep(latency / 4)
+            return self._error(404, f"The model `{body.get('model')}` does not exist or you do not have access to it.",
+                               "model_not_found", "invalid_request_error")
         if mode in ("403", "500", "502", "503", "504"):
             time.sleep(latency / 2)
             return self._error(int(mode), f"upstream failure {mode}", None, "server_error")
@@ -268,6 +276,9 @@ class Handler(BaseHTTPRequestHandler):
         usage = {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
                  "total_tokens": prompt_tokens + completion_tokens}
         time.sleep(latency)
+        tool = self._tool_to_call(body)
+        if tool:
+            return self._tool_call(provider, body, rid, stream, tool, cid, created, model, usage)
         if not stream:
             self._send(200, {"id": cid, "object": "chat.completion", "created": created, "model": model,
                              "choices": [{"index": 0, "message": {"role": "assistant", "content": reply},
@@ -305,6 +316,43 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b"0\r\n\r\n")
         self.wfile.flush()
         return "ok"
+
+
+def _tool_to_call(body):
+    tools = body.get("tools") or []
+    messages = body.get("messages") or []
+    if not tools or not messages or messages[-1].get("role") != "user" or "use a tool" not in last_user_text(body):
+        return None
+    return (tools[0].get("function") or {}).get("name")
+
+
+def _tool_call(self, provider, body, rid, stream, name, cid, created, model, usage):
+    call = {"id": f"call_{rid}", "type": "function", "function": {"name": name, "arguments": json.dumps({"path": "README.md"})}}
+    if not stream:
+        self._send(200, {"id": cid, "object": "chat.completion", "created": created, "model": model,
+                         "choices": [{"index": 0, "message": {"role": "assistant", "content": None, "tool_calls": [call]},
+                                      "finish_reason": "tool_calls"}], "usage": usage})
+        return "tool_call"
+    self.send_response(200)
+    self.send_header("content-type", "text/event-stream")
+    self.send_header("transfer-encoding", "chunked")
+    self.end_headers()
+    base = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model}
+    args = call["function"]["arguments"]
+    deltas = [{"role": "assistant", "content": None, "tool_calls": [{"index": 0, "id": call["id"], "type": "function",
+                                                                     "function": {"name": name, "arguments": ""}}]},
+              {"tool_calls": [{"index": 0, "function": {"arguments": args[:8]}}]},
+              {"tool_calls": [{"index": 0, "function": {"arguments": args[8:]}}]}]
+    events = [{**base, "choices": [{"index": 0, "delta": d, "finish_reason": None}]} for d in deltas]
+    events.append({**base, "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]})
+    if (body.get("stream_options") or {}).get("include_usage"):
+        events.append({**base, "choices": [], "usage": usage})
+    for obj in [*events, "[DONE]"]:
+        data = ("data: " + (obj if isinstance(obj, str) else json.dumps(obj)) + "\n\n").encode()
+        self.wfile.write(f"{len(data):x}\r\n".encode() + data + b"\r\n")
+    self.wfile.write(b"0\r\n\r\n")
+    self.wfile.flush()
+    return "tool_call"
 
 
 def tokens(obj):
@@ -376,6 +424,10 @@ def simulate_cache(provider, body):
     markers = {"top_level": bool(body.get("cache_control")), "block_markers": sum(1 for _, m in blocks if m),
                "blocks": len(blocks)}
     return {"input_tokens": new_input, "cache_read_input_tokens": read, "cache_creation_input_tokens": written}, markers
+
+
+Handler._tool_to_call = staticmethod(_tool_to_call)
+Handler._tool_call = _tool_call
 
 
 def main():
