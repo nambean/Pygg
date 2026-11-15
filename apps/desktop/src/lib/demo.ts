@@ -328,6 +328,16 @@ export function demoApi(): GatewayApi {
     e.cacheHint = e.provider === 'anthropic' ? 'preserved' : 'none';
     if (e.client === 'Claude Code' && /^e\d+/.test(e.id)) e.sessionKey = `launch-${Math.floor(Number(/^e(\d+)/.exec(e.id)![1]) / 8)}`;
   }
+  // Why each answer missed the cache, as store::cache_miss reads the ledger: oldest first, per session.
+  const seen = new Map<string, {target: string; at: number}>();
+  for (const e of [...events].sort((a, b) => a.createdAt - b.createdAt)) {
+    if (e.inputTokens == null || !['ok', 'client_disconnected', 'stream_error'].includes(e.outcome)) continue;
+    const target = `${e.provider}/${e.model}`, last = e.sessionKey ? seen.get(e.sessionKey) : undefined;
+    e.cacheMiss = e.cacheTokens == null ? 'not_reported' : e.cacheTokens > 0 ? null : e.inputTokens < 1024 ? 'below_minimum'
+      : !e.sessionKey ? 'no_session' : !last ? 'first_request' : last.target !== target ? 'model_switched'
+      : e.createdAt - last.at >= 300_000 ? 'cache_expired' : 'prefix_changed';
+    if (e.sessionKey) seen.set(e.sessionKey, {target, at: e.createdAt});
+  }
 
   // `?empty` starts from nothing, to review first-run states.
   if (new URLSearchParams(location.search).has('empty')) {
@@ -1021,7 +1031,13 @@ export function demoApi(): GatewayApi {
       const zero = (): TokenParts => ({newInput: 0, cacheRead: 0, cacheWrite: 0, output: 0});
       const add = (into: TokenParts, p: TokenParts) => { into.newInput += p.newInput; into.cacheRead += p.cacheRead; into.cacheWrite += p.cacheWrite; into.output += p.output; };
       const list = events.filter(e => e.createdAt >= Date.now() - days * 86_400_000);
-      const mix: TokenMix = {tokens: zero(), cost: zero(), requests: list.length, withTokens: 0, unsplitMicroUsd: 0, unknownCostRequests: 0, byClient: [], byModel: []};
+      const mix: TokenMix = {tokens: zero(), cost: zero(), requests: list.length, withTokens: 0, unsplitMicroUsd: 0, unknownCostRequests: 0, byClient: [], byModel: [], misses: []};
+      for (const e of list) {
+        if (!e.cacheMiss) continue;
+        const g = mix.misses.find(m => m.cause === e.cacheMiss) ?? (mix.misses[mix.misses.length] = {cause: e.cacheMiss, requests: 0, inputTokens: 0});
+        g.requests += 1; g.inputTokens += e.inputTokens ?? 0;
+      }
+      mix.misses.sort((a, b) => b.inputTokens - a.inputTokens || b.requests - a.requests);
       const groups = {client: new Map<string, TokenMixGroup>(), model: new Map<string, TokenMixGroup>()};
       for (const e of list.filter(e => e.inputTokens != null || e.outputTokens != null)) {
         const input = e.inputTokens ?? 0, read = Math.min(e.cacheTokens ?? 0, input), write = e.cacheWriteTokens ?? 0;

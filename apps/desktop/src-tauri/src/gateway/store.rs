@@ -2285,15 +2285,78 @@ pub fn record_usage(conn: &Connection, r: &UsageRecord) -> Result<()> {
     insert_usage(conn, r, None).map_err(err)
 }
 
+/// Fewer prompt tokens than this are never cached: 1,024 at OpenAI and for most Anthropic models (some need more).
+pub const CACHE_MIN_TOKENS: u64 = 1024;
+
+/// How far back a model's cache reads are looked for before saying it does not cache.
+const CACHED_HERE_WINDOW_MS: i64 = 7 * 24 * 60 * 60 * 1000;
+
+/// Why an answer read nothing from the provider's cache, worked out from the ledger before the answer is written
+/// (migration 0034). `None` for a hit, a failure, an answer without token counts, or a row nothing sent. The reason
+/// is the ledger's best reading, never the provider's word.
+pub fn cache_miss(conn: &Connection, r: &UsageRecord, now: i64) -> rusqlite::Result<Option<&'static str>> {
+    let (Some(facts), Some(input)) = (r.facts, r.input_tokens) else { return Ok(None) };
+    if !matches!(r.outcome, "ok" | "client_disconnected" | "stream_error") {
+        return Ok(None);
+    }
+    let Some(read) = r.cache_tokens else { return Ok(Some("not_reported")) };
+    if read > 0 {
+        return Ok(None);
+    }
+    if input < CACHE_MIN_TOKENS {
+        return Ok(Some("below_minimum"));
+    }
+    if facts.cache_hint == "dropped" {
+        return Ok(Some("marker_dropped"));
+    }
+    let cached_here = || -> rusqlite::Result<bool> {
+        conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM usage_events WHERE created_at >= ?3 AND provider = ?1 AND model = ?2 \
+             AND cache_tokens > 0)",
+            params![r.provider_id, r.model_id, now - CACHED_HERE_WINDOW_MS],
+            |row| row.get(0),
+        )
+    };
+    let (Some(client), Some(session)) = (r.client_id, r.session_key) else {
+        return Ok(Some(if cached_here()? { "no_session" } else { "not_cached_here" }));
+    };
+    // The session's last answer for this requested model, and its last one from this very model.
+    let last = |same_target: bool| -> rusqlite::Result<Option<(String, String, i64)>> {
+        conn.query_row(
+            "SELECT provider, model, created_at FROM usage_events WHERE client_id = ?1 AND session_key = ?2 \
+             AND requested_model = ?3 AND input_tokens IS NOT NULL AND (?4 = 0 OR (provider = ?5 AND model = ?6)) \
+             ORDER BY created_at DESC LIMIT 1",
+            params![client, session, r.requested_model, same_target as i64, r.provider_id, r.model_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+    };
+    let Some((provider, model, _)) = last(false)? else { return Ok(Some("first_request")) };
+    let here = last(true)?;
+    let warm_here = here.as_ref().is_some_and(|(_, _, at)| now - at < CACHE_WARM_MS);
+    if (provider != r.provider_id || model != r.model_id) && !warm_here {
+        return Ok(Some("model_switched"));
+    }
+    if !cached_here()? {
+        return Ok(Some("not_cached_here"));
+    }
+    Ok(Some(match here {
+        None => "first_request",
+        Some(_) if !warm_here => "cache_expired",
+        Some(_) => "prefix_changed",
+    }))
+}
+
 fn insert_usage(conn: &Connection, r: &UsageRecord, at_risk_micro: Option<u64>) -> rusqlite::Result<()> {
     let now = now_ms();
+    let miss = cache_miss(conn, r, now)?;
     conn.execute(
         "INSERT INTO usage_events (id, client_id, provider, model, input_tokens, output_tokens, cache_tokens, \
          cost_micro_usd, cost_status, source, created_at, outcome, http_status, latency_ms, requested_model, error, \
          cache_write_tokens, session_key, route_mode, at_risk_micro_usd, route_reason, repeated_tokens, request_id, attempt, \
-         billing, route_kind, cache_hint, key_id) \
+         billing, route_kind, cache_hint, key_id, cache_miss) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, \
-         ?25, ?26, ?27, ?28)",
+         ?25, ?26, ?27, ?28, ?29)",
         params![
             uuid::Uuid::new_v4().to_string(), r.client_id, r.provider_id, r.model_id,
             r.input_tokens.map(|v| v as i64), r.output_tokens.map(|v| v as i64), r.cache_tokens.map(|v| v as i64),
@@ -2302,7 +2365,7 @@ fn insert_usage(conn: &Connection, r: &UsageRecord, at_risk_micro: Option<u64>) 
             r.cache_write_tokens.map(|v| v as i64), r.session_key, r.route_mode, at_risk_micro.map(|v| v as i64), r.route_reason,
             r.repeated_tokens.map(|v| v as i64), r.facts.map(|f| f.request_id.as_str()), r.facts.map(|f| f.attempt as i64),
             r.facts.map(|f| f.billing.as_str()), r.facts.map(|f| f.route_kind.as_str()), r.facts.map(|f| f.cache_hint.as_str()),
-            r.facts.and_then(|f| f.key_id.as_deref()),
+            r.facts.and_then(|f| f.key_id.as_deref()), miss,
         ],
     )?;
     if let Some(client) = r.client_id {
@@ -2348,6 +2411,8 @@ pub struct UsageEvent {
     /// The key of the connection's key ring that sent it, and its name (ADR-038); never the secret.
     pub key_id: Option<String>,
     pub key_label: Option<String>,
+    /// Why the answer read nothing from the provider's cache (migration 0034; `store::cache_miss`).
+    pub cache_miss: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -2848,6 +2913,17 @@ pub struct TokenMix {
     pub unknown_cost_requests: u64,
     pub by_client: Vec<TokenMixGroup>,
     pub by_model: Vec<TokenMixGroup>,
+    /// Answers that read nothing from the cache, by why (migration 0034), most prompt tokens first.
+    pub misses: Vec<CacheMissGroup>,
+}
+
+/// Answers that missed the cache for one reason, and their prompt tokens, all read in full or written to the cache.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheMissGroup {
+    pub cause: String,
+    pub requests: u64,
+    pub input_tokens: u64,
 }
 
 pub fn token_mix(conn: &Connection, since: i64) -> Result<TokenMix> {
@@ -2925,6 +3001,23 @@ pub fn token_mix(conn: &Connection, since: i64) -> Result<TokenMix> {
     };
     mix.by_client = sorted(by_client);
     mix.by_model = sorted(by_model);
+    let mut stmt = conn
+        .prepare(
+            "SELECT cache_miss, COUNT(*), COALESCE(SUM(input_tokens), 0) FROM usage_events \
+             WHERE created_at >= ?1 AND cache_miss IS NOT NULL GROUP BY cache_miss ORDER BY 3 DESC, 2 DESC, 1",
+        )
+        .map_err(err)?;
+    mix.misses = stmt
+        .query_map([since], |r| {
+            Ok(CacheMissGroup {
+                cause: r.get(0)?,
+                requests: r.get::<_, i64>(1)?.max(0) as u64,
+                input_tokens: r.get::<_, i64>(2)?.max(0) as u64,
+            })
+        })
+        .map_err(err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(err)?;
     Ok(mix)
 }
 
@@ -3040,7 +3133,7 @@ pub fn usage_requests_matching(
             "SELECT u.id, u.created_at, c.name, u.provider, u.model, u.requested_model, u.input_tokens, u.output_tokens, \
              u.cost_micro_usd, u.cost_status, u.source, u.outcome, u.http_status, u.latency_ms, u.error, \
              u.cache_tokens, u.cache_write_tokens, u.session_key, u.route_mode, u.at_risk_micro_usd, u.route_reason, \
-             u.request_id, u.attempt, u.billing, u.route_kind, u.cache_hint, u.key_id, k.label \
+             u.request_id, u.attempt, u.billing, u.route_kind, u.cache_hint, u.key_id, k.label, u.cache_miss \
              FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id LEFT JOIN provider_keys k ON k.id = u.key_id \
              WHERE {REQUEST_MATCH} ORDER BY u.created_at DESC, u.id DESC LIMIT ?2 OFFSET ?3",
         ))
@@ -3077,6 +3170,7 @@ pub fn usage_requests_matching(
                 cache_hint: r.get(25)?,
                 key_id: r.get(26)?,
                 key_label: r.get(27)?,
+                cache_miss: r.get(28)?,
             })
         })
         .map_err(err)?

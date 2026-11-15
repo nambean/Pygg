@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { TokenMix as Mix, TokenMixGroup, TokenParts } from '../../lib/api';
+import type { CacheMissCause, CacheMissGroup, TokenMix as Mix, TokenMixGroup, TokenParts } from '../../lib/api';
 import { plural, t } from '../../lib/i18n';
 import { microUsd, tokens } from '../../lib/money';
 import { useGateway } from '../../hooks/useGateway';
@@ -14,6 +14,25 @@ const hint = (k: Kind) => ({
   cacheWrite: t('Prompt tokens written to the cache, which some providers charge extra for'),
   output: t('Tokens the model generated'),
 }[k]);
+
+/** Why an answer missed the cache, short and in full (store::cache_miss). The ledger's best reading, not the provider's word. */
+export const cacheMissLabel = (cause: CacheMissCause | string) => ({
+  not_reported: t('Not reported'), below_minimum: t('Prompt too short'), marker_dropped: t('Cache hints dropped'),
+  first_request: t('First request of a session'), model_switched: t('Model switched'), not_cached_here: t('Model does not cache'),
+  cache_expired: t('Cache expired'), prefix_changed: t('Prompt start changed'), no_session: t('No session'),
+} as Record<string, string>)[cause] ?? cause;
+export const cacheMissText = (cause: CacheMissCause | string) => ({
+  not_reported: t('The provider did not say how much of the prompt came from its cache.'),
+  below_minimum: t('Under about 1,024 tokens, which providers do not cache.'),
+  marker_dropped: t('The client marked the prompt for caching, but this provider takes no hints in this format.'),
+  first_request: t('Nothing was cached for this session on this model yet.'),
+  model_switched: t('The session’s last answer came from another model, whose cache this one cannot read.'),
+  not_cached_here: t('This model has read nothing from its cache in the last 7 days.'),
+  cache_expired: t('More than 5 minutes since this session last used this model.'),
+  prefix_changed: t('The same model answered minutes ago, so the start of the prompt (system prompt, tools or early history) likely changed.'),
+  no_session: t('The request named no session, so Pygg cannot tell why.'),
+} as Record<string, string>)[cause] ?? cause;
+
 const sum = (p: TokenParts) => p.newInput + p.cacheRead + p.cacheWrite + p.output;
 const pct = (part: number, whole: number) => whole > 0 ? Math.round((part / whole) * 100) : 0;
 
@@ -69,6 +88,12 @@ export function TokenMix({days}: {days: number}) {
             {m.unsplitMicroUsd > 0 && t('{amount} could not be split: its model has no price now.', {amount: microUsd(m.unsplitMicroUsd)})}</>
           : t('A provider that reports no cache figures shows its whole prompt as new input. The cache’s discount is the provider’s, not a saving of Pygg’s.')}
       </p>
+      {m.misses.length > 0 && <details className="token-mix-details">
+        <summary>{plural(m.misses.reduce((n, g) => n + g.requests, 0),
+          'Why the cache was missed: {n} answer', 'Why the cache was missed: {n} answers')}</summary>
+        <div className="table-scroll"><MissTable groups={m.misses}/></div>
+        <p className="group-footnote">{t('Answers that read nothing from the provider’s cache, with the likeliest cause read from the ledger. The provider does not say why.')}</p>
+      </details>}
       {m.withTokens > 0 && <details className="token-mix-details">
         <summary>{t('By client and model')}</summary>
         <div className="table-scroll"><MixTable title={t('Client')} groups={m.byClient}/></div>
@@ -95,6 +120,23 @@ function MixTable({title, groups, mono}: {title: string; groups: TokenMixGroup[]
           <td className="num">{microUsd(g.knownMicroUsd)}</td>
         </tr>;
       })}
+    </tbody>
+  </table>;
+}
+
+function MissTable({groups}: {groups: CacheMissGroup[]}) {
+  return <table className="data-table" aria-label={t('Why the cache was missed')}>
+    <thead><tr>
+      <th scope="col">{t('Cause')}</th><th scope="col" className="num">{t('Answers')}</th>
+      <th scope="col" className="num">{t('Prompt tokens')}</th><th scope="col">{t('What it means')}</th>
+    </tr></thead>
+    <tbody>
+      {groups.map(g => <tr key={g.cause}>
+        <td className="nowrap">{cacheMissLabel(g.cause)}</td>
+        <td className="num">{g.requests}</td>
+        <td className="num">{tokens(g.inputTokens)}</td>
+        <td className="secondary">{cacheMissText(g.cause)}</td>
+      </tr>)}
     </tbody>
   </table>;
 }

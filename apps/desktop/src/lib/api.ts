@@ -232,10 +232,16 @@ export type UsageGroup = {
 /** Tokens of each kind, or the part of the known cost that went to them (store::TokenParts). */
 export type TokenParts = { newInput: number; cacheRead: number; cacheWrite: number; output: number };
 export type TokenMixGroup = { key: string; tokens: TokenParts; requests: number; knownMicroUsd: number };
+/** Why an answer read nothing from the provider's cache: the ledger's best reading, never the provider's word (schema v34). */
+export type CacheMissCause = 'not_reported' | 'below_minimum' | 'marker_dropped' | 'first_request' | 'model_switched'
+  | 'not_cached_here' | 'cache_expired' | 'prefix_changed' | 'no_session';
+export type CacheMissGroup = { cause: CacheMissCause; requests: number; inputTokens: number };
 /** Usage → Token Mix (Codex's fifth discussion, T1): where a period's tokens went, and the known cost split among them. */
 export type TokenMix = {
   tokens: TokenParts; cost: TokenParts; requests: number; withTokens: number; unsplitMicroUsd: number;
   unknownCostRequests: number; byClient: TokenMixGroup[]; byModel: TokenMixGroup[];
+  /** Answers that missed the cache, by why, most prompt tokens first. */
+  misses: CacheMissGroup[];
 };
 
 /** Usage → Requests filters, applied in the store's query over the whole period (store::RequestFilter). */
@@ -259,6 +265,8 @@ export type UsageEvent = {
   billing?: string | null; routeKind?: string | null; cacheHint?: string | null;
   /** The key of the connection's key ring that sent it, by name (schema v31, ADR-038). */
   keyId?: string | null; keyLabel?: string | null;
+  /** Why the answer read nothing from the provider's cache (schema v34; store::cache_miss). */
+  cacheMiss?: CacheMissCause | null;
 };
 
 /** A change of answering model inside a routing session (store::RouteChange). */

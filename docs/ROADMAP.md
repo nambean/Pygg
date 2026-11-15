@@ -19,8 +19,8 @@ What comes next, in order, and what must be true before a public release. What i
    - Estimated savings and the token mix read against a real ledger.
 2. **The native window, clicked through.** Every screen in the installed app, not only the browser preview. The D12 checks (ADR-012): scaling, snap layouts above 100%, Narrator and NVDA, contrast themes.
 3. **Install on a clean Windows machine.** NSIS install, first run, gateway, a coding tool set up, uninstall leaving nothing behind.
-4. **Token and cost work, in the order ADR-036 sets.** The token mix, launch sessions, the way home after a fallback, routing diagnostics and the always-on context of each agent's global files (Skills & Prompts, ADR-039) exist. Next, each proved on the fake provider before one short live check:
-   - **Cache-miss causes.** Record why each request missed the cache (prefix changed, model switched, cache expired, below the minimum, not reported). The way home after a fallback is done (ADR-036); a live check of it is still to do.
+4. **Token and cost work, in the order ADR-036 sets.** The token mix, launch sessions, the way home after a fallback, why each answer missed the cache, routing diagnostics and the always-on context of each agent's global files (Skills & Prompts, ADR-039) exist. Next, each proved on the fake provider before one short live check:
+   - **A short live check of the way home and of the cache-miss causes** against one provider that reports its cache, read against the ledger.
    - **The cache marker for Anthropic models through OpenRouter**, which documents the same top-level `cache_control`.
    - **The launch session passed on** to providers that route by one (OpenRouter's `x-session-id`, OpenAI's `prompt_cache_key`), so repeated requests reach the machine holding their cache. A random launch id, never prompt content.
    - **A meter for each session's tool definitions and system prompt**: their size on the first request and how often they are written to the cache again. Numbers only.

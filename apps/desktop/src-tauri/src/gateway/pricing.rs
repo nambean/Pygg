@@ -29,6 +29,9 @@ pub struct Usage {
     pub cached: u64,
     /// Part of `prompt` written to the provider's cache.
     pub cache_write: u64,
+    /// The provider said how much of the prompt came from its cache, even if none did. Without it a zero `cached`
+    /// means "not reported", not "missed".
+    pub cache_reported: bool,
     /// OpenRouter and some others report the charge itself, in USD.
     pub provider_cost_usd: Option<f64>,
 }
@@ -47,6 +50,8 @@ impl Usage {
             completion: n("output_tokens"),
             cached: read,
             cache_write: write,
+            cache_reported: usage.get("cache_read_input_tokens").is_some_and(|v| v.is_u64())
+                || usage.get("cache_creation_input_tokens").is_some_and(|v| v.is_u64()),
             provider_cost_usd: None,
         })
     }
@@ -63,6 +68,7 @@ impl Usage {
                     self.prompt = later.prompt;
                     self.cached = later.cached;
                     self.cache_write = later.cache_write;
+                    self.cache_reported |= later.cache_reported;
                 }
             }
         }
@@ -79,6 +85,7 @@ impl Usage {
             completion: n(&usage["output_tokens"]),
             cached: n(&usage["input_tokens_details"]["cached_tokens"]),
             cache_write: 0,
+            cache_reported: usage["input_tokens_details"]["cached_tokens"].is_u64(),
             provider_cost_usd: None,
         })
     }
@@ -88,11 +95,16 @@ impl Usage {
             return None;
         }
         let n = |v: &serde_json::Value| v.as_u64().unwrap_or(0);
+        // OpenAI's own field, or DeepSeek's (`prompt_cache_hit_tokens`, with the rest in `prompt_cache_miss_tokens`).
+        let cached = [&usage["prompt_tokens_details"]["cached_tokens"], &usage["prompt_cache_hit_tokens"]]
+            .into_iter()
+            .find(|v| v.is_u64());
         Some(Usage {
             prompt: n(&usage["prompt_tokens"]),
             completion: n(&usage["completion_tokens"]),
-            cached: n(&usage["prompt_tokens_details"]["cached_tokens"]),
+            cached: cached.map_or(0, n),
             cache_write: 0,
+            cache_reported: cached.is_some(),
             provider_cost_usd: usage["cost"].as_f64().filter(|c| c.is_finite() && *c >= 0.0),
         })
     }
@@ -234,6 +246,32 @@ mod tests {
         assert_eq!(resolve("subscription", Some(&price()), Some(&usage)).status(), "unknown");
         assert_eq!(resolve_failure(Some(503)).micro_usd(), None);
         assert_eq!(resolve_failure(None).micro_usd(), None);
+    }
+
+    /// A zero read from the cache means "missed" only when the provider said so (ROADMAP item 4).
+    #[test]
+    fn says_whether_the_provider_reported_its_cache() {
+        let silent = Usage::from_json(&serde_json::json!({"prompt_tokens": 5000, "completion_tokens": 7})).unwrap();
+        assert!(!silent.cache_reported);
+        let openai = Usage::from_json(&serde_json::json!({"prompt_tokens": 5000, "completion_tokens": 7,
+            "prompt_tokens_details": {"cached_tokens": 0}}))
+        .unwrap();
+        assert!(openai.cache_reported && openai.cached == 0);
+        // DeepSeek reports its own fields.
+        let deepseek = Usage::from_json(&serde_json::json!({"prompt_tokens": 5000, "completion_tokens": 7,
+            "prompt_cache_hit_tokens": 4096, "prompt_cache_miss_tokens": 904}))
+        .unwrap();
+        assert_eq!((deepseek.cache_reported, deepseek.cached), (true, 4096));
+        let anthropic = Usage::from_anthropic(&serde_json::json!({"input_tokens": 5000, "output_tokens": 7})).unwrap();
+        assert!(!anthropic.cache_reported);
+        let anthropic = Usage::from_anthropic(&serde_json::json!({"input_tokens": 5000, "output_tokens": 7,
+            "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}))
+        .unwrap();
+        assert!(anthropic.cache_reported);
+        let responses = Usage::from_responses(&serde_json::json!({"input_tokens": 5000, "output_tokens": 7,
+            "input_tokens_details": {"cached_tokens": 0}}))
+        .unwrap();
+        assert!(responses.cache_reported);
     }
 
     #[test]

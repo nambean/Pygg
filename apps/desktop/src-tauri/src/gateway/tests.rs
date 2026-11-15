@@ -1817,6 +1817,88 @@ fn a_subscription_model_is_used_under_a_spending_limit_and_holds_nothing() {
     });
 }
 
+// ---------- ROADMAP item 4: why the cache was missed ----------
+
+#[test]
+fn each_miss_of_the_cache_is_recorded_with_its_likely_cause() {
+    use crate::gateway::pricing::Cost;
+    let conn = crate::db::open_in_memory().unwrap();
+    let (client, _) = store::create_client(&conn, "Tests", None).unwrap();
+    let mut ids = Vec::new();
+    for label in ["Main", "Backup"] {
+        let provider = store::add_provider(
+            &conn,
+            &NewProvider {
+                kind: "custom",
+                label,
+                endpoint: "http://x.test",
+                credential_ref: None,
+                default_billing: "paid",
+                wire: "openai",
+            },
+        )
+        .unwrap();
+        ids.push(provider.id);
+    }
+    let cost = Cost::Estimated { micro_usd: 1, source: "test".into() };
+    let record = |provider: &str, input: u64, cached: Option<u64>, session: Option<&str>, hint: &str, outcome: &str| {
+        let facts = store::AttemptFacts { cache_hint: hint.into(), ..store::AttemptFacts::default() };
+        store::record_usage(
+            &conn,
+            &store::UsageRecord {
+                client_id: Some(&client.id),
+                provider_id: provider,
+                model_id: "m",
+                requested_model: "combo",
+                input_tokens: Some(input),
+                output_tokens: Some(10),
+                cache_tokens: cached,
+                cost: &cost,
+                outcome,
+                http_status: Some(200),
+                latency_ms: 5,
+                error: None,
+                cache_write_tokens: Some(0),
+                session_key: session,
+                route_mode: Some("native"),
+                route_reason: None,
+                repeated_tokens: None,
+                facts: Some(&facts),
+            },
+        )
+        .unwrap();
+        conn.query_row("SELECT cache_miss FROM usage_events ORDER BY created_at DESC, rowid DESC LIMIT 1", [], |r| {
+            r.get::<_, Option<String>>(0)
+        })
+        .unwrap()
+    };
+    let (main, backup) = (ids[0].as_str(), ids[1].as_str());
+    let s = Some("s-1");
+    let miss = |m: Option<String>| m.unwrap_or_else(|| "hit".into());
+
+    assert_eq!(miss(record(main, 5000, None, s, "none", "ok")), "not_reported");
+    assert_eq!(miss(record(main, 500, Some(0), None, "none", "ok")), "below_minimum");
+    assert_eq!(miss(record(main, 5000, Some(0), None, "dropped", "ok")), "marker_dropped");
+    assert_eq!(miss(record(main, 5000, Some(0), Some("s-2"), "none", "ok")), "first_request");
+    // Main has never read anything from its cache yet.
+    assert_eq!(miss(record(main, 5000, Some(0), s, "none", "ok")), "not_cached_here");
+    assert_eq!(miss(record(main, 5000, Some(4000), s, "none", "ok")), "hit");
+    // Moments after a hit on the same model: the prompt's beginning must have changed.
+    assert_eq!(miss(record(main, 5000, Some(0), s, "none", "ok")), "prefix_changed");
+    assert_eq!(miss(record(main, 5000, Some(0), None, "none", "ok")), "no_session");
+    assert_eq!(record(main, 5000, Some(0), s, "none", "fallback"), None, "a failed attempt has no cause");
+
+    // Ten quiet minutes later.
+    conn.execute("UPDATE usage_events SET created_at = created_at - 600000", []).unwrap();
+    assert_eq!(miss(record(main, 5000, Some(0), s, "none", "ok")), "cache_expired");
+    assert_eq!(miss(record(backup, 5000, Some(0), s, "none", "ok")), "model_switched");
+
+    let mix = store::token_mix(&conn, 0).unwrap();
+    let prefix = mix.misses.iter().find(|g| g.cause == "prefix_changed").unwrap();
+    assert_eq!((prefix.requests, prefix.input_tokens), (1, 5000));
+    assert_eq!(mix.misses.iter().map(|g| g.requests).sum::<u64>(), 9, "every miss but the hit and the failure");
+}
+
 /// Also found by the benchmark: a subscription request that failed or was cut short was recorded as money of
 /// unknown amount, so a money limit treated it as possible spend.
 #[test]

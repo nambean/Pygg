@@ -1,6 +1,6 @@
 # Store schema
 
-> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v33
+> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v34
 
 The local SQLite store (`db.rs`): every table after all migrations, in order. Credentials are never here: a
 connection holds only a reference to its key in the OS credential store (ADR-002). Client tokens are stored as
@@ -451,10 +451,11 @@ Indexes: `tool_signatures_by_age`.
 | `route_kind` | TEXT | yes |  |  | 0030_request_facts |
 | `cache_hint` | TEXT | yes |  |  | 0030_request_facts |
 | `key_id` | TEXT | yes |  |  | 0031_key_rings |
+| `cache_miss` | TEXT | yes |  |  | 0034_cache_miss |
 
 References: `attempt_id` → `attempts.id`.
 
-Indexes: `usage_by_attempt`, `usage_by_client`, `usage_by_time`, `usage_events_by_key`, `usage_events_by_request`.
+Indexes: `usage_by_attempt`, `usage_by_client`, `usage_by_session`, `usage_by_time`, `usage_events_by_key`, `usage_events_by_request`.
 
 3 CHECK constraints (see the migrations).
 

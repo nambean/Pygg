@@ -1677,7 +1677,8 @@ pub fn record_success(
         requested_model: &forwarded.requested,
         input_tokens: usage.map(|u| u.prompt),
         output_tokens: usage.map(|u| u.completion),
-        cache_tokens: usage.map(|u| u.cached),
+        // Empty when the provider did not say: "none read" and "not reported" are not the same (ROADMAP item 4).
+        cache_tokens: usage.and_then(|u| (u.cache_reported || u.cached > 0 || u.cache_write > 0).then_some(u.cached)),
         cost: &cost,
         outcome,
         http_status: Some(forwarded.response.status().as_u16()),

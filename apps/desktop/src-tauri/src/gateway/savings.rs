@@ -303,6 +303,7 @@ pub fn savings(conn: &Connection, since: i64, bucket_ms: i64, offset_ms: i64) ->
             completion: output.max(0) as u64,
             cached: cached.unwrap_or(0).max(0) as u64,
             cache_write: written.unwrap_or(0).max(0) as u64,
+            cache_reported: cached.is_some(),
             provider_cost_usd: None,
         };
         let routed = cost.unwrap_or(0).max(0) as u64;

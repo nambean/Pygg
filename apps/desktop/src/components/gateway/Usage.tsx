@@ -11,7 +11,7 @@ import { UsageAlerts } from './UsageAlerts';
 import { RepeatedOutput } from './RepeatedOutput';
 import { CostOverTime } from './CostOverTime';
 import { Savings, SavingsDetails, useSavings } from './Savings';
-import { TokenMix } from './TokenMix';
+import { TokenMix, cacheMissLabel, cacheMissText } from './TokenMix';
 import { Routing } from './Routing';
 
 type Range = '1' | '7' | '30';
@@ -446,6 +446,7 @@ function LedgerRow({event: e, open, onToggle, chain}: {event: UsageEvent; open: 
         {e.routeReason && <><dt>{t('Why this model')}</dt><dd>{e.routeReason}</dd></>}
         {e.billing && <><dt>{t('Billing when sent')}</dt><dd>{e.billing}</dd></>}
         {e.cacheHint && <><dt>{t('Prompt-cache hints')}</dt><dd>{cacheHintText(e.cacheHint)}</dd></>}
+        {e.cacheMiss && <><dt>{t('Cache missed')}</dt><dd>{cacheMissLabel(e.cacheMiss)}: {cacheMissText(e.cacheMiss)}</dd></>}
         {chain.length > 1 && <><dt>{t('Attempts of this request')}</dt><dd>
           <ol className="attempt-chain">{chain.map(a => <li key={a.id} className={a.id === e.id ? 'current' : ''}>
             <span className="mono">{a.provider}/{a.model}</span> <OutcomeBadge outcome={a.outcome} status={a.httpStatus}/></li>)}</ol></dd></>}
