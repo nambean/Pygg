@@ -9,6 +9,7 @@ import type { AgentInfo, Integration, Launcher, ClientDefaults, ConnectionCheck,
   LocalUsage, SubscriptionUsage, Retention } from './api';
 import { TIERS, WEB_WARNING_VERSION, type ConnectionKey, type KeyStrategy } from './api';
 import { SAMPLE_WORKSPACES, sampleTasks } from './sample';
+import { demoSkills } from './demoSkills';
 import type { AttemptView, NewTask, TaskDetail, TaskSummary, WorkspaceView } from './tasks';
 
 type BasePreset = Omit<Preset, 'offer' | 'offerNote' | 'freeModels'>;
@@ -1087,6 +1088,7 @@ export function demoApi(): GatewayApi {
       return touch([...near, ...(unknown ? [{kind: 'unknown_costs' as const, client: null, value: unknown, against: 0}] : [])]);
     },
     exportUsage: async () => { await sleep(200); return 'C:\\Users\\you\\Downloads\\pygg-usage.csv'; },
+    ...demoSkills(),
     retention: () => touch(retention),
     // The preview deletes nothing: it only counts what the setting would remove, as retention.rs decides it.
     retentionPreview: async days => touch(events.filter(e => e.createdAt < Math.min(Date.now() - days * 86_400_000, monthStart())).length),
@@ -1333,7 +1335,7 @@ model = "auto"
  *  state can be reviewed (scripts/ui-overflow-check.mjs opens them so). Reads still answer, so the screens fill. */
 export function withFailures(api: GatewayApi): GatewayApi {
   if (!new URLSearchParams(location.search).has('fail')) return api;
-  const change = /^(gateway(Start|Stop|Configure)|add|signIn|update|set|move|remove|enable|save|delete|create|revoke|launcher(SetUp|Remove)|apply|refreshModels|resume|clear)/;
+  const change = /^(gateway(Start|Stop|Configure)|add|signIn|update|set|move|remove|enable|save|delete|create|revoke|launcher(SetUp|Remove)|apply|refreshModels|resume|clear|install|uninstall|import)/;
   const failure = 'The preview was asked to fail: the provider refused the change with HTTP 503 Service Unavailable '
     + '(upstream_connect_error_or_disconnect_or_reset_before_headers, reset reason: connection termination). Try again later.';
   return new Proxy(api, {

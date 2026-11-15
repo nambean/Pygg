@@ -1089,6 +1089,57 @@ pub fn retention_set(state: State<'_, AppState>, days: Option<u32>) -> Res<crate
     })
 }
 
+/// Skills & Prompts (ADR-039): the library, with where each skill is installed.
+#[tauri::command]
+pub fn skills_list(state: State<'_, AppState>) -> Res<Vec<crate::skills::Skill>> {
+    let homes = crate::skills::Homes::from_env();
+    state.shared.with_db(|db| crate::skills::library(db, &homes))
+}
+
+/// Saves one of the user's skills, new or edited.
+#[tauri::command]
+pub fn skills_save(state: State<'_, AppState>, skill: crate::skills::SkillEdit) -> Res<crate::skills::Skill> {
+    let homes = crate::skills::Homes::from_env();
+    state.shared.with_db(|db| crate::skills::save(db, &homes, &skill))
+}
+
+/// Deletes one of the user's skills once no installed copy is left.
+#[tauri::command]
+pub fn skills_delete(state: State<'_, AppState>, id: String) -> Res<()> {
+    let homes = crate::skills::Homes::from_env();
+    state.shared.with_db(|db| crate::skills::delete(db, &homes, &id))
+}
+
+/// Writes a skill into an agent's skills folder (`claude-code` or `agents`).
+#[tauri::command]
+pub fn skills_install(state: State<'_, AppState>, id: String, target: String) -> Res<crate::skills::Skill> {
+    let homes = crate::skills::Homes::from_env();
+    let target = crate::skills::Target::parse(&target)?;
+    state.shared.with_db(|db| crate::skills::install(db, &homes, &id, target))
+}
+
+/// Removes Pygg's unchanged copy of a skill from an agent's skills folder.
+#[tauri::command]
+pub fn skills_uninstall(state: State<'_, AppState>, id: String, target: String) -> Res<crate::skills::Skill> {
+    let homes = crate::skills::Homes::from_env();
+    let target = crate::skills::Target::parse(&target)?;
+    state.shared.with_db(|db| crate::skills::uninstall(db, &homes, &id, target))
+}
+
+/// What each agent sends with every request from its global instruction files, skills and commands.
+#[tauri::command]
+pub fn skills_context(state: State<'_, AppState>) -> Res<Vec<crate::skills::AgentContext>> {
+    let homes = crate::skills::Homes::from_env();
+    state.shared.with_db(|db| crate::skills::context(db, &homes))
+}
+
+/// Copies a skill found in an agent's folder into the library.
+#[tauri::command]
+pub fn skills_import(state: State<'_, AppState>, path: String) -> Res<crate::skills::Skill> {
+    let homes = crate::skills::Homes::from_env();
+    state.shared.with_db(|db| crate::skills::import(db, &homes, &path))
+}
+
 /// How many ledger rows keeping `days` days would delete now, for the confirmation; nothing is deleted.
 #[tauri::command]
 pub fn retention_preview(state: State<'_, AppState>, days: u32) -> Res<u64> {

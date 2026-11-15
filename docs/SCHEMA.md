@@ -1,6 +1,6 @@
 # Store schema
 
-> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v31
+> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v32
 
 The local SQLite store (`db.rs`): every table after all migrations, in order. Credentials are never here: a
 connection holds only a reference to its key in the OS credential store (ADR-002). Client tokens are stored as
@@ -354,6 +354,17 @@ Indexes: `sessions_by_last_use`.
 | --- | --- | --- | --- | --- | --- |
 | `key` | TEXT | yes |  | primary | 0001_init |
 | `value` | TEXT | no |  |  | 0001_init |
+
+## `skills`
+
+| Column | Type | Null | Default | Key | Added in |
+| --- | --- | --- | --- | --- | --- |
+| `id` | TEXT | yes |  | primary | 0032_skills |
+| `description` | TEXT | no |  |  | 0032_skills |
+| `body` | TEXT | no |  |  | 0032_skills |
+| `manual` | INTEGER | no | `1` |  | 0032_skills |
+| `created_at` | INTEGER | no |  |  | 0032_skills |
+| `updated_at` | INTEGER | no |  |  | 0032_skills |
 
 ## `task_stages`
 

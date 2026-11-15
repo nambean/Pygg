@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Status:** Authoritative · delivery order and release gates · reviewed 2026-11-14
+> **Status:** Authoritative · delivery order and release gates · reviewed 2026-11-15
 
 What comes next, in order, and what must be true before a public release. What is already built, and how it was verified, is in [Implementation Status](IMPLEMENTATION-STATUS.md). Why, in [DECISIONS](DECISIONS.md). Nothing here is a claim that code exists.
 
@@ -19,7 +19,13 @@ What comes next, in order, and what must be true before a public release. What i
    - Estimated savings and the token mix read against a real ledger.
 2. **The native window, clicked through.** Every screen in the installed app, not only the browser preview. The D12 checks (ADR-012): scaling, snap layouts above 100%, Narrator and NVDA, contrast themes.
 3. **Install on a clean Windows machine.** NSIS install, first run, gateway, a coding tool set up, uninstall leaving nothing behind.
-4. **Token and cost work, in the order ADR-036 sets.** The token mix, launch sessions and routing diagnostics exist; next is a shadow observation of new tool output, then cache-aware route scoring (stay on a model when switching would cost more). Anything that changes a request is opt-in, reversible and checked for cache parity first. Never rewrite an external agent's history.
+4. **Token and cost work, in the order ADR-036 sets.** The token mix, launch sessions, routing diagnostics and the always-on context of each agent's global files (Skills & Prompts, ADR-039) exist. Next, each proved on the fake provider before one short live check:
+   - **Cache-miss causes and the way home.** Today a session stays on whichever target last answered, so one passing 429 can keep it on the fallback for two hours, away from its warm cache. Record why each request missed the cache (prefix changed, model switched, cache expired, below the minimum, not reported), and send a session back to its first target once that target's cache is still warm or both caches are cold. Never inside an attempt or a stream.
+   - **The cache marker for Anthropic models through OpenRouter**, which documents the same top-level `cache_control`.
+   - **The launch session passed on** to providers that route by one (OpenRouter's `x-session-id`, OpenAI's `prompt_cache_key`), so repeated requests reach the machine holding their cache. A random launch id, never prompt content.
+   - **A meter for each session's tool definitions and system prompt**: their size on the first request and how often they are written to the cache again. Numbers only.
+   - **Clearing old tool results** (Anthropic's context editing) in shadow first, for OpenAI-format clients only and never for Claude Code's native requests; opt-in only if the shadow shows a net saving after the cache writes it causes.
+   Anything that changes a request is opt-in, reversible and checked for cache parity first. Never rewrite an external agent's history, inject instructions or split tasks into sub-agents to save tokens.
 5. **Codex's model catalog** for the models Pygg lists, so Codex gets `apply_patch` and real context sizes without a hand-written catalog.
 6. **Other platforms.** The macOS npm packages published once CI builds them (ADR-037); the desktop app on macOS and Linux (ADR-001).
 7. **Housekeeping.** Demo data that replays recorded snapshots instead of copying the core's rules.
@@ -53,7 +59,8 @@ Unordered. Each moves up only when data or a user request justifies it.
 - Client verification beyond Claude Code, Codex and OpenCode (Aider, Cursor).
 - A signed updater.
 - More `auto` aliases (`auto/fast`, `auto/coding`, `auto/local`, `auto/quality`): not planned until the benchmark shows `auto` and `auto/cheap` are not enough.
-- Semantic caching, advanced compaction, a Skills and Prompts hub: only if a test beats a simpler baseline.
+- Semantic caching and advanced compaction: only if a test beats a simpler baseline.
+- Skills from a catalog or GitHub, each pinned to a reviewed commit with its files checked and scripts held back (ADR-039).
 
 Withdrawn: Auto Chat and app-owned memory (ADR-028); bridging subscription sign-ins or another product's OAuth (ADR-026).
 

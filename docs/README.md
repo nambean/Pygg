@@ -33,7 +33,7 @@ When documents disagree: **IMPLEMENTATION-STATUS** says what is built and how it
 | --- | --- |
 | [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) | **Authoritative.** Every built part and how it is verified; what is not verified yet |
 | [ROADMAP.md](ROADMAP.md) | **Authoritative.** What comes next, in order, and the release gates |
-| [DECISIONS.md](DECISIONS.md) | Architecture decision records, ADR-001 to ADR-038 |
+| [DECISIONS.md](DECISIONS.md) | Architecture decision records, ADR-001 to ADR-039 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the parts fit: a gateway request, a web session, the store, the CLI, where to change what |
 | [SCHEMA.md](SCHEMA.md) | The store's tables, generated from the migrations (`scripts/schema-reference.py`); edit the migrations, not this file |
 | [AGENTS.md](AGENTS.md) | Coding tools through Pygg, agent CLIs with their own sign-in, the MCP server and the task engine (on hold) |

@@ -31,6 +31,7 @@ pub mod redact;
 pub mod retention;
 #[cfg(feature = "app")]
 pub mod shell;
+pub mod skills;
 #[cfg(feature = "app")]
 pub mod snap;
 #[cfg(feature = "app")]
@@ -336,6 +337,13 @@ pub fn run() {
             commands::usage_subscriptions,
             commands::usage_local,
             commands::retention_get,
+            commands::skills_list,
+            commands::skills_save,
+            commands::skills_delete,
+            commands::skills_install,
+            commands::skills_uninstall,
+            commands::skills_context,
+            commands::skills_import,
             commands::retention_set,
             commands::retention_preview,
             commands::connection_check_account,

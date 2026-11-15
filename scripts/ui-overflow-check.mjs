@@ -2,8 +2,9 @@
 // Opens the browser preview with `?stress` data in headless Edge or Chrome at the app's minimum size (1024 × 640), its
 // default (1440 × 900) and a wide window (1990 × 1030), on every screen and in the states that broke or could break:
 // models tested on a connection of 40 long-named models, a row's menu, every sheet (Connect, Create API Key, Limits,
-// Edit Price, the combo editor), combos tested, a failed request expanded, keys shown; every screen and the Connect and
-// Create API Key sheets on a first run (`?empty`); and sheets whose change failed with a long error (`?fail`). It fails when:
+// Edit Price, the combo editor, a skill), combos tested, a failed request expanded, keys shown, every agent's context
+// files listed; every screen and the Connect and Create API Key sheets on a first run (`?empty`); and sheets and installs
+// whose change failed with a long error (`?fail`). It fails when:
 //   - a table or block whose content is wider than its container, unless that container scrolls sideways on purpose;
 //   - anything that reaches past the right edge of the window;
 //   - a text cell squeezed to one word per line (a cell under 48 px wide holding more than one line of text).
@@ -18,7 +19,7 @@ import { join } from 'node:path';
 
 const args = process.argv.slice(2);
 const base = args.includes('--url') ? args[args.indexOf('--url') + 1] : 'http://localhost:1431';
-const screens = ['overview', 'connections', 'endpoint', 'tools', 'combos', 'usage', 'policies', 'agents', 'guide', 'settings'];
+const screens = ['overview', 'connections', 'endpoint', 'tools', 'combos', 'usage', 'policies', 'skills', 'agents', 'guide', 'settings'];
 // The app's minimum window is 1024 × 640. Windows' Text size setting (Accessibility) zooms web content, so at 125 % and
 // 150 % that window lays out like 819 × 512 and 683 × 427 CSS pixels; those two are checked too.
 const sizes = args.includes('--sizes')
@@ -42,9 +43,14 @@ const states = [
   {screen: 'combos', name: 'combo editor', steps: `click('Edit…', -1); await wait(600);`, expect: '[role=dialog]'},
   {screen: 'endpoint', name: 'Create API Key sheet', steps: `click('Create API Key'); await wait(600);`, expect: '[role=dialog]'},
   {screen: 'endpoint', name: 'Limits sheet', steps: `click('Limits', -1); await wait(600);`, expect: '[role=dialog]'},
+  {screen: 'skills', name: 'every agent’s files listed', steps: `document.querySelectorAll('.context-details').forEach(d => d.open = true); await wait(200);`,
+    expect: '.context-details[open] .context-item'},
+  {screen: 'skills', name: 'a skill row menu', steps: `click('Actions for', 0); await wait(300);`, expect: '[role=menu]'},
+  {screen: 'skills', name: 'a starter skill viewed', steps: `click('Actions for', 0); await wait(300); click('View…'); await wait(500);`, expect: '[role=dialog]'},
+  {screen: 'skills', name: 'New Skill sheet', steps: `click('New Skill'); await wait(500);`, expect: '#skill-body'},
   {screen: 'endpoint', name: 'keys shown', steps: `for (let i = 0; i < 4; i++) click('Show the key', i); await wait(800);`, expect: '.token-full'},
   // First run: nothing connected, no keys, no requests.
-  ...['overview', 'connections', 'endpoint', 'tools', 'combos', 'usage'].map(screen => ({screen, query: 'empty', name: 'first run', steps: ''})),
+  ...['overview', 'connections', 'endpoint', 'tools', 'combos', 'usage', 'skills'].map(screen => ({screen, query: 'empty', name: 'first run', steps: ''})),
   {screen: 'connections', query: 'empty', name: 'first run, Connect sheet', steps: `click('Connect Provider'); await wait(800);`, expect: '[role=dialog]'},
   {screen: 'endpoint', query: 'empty', name: 'first run, Create API Key sheet', steps: `click('Create API Key'); await wait(600);`, expect: '[role=dialog]'},
   // A change that failed: each sheet shows the error under its form.
@@ -59,6 +65,10 @@ const states = [
     click('Add Key from Another Account'); await wait(500); fill('#ring-key-label', 'Second account'); fill('#ring-key', 'sk-or-v1-preview');
     document.querySelector('[role=dialog] input[type=checkbox]')?.click(); await wait(100); click('Add Key', -1); await wait(700);`,
     expect: '[role=dialog] .error-note'},
+  {screen: 'skills', query: 'stress&fail', name: 'Save Skill failed', steps: `click('New Skill'); await wait(500);
+    fill('#skill-name', 'database-migration-reviewer-for-the-billing-service'); fill('#skill-description', 'Reviews migrations');
+    fill('#skill-body', 'Review it.'); await wait(100); click('Save', -1); await wait(700);`, expect: '[role=dialog] .error-note'},
+  {screen: 'skills', query: 'stress&fail', name: 'Install failed', steps: `click('Install for All', 0); await wait(700);`, expect: '.page > .group .error-note'},
   {screen: 'combos', query: 'stress&fail', name: 'Save Combo failed', steps: `click('Edit…', -1); await wait(600);
     click('Save Combo', -1); await wait(700);`, expect: '[role=dialog] .error-note'},
   {screen: 'usage', name: 'a failed request expanded', steps: `click('Requests'); await wait(800);
@@ -218,10 +228,11 @@ try {
         (b.getAttribute('aria-label') ?? '').startsWith(text) || (b.textContent ?? '').trim().startsWith(text));
       const b = all.at(n); if (b) b.click(); return !!b;
     };
-    // Types into a React input: the native setter, then an input event React listens for.
+    // Types into a React input or text area: the native setter, then an input event React listens for.
     const fill = (selector, value) => {
       const el = document.querySelector(selector); if (!el) return false;
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, value);
+      const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
       el.dispatchEvent(new Event('input', {bubbles: true})); return true;
     };`;
   const runs = [...screens.map(screen => ({screen, name: 'as it opens', steps: ''})), ...states];

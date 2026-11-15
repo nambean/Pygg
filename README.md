@@ -157,6 +157,7 @@ Coding agents ──HTTP──► Gateway 127.0.0.1:8741 (axum) ──► OpenAI
 
 - **One Rust crate** (Tauri 2): the gateway (axum), the SQLite store, the OS credential store, web-session windows, and the headless programs (`pygg-cli`, `gateway`, `pygg-mcp`) built from the same library.
 - **Interface:** React 19, Vite and TypeScript, with a layout check over every screen in CI (`pnpm ui-check`).
+- **Skills & Prompts:** one library of skills in the Agent Skills format, installed into Claude Code's, Codex's and OpenCode's own skills folders, and a count of what each agent sends with every request from its global files (ADR-039).
 - **[`@pygg/cli` on npm](https://www.npmjs.com/package/@pygg/cli):** a Node launcher with one optional package per platform (ADR-037).
 - **Smart tasks** (experimental, on hold): IDE agents hand subtasks to Pygg over MCP; agent CLIs run them in Git worktrees against approved checks ([AGENTS.md](docs/AGENTS.md)).
 
@@ -165,7 +166,7 @@ Coding agents ──HTTP──► Gateway 127.0.0.1:8741 (axum) ──► OpenAI
 | | |
 | --- | --- |
 | **Use** | [Getting started](docs/GETTING-STARTED.md) · [Providers](docs/PROVIDERS.md) · [Benchmarks](docs/BENCHMARKS.md) · [Security](docs/SECURITY.md) |
-| **Understand** | [Architecture](docs/ARCHITECTURE.md) · [Decisions (ADR-001 to ADR-038)](docs/DECISIONS.md) · [Schema](docs/SCHEMA.md) · [Screens](docs/design/SCREENS.md) · [Command line](docs/design/CLI.md) |
+| **Understand** | [Architecture](docs/ARCHITECTURE.md) · [Decisions (ADR-001 to ADR-039)](docs/DECISIONS.md) · [Schema](docs/SCHEMA.md) · [Screens](docs/design/SCREENS.md) · [Command line](docs/design/CLI.md) |
 | **Track** | [Implementation status](docs/IMPLEMENTATION-STATUS.md) · [Roadmap](docs/ROADMAP.md) · [Benchmark reports](benchmark/reports) |
 | **Contribute** | [Contributing](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [Every document, indexed](docs/README.md) |
 

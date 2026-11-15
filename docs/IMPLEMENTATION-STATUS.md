@@ -1,6 +1,6 @@
 # Implementation status
 
-> **Status:** Authoritative · what is built and how it was verified · reviewed 2026-11-14
+> **Status:** Authoritative · what is built and how it was verified · reviewed 2026-11-15
 
 What exists in code, and how each part was verified. What comes next is in the [ROADMAP](ROADMAP.md); why, in [DECISIONS](DECISIONS.md). Code paths are under `apps/desktop/src-tauri/src` unless they say otherwise.
 
@@ -96,6 +96,14 @@ None of the five is release-ready: the release gates are in the ROADMAP.
 | Test Model (`model_test.rs`) | One short request to a model or a combo through the real route, recorded under its own client. Paid or unpriced models ask first. Also `pygg gateway test-model`. | Unit test; live on claude-haiku-5-5 and a missing model (404). Combo test: no live run |
 | Model reliability | Share answered and median time over 30 days, from the ledger. | Unit test; browser preview |
 
+## Skills & Prompts (`skills.rs`, ADR-039)
+
+| Part | What it does | Verified by |
+| --- | --- | --- |
+| Library | Pygg's eight starter skills (all prompts: run only by `/name`) and the user's own (`skills`, schema v32). Name, description and instructions in the Agent Skills format; starters are duplicated, never edited. | Unit tests (names, limits, starters valid, save and delete rules); browser preview |
+| Install and remove | One `SKILL.md` per install in `~/.claude/skills` (Claude Code; OpenCode reads it too) or `~/.agents/skills` (Codex and OpenCode), with `metadata.pygg-hash`. A folder Pygg did not write, or a copy edited since, is left alone; an older copy of Pygg's is updated. Remove deletes only Pygg's unchanged copy. | Unit tests on a scratch home (install, update, hand edit refused, other skill refused, removal); `pnpm ui-check` with installs, failures and a long library. Not yet installed into real agents and used from them |
+| Sent With Every Request | Per agent, the global `CLAUDE.md` or `AGENTS.md` counted whole and each listed skill or command by name and description, as the gateway estimates tokens. A skill found there can be added to the library. | Unit test over scratch agent folders; browser preview. Estimates not yet compared with a provider's token count |
+
 ## CLI, npm and coding-tool set-up
 
 | Part | What it does | Verified by |
@@ -110,7 +118,7 @@ None of the five is release-ready: the release gates are in the ROADMAP.
 
 | Part | What it does | Verified by |
 | --- | --- | --- |
-| Screens | Gateway: Home, Providers, Endpoint (base URLs, API keys), CLI Tools, Combos, Usage, Policies. App: Guide, Settings. Smart Tasks (on hold): Tasks, Workspaces, Agents. Command palette (`Ctrl+K`) and shortcuts. | Browser preview; `pnpm ui-check` on every screen at five sizes; screenshots of the native window. No automated interface tests |
+| Screens | Gateway: Home, Providers, Endpoint (base URLs, API keys), CLI Tools, Combos, Usage, Policies, Skills & Prompts. App: Guide, Settings. Smart Tasks (on hold): Tasks, Workspaces, Agents. Command palette (`Ctrl+K`) and shortcuts. | Browser preview; `pnpm ui-check` on every screen at five sizes; screenshots of the native window. No automated interface tests |
 | Start-up and tray (`shell.rs`) | Opens the store, starts the gateway unless autostart is off. Tray icon; closing keeps the gateway running in the tray (a switch); open at sign-in through the user's Run key. Notifications name no task, file, client or amount (ADR-010). | Native app on a scratch store: close to tray with the gateway answering, second launch restores the window, notifications seen |
 | Diagnostics (`diagnostics.rs`) | Settings → Save Diagnostics or `pygg diagnostics --out`: one redacted zip from an allowlist of fields ([SECURITY](SECURITY.md)). | Unit tests |
 | Look and name | DownFetch's tokens with a green accent, light and dark. Pygg's name and icons from `branding/`. Traffic-light window controls (ADR-012); snap layouts on hover through a native overlay (`snap.rs`). | Browser preview in both themes; debug build: window title, icon, `/health`. Snap layouts: debug build at 100% scaling only |

@@ -1,6 +1,6 @@
 # Decisions
 
-> **Status:** Current · architecture decision records (ADR-001 to ADR-038) · reviewed 2026-11-14
+> **Status:** Current · architecture decision records (ADR-001 to ADR-039) · reviewed 2026-11-15
 
 Each record says what Pygg decided, why, and what it costs. Numbers never change, because code and other documents cite them; a record that was superseded or withdrawn keeps one line that points to what replaced it. Delivery order is in [ROADMAP](ROADMAP.md), what is built in [Implementation Status](IMPLEMENTATION-STATUS.md), and the screens in [design/SCREENS.md](design/SCREENS.md).
 
@@ -361,6 +361,21 @@ This replaces the parts of [design/SCREENS.md](design/SCREENS.md) that assume ta
 **Why:** Ten accounts in a pool mean ten copies of one model list, and clients must name the pool. A ring keeps one connection and lets the next account answer in the same request.
 
 **Cost:** The rule against rotating one account's keys depends on the user's confirmation; Pygg cannot check it.
+
+## ADR-039 — Skills & Prompts: one library, installed into each agent's own skills folder
+
+**Decision:** Pygg keeps a library of skills in the open Agent Skills format (a folder holding `SKILL.md`: front matter with `name` and `description`, then the instructions) and installs them where the agents already look. It is a library and an installer, not a hub that downloads.
+- **Targets:** Claude Code's `~/.claude/skills` (or `$CLAUDE_CONFIG_DIR/skills`), and the shared `~/.agents/skills` that Codex and OpenCode read. OpenCode also reads Claude Code's folder.
+- **A prompt is a skill run only by name.** It carries `disable-model-invocation: true`, so Claude Code and OpenCode leave it out of the list they send with every request. Codex documents no such field and may still list it. Pygg's eight starter skills (written for Pygg, MIT) are all prompts, so installing them adds nothing to a request until one is used.
+- **What Pygg writes:** one `SKILL.md` per install, with `metadata.pygg-hash`, a hash of the rest of the file. Pygg never overwrites a folder it did not write and never removes or rewrites a copy edited since; it says so instead. Line endings are not an edit.
+- **The user's own skills** are rows of `skills` (schema v32), so a store backup holds them. A skill found in an agent's folder can be copied into the library and then installed for the other agents. Starters cannot be changed or deleted; they are duplicated.
+- **Sent With Every Request:** for each agent, its global instruction file (`CLAUDE.md`, `AGENTS.md`) counted whole, and each listed skill or command by its name and description, estimated as the gateway estimates tokens. A project's own files are not read.
+
+**Not done:** downloading skills from GitHub or a catalog (each would need a pinned commit, a review of every file and a quarantine for scripts; the earlier plan's supply-chain gate), skills with scripts or extra files, project-level installs, and Codex's `~/.codex/prompts` as a target.
+
+**Why:** The three agents now share one format and two folders, and each keeps only a skill's name and description in context until the skill is used. A library written once and installed into those folders saves retyping without a format of Pygg's own. The always-on context is the part of every request a user can shrink themselves, and only the files on their machine say how large it is.
+
+**Cost:** Pygg follows the agents' folder conventions; when an agent moves its folder, the target changes with it.
 
 ## Open decisions
 

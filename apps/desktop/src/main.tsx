@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BookOpen, Bot, ChartColumn, FolderGit2, House, Link2, ListOrdered, ListTodo, PanelLeft, Plug, Plus, Search, Settings as SettingsIcon,
+import { BookMarked, BookOpen, Bot, ChartColumn, FolderGit2, House, Link2, ListOrdered, ListTodo, PanelLeft, Plug, Plus, Search, Settings as SettingsIcon,
   SlidersHorizontal, TerminalSquare } from 'lucide-react';
 import './styles.css';
 import brandMark from './assets/brand-mark.svg';
@@ -31,6 +31,7 @@ import { Overview, type GatewayDestination } from './components/gateway/Overview
 import { Usage } from './components/gateway/Usage';
 import { Policies } from './components/gateway/Policies';
 import { Agents } from './components/gateway/Agents';
+import { Skills } from './components/gateway/Skills';
 
 type View =
   | {kind: GatewayDestination}
@@ -38,6 +39,7 @@ type View =
   | {kind: 'task'; id: string; from: TaskFilter}
   | {kind: 'new'}
   | {kind: 'policies'}
+  | {kind: 'skills'}
   | {kind: 'workspaces'}
   | {kind: 'agents'}
   | {kind: 'guide'}
@@ -73,7 +75,7 @@ function startView(): View {
   if (runningInDesktop) return {kind: 'overview'};
   const screen = new URLSearchParams(location.search).get('screen') ?? '';
   if (isGateway(screen as View['kind'])) return {kind: screen as GatewayDestination};
-  if (screen === 'guide' || screen === 'settings' || screen === 'agents' || screen === 'policies') return {kind: screen};
+  if (screen === 'guide' || screen === 'settings' || screen === 'agents' || screen === 'policies' || screen === 'skills') return {kind: screen};
   return {kind: 'overview'};
 }
 
@@ -138,6 +140,8 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
       {id: 'go-agents', group: nav, label: t('Agents'), hint: `${MOD}8`, run: () => setView({kind: 'agents'})},
       {id: 'go-workspaces', group: nav, label: t('Workspaces'), run: () => setView({kind: 'workspaces'})},
       {id: 'go-policies', group: nav, label: t('Policies'), run: () => setView({kind: 'policies'})},
+      {id: 'go-skills', group: nav, label: t('Skills & Prompts'), keywords: 'prompt hub library slash command claude.md agents.md context tokens',
+        run: () => setView({kind: 'skills'})},
       {id: 'go-settings', group: nav, label: t('Settings'), hint: `${MOD},`, run: () => setView({kind: 'settings'})},
       {id: 'go-guide', group: nav, label: t('Guide'), hint: `${MOD}/`, keywords: 'help how to commands cli npm docs',
         run: () => setView({kind: 'guide'})},
@@ -150,6 +154,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
       {id: 'auto', group: gateway, label: t('Simulate auto routing'), keywords: 'auto cheap route', run: () => go('combos')},
       {id: 'usage-export', group: gateway, label: t('Open Usage to export CSV'), keywords: 'ledger csv', run: () => go('usage')},
       {id: 'ide', group: gateway, label: t('Set up a coding tool'), keywords: 'claude code codex opencode cline continue cli', run: () => go('tools')},
+      {id: 'new-skill', group: gateway, label: t('New Skill…'), keywords: 'prompt slash command', run: () => { setView({kind: 'skills'}); setIntent('create'); }},
       {id: 'mcp', group: gateway, label: t('Let an IDE agent delegate tasks (MCP)'), keywords: 'mcp agent smart task', run: () => setView({kind: 'agents'})},
     );
     const tasks = t('Tasks');
@@ -176,6 +181,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
     : view.kind === 'task' ? openedTask?.title ?? t('Task')
     : view.kind === 'new' ? t('New Task')
     : view.kind === 'policies' ? t('Policies')
+    : view.kind === 'skills' ? t('Skills & Prompts')
     : view.kind === 'workspaces' ? t('Workspaces')
     : view.kind === 'agents' ? t('Agents')
     : view.kind === 'guide' ? t('Guide')
@@ -214,6 +220,8 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
             selected={view.kind === g.kind} onSelect={() => go(g.kind)}/>)}
           <SidebarItem icon={<SlidersHorizontal/>} label={t('Policies')}
             selected={view.kind === 'policies'} onSelect={() => setView({kind: 'policies'})}/>
+          <SidebarItem icon={<BookMarked/>} label={t('Skills & Prompts')}
+            selected={view.kind === 'skills'} onSelect={() => setView({kind: 'skills'})}/>
         </SidebarGroup>
         <SidebarGroup title={t('Smart Tasks · Experimental')}>
           <SidebarItem icon={<ListTodo/>} label={t('Tasks')} count={attention} emphasized shortcut={`${MOD}7`}
@@ -254,13 +262,16 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         {primary && <button type="button" className="button prominent" onClick={() => setIntent(primary.intent)}>
           <Plus size={14} strokeWidth={2.4} aria-hidden/>{t(primary.label)}
         </button>}
+        {view.kind === 'skills' && <button type="button" className="button prominent" onClick={() => setIntent('create')}>
+          <Plus size={14} strokeWidth={2.4} aria-hidden/>{t('New Skill…')}
+        </button>}
         {(view.kind === 'tasks' || view.kind === 'task') && <button type="button" className="button prominent" onClick={newTask}
           title={`${t('New Task')} (${MOD}N)`}>
           <Plus size={14} strokeWidth={2.4} aria-hidden/>{t('New Task')}
         </button>}
       </header>
 
-      {(isGateway(view.kind) || view.kind === 'agents' || view.kind === 'policies' || isTaskScreen) && !runningInDesktop && <p className="banner sample" role="status">
+      {(isGateway(view.kind) || view.kind === 'agents' || view.kind === 'policies' || view.kind === 'skills' || isTaskScreen) && !runningInDesktop && <p className="banner sample" role="status">
         {t('Browser preview with demo data. Nothing is stored or sent; the desktop app runs the real gateway.')}
       </p>}
 
@@ -276,6 +287,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         {view.kind === 'usage' && <Usage onOpenTools={() => go('tools')} onIntentDone={intentDone}
           intent={intent?.startsWith('requests:') || intent?.startsWith('failed:') ? intent : undefined}/>}
         {view.kind === 'agents' && <Agents/>}
+        {view.kind === 'skills' && <Skills intent={intent === 'create' ? 'create' : undefined} onIntentDone={intentDone}/>}
         {view.kind === 'guide' && <Guide go={go} base={status?.baseUrl ?? (status ? `http://127.0.0.1:${status.port}` : null)}/>}
         {view.kind === 'tasks' && <>
           <div className="page-bar task-filters">
