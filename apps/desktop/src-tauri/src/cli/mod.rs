@@ -432,7 +432,8 @@ pub async fn run(mut args: Vec<String>) -> i32 {
     };
     match command.as_str() {
         "-V" | "--version" | "version" => {
-            println!("pygg-cli {}", env!("CARGO_PKG_VERSION"));
+            // The npm package's version (build.rs), so `pygg --version` names what `npm install` gave you.
+            println!("pygg-cli {}", env!("PYGG_CLI_VERSION"));
             0
         }
         "status" if wants_help(&args) => help(STATUS_HELP),

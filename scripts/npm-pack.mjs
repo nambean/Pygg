@@ -11,7 +11,7 @@
 // DIR/stage/<platform>, so no binary is ever committed. Pack each platform on its own kind of computer (CI does): npm
 // keeps the program's execute bit only when the file system has one. The launcher's optional dependencies must name
 // every platform here at its own version, or nothing is packed.
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -76,6 +76,12 @@ function packPlatform(platform, exe) {
   const p = PLATFORMS[platform];
   if (!p) die(`no platform ${platform}; one of ${Object.keys(PLATFORMS).join(', ')}.`);
   if (!existsSync(exe)) die(`no program at ${exe}: build it first (cargo build --release --no-default-features --bin pygg-cli).`);
+  // The program reports the launcher's version (build.rs reads it from package.json); an older build would not. Checked
+  // where the program can run, so a cross-built one (the Intel Mac build on Apple silicon) is not.
+  if (platform === `${process.platform}-${process.arch}`) {
+    const reports = execFileSync(exe, ['--version'], { encoding: 'utf8' }).trim();
+    if (reports !== `pygg-cli ${launcher.version}`) die(`${exe} reports "${reports}", not pygg-cli ${launcher.version}: rebuild it.`);
+  }
   const stage = join(out, 'stage', platform);
   rmSync(stage, { recursive: true, force: true });
   mkdirSync(join(stage, 'bin'), { recursive: true });

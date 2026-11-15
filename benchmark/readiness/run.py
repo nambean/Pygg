@@ -743,9 +743,8 @@ def npm_checks(R, work, logdir):
     pygg = prefix / "node_modules" / ".bin" / ("pygg.cmd" if os.name == "nt" else "pygg")
     code3, o3, e3, _ = run(f'"{pygg}" --version', shell=True, timeout=60) if pygg.exists() else (1, "", "no pygg", 0)
     npm_version = json.loads((ROOT / "packages/npm/pygg/package.json").read_text())["version"]
-    crate = re.search(r'^version\s*=\s*"([^"]+)"', (TAURI / "Cargo.toml").read_text(), re.M).group(1)
-    # The launcher must run the native program it brought; the package's prerelease tag is not in the program's own.
-    ok = code2 == 0 and code3 == 0 and o3.strip() == f"pygg-cli {crate}" and npm_version.startswith(crate)
+    # The launcher must run the native program it brought, which reports the package's own version.
+    ok = code2 == 0 and code3 == 0 and o3.strip() == f"pygg-cli {npm_version}"
     R.add("npm_install_back", "Install", ok, {"pack_s": secs, "install_s": secs2, "packages": len(tgz),
                                                "npm_version": npm_version, "reports": o3.strip()[:30]},
           "" if ok else (e2 or e3 or o3)[-200:])

@@ -35,7 +35,7 @@ pygg usage                            requests, known and unknown cost, token mi
 Advanced
 pygg gateway <command> …              the gateway without the window (below)
 pygg diagnostics --out PATH           the redacted diagnostics bundle (a zip)   [--port N]
-pygg --version
+pygg --version                        the npm package's version, such as 0.1.0-dev.1
 
 Experimental task integration (on hold)
 pygg mcp setup [claude-code|codex|opencode]   register Pygg's MCP server in the tool   [--dry-run | --remove]
