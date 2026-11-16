@@ -35,7 +35,7 @@ pygg usage                            requests, known and unknown cost, token mi
 Advanced
 pygg gateway <command> …              the gateway without the window (below)
 pygg diagnostics --out PATH           the redacted diagnostics bundle (a zip)   [--port N]
-pygg --version                        the npm package's version, such as 0.1.0-dev.1
+pygg --version                        the npm package's version, such as 0.1.0-dev.2
 
 Experimental task integration (on hold)
 pygg mcp setup [claude-code|codex|opencode]   register Pygg's MCP server in the tool   [--dry-run | --remove]
@@ -103,10 +103,10 @@ Tables with aligned columns and no colour. A bare `pygg` answers in about a seco
 
 | Package | Platform | Published |
 | --- | --- | --- |
-| `@pygg/win32-x64` | Windows x64 | `0.1.0-dev.1`, tag `dev` |
-| `@pygg/linux-x64` | Linux x64, glibc | `0.1.0-dev.1`, tag `dev` |
-| `@pygg/darwin-arm64` | macOS, Apple silicon | not yet: waits for CI |
-| `@pygg/darwin-x64` | macOS, Intel | not yet: waits for CI |
+| `@pygg/win32-x64` | Windows x64 | `0.1.0-dev.2`, tag `dev` |
+| `@pygg/linux-x64` | Linux x64, glibc | `0.1.0-dev.2`, tag `dev` |
+| `@pygg/darwin-arm64` | macOS, Apple silicon | `0.1.0-dev.2`, tag `dev` |
+| `@pygg/darwin-x64` | macOS, Intel | `0.1.0-dev.2`, tag `dev` |
 
 ```text
 npm install -g @pygg/cli@dev
@@ -122,7 +122,7 @@ npx --yes --package=@pygg/cli@dev pygg doctor
 - It is a developer preview and unsigned: Windows SmartScreen, macOS Gatekeeper or an antivirus may warn.
 - Publishing: [packages/npm/PUBLISHING.md](../../packages/npm/PUBLISHING.md).
 
-Verified: unit tests in `cli/mod.rs`, `cli/read.rs`, `cli/setup.rs`, `cli/run.rs` and the launcher's `node --test`; `0.1.0-dev.1` installed back from the registry and run on Windows x64 and Linux x64 (Debian bookworm). Not yet run on a Mac.
+Verified: unit tests in `cli/mod.rs`, `cli/read.rs`, `cli/setup.rs`, `cli/run.rs` and the launcher's `node --test`; `0.1.0-dev.2` installed back from the registry and run on Windows x64 and Linux x64 (Debian bookworm); the macOS packages installed back from their tarballs and run by CI on macOS. Not yet installed from the registry on a real Mac.
 
 ## Not built yet
 

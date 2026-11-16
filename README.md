@@ -12,7 +12,7 @@
 <a href="https://www.npmjs.com/package/@pygg/cli"><img src="https://img.shields.io/npm/v/@pygg/cli/dev?label=npm%20%40pygg%2Fcli" alt="npm: @pygg/cli (dev)"></a>
 <img src="https://img.shields.io/badge/licence-MIT-green" alt="Licence: MIT">
 <img src="https://img.shields.io/badge/app-Windows%20x64-blue" alt="Desktop app: Windows x64">
-<img src="https://img.shields.io/badge/CLI-Windows%20%C2%B7%20Linux-blue" alt="CLI: Windows and Linux">
+<img src="https://img.shields.io/badge/CLI-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-blue" alt="CLI: Windows, macOS and Linux">
 <a href="https://github.com/nambean/Pygg/releases/tag/v0.1.0-dev.1"><img src="https://img.shields.io/github/v/release/nambean/Pygg?include_prereleases&label=release" alt="Release: v0.1.0-dev.1"></a>
 <img src="https://img.shields.io/badge/status-developer%20preview-orange" alt="Status: developer preview">
 </p>
@@ -27,7 +27,7 @@
 Pygg runs on your computer. Connect your providers once (API keys, coding plans, a local Ollama, even an AI website without an API), point Claude Code, Codex, OpenCode, an editor or an SDK at `127.0.0.1:8741`, and choose the model **`auto`**. Each request goes to an eligible model you connected, free and cheap ones first where they qualify, within the limits you set; when a provider says no, the next one answers. Every attempt lands in a ledger with what it cost and where that figure came from.
 
 > [!NOTE]
-> **Developer preview (2026-11-14).** The gateway and the Windows desktop app are built and verified live, from first launch to "my coding tool uses `auto`". The Windows installer is a [prerelease, `v0.1.0-dev.1`](https://github.com/nambean/Pygg/releases/tag/v0.1.0-dev.1), **not code-signed**, so Windows SmartScreen warns before it runs. The `pygg` command line is [on npm](https://www.npmjs.com/package/@pygg/cli) for Windows and Linux. Spending limits rest on prices and token estimates, and clean-machine installs and long-running behaviour still need validation, so Pygg is **not yet for unattended or financially critical use**. What is built and how each part was verified: [Implementation Status](docs/IMPLEMENTATION-STATUS.md).
+> **Developer preview (2026-11-14).** The gateway and the Windows desktop app are built and verified live, from first launch to "my coding tool uses `auto`". The Windows installer is a [prerelease, `v0.1.0-dev.1`](https://github.com/nambean/Pygg/releases/tag/v0.1.0-dev.1), **not code-signed**, so Windows SmartScreen warns before it runs. The `pygg` command line is [on npm](https://www.npmjs.com/package/@pygg/cli) for Windows, macOS and Linux. Spending limits rest on prices and token estimates, and clean-machine installs and long-running behaviour still need validation, so Pygg is **not yet for unattended or financially critical use**. What is built and how each part was verified: [Implementation Status](docs/IMPLEMENTATION-STATUS.md).
 
 ## Why Pygg
 
@@ -87,7 +87,7 @@ The installer is **not code-signed**, so SmartScreen says "Windows protected you
 npm install -g @pygg/cli@dev
 ```
 
-`0.1.0-dev.1` under the tag `dev`, for **Windows x64** and **Linux x64** (glibc). The macOS packages wait for CI and are not published yet. On Windows the CLI uses the desktop app's store and gateway; on Linux, `pygg gateway serve` runs the gateway in a terminal of its own.
+`0.1.0-dev.2` under the tag `dev`, for **Windows x64**, **macOS** (Apple silicon and Intel) and **Linux x64** (glibc). On Windows the CLI uses the desktop app's store and gateway; on macOS and Linux, where there is no app yet, `pygg gateway serve` runs the gateway in a terminal of its own.
 
 ## Quick start
 

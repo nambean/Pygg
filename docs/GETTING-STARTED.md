@@ -33,16 +33,16 @@ To uninstall, use Settings → Apps in Windows, or `uninstall.exe` in the same f
 
 Not verified yet: installing on a clean machine.
 
-### The command line only (Windows and Linux)
+### The command line only (Windows, macOS and Linux)
 
-The `pygg` command line is published on npm as a developer preview, version `0.1.0-dev.1`, for Windows x64 and Linux x64 (ADR-037). The macOS packages are not published yet; they wait for CI.
+The `pygg` command line is published on npm as a developer preview, version `0.1.0-dev.2`, for Windows x64, macOS (Apple silicon and Intel) and Linux x64, glibc (ADR-037).
 
 ```bash
 npm install -g @pygg/cli@dev
 pygg --version
 ```
 
-On Windows, the command line works with the desktop app, which runs the gateway. On Linux there is no app: connect a provider and run the gateway from the terminal. The key is read from an environment variable, never from the command line.
+On Windows, the command line works with the desktop app, which runs the gateway. On macOS and Linux there is no app yet: connect a provider and run the gateway from the terminal. The program is not signed, so macOS Gatekeeper may refuse it the first time; allow it in System Settings → Privacy & Security. The key is read from an environment variable, never from the command line.
 
 ```bash
 pygg gateway add-connection --preset openrouter --key-env OPENROUTER_API_KEY
@@ -50,7 +50,7 @@ pygg gateway create-client --name my-tool     # prints a Pygg API key once
 pygg gateway serve                            # in a terminal of its own
 ```
 
-Not verified yet: a provider answering through `pygg gateway serve` on Linux. The Linux package has been installed from npm and run (`pygg --version`).
+Not verified yet: a provider answering through `pygg gateway serve` on macOS or Linux, and installing from npm on a real Mac. The Linux package has been installed from npm and run (`pygg --version`); the macOS packages were installed back from their tarballs and run by CI.
 
 ## First run
 

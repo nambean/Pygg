@@ -72,7 +72,7 @@ function usage(t) {
   ];
   const outputs = [
     // [y, text, class, appear %]
-    [TY + 88, '# 0.1.0-dev.1 (tag dev): Windows and Linux', 'tm', 12],
+    [TY + 88, '# 0.1.0-dev.2 (tag dev): Windows, macOS, Linux', 'tm', 12],
     [TY + 144, 'Gateway   http://127.0.0.1:8741 answers', 'tok', 24],
     [TY + 200, '✓ Its own Pygg key; no file changes', 'tok', 40],
     [TY + 220, 'Next: pygg run claude', 'tm', 42],

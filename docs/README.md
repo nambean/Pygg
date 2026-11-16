@@ -50,7 +50,6 @@ When documents disagree: **IMPLEMENTATION-STATUS** says what is built and how it
 
 - A root `SECURITY.md` pointing at [SECURITY.md](SECURITY.md), for GitHub's Security tab.
 - `CHANGELOG.md` at the first tagged release.
-- A macOS install section once the macOS packages are published (ADR-037).
 
 ## Writing rules
 
