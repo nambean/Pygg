@@ -12,8 +12,8 @@
 // Usage: start the preview (pnpm dev, port 1431), then `node scripts/ui-overflow-check.mjs [--url http://localhost:1431]`.
 // Exit code 1 lists every finding; 0 when the layout holds; 2 when the check itself is broken. Needs Node 22+
 // (fetch and WebSocket built in, unflagged).
-import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -95,10 +95,44 @@ const browsers = [
 const binary = process.env.BROWSER ?? browsers.find(existsSync);
 if (!binary) { console.error('No Edge or Chrome found; set BROWSER to one.'); process.exit(2); }
 
+// A run stopped from outside (a timeout, a closed terminal) never reaches its `finally`, and its headless browser keeps
+// running; on Windows nothing can catch that. So each run first stops the browsers earlier runs left behind (a
+// `pygg-ui-check-` profile whose owning process is gone) and deletes their profiles (found 315 processes on 2026-11-16).
+function reapOrphans() {
+  let rows = [];
+  try {
+    if (process.platform === 'win32') {
+      const ps = `Get-CimInstance Win32_Process | ? { $_.CommandLine -match 'pygg-ui-check-' -and $_.CommandLine -match '--headless' -and $_.CommandLine -notmatch '--type=' } | % { "$($_.ProcessId) $($_.ParentProcessId) $($_.CommandLine)" }`;
+      rows = execFileSync('powershell', ['-NoProfile', '-Command', ps], {encoding: 'utf8'}).split(/\r?\n/);
+    } else {
+      rows = execFileSync('ps', ['-eo', 'pid=,ppid=,args='], {encoding: 'utf8'}).split('\n')
+        .filter(l => l.includes('pygg-ui-check-') && l.includes('--headless') && !l.includes('--type='));
+    }
+  } catch { return; }
+  const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const inUse = new Set();
+  for (const row of rows) {
+    const [pid, ppid] = row.trim().split(/\s+/).map(Number);
+    if (!pid) continue;
+    const name = row.match(/pygg-ui-check-[A-Za-z0-9]+/)?.[0];
+    if (ppid > 1 && alive(ppid)) { if (name) inUse.add(name); continue; } // another run's browser, still in use
+    try { process.kill(pid); } catch { /* already gone */ }
+  }
+  // Profiles of stopped browsers; not one a live run uses or is about to start a browser in.
+  for (const name of readdirSync(tmpdir()).filter(n => n.startsWith('pygg-ui-check-') && !inUse.has(n))) {
+    const dir = join(tmpdir(), name);
+    try { if (Date.now() - statSync(dir).mtimeMs > 120_000) rmSync(dir, {recursive: true, force: true}); } catch { /* held */ }
+  }
+}
+reapOrphans();
+
 const profile = mkdtempSync(join(tmpdir(), 'pygg-ui-check-'));
 const port = 9300 + Math.floor(Math.random() * 500);
 const browser = spawn(binary, ['--headless=new', '--disable-gpu', '--hide-scrollbars', `--remote-debugging-port=${port}`,
   `--user-data-dir=${profile}`, '--force-device-scale-factor=1', 'about:blank'], {stdio: 'ignore'});
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(signal, () => { browser.kill(); process.exit(130); });
+}
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function json(path, method = 'GET') {
