@@ -117,6 +117,7 @@ export function demoSkills(): SkillsApi {
     },
     skillsContext: async () => {
       const library = all().map(s => s.id);
+      // Codex honours Pygg's agents/openai.yaml, which every prompt Pygg installs in ~/.agents/skills carries.
       const skillItems = (target: SkillTarget, honoursManual: boolean): ContextItem[] => [...installed[target]].map(([name, v]) => {
         const s = all().find(s => s.id === name);
         const description = s?.description ?? v.text.split('|')[1] ?? '';
@@ -135,7 +136,7 @@ export function demoSkills(): SkillsApi {
         {kind: 'command' as const, name: 'standup', path: 'C:\\Users\\you\\.claude\\commands\\standup.md', tokens: 14, fullTokens: 160, manual: false, pygg: false, inLibrary: false}];
       if (stress) for (let i = 0; i < 14; i++) claude.push({kind: 'skill', name: `team-convention-${i + 1}-for-the-payments-monorepo-and-its-services`,
         path: `C:\\Users\\you\\.claude\\skills\\team-convention-${i + 1}-for-the-payments-monorepo-and-its-services\\SKILL.md`, tokens: 60 + i * 7, fullTokens: 2_400, manual: false, pygg: false, inLibrary: false});
-      const codex = [file('AGENTS.md', 'C:\\Users\\you\\.codex\\AGENTS.md', 640), ...skillItems('agents', false),
+      const codex = [file('AGENTS.md', 'C:\\Users\\you\\.codex\\AGENTS.md', 640), ...skillItems('agents', true),
         {kind: 'prompt' as const, name: 'refactor', path: 'C:\\Users\\you\\.codex\\prompts\\refactor.md', tokens: 0, fullTokens: 210, manual: true, pygg: false, inLibrary: false}];
       const opencode = [...skillItems('claude-code', true), ...skillItems('agents', true)]
         .filter((item, i, list) => list.findIndex(other => other.name === item.name) === i);

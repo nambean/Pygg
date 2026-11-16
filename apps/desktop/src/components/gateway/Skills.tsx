@@ -184,7 +184,7 @@ function SkillSheet({initial, existing, readOnly, onClose, onSaved, onDuplicate}
     <label className="check-row top">
       <input id="skill-manual" type="checkbox" checked={skill.manual} disabled={readOnly} onChange={e => set({manual: e.target.checked})}/>
       <span>{t('Run only when I type its name (a prompt)')}
-        <small className="secondary">{t('Claude Code and OpenCode then leave it out of the list they send with every request. Codex may still list it.')}</small></span>
+        <small className="secondary">{t('Claude Code and OpenCode then leave it out of the list they send with every request. For Codex, Pygg also writes agents/openai.yaml beside it, so Codex leaves it out too; there you call it as $name.')}</small></span>
     </label>
     {error && <ErrorNote>{error}</ErrorNote>}
   </Sheet>;

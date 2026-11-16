@@ -6,13 +6,17 @@
 //!   `~/.agents/skills`; OpenCode reads both and `~/.config/opencode/skills`. Pygg installs into the first two.
 //! - **What an agent loads.** Each agent keeps only a skill's name and description in context and reads the
 //!   instructions when the skill is used. A skill marked `disable-model-invocation: true` (a "prompt": run only when the
-//!   user types `/name`) is left out of Claude Code's and OpenCode's list, so it costs nothing until used.
-//! - **What Pygg writes.** A `SKILL.md` whose front matter carries `metadata.pygg-hash`, a hash of the rest of the file.
-//!   Pygg never overwrites a skill folder it did not write, and never removes a file changed since it wrote it.
+//!   user types `/name`) is left out of Claude Code's and OpenCode's list, so it costs nothing until used. Codex has its
+//!   own switch: `agents/openai.yaml` with `policy.allow_implicit_invocation: false` keeps a skill out of the model's
+//!   context until it is called as `$name`.
+//! - **What Pygg writes.** A `SKILL.md` whose front matter carries `metadata.pygg-hash`, a hash of the rest of the file,
+//!   and for a prompt in the shared folder Codex reads, Codex's `agents/openai.yaml` as well. Pygg never overwrites a
+//!   skill folder it did not write, and never removes a file changed since it wrote it.
 //! - **What Pygg reads.** Only the agents' global skill, command and prompt folders and their global instruction files
 //!   (`CLAUDE.md`, `AGENTS.md`). A project's own files are the agent's business and differ per repository.
 //!
-//! Nothing here downloads anything or runs a script: a skill's folder gets one file, its `SKILL.md`.
+//! Nothing here downloads anything or runs a script: a skill's folder gets its `SKILL.md` and, for a prompt Codex can
+//! see, `agents/openai.yaml`.
 
 use crate::db::now_ms;
 use crate::gateway::estimate_text_tokens;
@@ -282,6 +286,44 @@ fn yaml_quoted(s: &str) -> String {
     format!("\"{}\"", one_line.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
+/// The `agents/openai.yaml` Pygg writes beside a prompt in the shared folder, so that Codex leaves it out of the model's
+/// context until it is called by name (Codex's `SkillPolicy`; it ignores `disable-model-invocation`). Pygg owns the file
+/// only while it reads exactly this.
+const CODEX_POLICY: &str =
+    "# Written by Pygg: Codex lists this skill only when it is called by name.\npolicy:\n  allow_implicit_invocation: false\n";
+
+/// Codex's settings file in a skill's folder.
+fn codex_policy_path(skill_dir: &Path) -> PathBuf {
+    skill_dir.join("agents").join("openai.yaml")
+}
+
+/// The `agents/openai.yaml` Pygg's copy of a skill has in a target, if any.
+fn expected_policy(target: Target, manual: bool) -> Option<&'static str> {
+    (manual && target == Target::Agents).then_some(CODEX_POLICY)
+}
+
+/// Whether an `agents/openai.yaml` sets `policy.allow_implicit_invocation: false`, read line by line as Pygg reads
+/// front matter.
+fn implicit_invocation_off(yaml: &str) -> bool {
+    let mut in_policy = false;
+    for line in yaml.replace("\r\n", "\n").lines() {
+        let content = line.split(" #").next().unwrap_or("").trim_end();
+        if content.trim().is_empty() || content.trim_start().starts_with('#') {
+            continue;
+        }
+        if !content.starts_with(' ') && !content.starts_with('\t') {
+            in_policy = content.trim() == "policy:";
+            continue;
+        }
+        if let Some(v) = content.trim().strip_prefix("allow_implicit_invocation:") {
+            if in_policy && unquote(v).eq_ignore_ascii_case("false") {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// The `SKILL.md` Pygg writes for a skill.
 pub fn render(id: &str, description: &str, body: &str, manual: bool) -> String {
     let mut text = format!("---\nname: {id}\ndescription: {}\n", yaml_quoted(description));
@@ -392,16 +434,39 @@ fn listed_tokens(id: &str, description: &str, manual: bool) -> u64 {
     }
 }
 
-fn install_state(homes: &Homes, target: Target, id: &str, expected: &str) -> Install {
-    let path = homes.skills_dir(target).join(id).join("SKILL.md");
+/// Codex's settings file in a skill's folder: absent, Pygg's (as written), or someone else's or edited.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Policy {
+    Absent,
+    Pygg,
+    Other,
+}
+
+fn policy_state(skill_dir: &Path) -> Policy {
+    match std::fs::read_to_string(codex_policy_path(skill_dir)) {
+        Err(_) => Policy::Absent,
+        Ok(text) if text.replace("\r\n", "\n") == CODEX_POLICY => Policy::Pygg,
+        Ok(_) => Policy::Other,
+    }
+}
+
+fn install_state(homes: &Homes, target: Target, id: &str, expected: &str, manual: bool) -> Install {
+    let dir = homes.skills_dir(target).join(id);
+    let path = dir.join("SKILL.md");
     let state = match std::fs::read_to_string(&path) {
-        Err(_) if !path.parent().is_some_and(Path::exists) => "absent",
+        Err(_) if !dir.exists() => "absent",
         Err(_) => "other",
-        Ok(text) => match ours_unchanged(&text) {
-            None => "other",
-            Some(false) => "changed",
-            Some(true) if text.replace("\r\n", "\n") == expected => "installed",
-            Some(true) => "outdated",
+        Ok(text) => match (ours_unchanged(&text), policy_state(&dir), expected_policy(target, manual)) {
+            (None, ..) => "other",
+            (Some(false), ..) => "changed",
+            // Codex's file, edited or someone else's, where Pygg would write its own: left alone.
+            (Some(true), Policy::Other, Some(_)) => "changed",
+            (Some(true), policy, wanted)
+                if text.replace("\r\n", "\n") == expected && (policy == Policy::Pygg) == wanted.is_some() =>
+            {
+                "installed"
+            }
+            (Some(true), ..) => "outdated",
         },
     };
     Install { target, state, path: path.display().to_string() }
@@ -418,7 +483,7 @@ fn skill(
         manual,
         origin,
         updated_at: updated,
-        installs: Target::ALL.iter().map(|t| install_state(homes, *t, id, &expected)).collect(),
+        installs: Target::ALL.iter().map(|t| install_state(homes, *t, id, &expected, manual)).collect(),
         listed_tokens: listed_tokens(id, description, manual),
         body_tokens: estimate_text_tokens(body),
     }
@@ -499,7 +564,9 @@ fn write_atomically(path: &Path, text: &str) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("Could not create {}: {e}", dir.display()))?;
     }
-    let tmp = path.with_file_name("SKILL.md.pygg-tmp");
+    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(".pygg-tmp");
+    let tmp = path.with_file_name(tmp_name);
     std::fs::write(&tmp, text).map_err(|e| format!("Could not write {}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, path).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
@@ -528,9 +595,24 @@ pub fn install(conn: &Connection, homes: &Homes, id: &str, target: Target) -> Re
         "installed" => return Ok(skill),
         _ => {}
     }
+    let dir = homes.skills_dir(target).join(id);
+    // Codex's file first: a prompt is never left visible to Codex because the second write failed.
+    match (expected_policy(target, skill.manual), policy_state(&dir)) {
+        (Some(text), _) => write_atomically(&codex_policy_path(&dir), text)?,
+        (None, Policy::Pygg) => remove_policy(&dir)?,
+        (None, _) => {}
+    }
     let text = render(&skill.id, &skill.description, &skill.body, skill.manual);
     write_atomically(Path::new(&install.path), &text)?;
     get(conn, homes, id)
+}
+
+/// Removes Pygg's `agents/openai.yaml`, and the `agents` folder when nothing else is in it.
+fn remove_policy(skill_dir: &Path) -> Result<()> {
+    let path = codex_policy_path(skill_dir);
+    std::fs::remove_file(&path).map_err(|e| format!("Could not remove {}: {e}", path.display()))?;
+    let _ = std::fs::remove_dir(skill_dir.join("agents"));
+    Ok(())
 }
 
 /// Removes Pygg's copy from the target, if it is unchanged; its folder goes too when nothing else is in it.
@@ -547,6 +629,16 @@ pub fn uninstall(conn: &Connection, homes: &Homes, id: &str, target: Target) -> 
             return Err(format!("{} was edited after Pygg installed it; it was left as it is.", path.display()))
         }
         Some(true) => {}
+    }
+    let policy = policy_state(&dir);
+    if policy == Policy::Other && expected_policy(target, parse(&text).manual).is_some() {
+        return Err(format!(
+            "{} was edited after Pygg installed it; it was left as it is.",
+            codex_policy_path(&dir).display()
+        ));
+    }
+    if policy == Policy::Pygg {
+        remove_policy(&dir)?;
     }
     std::fs::remove_file(&path).map_err(|e| format!("Could not remove {}: {e}", path.display()))?;
     let _ = std::fs::remove_dir(&dir);
@@ -599,9 +691,17 @@ fn instructions(path: PathBuf) -> Option<ContextItem> {
     })
 }
 
-/// The skills in a folder (`<name>/SKILL.md`). `honours_manual`: the agent leaves `disable-model-invocation` skills out
-/// of its list (Claude Code and OpenCode do; Codex is not documented to, so it is counted).
-fn skills_in(dir: &Path, honours_manual: bool, library: &[String]) -> Vec<ContextItem> {
+/// How an agent decides that a skill is run only by name.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RunByName {
+    /// `disable-model-invocation: true` in `SKILL.md` (Claude Code, OpenCode).
+    FrontMatter,
+    /// `policy.allow_implicit_invocation: false` in `agents/openai.yaml` (Codex).
+    CodexPolicy,
+}
+
+/// The skills in a folder (`<name>/SKILL.md`), each costing its name and description unless the agent leaves it out.
+fn skills_in(dir: &Path, rule: RunByName, library: &[String]) -> Vec<ContextItem> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
     let mut out = Vec::new();
     for entry in entries.flatten() {
@@ -609,17 +709,21 @@ fn skills_in(dir: &Path, honours_manual: bool, library: &[String]) -> Vec<Contex
         let Ok(text) = std::fs::read_to_string(&path) else { continue };
         let parsed = parse(&text);
         let name = entry.file_name().to_string_lossy().into_owned();
-        let manual = parsed.manual && honours_manual;
+        let manual = match rule {
+            RunByName::FrontMatter => parsed.manual,
+            RunByName::CodexPolicy => std::fs::read_to_string(codex_policy_path(&entry.path()))
+                .is_ok_and(|yaml| implicit_invocation_off(&yaml)),
+        };
         let description = parsed.description.clone().unwrap_or_default();
         out.push(ContextItem {
             kind: "skill",
-            tokens: if description.is_empty() && honours_manual {
+            tokens: if description.is_empty() && rule == RunByName::FrontMatter {
                 0
             } else {
                 listed_tokens(&name, &description, manual)
             },
             full_tokens: estimate_text_tokens(&text),
-            manual: parsed.manual,
+            manual,
             pygg: ours_unchanged(&text) == Some(true),
             in_library: library.contains(&name),
             path: path.display().to_string(),
@@ -673,19 +777,19 @@ pub fn context(conn: &Connection, homes: &Homes) -> Result<Vec<AgentContext>> {
     let claude_skills = homes.claude.join("skills");
     let agents_skills = homes.agents.join("skills");
     let mut claude: Vec<ContextItem> = instructions(homes.claude.join("CLAUDE.md")).into_iter().collect();
-    claude.extend(skills_in(&claude_skills, true, &library));
+    claude.extend(skills_in(&claude_skills, RunByName::FrontMatter, &library));
     claude.extend(markdown_in(&homes.claude.join("commands"), "command"));
     let mut codex: Vec<ContextItem> = ["AGENTS.override.md", "AGENTS.md"]
         .iter()
         .find_map(|f| instructions(homes.codex.join(f)))
         .into_iter()
         .collect();
-    codex.extend(skills_in(&agents_skills, false, &library));
+    codex.extend(skills_in(&agents_skills, RunByName::CodexPolicy, &library));
     codex.extend(markdown_in(&homes.codex.join("prompts"), "prompt"));
     let mut opencode: Vec<ContextItem> = instructions(homes.opencode.join("AGENTS.md")).into_iter().collect();
     // OpenCode reads its own folder and both shared ones; a name found twice is listed once.
     for dir in [homes.opencode.join("skills"), claude_skills, agents_skills] {
-        for item in skills_in(&dir, true, &library) {
+        for item in skills_in(&dir, RunByName::FrontMatter, &library) {
             if !opencode.iter().any(|i| i.kind == "skill" && i.name == item.name) {
                 opencode.push(item);
             }
@@ -892,12 +996,79 @@ mod tests {
         let codex = &ctx[1];
         let review = codex.items.iter().find(|i| i.name == "review-diff").unwrap();
         assert!(review.pygg && review.in_library && review.manual);
-        assert!(review.tokens > 0, "Codex is not documented to leave such skills out");
+        assert_eq!(review.tokens, 0, "Pygg's agents/openai.yaml keeps it out of Codex's list");
         assert_eq!(codex.items.iter().find(|i| i.name == "fix").unwrap().tokens, 0);
+        // A prompt someone else put there without Codex's file is listed by Codex.
+        let theirs = h.agents.join("skills/notes/SKILL.md");
+        std::fs::create_dir_all(theirs.parent().unwrap()).unwrap();
+        std::fs::write(&theirs, "---\nname: notes\ndescription: Notes\ndisable-model-invocation: true\n---\nx\n")
+            .unwrap();
+        let ctx = context(&conn, &h).unwrap();
+        let notes = ctx[1].items.iter().find(|i| i.name == "notes").unwrap();
+        assert!(notes.tokens > 0 && !notes.manual);
+        assert_eq!(ctx[2].items.iter().find(|i| i.name == "notes").unwrap().tokens, 0, "OpenCode leaves it out");
 
         let opencode = &ctx[2];
-        assert_eq!(opencode.items.iter().filter(|i| i.kind == "skill").count(), 2, "both shared folders");
+        assert_eq!(opencode.items.iter().filter(|i| i.kind == "skill").count(), 3, "both shared folders");
         assert_eq!(opencode.items.iter().find(|i| i.name == "review-diff").unwrap().tokens, 0);
+    }
+
+    #[test]
+    fn a_prompt_for_codex_carries_its_policy_file_and_pygg_keeps_it_in_step() {
+        let dir = tempfile::tempdir().unwrap();
+        let h = homes(dir.path());
+        let conn = db::open_in_memory().unwrap();
+        let skill_dir = h.agents.join("skills/release-notes");
+        let policy = skill_dir.join("agents/openai.yaml");
+        save(&conn, &h, &SkillEdit { manual: true, ..edit("release-notes") }).unwrap();
+
+        // Claude Code's folder gets no Codex file; the shared folder does.
+        install(&conn, &h, "release-notes", Target::ClaudeCode).unwrap();
+        assert!(!h.claude.join("skills/release-notes/agents").exists());
+        let s = install(&conn, &h, "release-notes", Target::Agents).unwrap();
+        assert_eq!(s.installs[1].state, "installed");
+        assert_eq!(std::fs::read_to_string(&policy).unwrap(), CODEX_POLICY);
+        assert!(implicit_invocation_off(CODEX_POLICY));
+
+        // A copy installed before Pygg wrote Codex's file is brought up to date.
+        std::fs::remove_file(&policy).unwrap();
+        assert_eq!(get(&conn, &h, "release-notes").unwrap().installs[1].state, "outdated");
+        install(&conn, &h, "release-notes", Target::Agents).unwrap();
+        assert!(policy.exists());
+
+        // No longer a prompt: the file goes.
+        save(&conn, &h, &edit("release-notes")).unwrap();
+        assert_eq!(get(&conn, &h, "release-notes").unwrap().installs[1].state, "outdated");
+        install(&conn, &h, "release-notes", Target::Agents).unwrap();
+        assert!(!skill_dir.join("agents").exists());
+
+        // A prompt again, then Codex's file edited by hand: neither overwritten nor removed.
+        save(&conn, &h, &SkillEdit { manual: true, ..edit("release-notes") }).unwrap();
+        install(&conn, &h, "release-notes", Target::Agents).unwrap();
+        std::fs::write(&policy, "policy:\n  allow_implicit_invocation: false\ninterface:\n  brand_color: \"#000\"\n")
+            .unwrap();
+        assert_eq!(get(&conn, &h, "release-notes").unwrap().installs[1].state, "changed");
+        assert!(install(&conn, &h, "release-notes", Target::Agents).unwrap_err().contains("edited"));
+        assert!(uninstall(&conn, &h, "release-notes", Target::Agents).unwrap_err().contains("openai.yaml"));
+        assert!(skill_dir.join("SKILL.md").exists());
+
+        // Pygg's own: removed with the skill, and the folders with them.
+        install(&conn, &h, "release-notes", Target::Agents).unwrap_err();
+        std::fs::write(&policy, CODEX_POLICY.replace('\n', "\r\n")).unwrap();
+        assert_eq!(get(&conn, &h, "release-notes").unwrap().installs[1].state, "installed", "line endings");
+        uninstall(&conn, &h, "release-notes", Target::Agents).unwrap();
+        assert!(!skill_dir.exists());
+    }
+
+    #[test]
+    fn reads_codex_implicit_invocation_policy() {
+        assert!(implicit_invocation_off("policy:\n  allow_implicit_invocation: \"false\"  # by name\n"));
+        assert!(implicit_invocation_off(
+            "interface:\n  display_name: \"X\"\npolicy:\r\n  products: []\r\n  allow_implicit_invocation: False\r\n"
+        ));
+        assert!(!implicit_invocation_off("policy:\n  allow_implicit_invocation: true\n"));
+        assert!(!implicit_invocation_off("interface:\n  allow_implicit_invocation: false\n"));
+        assert!(!implicit_invocation_off("# policy:\n#  allow_implicit_invocation: false\n"));
     }
 
     #[test]
