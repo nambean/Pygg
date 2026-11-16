@@ -1,0 +1,12 @@
+{
+    "case": "openrouter-timeout",
+    "captured": "2026-11-16",
+    "url": "https://openrouter.ai/api/v1/chat/completions",
+    "status": null,
+    "headers": {},
+    "failure": "timeout",
+    "request_sent": true,
+    "client_timeout_s": 0.05,
+    "waited_s": 0.062,
+    "body": ""
+}

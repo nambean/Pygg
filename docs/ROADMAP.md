@@ -12,7 +12,7 @@ What comes next, in order, and what must be true before a public release. What i
    - Successful API requests to OpenAI, Groq, DeepSeek and Mistral; DeepSeek's thinking mode with tools across the Anthropic translation.
    - OpenRouter's `cache_control` on translated requests, measured.
    - An Anthropic-compatible endpoint other than Anthropic's own.
-   - Real 403, 429, quota and timeout answers captured as fixtures; the 429 hold and the prefill fallback in a live `auto/cheap` run.
+   - Gemini's quota answer (429 `RESOURCE_EXHAUSTED`) as a fixture; the 429 hold and the prefill fallback in a live `auto/cheap` run.
    - Claude Code in an interactive terminal, through the launcher, answered by a real provider.
    - `pygg run codex` and `pygg run opencode` against the installed tools; `pygg setup` against a real tool's configuration.
    - Key rings, cheapest-first combos and combo tests with real providers.

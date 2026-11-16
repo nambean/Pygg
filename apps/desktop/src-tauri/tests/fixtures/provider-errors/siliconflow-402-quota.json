@@ -1,0 +1,14 @@
+{
+    "case": "siliconflow-402-quota",
+    "captured": "2026-11-16",
+    "url": "https://api.siliconflow.com/v1/chat/completions",
+    "status": 402,
+    "headers": {
+        "content-type": "application/json; charset=utf-8"
+    },
+    "body": {
+        "code": 30001,
+        "message": "Sorry, your account balance is insufficient",
+        "data": null
+    }
+}

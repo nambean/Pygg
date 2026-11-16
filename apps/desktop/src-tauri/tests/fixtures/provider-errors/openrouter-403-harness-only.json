@@ -1,0 +1,24 @@
+{
+    "case": "openrouter-403-harness-only",
+    "captured": "2026-11-16",
+    "url": "https://openrouter.ai/api/v1/chat/completions",
+    "status": 403,
+    "headers": {
+        "content-type": "application/json"
+    },
+    "body": {
+        "error": {
+            "message": "thinkingmachines/inkling-2-small:free is only available on agentic harnesses. Try plugging it into a coding agent or productivity app listed on https://openrouter.ai/apps",
+            "code": 403,
+            "metadata": {
+                "routing_funnel": [
+                    {
+                        "step": "Initial Endpoints",
+                        "endpoint_count": 1
+                    }
+                ],
+                "failed_routing_step": "Gate Free Endpoints by Agentic Harness"
+            }
+        }
+    }
+}

@@ -18,7 +18,7 @@ CI runs `cargo clippy -- -D warnings` for the app (`--all-features`) and the con
 | Item | Built | Fake-provider tests | Live | Provider parity |
 | --- | --- | --- | --- | --- |
 | Same-format passthrough | Yes | Yes | Anthropic native (claude-haiku-4-5, claude-haiku-5-5, claude-sonnet-5-5); translation to Gemini and Qwen | Anthropic: identical cache writes and reads, streamed and not, 5-minute and 1-hour TTL; thinking with a tool; two-turn tool round trip; citations; `count_tokens` |
-| Error-scoped fallback | Yes | Yes | 404 cooldown and skip (Gemini); combo fallback (OpenCode); real 401, 400 and 404 answers from 8 providers as fixtures | Not applicable |
+| Error-scoped fallback | Yes | Yes | 404 cooldown and skip (Gemini); combo fallback (OpenCode); real 401, 400 and 404 answers from 8 providers, and 402 (empty balance: Requesty, SiliconFlow), 403 (OpenRouter, Gemini), 429 (OpenRouter) and a timeout after sending (OpenRouter), as fixtures | Not applicable |
 | Budgets and complete ledger | Yes | Yes | Ledger and prices (Gemini, Anthropic); a strict client limit held every request of the benchmark runs | Not applicable |
 | Explicit sessions | Yes | Yes | Headless Claude Code: header on 12 of 12 requests | Not applicable |
 | `auto` routing | Yes | Yes | Gemini, Anthropic, Qwen token plan, headless Claude Code | Not applicable |
@@ -162,7 +162,7 @@ Built and kept, with no new work until they are re-evaluated. Details: [AGENTS](
 - **Successful API requests to OpenAI, Groq, DeepSeek and Mistral.** Only their error answers were seen live.
 - **Anthropic-compatible endpoints other than Anthropic's own.**
 - **OpenRouter's handling of `cache_control` on translated requests.** Follows its documentation; not measured.
-- **Real 403, 429, quota and timeout answers as fixtures.** The 429 hold and the prefill fallback are fake-provider tested only.
+- **Gemini's quota answer (429 `RESOURCE_EXHAUSTED`) as a fixture.** Needs a model the key has no quota for; its `RetryInfo` is read in a unit test. The 429 hold and the prefill fallback are fake-provider tested only.
 - **The quota-group hold, HTTP-date resets, the attempt journal and at-risk accounting against a real provider.**
 - **DeepSeek's thinking mode with tools across the Anthropic translation.** Needs a funded account.
 - **Claude Code in an interactive terminal**, and the launcher answered by a real provider.

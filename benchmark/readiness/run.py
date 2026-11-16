@@ -790,7 +790,10 @@ def ollama_checks(R, gw):
 def open_items():
     items = {g: list(v) for g, v in STATIC_OPEN.items()}
     fixtures = [p.stem for p in (TAURI / "tests" / "fixtures" / "provider-errors").glob("*.json")]
-    missing = [k for k in ("403", "429", "quota", "timeout") if not any(k in f for f in fixtures)]
+    # Each wanted answer and the fixture names that hold it (scripts/capture-provider-*.{ps1,py}).
+    wanted = {"403": "-403", "429": "-429", "quota": "-quota", "timeout": "-timeout",
+              "Gemini's quota answer (429 RESOURCE_EXHAUSTED)": "gemini-429"}
+    missing = [label for label, part in wanted.items() if not any(part in f for f in fixtures)]
     if missing:
         items.setdefault("Errors", []).append(f"real provider answers not yet captured as fixtures: {', '.join(missing)} "
                                               f"({len(fixtures)} fixtures today)")

@@ -1,0 +1,16 @@
+{
+    "case": "gemini-403-file",
+    "captured": "2026-11-16",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+    "status": 403,
+    "headers": {
+        "content-type": "application/json; charset=UTF-8"
+    },
+    "body": {
+        "error": {
+            "code": 403,
+            "message": "You do not have permission to access the File pygg-no-such-file or it may not exist.",
+            "status": "PERMISSION_DENIED"
+        }
+    }
+}

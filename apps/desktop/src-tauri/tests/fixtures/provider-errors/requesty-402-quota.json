@@ -1,0 +1,15 @@
+{
+    "case": "requesty-402-quota",
+    "captured": "2026-11-16",
+    "url": "https://router.requesty.ai/v1/chat/completions",
+    "status": 402,
+    "headers": {
+        "content-type": "application/json"
+    },
+    "body": {
+        "error": {
+            "origin": "router",
+            "message": "Your organization's balance is too low to run this request. Top up at https://app.requesty.ai/settings/billing or enable auto-top-up"
+        }
+    }
+}
