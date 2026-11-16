@@ -23,7 +23,7 @@ What comes next, in order, and what must be true before a public release. What i
    - **The way home after a fallback, live.** The cache marker on OpenRouter, the cache-miss causes and the meter were checked live on 2026-11-16 ([report](../benchmark/reports/2026-11-16-openrouter-cache-live.md)); the way home needs a real failure, and OpenAI's `prompt_cache_key` an OpenAI key.
    - **Read the clearing shadow on real sessions** (Usage → Clearing Old Tool Results). Only if its net stays above zero over long Codex sessions does clearing become an opt-in, and then with a check that answers stay as good.
    Anything that changes a request is opt-in, reversible and checked for cache parity first. Never rewrite an external agent's history, inject instructions or split tasks into sub-agents to save tokens.
-5. **Codex's model catalog** for the models Pygg lists, so Codex gets `apply_patch` and real context sizes without a hand-written catalog.
+5. **Codex's catalog, measured.** Pygg writes it (AGENTS.md); a benchmark run of Codex with and without it on the same cases says what `apply_patch` and the real context sizes change in passes and cost. Keep `third_party/codex/prompt.md` in step with the Codex version Pygg is tested against.
 6. **Other platforms.** The macOS npm packages (published, ADR-037) run on a real Mac; the desktop app on macOS and Linux (ADR-001).
 7. **Housekeeping.** Demo data that replays recorded snapshots instead of copying the core's rules.
 8. **The Vietnamese translation**, last, once the interface's English text is final.

@@ -124,6 +124,8 @@ pub struct GatewayModel {
     pub context_tokens: Option<u64>,
     pub max_output_tokens: Option<u64>,
     pub supports_tools: Option<bool>,
+    /// Whether it takes images, where known: Codex's catalog lists its input kinds (codex_catalog.rs).
+    pub supports_vision: Option<bool>,
 }
 
 /// `auto`, `auto/cheap`, then the enabled models of enabled connections, leaving out those known not to take tools:
@@ -137,6 +139,7 @@ pub fn gateway_models(conn: &Connection) -> Vec<GatewayModel> {
         context_tokens: None,
         max_output_tokens: None,
         supports_tools: Some(true),
+        supports_vision: None,
     });
     let models = store::list_models(conn, None)
         .unwrap_or_default()
@@ -147,6 +150,7 @@ pub fn gateway_models(conn: &Connection) -> Vec<GatewayModel> {
             context_tokens: m.capabilities.context_tokens,
             max_output_tokens: m.capabilities.max_output_tokens,
             supports_tools: m.capabilities.supports_tools,
+            supports_vision: m.capabilities.supports_vision,
         });
     aliases.chain(models).collect()
 }
@@ -503,6 +507,36 @@ fn codex_provider(server: &Server, token: &str) -> toml_edit::Table {
     t
 }
 
+/// Keeps the catalog of Pygg's models that Codex's `pygg` profile reads current (ROADMAP item 5, codex_catalog.rs):
+/// rewritten when the model list changes, and named in a profile Pygg wrote before the catalog existed. Only Pygg's
+/// own files are touched, and only when Pygg set Codex up and the profile still selects Pygg's provider. No write when
+/// nothing changed. Returns whether a file was written.
+pub fn sync_codex_catalog(db: &impl Store, homes: &Homes) -> Result<bool, String> {
+    if saved(db, CODEX_GATEWAY).is_none() {
+        return Ok(false);
+    }
+    let profile = codex_profile_path(&homes.codex);
+    if !codex_profile_is_ours(&profile) {
+        return Ok(false);
+    }
+    let catalog = crate::codex_catalog::path(&homes.codex);
+    let wanted = crate::codex_catalog::text(&db.with(gateway_models));
+    let mut wrote = false;
+    if std::fs::read_to_string(&catalog).ok().as_deref() != Some(wanted.as_str()) {
+        write_atomically(&catalog, &wanted)?;
+        wrote = true;
+    }
+    let text = std::fs::read_to_string(&profile).map_err(|e| format!("Could not read {}: {e}", profile.display()))?;
+    let mut doc = text.parse::<toml_edit::DocumentMut>().map_err(|e| format!("{}: {e}", profile.display()))?;
+    let named = catalog.to_string_lossy().into_owned();
+    if doc.get("model_catalog_json").and_then(|v| v.as_str()) != Some(named.as_str()) {
+        doc["model_catalog_json"] = toml_edit::value(named);
+        write_atomically(&profile, &doc.to_string())?;
+        wrote = true;
+    }
+    Ok(wrote)
+}
+
 /// Codex's profile file for Pygg, `pygg.config.toml` next to `config.toml`: Codex 0.134 and later read a profile
 /// from `<name>.config.toml` and refuse `--profile <name>` while `config.toml` still has a `[profiles.<name>]` table.
 /// It selects Pygg's provider with `auto`, so the user's own default stays as it is.
@@ -510,10 +544,13 @@ pub fn codex_profile_path(config: &Path) -> PathBuf {
     config.with_file_name(format!("{CODEX_PROFILE}.config.toml"))
 }
 
-fn codex_profile_text() -> String {
+/// The profile: Pygg's provider, `auto`, and the catalog of Pygg's models next to it (codex_catalog.rs).
+fn codex_profile_text(config: &Path) -> String {
+    let catalog = toml_edit::Value::from(crate::codex_catalog::path(config).to_string_lossy().into_owned());
     format!(
         "# Codex's models through Pygg's gateway, added by Pygg (Agents > From Your IDE): codex --profile \
-        {CODEX_PROFILE}\nmodel_provider = \"{PROVIDER}\"\nmodel = \"auto\"\n"
+        {CODEX_PROFILE}\nmodel_provider = \"{PROVIDER}\"\nmodel = \"auto\"\nmodel_catalog_json = {}\n",
+        catalog.to_string().trim()
     )
 }
 
@@ -606,21 +643,27 @@ fn codex_has_provider(doc: &Option<toml_edit::DocumentMut>) -> bool {
     doc.as_ref().and_then(|d| d.get("model_providers")).and_then(|p| p.get(PROVIDER)).is_some()
 }
 
-/// What Pygg adds: the provider at the end of `config.toml`, and the profile file next to it.
-fn codex_change(server: &Server, token: &str) -> Result<String, String> {
+/// What Pygg adds: the provider at the end of `config.toml`, and the profile file and model catalog next to it.
+fn codex_change(server: &Server, token: &str, config: &Path) -> Result<String, String> {
     let provider = with_codex_provider(None, server, token)?.to_string();
-    Ok(format!("{provider}\n# A new file next to it: {CODEX_PROFILE}.config.toml\n{}", codex_profile_text()))
+    Ok(format!(
+        "{provider}\n# A new file next to it: {CODEX_PROFILE}.config.toml\n{}\n# And pygg-models.json: the {} models \
+        Pygg lists, with their context sizes and Codex's apply_patch tool\n",
+        codex_profile_text(config),
+        server.models.len()
+    ))
 }
 
 /// Writes Codex's profile file, refusing to replace one that is there.
-fn write_codex_profile(path: &Path) -> Result<(), String> {
+fn write_codex_profile(path: &Path, config: &Path) -> Result<(), String> {
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)
         .map_err(|e| format!("Could not create {}: {e}", path.display()))?;
-    file.write_all(codex_profile_text().as_bytes()).map_err(|e| format!("Could not write {}: {e}", path.display()))
+    file.write_all(codex_profile_text(config).as_bytes())
+        .map_err(|e| format!("Could not write {}: {e}", path.display()))
 }
 
 /// Writes a file whole: to a temporary file next to it, then renamed over it.
@@ -766,7 +809,7 @@ pub fn plan(id: &str, server: &Server, homes: &Homes, backup_dir: &Path) -> Resu
         let entry = json!({"mcp": {SERVER: opencode_entry(server, TOKEN_PLACEHOLDER)}});
         (serde_json::to_string_pretty(&entry).unwrap_or_default(), "file")
     } else if id == CODEX_GATEWAY {
-        (codex_change(server, TOKEN_PLACEHOLDER)?, "file")
+        (codex_change(server, TOKEN_PLACEHOLDER, config)?, "file")
     } else {
         (shown(program, &add_args(id, server, TOKEN_PLACEHOLDER)), "command")
     };
@@ -827,6 +870,11 @@ fn remove_codex_profile(config: &Path, backup_dir: &Path, now_ms: i64) -> Result
     if codex_profile_is_ours(&profile) {
         back_up(&profile, backup_dir, CODEX_GATEWAY, now_ms)?;
         std::fs::remove_file(&profile).map_err(|e| format!("Could not remove {}: {e}", profile.display()))?;
+        // The catalog is Pygg's own file, rebuilt from the model list: no backup.
+        let catalog = crate::codex_catalog::path(config);
+        if catalog.is_file() {
+            std::fs::remove_file(&catalog).map_err(|e| format!("Could not remove {}: {e}", catalog.display()))?;
+        }
     }
     Ok(())
 }
@@ -897,6 +945,7 @@ pub async fn apply(
         restore_if_changed(&config, backup.as_deref(), &before);
         if let Some(p) = profile.as_deref().filter(|p| codex_profile_is_ours(p)) {
             let _ = std::fs::remove_file(p);
+            let _ = std::fs::remove_file(crate::codex_catalog::path(&config));
         }
         revoke(db, &client_id);
         why
@@ -913,7 +962,9 @@ pub async fn apply(
         Edit::Codex(current) => {
             let updated = with_codex_provider(current, server, &token).map_err(undo)?;
             write_codex(&config, &updated).map_err(undo)?;
-            write_codex_profile(&codex_profile_path(&config)).map_err(undo)?;
+            write_atomically(&crate::codex_catalog::path(&config), &crate::codex_catalog::text(&server.models))
+                .map_err(undo)?;
+            write_codex_profile(&codex_profile_path(&config), &config).map_err(undo)?;
         }
         Edit::Command => {
             let out = run(&launch, add_args(id, server, &token)).await;
@@ -995,24 +1046,28 @@ mod tests {
                     context_tokens: None,
                     max_output_tokens: None,
                     supports_tools: Some(true),
+                    supports_vision: None,
                 },
                 GatewayModel {
                     id: "anthropic/claude-haiku-5-5".into(),
                     context_tokens: Some(200_000),
                     max_output_tokens: Some(64_000),
                     supports_tools: Some(true),
+                    supports_vision: Some(true),
                 },
                 GatewayModel {
                     id: "ollama/qwen3:8b".into(),
                     context_tokens: None,
                     max_output_tokens: None,
                     supports_tools: None,
+                    supports_vision: None,
                 },
                 GatewayModel {
                     id: "x/embed".into(),
                     context_tokens: None,
                     max_output_tokens: None,
                     supports_tools: Some(false),
+                    supports_vision: None,
                 },
             ],
         }
@@ -1230,6 +1285,67 @@ mod tests {
         assert_eq!(live, 0);
     }
 
+    /// ROADMAP item 5: the catalog Codex's `pygg` profile reads follows the model list, and a profile Pygg wrote before
+    /// the catalog existed gets it named; a profile the user pointed elsewhere, or a set-up Pygg did not make, is left.
+    #[test]
+    fn codexs_catalog_follows_the_model_list_and_old_profiles_get_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let homes = Homes {
+            claude: dir.path().join("c.json"),
+            codex: dir.path().join("config.toml"),
+            opencode: dir.path().join("opencode.json"),
+        };
+        let db = Db(std::sync::Mutex::new(crate::db::open_in_memory().unwrap()));
+        let p = db
+            .with(|c| {
+                store::add_provider(
+                    c,
+                    &store::NewProvider {
+                        kind: "openrouter",
+                        label: "OpenRouter",
+                        endpoint: "https://openrouter.ai/api/v1",
+                        credential_ref: None,
+                        default_billing: "paid",
+                        wire: "openai",
+                    },
+                )
+            })
+            .unwrap();
+        db.with(|c| store::add_model(c, &p.id, "a")).unwrap();
+        let profile = codex_profile_path(&homes.codex);
+        let old = "# Codex's models through Pygg's gateway\nmodel_provider = \"pygg\"\nmodel = \"auto\"\n";
+        std::fs::write(&profile, old).unwrap();
+        let catalog = crate::codex_catalog::path(&homes.codex);
+
+        assert_eq!(sync_codex_catalog(&db, &homes), Ok(false), "not set up by Pygg: left alone");
+        save(
+            &db,
+            CODEX_GATEWAY,
+            Some(&Record { client_id: "c".into(), client_name: "Codex (models)".into(), set_up_at: 1, backup: None }),
+        )
+        .unwrap();
+        assert_eq!(sync_codex_catalog(&db, &homes), Ok(true));
+        let written = std::fs::read_to_string(&profile).unwrap();
+        assert!(written.starts_with(old), "the profile keeps what it had:\n{written}");
+        let named = written.parse::<toml_edit::DocumentMut>().unwrap();
+        assert_eq!(named["model_catalog_json"].as_str(), Some(catalog.to_string_lossy().as_ref()));
+        let slugs = |path: &Path| -> Vec<String> {
+            let v: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+            v["models"].as_array().unwrap().iter().map(|m| m["slug"].as_str().unwrap().to_string()).collect()
+        };
+        assert_eq!(slugs(&catalog), ["auto".to_string(), "auto/cheap".into(), format!("{}/a", p.id)]);
+        assert_eq!(sync_codex_catalog(&db, &homes), Ok(false), "nothing changed: no write");
+
+        db.with(|c| store::add_model(c, &p.id, "b")).unwrap();
+        assert_eq!(sync_codex_catalog(&db, &homes), Ok(true));
+        assert_eq!(slugs(&catalog).len(), 4);
+
+        // The user pointed the profile at another provider: it is theirs now.
+        std::fs::write(&profile, "model_provider = \"openai\"\n").unwrap();
+        db.with(|c| store::add_model(c, &p.id, "c")).unwrap();
+        assert_eq!(sync_codex_catalog(&db, &homes), Ok(false));
+    }
+
     #[test]
     fn opencodes_model_list_follows_connections_without_touching_anything_else() {
         let dir = tempfile::tempdir().unwrap();
@@ -1330,7 +1446,7 @@ mod tests {
         // Codex needs its provider and Pygg's profile file, which `--profile pygg` reads.
         write_codex(&homes.codex, &with_codex_provider(None, &server(None), "str-c").unwrap()).unwrap();
         assert!(launch_ready("codex", &homes).is_err());
-        write_codex_profile(&codex_profile_path(&homes.codex)).unwrap();
+        write_codex_profile(&codex_profile_path(&homes.codex), &homes.codex).unwrap();
         assert_eq!(launch_ready("codex", &homes), Ok(()));
     }
 
@@ -1434,7 +1550,10 @@ mod tests {
         assert!(p.change.contains("[model_providers.pygg]") && !p.change.contains("[profiles"), "{}", p.change);
         assert!(
             p.change.contains("pygg.config.toml\n")
-                && p.change.ends_with("model_provider = \"pygg\"\nmodel = \"auto\"\n"),
+                && p.change.contains(
+                    "model_provider = \"pygg\"\nmodel = \"auto\"\nmodel_catalog_json = \"pygg-models.json\"\n"
+                )
+                && p.change.contains("# And pygg-models.json: the 4 models Pygg lists"),
             "{}",
             p.change
         );
@@ -1470,7 +1589,11 @@ mod tests {
         let token = doc["model_providers"]["pygg"]["experimental_bearer_token"].as_str().unwrap().to_string();
         assert!(token.starts_with("str-"));
         let profile = dir.path().join("codex").join("pygg.config.toml");
-        assert_eq!(std::fs::read_to_string(&profile).unwrap(), codex_profile_text());
+        assert_eq!(std::fs::read_to_string(&profile).unwrap(), codex_profile_text(&homes.codex));
+        let catalog: Value =
+            serde_json::from_str(&std::fs::read_to_string(crate::codex_catalog::path(&homes.codex)).unwrap()).unwrap();
+        assert_eq!(catalog["models"].as_array().unwrap().len(), server(None).models.len());
+        assert!(std::fs::read_to_string(&profile).unwrap().contains("pygg-models.json"));
         let (tasks, limited): (bool, Option<String>) = db.with(|c| c.query_row(
             "SELECT may_run_tasks, allowed_connections FROM gateway_clients WHERE name = 'Codex (models)' AND revoked_at IS NULL",
             [], |r| Ok((r.get(0)?, r.get(1)?)))).unwrap();

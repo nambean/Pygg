@@ -1376,10 +1376,14 @@ fn integration_backups(state: &AppState) -> std::path::PathBuf {
     state.data_dir.join("integration-backups")
 }
 
-/// After a change to connections or models: OpenCode's list of Pygg's models follows, when Pygg set it up.
+/// After a change to connections or models: OpenCode's list of Pygg's models and Codex's catalog follow, when Pygg set them up.
 fn sync_opencode(state: &AppState) {
     if let Err(e) = crate::integrations::sync_opencode_models(&state.shared, &crate::integrations::Homes::from_env()) {
         eprintln!("OpenCode's model list: {e}");
+    }
+    // And the catalog Codex's pygg profile reads (codex_catalog.rs).
+    if let Err(e) = crate::integrations::sync_codex_catalog(&state.shared, &crate::integrations::Homes::from_env()) {
+        eprintln!("Codex's model catalog: {e}");
     }
 }
 

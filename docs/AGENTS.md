@@ -62,6 +62,9 @@ env_http_headers = { "x-pygg-session" = "PYGG_ATTEMPT_ID" }
 # pygg.config.toml, a new file next to it
 model_provider = "pygg"
 model = "auto"
+model_catalog_json = "<CODEX_HOME>/pygg-models.json"
+
+# pygg-models.json, a new file next to it: the catalog of Pygg's models (below)
 ```
 
 - **Codex's default `model` and `model_provider` are never changed.** Use `pygg run codex`, or `codex --profile pygg`, or `codex --profile pygg -m <connection>/<model>`.
@@ -69,12 +72,15 @@ model = "auto"
 - Set-up is also refused, before anything is made, for a file that is not valid TOML (the message names the line and quotes nothing), an inline `model_providers`, and an existing `pygg` provider or profile file.
 - Removal deletes the profile file only while it still selects Pygg's provider. While `model_provider = "pygg"` is Codex's default, removal is refused. Apply then remove leaves `config.toml` byte-identical (a file without a final newline gets one).
 - **`auto` follows the client's minimum tier** (T2 by default). With only cheaper models connected it refuses and says why: name the model, or lower the minimum in Endpoint → API Keys → Limits….
-- **Tools.** For a model it does not know, Codex uses fallback metadata: its shell and function tools, but no `apply_patch`, so it edits through the shell. A model catalog (`model_catalog_json`, listing the model with `apply_patch_tool_type = "freeform"` and `base_instructions`) gives it `apply_patch`, which crosses as a function with one string parameter. Pygg does not write this catalog yet.
+- **The model catalog** (`codex_catalog.rs`). For a model it does not know, Codex uses fallback metadata: its default instructions, a 272,000-token context and no `apply_patch`, so it edits through the shell and compacts at the wrong size. The `pygg` profile names a catalog, `pygg-models.json`, with every model Pygg lists for Codex (`auto`, `auto/cheap` and the enabled models that take tools). Each keeps the fallback's values and Codex's own default instructions, and gains its real context window, the freeform `apply_patch` tool and its input kinds; `auto` keeps the 272,000 default, since its model is chosen per session. Pygg rewrites the file when the model list changes and adds it to a profile written before it existed; removal deletes it. A plain `codex` without the profile is untouched.
+  - The instructions are Codex 0.163.0's `prompt.md`, Apache-2.0, kept byte for byte in `apps/desktop/src-tauri/third_party/codex/` and credited in [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md) (owner's decision, 2026-11-16). Codex requires instructions for every model in a catalog; these are the ones it uses for an unknown model, so nothing new is added.
+  - A file, not an address the gateway serves: Codex refuses a fetched catalog over 1 MiB, and with about 21 KB of instructions per model the owner's 178 models make 3.9 MB.
+  - `apply_patch` crosses the gateway as a function with one string parameter.
 - **What does not cross:** OpenAI's encrypted reasoning, hosted tools (`web_search`), `prompt_cache_key` and `client_metadata`, named in `x-pygg-dropped`. Pygg stores no responses, so `previous_response_id` is refused; Codex sends the whole conversation with `store = false`.
 - **Prompt cache.** A Codex turn with tools translated for Anthropic's own API, or for an `anthropic/…` model on OpenRouter, gets Anthropic's automatic caching (ADR-036). On OpenRouter and OpenAI the launch session goes on as their routing key, hashed, so turns reach the machine holding the cache.
 - **Windows sandbox:** in a fresh `CODEX_HOME`, `-s workspace-write` falls back to read-only until `[windows] sandbox = "unelevated"` (or the user's own elevated setup) is set.
 
-Verified: unit tests in `integrations.rs`; live with Codex CLI 0.163.0: set-up, an answer through the gateway on Claude Haiku 5.5, removal leaving `config.toml` byte-identical; tool round trips with `apply_patch` on Anthropic and Qwen connections; the prompt-cache run in [benchmark/reports/2026-11-14-codex-claude-prompt-cache.md](../benchmark/reports/2026-11-14-codex-claude-prompt-cache.md). `pygg run codex`: unit tests only.
+Verified: unit tests in `integrations.rs`; live with Codex CLI 0.163.0: set-up, an answer through the gateway on Claude Haiku 5.5, removal leaving `config.toml` byte-identical; tool round trips with `apply_patch` on Anthropic and Qwen connections; the prompt-cache run in [benchmark/reports/2026-11-14-codex-claude-prompt-cache.md](../benchmark/reports/2026-11-14-codex-claude-prompt-cache.md). The catalog: `pygg setup codex` in a scratch `CODEX_HOME` wrote it with 178 models, Codex 0.163.0 loaded all 178 with `apply_patch` and their context sizes (`codex debug models`), and a task on Qwen 3.8 Flash created its file with the patch tool at the first step, where without the catalog the model had tried `apply_patch` through the shell and been refused. `pygg run codex`: unit tests only.
 
 ### OpenCode
 
@@ -175,5 +181,4 @@ Verified: unit tests in `tasks.rs` with a scripted agent in real worktrees (appr
 
 ## Not built yet
 
-- Codex's model catalog for the models Pygg lists, so Codex gets `apply_patch` and real context sizes.
 - Cancelling a single run on the Agents screen (tasks can be stopped).

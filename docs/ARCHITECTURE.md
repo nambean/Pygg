@@ -72,7 +72,7 @@ A site with no API, used through a window the user signs in to, and served to th
 
 ## Tools, the command line and npm
 
-- **One-click set-up** (`integrations.rs`) points Codex's or OpenCode's models at the gateway, or registers the MCP server: back up, make a Pygg API key of its own, write, check, and put the file back if a step fails. **The Claude Code launcher** (`launcher.rs`) keeps its key in the OS credential store and sets the gateway in one launch's environment only. Details: [AGENTS.md](AGENTS.md).
+- **One-click set-up** (`integrations.rs`) points Codex's or OpenCode's models at the gateway (for Codex with a catalog of Pygg's models, `codex_catalog.rs`), or registers the MCP server: back up, make a Pygg API key of its own, write, check, and put the file back if a step fails. **The Claude Code launcher** (`launcher.rs`) keeps its key in the OS credential store and sets the gateway in one launch's environment only. Details: [AGENTS.md](AGENTS.md).
 - **`pygg-cli`** (`cli/`) is the one console program; read commands open the store read-only. The npm package `@pygg/cli` is only a Node launcher that runs the native program from a per-platform optional dependency (ADR-037). Details: [design/CLI.md](design/CLI.md).
 
 ## Smart tasks (experimental, on hold)

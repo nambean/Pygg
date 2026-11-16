@@ -263,7 +263,7 @@ This replaces the parts of [design/SCREENS.md](design/SCREENS.md) that assume ta
 
 **Why:** Codex CLI speaks only the Responses API, so without it Codex could not use Pygg as a gateway.
 
-**Cost:** Hosted tools (web search, file search, code interpreter) are unavailable on translated connections. A model Codex does not know runs with Codex's fallback metadata unless the user gives it a model catalog (AGENTS.md). One-click setup is "Codex: models through Pygg".
+**Cost:** Hosted tools (web search, file search, code interpreter) are unavailable on translated connections. A model Codex does not know runs with Codex's fallback metadata; the `pygg` profile names a catalog Pygg writes, with each model's context size and `apply_patch` and Codex's own default instructions (Apache-2.0, bundled by the owner's decision of 2026-11-16; AGENTS.md). One-click setup is "Codex: models through Pygg".
 
 ## ADR-034 — Pools of separate accounts
 

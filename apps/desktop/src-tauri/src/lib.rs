@@ -13,6 +13,7 @@ pub mod backup;
 pub mod bench;
 pub mod checks;
 pub mod cli;
+pub mod codex_catalog;
 #[cfg(feature = "app")]
 pub mod commands;
 pub mod db;
@@ -209,6 +210,10 @@ pub fn run() {
                     // OpenCode's list of Pygg's models follows what the catalog filled (integrations.rs).
                     if let Err(e) = integrations::sync_opencode_models(&shared, &integrations::Homes::from_env()) {
                         applog::warn(&format!("OpenCode's model list: {e}"));
+                    }
+                    // And the catalog Codex's pygg profile reads, named in a profile written before it existed.
+                    if let Err(e) = integrations::sync_codex_catalog(&shared, &integrations::Homes::from_env()) {
+                        applog::warn(&format!("Codex's model catalog: {e}"));
                     }
                 });
             }

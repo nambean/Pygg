@@ -5,3 +5,5 @@
 benchmark/results/** -text
 # The npm launcher runs on every platform; its shebang must not get a CR.
 packages/npm/**/*.js text eol=lf
+# Third-party text compiled in as is (Codex's prompt): keep its bytes, no CRLF on checkout.
+apps/desktop/src-tauri/third_party/** -text
