@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { CacheMissCause, CacheMissGroup, TokenMix as Mix, TokenMixGroup, TokenParts } from '../../lib/api';
+import type { CacheMissCause, CacheMissGroup, PrefixMeter, PrefixSession, TokenMix as Mix, TokenMixGroup, TokenParts } from '../../lib/api';
 import { plural, t } from '../../lib/i18n';
 import { microUsd, tokens } from '../../lib/money';
 import { useGateway } from '../../hooks/useGateway';
@@ -94,6 +94,7 @@ export function TokenMix({days}: {days: number}) {
         <div className="table-scroll"><MissTable groups={m.misses}/></div>
         <p className="group-footnote">{t('Answers that read nothing from the provider’s cache, with the likeliest cause read from the ledger. The provider does not say why.')}</p>
       </details>}
+      {m.prefix.sessions > 0 && <PrefixDetails meter={m.prefix}/>}
       {m.withTokens > 0 && <details className="token-mix-details">
         <summary>{t('By client and model')}</summary>
         <div className="table-scroll"><MixTable title={t('Client')} groups={m.byClient}/></div>
@@ -120,6 +121,55 @@ function MixTable({title, groups, mono}: {title: string; groups: TokenMixGroup[]
           <td className="num">{microUsd(g.knownMicroUsd)}</td>
         </tr>;
       })}
+    </tbody>
+  </table>;
+}
+
+/** What sessions send before their conversation (store::prefix_meter): the tools and system prompt at a session's first
+ *  request, how often they changed, and how often they went again without a cache read. Numbers only. */
+function PrefixDetails({meter}: {meter: PrefixMeter}) {
+  const each = (n: number) => tokens(Math.round(n / meter.sessions));
+  return <details className="token-mix-details">
+    <summary>{plural(meter.sessions, 'Tools and system prompt: {n} session', 'Tools and system prompt: {n} sessions')}</summary>
+    <dl className="savings-figures token-figures">
+      <div title={t('Tool definitions at each session’s first request, on average')}>
+        <dt>{t('Tools per session')}</dt><dd>{each(meter.firstToolsTokens)}</dd>
+      </div>
+      <div title={t('System prompt at each session’s first request, on average')}>
+        <dt>{t('System prompt per session')}</dt><dd>{each(meter.firstSystemTokens)}</dd>
+      </div>
+      <div title={t('Requests whose tools or system prompt differed from the session’s request before')}>
+        <dt>{t('Changed in a session')}</dt><dd>{meter.changes === 0 ? t('None') : plural(meter.changes, '{n} time', '{n} times')}</dd>
+      </div>
+      <div title={t('Later requests that read nothing from the cache, so the tools and system prompt went again in full or as a cache write')}>
+        <dt>{t('Sent again uncached')}</dt>
+        <dd>{meter.resent === 0 ? t('None') : <>{tokens(meter.resentTokens)}{' '}
+          <small className="secondary">{plural(meter.resent, '{n} request', '{n} requests')}</small></>}</dd>
+      </div>
+    </dl>
+    <div className="table-scroll"><PrefixTable sessions={meter.top}/></div>
+    <p className="group-footnote">{t('What each session sends before its conversation, measured from the request; sizes are Pygg’s estimate. Sent again uncached counts later requests of a session that read nothing from the provider’s cache. Pygg keeps these numbers only, never the text. Requests without a session are not counted.')}</p>
+  </details>;
+}
+
+function PrefixTable({sessions}: {sessions: PrefixSession[]}) {
+  return <table className="data-table" aria-label={t('Sessions that sent their tools and system prompt again the most')}>
+    <thead><tr>
+      <th scope="col">{t('Client')}</th><th scope="col">{t('Session')}</th>
+      <th scope="col" className="num">{t('Tools')}</th><th scope="col" className="num">{t('System prompt')}</th>
+      <th scope="col" className="num">{t('Requests')}</th><th scope="col" className="num">{t('Changed')}</th>
+      <th scope="col" className="num">{t('Sent again')}</th>
+    </tr></thead>
+    <tbody>
+      {sessions.map(s => <tr key={`${s.client}|${s.session}`}>
+        <td title={s.client}>{s.client || t('No client')}</td>
+        <td className="mono" title={s.session}>{s.session}</td>
+        <td className="num">{tokens(s.toolsTokens)}</td>
+        <td className="num">{tokens(s.systemTokens)}</td>
+        <td className="num">{s.requests}</td>
+        <td className="num">{s.changes}</td>
+        <td className="num">{s.resent > 0 ? `${tokens(s.resentTokens)} (${s.resent})` : '—'}</td>
+      </tr>)}
     </tbody>
   </table>;
 }

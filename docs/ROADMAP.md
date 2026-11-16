@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Status:** Authoritative · delivery order and release gates · reviewed 2026-11-15
+> **Status:** Authoritative · delivery order and release gates · reviewed 2026-11-16
 
 What comes next, in order, and what must be true before a public release. What is already built, and how it was verified, is in [Implementation Status](IMPLEMENTATION-STATUS.md). Why, in [DECISIONS](DECISIONS.md). Nothing here is a claim that code exists.
 
@@ -19,11 +19,8 @@ What comes next, in order, and what must be true before a public release. What i
    - Estimated savings and the token mix read against a real ledger.
 2. **The native window, clicked through.** Every screen in the installed app, not only the browser preview. The D12 checks (ADR-012): scaling, snap layouts above 100%, Narrator and NVDA, contrast themes.
 3. **Install on a clean Windows machine.** NSIS install, first run, gateway, a coding tool set up, uninstall leaving nothing behind.
-4. **Token and cost work, in the order ADR-036 sets.** The token mix, launch sessions, the way home after a fallback, why each answer missed the cache, routing diagnostics and the always-on context of each agent's global files (Skills & Prompts, ADR-039) exist. Next, each proved on the fake provider before one short live check:
-   - **A short live check of the way home and of the cache-miss causes** against one provider that reports its cache, read against the ledger.
-   - **The cache marker for Anthropic models through OpenRouter**, which documents the same top-level `cache_control`.
-   - **The launch session passed on** to providers that route by one (OpenRouter's `x-session-id`, OpenAI's `prompt_cache_key`), so repeated requests reach the machine holding their cache. A random launch id, never prompt content.
-   - **A meter for each session's tool definitions and system prompt**: their size on the first request and how often they are written to the cache again. Numbers only.
+4. **Token and cost work, in the order ADR-036 sets.** The token mix, launch sessions, the way home after a fallback, why each answer missed the cache, routing diagnostics, the always-on context of each agent's global files (Skills & Prompts, ADR-039), the cache marker for Anthropic's models through OpenRouter, the session passed on to OpenRouter and OpenAI, and the meter for each session's tools and system prompt exist, proved on the fake provider. Next:
+   - **One short live check** against a provider that reports its cache, read against the ledger: the way home, the cache-miss causes, the tools-and-system-prompt meter, and OpenRouter's marker and `x-session-id` on an `anthropic/…` model. Needs the owner's go-ahead for the spend.
    - **Clearing old tool results** (Anthropic's context editing) in shadow first, for OpenAI-format clients only and never for Claude Code's native requests; opt-in only if the shadow shows a net saving after the cache writes it causes.
    Anything that changes a request is opt-in, reversible and checked for cache parity first. Never rewrite an external agent's history, inject instructions or split tasks into sub-agents to save tokens.
 5. **Codex's model catalog** for the models Pygg lists, so Codex gets `apply_patch` and real context sizes without a hand-written catalog.

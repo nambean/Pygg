@@ -7,6 +7,59 @@ use super::Surface;
 use serde_json::Value;
 use std::collections::HashSet;
 
+/// What a request carries before its conversation: its tool definitions and its system prompt (ROADMAP item 4), as
+/// estimated tokens and a fingerprint of both. Numbers only; the text is not kept.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Prefix {
+    pub tools_tokens: u64,
+    pub system_tokens: u64,
+    /// The first eight bytes of a SHA-256 of the tools and the system prompt: equal fingerprints, same prefix.
+    pub hash: i64,
+}
+
+/// The system prompt's text in any of the three formats: Anthropic's `system`, the leading `system` and `developer`
+/// messages of Chat Completions, the Responses API's `instructions` and leading `system` and `developer` items.
+fn system_text(surface: Surface, body: &Value) -> String {
+    let leading = |items: &Value, content: &str| -> Vec<String> {
+        items
+            .as_array()
+            .into_iter()
+            .flatten()
+            .take_while(|m| matches!(m["role"].as_str(), Some("system" | "developer")))
+            .map(|m| text_of(&m[content]))
+            .collect()
+    };
+    let parts = match surface {
+        Surface::Anthropic => vec![text_of(&body["system"])],
+        Surface::OpenAi => leading(&body["messages"], "content"),
+        Surface::Responses => {
+            let mut parts = vec![body["instructions"].as_str().unwrap_or_default().to_string()];
+            parts.extend(leading(&body["input"], "content"));
+            parts
+        }
+    };
+    parts.into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join("\n")
+}
+
+/// The request's tool definitions and system prompt, measured. `None` when it carries neither.
+pub fn prefix(surface: Surface, body: &Value) -> Option<Prefix> {
+    use sha2::{Digest, Sha256};
+    let tools = body["tools"].as_array().filter(|t| !t.is_empty()).map(|t| Value::Array(t.clone()).to_string());
+    let system = system_text(surface, body);
+    if tools.is_none() && system.is_empty() {
+        return None;
+    }
+    let tools = tools.unwrap_or_default();
+    let digest = Sha256::digest(format!("{tools}\0{system}").as_bytes());
+    let mut first = [0u8; 8];
+    first.copy_from_slice(&digest[..8]);
+    Some(Prefix {
+        tools_tokens: super::estimate_text_tokens(&tools),
+        system_tokens: super::estimate_text_tokens(&system),
+        hash: i64::from_be_bytes(first),
+    })
+}
+
 /// Tool output shorter than this is not counted: short results ("ok", an exit code) repeat by nature.
 const MIN_CHARS: usize = 200;
 
@@ -73,6 +126,33 @@ pub fn repeated_tokens(surface: Surface, body: &Value) -> Option<u64> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn measures_the_tools_and_system_prompt_in_each_format() {
+        let tools = json!([{ "name": "read", "description": "Read a file", "input_schema": { "type": "object" } }]);
+        let anthropic = json!({ "system": [{ "type": "text", "text": "You are terse." }], "tools": tools,
+            "messages": [{ "role": "user", "content": "hi" }] });
+        let a = prefix(Surface::Anthropic, &anthropic).unwrap();
+        assert!(a.tools_tokens > 10 && a.system_tokens == 5, "{a:?}");
+
+        // Chat Completions: only the leading system and developer messages are the system prompt.
+        let chat = |system: &str| {
+            json!({ "messages": [
+            { "role": "system", "content": system }, { "role": "developer", "content": "Use tools." },
+            { "role": "user", "content": "hi" }, { "role": "system", "content": "a late note, part of the history" }] })
+        };
+        let c = prefix(Surface::OpenAi, &chat("You are terse.")).unwrap();
+        assert_eq!((c.tools_tokens, c.system_tokens), (0, 9));
+        assert_eq!(c.hash, prefix(Surface::OpenAi, &chat("You are terse.")).unwrap().hash);
+        assert_ne!(c.hash, prefix(Surface::OpenAi, &chat("You are brief.")).unwrap().hash);
+
+        let responses = json!({ "instructions": "Be brief.", "tools": tools,
+            "input": [{ "type": "message", "role": "developer", "content": [{ "type": "input_text", "text": "Use tools." }] },
+                { "type": "message", "role": "user", "content": [{ "type": "input_text", "text": "hi" }] }] });
+        let r = prefix(Surface::Responses, &responses).unwrap();
+        assert_eq!(r.system_tokens, 7);
+        assert_eq!(prefix(Surface::OpenAi, &json!({ "messages": [{ "role": "user", "content": "hi" }] })), None);
+    }
 
     #[test]
     fn counts_tool_output_that_a_request_repeats() {

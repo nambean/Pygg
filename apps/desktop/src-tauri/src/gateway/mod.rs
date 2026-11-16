@@ -1137,8 +1137,9 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 (false, true) => format!("{route_kind}+home"),
                 _ => route_kind.clone(),
             },
-            cache_hint: cache_hint(incoming, &provider, mode).to_string(),
+            cache_hint: cache_hint(incoming, &provider, &model_id, mode).to_string(),
             key_id: key.as_ref().map(|k| k.id.clone()),
+            prefix: shadow::prefix(incoming.surface, incoming.body),
         };
         let started = Instant::now();
         let sent_ms = db_now();
@@ -1284,7 +1285,11 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             }
             shared.signatures.lock().unwrap_or_else(|p| p.into_inner()).apply(&mut body, provider.kind == "gemini");
         }
+        let session_header = incoming.session.and_then(|s| pass_session(&provider.kind, &client.id, s, &mut body));
         let mut request = shared.http.post(url).json(&body);
+        if let Some((name, value)) = session_header {
+            request = request.header(name, value);
+        }
         if provider.wire == "anthropic" {
             if let Some(key) = &key {
                 request = request.header("x-api-key", key);
@@ -1517,19 +1522,63 @@ fn route_kind(shared: &Shared, requested: &str) -> String {
 /// to its last block and moves forward with the conversation; it uses one of Anthropic's four breakpoints and costs
 /// 1.25x on what it writes, repaid by the next turn's read. A request the client marked itself, a native Anthropic
 /// request, a one-off question without tools, and Anthropic-format endpoints of other providers are left as they are.
-fn adds_cache(incoming: &Incoming, provider: &Provider, mode: Mode) -> bool {
+///
+/// OpenRouter documents the same top-level marker for Anthropic's models, placed by OpenRouter on the last cacheable
+/// block, so an OpenAI-format agent's turn to an `anthropic/…` model there gets it too. A request in Anthropic's own
+/// format keeps the client's markers instead (`anthropic::to_openai`).
+fn adds_cache(incoming: &Incoming, provider: &Provider, model_id: &str, mode: Mode) -> bool {
     // `PYGG_ANTHROPIC_AUTO_CACHE=off` turns it off for the process: the benchmark's "plain translating gateway" arm.
     let enabled = std::env::var("PYGG_ANTHROPIC_AUTO_CACHE").map_or(true, |v| v != "off");
-    enabled
-        && provider.kind == "anthropic"
-        && matches!(mode, Mode::OpenAiToAnthropic | Mode::ResponsesToAnthropic)
-        && incoming.body["tools"].as_array().is_some_and(|t| !t.is_empty())
+    let target = match provider.kind.as_str() {
+        "anthropic" => matches!(mode, Mode::OpenAiToAnthropic | Mode::ResponsesToAnthropic),
+        "openrouter" => {
+            is_anthropic_on_openrouter(model_id)
+                && (matches!(mode, Mode::ResponsesToOpenAi)
+                    || (mode == Mode::Native && incoming.surface == Surface::OpenAi))
+        }
+        _ => false,
+    };
+    enabled && target && incoming.body["tools"].as_array().is_some_and(|t| !t.is_empty())
+}
+
+/// An Anthropic model by OpenRouter's id (`anthropic/claude-…`, or a `~anthropic/…` alias for the latest one).
+fn is_anthropic_on_openrouter(model_id: &str) -> bool {
+    model_id.starts_with("anthropic/") || model_id.starts_with("~anthropic/")
+}
+
+/// The session a request names, passed on to a provider that routes by one so repeated requests reach the machine
+/// holding their prompt cache (ADR-036): OpenRouter's `x-session-id` header (sticky for 60 minutes), OpenAI's
+/// `prompt_cache_key`. What goes is a hash of the client and its session id, never the id as sent and never prompt
+/// content. A request that already names its own key keeps it. Returns the header to add, if any.
+fn pass_session(kind: &str, client_id: &str, session: &str, body: &mut Value) -> Option<(&'static str, String)> {
+    if std::env::var("PYGG_PASS_SESSION").is_ok_and(|v| v == "off") {
+        return None;
+    }
+    let named = |b: &Value| b.get("prompt_cache_key").is_some_and(|v| !v.is_null());
+    match kind {
+        "openai" if !named(body) => {
+            body["prompt_cache_key"] = json!(session_tag(client_id, session));
+            None
+        }
+        "openrouter" if !named(body) && body.get("session_id").is_none_or(Value::is_null) => {
+            Some(("x-session-id", session_tag(client_id, session)))
+        }
+        _ => None,
+    }
+}
+
+/// A stable, opaque name for one client's session: `pygg-` and 32 hex characters of a SHA-256.
+fn session_tag(client_id: &str, session: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(format!("pygg-session\0{client_id}\0{session}").as_bytes());
+    let hex: String = digest.iter().take(16).map(|b| format!("{b:02x}")).collect();
+    format!("pygg-{hex}")
 }
 
 /// What happened to the client's prompt-cache hints on this target (`added` when Pygg turned on automatic caching): kept as sent, carried into the OpenAI format where
 /// the provider takes them, or dropped; `none` when the request had none (an OpenAI-format client caches without them).
-fn cache_hint(incoming: &Incoming, provider: &Provider, mode: Mode) -> &'static str {
-    if adds_cache(incoming, provider, mode) && !anthropic::has_cache_control(incoming.body) {
+fn cache_hint(incoming: &Incoming, provider: &Provider, model_id: &str, mode: Mode) -> &'static str {
+    if adds_cache(incoming, provider, model_id, mode) && !anthropic::has_cache_control(incoming.body) {
         return "added";
     }
     if incoming.surface != Surface::Anthropic || !anthropic::has_cache_control(incoming.body) {
@@ -1592,7 +1641,7 @@ fn upstream_request(
         }
     };
     body["model"] = json!(model_id);
-    if adds_cache(incoming, provider, mode) && !anthropic::has_cache_control(&body) {
+    if adds_cache(incoming, provider, model_id, mode) && !anthropic::has_cache_control(&body) {
         body["cache_control"] = json!({ "type": "ephemeral" });
     }
     if incoming.surface == Surface::Responses && mode == Mode::Native {

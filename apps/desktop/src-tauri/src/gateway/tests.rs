@@ -23,6 +23,8 @@ struct Fake {
     last_body: Mutex<Option<Value>>,
     /// The keys model `ring` was asked with, in order (key rings, ADR-038).
     keys: Mutex<Vec<String>>,
+    /// The headers of the last Chat Completions request, for what is passed on to a provider.
+    last_headers: Mutex<Option<HeaderMap>>,
 }
 
 impl Fake {
@@ -36,6 +38,7 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
     let model = body["model"].as_str().unwrap_or("").to_string();
     *fake.calls.lock().unwrap().entry(model.clone()).or_default() += 1;
     *fake.last_body.lock().unwrap() = Some(body.clone());
+    *fake.last_headers.lock().unwrap() = Some(headers.clone());
     if model == "badkey" {
         return (StatusCode::UNAUTHORIZED, Json(json!({ "error": { "message": "invalid api key" } }))).into_response();
     }
@@ -1001,6 +1004,113 @@ fn an_agents_openai_turn_to_anthropics_own_api_turns_on_prompt_caching() {
         // A one-off question without tools pays no cache write.
         assert_eq!(rig.post("/v1/chat/completions", chat("claude/sonnet")).await.status(), 200);
         assert!(sent()["cache_control"].is_null());
+    });
+}
+
+/// ADR-036: OpenRouter takes the same top-level marker for Anthropic's models, so an agent's OpenAI-format turn to an
+/// `anthropic/…` model there gets it; another model there, a turn without tools and a client's own marker are left alone,
+/// and an Anthropic-format client's top-level marker crosses the translation.
+#[test]
+fn an_agents_turn_to_claude_through_openrouter_turns_on_prompt_caching() {
+    rt().block_on(async {
+        let rig = rig().await;
+        let with_tools = |model: &str| {
+            let mut request = chat(model);
+            request["tools"] = json!([{ "type": "function", "function": { "name": "read", "parameters": { "type": "object", "properties": {} } } }]);
+            request
+        };
+        let sent = || rig.fake.last_body.lock().unwrap().clone().unwrap();
+
+        assert_eq!(rig.post("/v1/chat/completions", with_tools("router/anthropic/claude-haiku-5.5")).await.status(), 200);
+        assert_eq!(sent()["cache_control"], json!({ "type": "ephemeral" }));
+        assert_eq!(rig.ledger().pop().unwrap().cache_hint.as_deref(), Some("added"));
+
+        // Codex's Responses turn, translated to Chat Completions for OpenRouter.
+        let codex = responses_request("router/~anthropic/claude-sonnet-latest", false);
+        assert_eq!(rig.post("/v1/responses", codex).await.status(), 200);
+        assert_eq!(sent()["cache_control"], json!({ "type": "ephemeral" }));
+
+        // Another vendor's model on OpenRouter, a question without tools: nothing added.
+        assert_eq!(rig.post("/v1/chat/completions", with_tools("router/qwen/qwen3-coder")).await.status(), 200);
+        assert!(sent()["cache_control"].is_null());
+        assert_eq!(rig.ledger().pop().unwrap().cache_hint.as_deref(), Some("none"));
+        assert_eq!(rig.post("/v1/chat/completions", chat("router/anthropic/claude-haiku-5.5")).await.status(), 200);
+        assert!(sent()["cache_control"].is_null());
+
+        // The client's own marker on a part is kept as it is, and nothing is added beside it.
+        let mut marked = with_tools("router/anthropic/claude-haiku-5.5");
+        marked["messages"][0]["content"] =
+            json!([{ "type": "text", "text": "ping", "cache_control": { "type": "ephemeral" } }]);
+        assert_eq!(rig.post("/v1/chat/completions", marked).await.status(), 200);
+        assert!(sent()["cache_control"].is_null());
+        assert_eq!(sent()["messages"][0]["content"][0]["cache_control"], json!({ "type": "ephemeral" }));
+
+        // An Anthropic-format client's top-level marker crosses to OpenRouter; to a provider that takes none, it is named.
+        let top = |model: &str| json!({ "model": model, "max_tokens": 64, "cache_control": { "type": "ephemeral" },
+            "messages": [{ "role": "user", "content": "ping" }] });
+        let kept = rig.post("/v1/messages", top("router/anthropic/claude-haiku-5.5")).await;
+        assert!(kept.headers().get("x-pygg-dropped").is_none());
+        assert_eq!(sent()["cache_control"], json!({ "type": "ephemeral" }));
+        assert_eq!(rig.ledger().pop().unwrap().cache_hint.as_deref(), Some("translated"));
+        let dropped = rig.post("/v1/messages", top("main/fast")).await;
+        assert_eq!(dropped.headers()["x-pygg-dropped"], "cache_control");
+        assert!(sent()["cache_control"].is_null());
+    });
+}
+
+/// ADR-036: a request's session is passed on to providers that route by one, as an opaque hash: OpenRouter's
+/// `x-session-id`, OpenAI's `prompt_cache_key`. A key the client named stays; other providers get nothing; no session,
+/// nothing.
+#[test]
+fn the_session_is_passed_on_as_a_hash_to_providers_that_route_by_one() {
+    rt().block_on(async {
+        let rig = rig().await;
+        let sent = || rig.fake.last_body.lock().unwrap().clone().unwrap();
+        let header = || {
+            let headers = rig.fake.last_headers.lock().unwrap().clone().unwrap();
+            headers.get("x-session-id").map(|v| v.to_str().unwrap().to_string())
+        };
+
+        assert_eq!(rig.post_session("/v1/chat/completions", "launch-1", chat("router/m")).await.status(), 200);
+        let tag = header().expect("OpenRouter gets the session");
+        assert!(tag.starts_with("pygg-") && tag.len() == 37 && !tag.contains("launch-1"), "{tag}");
+        assert!(sent()["session_id"].is_null() && sent()["prompt_cache_key"].is_null());
+        // The same session gives the same tag; another session another.
+        rig.post_session("/v1/chat/completions", "launch-1", chat("router/m")).await;
+        assert_eq!(header().as_deref(), Some(tag.as_str()));
+        rig.post_session("/v1/chat/completions", "launch-2", chat("router/m")).await;
+        assert_ne!(header().as_deref(), Some(tag.as_str()));
+        // A key the client named wins on OpenRouter, so Pygg adds none; no session, nothing.
+        let mut named = chat("router/m");
+        named["session_id"] = json!("theirs");
+        rig.post_session("/v1/chat/completions", "launch-1", named).await;
+        assert_eq!(header(), None);
+        assert_eq!(sent()["session_id"], "theirs");
+        rig.post("/v1/chat/completions", chat("router/m")).await;
+        assert_eq!(header(), None);
+
+        // Another provider gets nothing.
+        rig.post_session("/v1/chat/completions", "launch-1", chat("main/fast")).await;
+        assert_eq!(header(), None);
+        assert!(sent()["prompt_cache_key"].is_null());
+
+        // OpenAI: the tag as `prompt_cache_key`, unless the client sent its own (Codex does).
+        rig.shared.with_db(|db| db.execute("UPDATE providers SET kind = 'openai' WHERE id = 'main'", [])).unwrap();
+        rig.post_session("/v1/chat/completions", "launch-1", chat("main/fast")).await;
+        assert_eq!(sent()["prompt_cache_key"], json!(tag));
+        assert_eq!(header(), None);
+        let mut theirs = chat("main/fast");
+        theirs["prompt_cache_key"] = json!("conversation-7");
+        rig.post_session("/v1/chat/completions", "launch-1", theirs).await;
+        assert_eq!(sent()["prompt_cache_key"], "conversation-7");
+
+        // The session's tools and system prompt are measured into the ledger, as numbers.
+        let mut with_system = chat("main/fast");
+        with_system["messages"] =
+            json!([{ "role": "system", "content": "You are terse." }, { "role": "user", "content": "ping" }]);
+        rig.post_session("/v1/chat/completions", "launch-9", with_system).await;
+        let meter = rig.shared.with_db(|db| store::prefix_meter(db, 0)).unwrap();
+        assert!(meter.top.iter().any(|s| s.session == "launch-9" && (s.tools_tokens, s.system_tokens) == (0, 5)));
     });
 }
 

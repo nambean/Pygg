@@ -2182,6 +2182,8 @@ pub struct AttemptFacts {
     pub cache_hint: String,
     /// The key of the connection's key ring that sent it (ADR-038); `None` for a connection with one key.
     pub key_id: Option<String>,
+    /// The request's tool definitions and system prompt, measured (migration 0036); `None` when it carried neither.
+    pub prefix: Option<super::shadow::Prefix>,
 }
 
 impl<'a> UsageRecord<'a> {
@@ -2350,13 +2352,14 @@ pub fn cache_miss(conn: &Connection, r: &UsageRecord, now: i64) -> rusqlite::Res
 fn insert_usage(conn: &Connection, r: &UsageRecord, at_risk_micro: Option<u64>) -> rusqlite::Result<()> {
     let now = now_ms();
     let miss = cache_miss(conn, r, now)?;
+    let prefix = r.facts.and_then(|f| f.prefix);
     conn.execute(
         "INSERT INTO usage_events (id, client_id, provider, model, input_tokens, output_tokens, cache_tokens, \
          cost_micro_usd, cost_status, source, created_at, outcome, http_status, latency_ms, requested_model, error, \
          cache_write_tokens, session_key, route_mode, at_risk_micro_usd, route_reason, repeated_tokens, request_id, attempt, \
-         billing, route_kind, cache_hint, key_id, cache_miss) \
+         billing, route_kind, cache_hint, key_id, cache_miss, tools_tokens, system_tokens, prefix_hash) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, \
-         ?25, ?26, ?27, ?28, ?29)",
+         ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)",
         params![
             uuid::Uuid::new_v4().to_string(), r.client_id, r.provider_id, r.model_id,
             r.input_tokens.map(|v| v as i64), r.output_tokens.map(|v| v as i64), r.cache_tokens.map(|v| v as i64),
@@ -2366,6 +2369,7 @@ fn insert_usage(conn: &Connection, r: &UsageRecord, at_risk_micro: Option<u64>) 
             r.repeated_tokens.map(|v| v as i64), r.facts.map(|f| f.request_id.as_str()), r.facts.map(|f| f.attempt as i64),
             r.facts.map(|f| f.billing.as_str()), r.facts.map(|f| f.route_kind.as_str()), r.facts.map(|f| f.cache_hint.as_str()),
             r.facts.and_then(|f| f.key_id.as_deref()), miss,
+            prefix.map(|p| p.tools_tokens as i64), prefix.map(|p| p.system_tokens as i64), prefix.map(|p| p.hash),
         ],
     )?;
     if let Some(client) = r.client_id {
@@ -2915,6 +2919,115 @@ pub struct TokenMix {
     pub by_model: Vec<TokenMixGroup>,
     /// Answers that read nothing from the cache, by why (migration 0034), most prompt tokens first.
     pub misses: Vec<CacheMissGroup>,
+    /// What sessions carry before their conversation, and how often it was sent again uncached (migration 0036).
+    pub prefix: PrefixMeter,
+}
+
+/// The tool definitions and system prompts of the period's sessions (ROADMAP item 4), from their answered requests.
+/// Sizes are the gateway's estimate from the request; a request without a session is not in it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrefixMeter {
+    pub sessions: u64,
+    pub requests: u64,
+    /// Summed over sessions, each counted at its first request.
+    pub first_tools_tokens: u64,
+    pub first_system_tokens: u64,
+    /// Requests whose tools or system prompt differed from the session's request before.
+    pub changes: u64,
+    /// Requests after a session's first that read nothing from the cache though the provider reports it: the tools and
+    /// system prompt went again at full price or as a cache write. Their size, summed.
+    pub resent: u64,
+    pub resent_tokens: u64,
+    /// The sessions that sent them again the most, at most five.
+    pub top: Vec<PrefixSession>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrefixSession {
+    pub client: String,
+    pub session: String,
+    pub tools_tokens: u64,
+    pub system_tokens: u64,
+    pub requests: u64,
+    pub changes: u64,
+    pub resent: u64,
+    pub resent_tokens: u64,
+}
+
+/// Misses that say nothing about the prefix: the provider did not report its cache, or the prompt was too short.
+const NOT_A_RESEND: [&str; 2] = ["not_reported", "below_minimum"];
+
+pub fn prefix_meter(conn: &Connection, since: i64) -> Result<PrefixMeter> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT COALESCE(c.name, ''), u.client_id, u.session_key, u.tools_tokens, u.system_tokens, u.prefix_hash, \
+             u.cache_miss FROM usage_events u LEFT JOIN gateway_clients c ON c.id = u.client_id \
+             WHERE u.created_at >= ?1 AND u.outcome = 'ok' AND u.prefix_hash IS NOT NULL AND u.session_key IS NOT NULL \
+             ORDER BY u.client_id, u.session_key, u.created_at, u.rowid",
+        )
+        .map_err(err)?;
+    let rows = stmt
+        .query_map([since], |r| {
+            let n = |i: usize| r.get::<_, Option<i64>>(i).map(|v| v.unwrap_or(0).max(0) as u64);
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                r.get::<_, String>(2)?,
+                n(3)?,
+                n(4)?,
+                r.get::<_, i64>(5)?,
+                r.get::<_, Option<String>>(6)?,
+            ))
+        })
+        .map_err(err)?;
+    let mut meter = PrefixMeter::default();
+    let mut sessions: Vec<PrefixSession> = Vec::new();
+    let mut current: Option<(String, String, i64)> = None;
+    for row in rows {
+        let (name, client, session, tools, system, hash, miss) = row.map_err(err)?;
+        let same = current.as_ref().is_some_and(|(c, s, _)| *c == client && *s == session);
+        if !same {
+            sessions.push(PrefixSession {
+                client: name,
+                session: session.clone(),
+                tools_tokens: tools,
+                system_tokens: system,
+                ..PrefixSession::default()
+            });
+        }
+        let entry = sessions.last_mut().expect("a session was pushed");
+        entry.requests += 1;
+        if same {
+            if current.as_ref().is_some_and(|(_, _, previous)| *previous != hash) {
+                entry.changes += 1;
+            }
+            if miss.as_deref().is_some_and(|m| !NOT_A_RESEND.contains(&m)) {
+                entry.resent += 1;
+                entry.resent_tokens += tools + system;
+            }
+        }
+        current = Some((client, session, hash));
+    }
+    for s in &sessions {
+        meter.sessions += 1;
+        meter.requests += s.requests;
+        meter.first_tools_tokens += s.tools_tokens;
+        meter.first_system_tokens += s.system_tokens;
+        meter.changes += s.changes;
+        meter.resent += s.resent;
+        meter.resent_tokens += s.resent_tokens;
+    }
+    sessions.sort_by(|a, b| {
+        b.resent_tokens
+            .cmp(&a.resent_tokens)
+            .then_with(|| (b.tools_tokens + b.system_tokens).cmp(&(a.tools_tokens + a.system_tokens)))
+            .then_with(|| a.session.cmp(&b.session))
+    });
+    sessions.truncate(5);
+    meter.top = sessions;
+    Ok(meter)
 }
 
 /// Answers that missed the cache for one reason, and their prompt tokens, all read in full or written to the cache.
@@ -3018,6 +3131,7 @@ pub fn token_mix(conn: &Connection, since: i64) -> Result<TokenMix> {
         .map_err(err)?
         .collect::<rusqlite::Result<_>>()
         .map_err(err)?;
+    mix.prefix = prefix_meter(conn, since)?;
     Ok(mix)
 }
 
@@ -3860,6 +3974,7 @@ mod tests {
                 route_kind: "auto".into(),
                 cache_hint: "none".into(),
                 key_id: None,
+                prefix: None,
             };
             record_usage(
                 &conn,
@@ -3900,6 +4015,61 @@ mod tests {
             (format!("{}/flash", p.id), format!("{}/pro", p.id), "HTTP 429", 500)
         );
         assert_eq!(c.known_micro_usd, Some(7));
+    }
+
+    /// ROADMAP item 4: each session's tools and system prompt at its first answer, the changes, and the later answers that
+    /// read nothing from a cache the provider reports; failures and requests without a session are not counted.
+    #[test]
+    fn the_prefix_meter_counts_each_sessions_tools_and_system_prompt_and_its_uncached_resends() {
+        use super::super::shadow::Prefix;
+        let conn = db::open_in_memory().unwrap();
+        let p = gemini(&conn);
+        let (client, _) = create_client(&conn, "Codex", None).unwrap();
+        let a = Prefix { tools_tokens: 900, system_tokens: 100, hash: 1 };
+        let b = Prefix { tools_tokens: 1200, system_tokens: 100, hash: 2 };
+        let record = |session: Option<&str>, prefix: Prefix, read: Option<u64>, outcome: &str| {
+            let facts = AttemptFacts { cache_hint: "none".into(), prefix: Some(prefix), ..AttemptFacts::default() };
+            record_usage(
+                &conn,
+                &UsageRecord {
+                    client_id: Some(&client.id),
+                    provider_id: &p.id,
+                    model_id: "m",
+                    requested_model: "auto",
+                    input_tokens: Some(4000),
+                    output_tokens: Some(10),
+                    cache_tokens: read,
+                    cost: &Cost::Estimated { micro_usd: 7, source: "x".into() },
+                    outcome,
+                    http_status: Some(200),
+                    latency_ms: 1,
+                    error: None,
+                    cache_write_tokens: None,
+                    session_key: session,
+                    route_mode: None,
+                    route_reason: None,
+                    repeated_tokens: None,
+                    facts: Some(&facts),
+                },
+            )
+            .unwrap();
+        };
+        record(Some("s1"), a, Some(0), "ok"); // the session's first request: not a resend
+        record(Some("s1"), a, Some(3000), "ok"); // read from the cache
+        record(Some("s1"), b, Some(0), "ok"); // the tools changed, so the whole prefix went again
+        record(Some("s1"), b, None, "ok"); // the provider did not say: not counted as a resend
+        record(Some("s1"), a, None, "error"); // a failure: not counted at all
+        record(Some("s2"), a, Some(0), "ok");
+        record(None, b, Some(0), "ok"); // no session
+
+        let meter = prefix_meter(&conn, 0).unwrap();
+        assert_eq!((meter.sessions, meter.requests), (2, 5));
+        assert_eq!((meter.first_tools_tokens, meter.first_system_tokens), (1800, 200));
+        assert_eq!((meter.changes, meter.resent, meter.resent_tokens), (1, 1, 1300));
+        let first = &meter.top[0];
+        assert_eq!((first.client.as_str(), first.session.as_str()), ("Codex", "s1"));
+        assert_eq!((first.requests, first.changes, first.resent, first.resent_tokens), (4, 1, 1, 1300));
+        assert_eq!(token_mix(&conn, 0).unwrap().prefix, meter);
     }
 
     #[test]

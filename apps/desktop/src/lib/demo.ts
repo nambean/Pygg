@@ -4,7 +4,7 @@
  * data" banner whenever this is in use (ADR-014). It follows the core's rules (slugs, validation, honest
  * costs) closely enough for design review, not as a test of them.
  */
-import type { AgentInfo, Integration, Launcher, ClientDefaults, ConnectionCheck, HealthStrip, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, RoutingSummary, TokenMix, TokenMixGroup, TokenParts, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus, SavingsPart, SavingsPeriod,
+import type { AgentInfo, Integration, Launcher, ClientDefaults, ConnectionCheck, HealthStrip, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, RoutingSummary, TokenMix, TokenMixGroup, TokenParts, PrefixSession, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus, SavingsPart, SavingsPeriod,
   Health, Model, Preset, Target, Tier, UsageEvent, UsageBucket, UsageGroup, UsageSummary, Account, Wire,
   LocalUsage, SubscriptionUsage, Retention } from './api';
 import { TIERS, WEB_WARNING_VERSION, type ConnectionKey, type KeyStrategy } from './api';
@@ -1031,7 +1031,29 @@ export function demoApi(): GatewayApi {
       const zero = (): TokenParts => ({newInput: 0, cacheRead: 0, cacheWrite: 0, output: 0});
       const add = (into: TokenParts, p: TokenParts) => { into.newInput += p.newInput; into.cacheRead += p.cacheRead; into.cacheWrite += p.cacheWrite; into.output += p.output; };
       const list = events.filter(e => e.createdAt >= Date.now() - days * 86_400_000);
-      const mix: TokenMix = {tokens: zero(), cost: zero(), requests: list.length, withTokens: 0, unsplitMicroUsd: 0, unknownCostRequests: 0, byClient: [], byModel: [], misses: []};
+      const mix: TokenMix = {tokens: zero(), cost: zero(), requests: list.length, withTokens: 0, unsplitMicroUsd: 0, unknownCostRequests: 0, byClient: [], byModel: [], misses: [],
+        prefix: {sessions: 0, requests: 0, firstToolsTokens: 0, firstSystemTokens: 0, changes: 0, resent: 0, resentTokens: 0, top: []}};
+      // As store::prefix_meter: each session's tools and system prompt at its first answer, then changes and uncached resends.
+      // Claude Code carries far more tool definitions than the others; the sizes are made up, shaped like real ones.
+      const sessions = new Map<string, PrefixSession>();
+      for (const e of [...list].filter(e => e.sessionKey && e.outcome === 'ok').sort((a, b) => a.createdAt - b.createdAt)) {
+        const big = e.client === 'Claude Code', toolsTokens = big ? 16_840 : 2_310, systemTokens = big ? 3_420 : 860;
+        const s = sessions.get(e.sessionKey!);
+        if (!s) {
+          sessions.set(e.sessionKey!, {client: e.client ?? '', session: e.sessionKey!, toolsTokens, systemTokens, requests: 1, changes: 0, resent: 0, resentTokens: 0});
+          continue;
+        }
+        s.requests += 1;
+        if (e.cacheMiss === 'prefix_changed') s.changes += 1;
+        if (e.cacheMiss && e.cacheMiss !== 'not_reported' && e.cacheMiss !== 'below_minimum') { s.resent += 1; s.resentTokens += toolsTokens + systemTokens; }
+      }
+      for (const s of sessions.values()) {
+        const p = mix.prefix;
+        p.sessions += 1; p.requests += s.requests; p.firstToolsTokens += s.toolsTokens; p.firstSystemTokens += s.systemTokens;
+        p.changes += s.changes; p.resent += s.resent; p.resentTokens += s.resentTokens;
+      }
+      mix.prefix.top = [...sessions.values()].sort((a, b) => b.resentTokens - a.resentTokens
+        || (b.toolsTokens + b.systemTokens) - (a.toolsTokens + a.systemTokens) || a.session.localeCompare(b.session)).slice(0, 5);
       for (const e of list) {
         if (!e.cacheMiss) continue;
         const g = mix.misses.find(m => m.cause === e.cacheMiss) ?? (mix.misses[mix.misses.length] = {cause: e.cacheMiss, requests: 0, inputTokens: 0});

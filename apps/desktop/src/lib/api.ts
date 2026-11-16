@@ -242,7 +242,15 @@ export type TokenMix = {
   unknownCostRequests: number; byClient: TokenMixGroup[]; byModel: TokenMixGroup[];
   /** Answers that missed the cache, by why, most prompt tokens first. */
   misses: CacheMissGroup[];
+  /** What sessions carry before their conversation (schema v36). */
+  prefix: PrefixMeter;
 };
+/** One session's tool definitions and system prompt, measured on its first request, and how often they went again
+ *  without a cache read. Estimated tokens; Pygg keeps the numbers, never the text. */
+export type PrefixSession = {client: string; session: string; toolsTokens: number; systemTokens: number; requests: number;
+  changes: number; resent: number; resentTokens: number};
+export type PrefixMeter = {sessions: number; requests: number; firstToolsTokens: number; firstSystemTokens: number;
+  changes: number; resent: number; resentTokens: number; top: PrefixSession[]};
 
 /** Usage → Requests filters, applied in the store's query over the whole period (store::RequestFilter). */
 export type RequestFilter = { client: string | null; model: string | null; show: 'problems' | 'unknown' | null };

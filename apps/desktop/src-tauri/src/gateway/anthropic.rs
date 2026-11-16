@@ -147,7 +147,8 @@ pub fn untranslated(request: &Value, takes_reasoning: bool) -> Vec<String> {
 /// Whether any system, message or tool block carries a prompt-cache marker.
 pub fn has_cache_control(request: &Value) -> bool {
     let blocks = |v: &Value| v.as_array().is_some_and(|a| a.iter().any(|b| b.get("cache_control").is_some()));
-    blocks(&request["system"])
+    !request["cache_control"].is_null()
+        || blocks(&request["system"])
         || request["messages"].as_array().is_some_and(|m| m.iter().any(|m| blocks(&m["content"])))
         || blocks(&request["tools"])
 }
@@ -317,6 +318,10 @@ pub fn to_openai(request: &Value, keep_cache: bool, takes_reasoning: bool) -> Va
                 };
             }
         }
+    }
+    // Anthropic's automatic caching: one marker at the top, which OpenRouter takes in the same place.
+    if keep_cache && !request["cache_control"].is_null() {
+        out["cache_control"] = request["cache_control"].clone();
     }
     out
 }
