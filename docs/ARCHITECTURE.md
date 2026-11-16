@@ -20,7 +20,7 @@ Pygg is one program: a Rust core inside a Tauri 2 window, with the same core als
                         ┌─────────────────┼──────────────┐                │ provider APIs (keys from
                         ▼                 ▼              ▼                ▼ the OS credential store)
                    Task engine       SQLite store    OS credential   OpenAI-compatible and Anthropic
-                   (tasks.rs,        (db.rs, v34)    store           endpoints, local runtimes, and
+                   (tasks.rs,        (db.rs, v35)    store           endpoints, local runtimes, and
                     on hold)                         (vault.rs)      web sessions (websession/: a
                         │                                            loopback endpoint → a Pygg window)
                         ▼  one Git worktree per attempt (isolation.rs)
@@ -32,8 +32,8 @@ Pygg is one program: a Rust core inside a Tauri 2 window, with the same core als
 
 - **One crate** (`apps/desktop/src-tauri`, ADR-005). The app is the default binary. `pygg-cli`, `gateway`, `agent`, `bench` and `pygg-mcp` (`src/bin/`) run the same library without a window. The window is the Cargo feature `app`, so `pygg-cli` also builds with `--no-default-features` for macOS and Linux.
 - **The interface** is React 19 and Vite in `apps/desktop/src`. It talks to the core only through Tauri commands (`commands.rs`, `src/lib/native.ts`).
-- **Skills & Prompts** (`skills.rs`, ADR-039) reads the agents' global instruction files and skill, command and prompt folders, and writes one `SKILL.md` per install into `~/.claude/skills` or `~/.agents/skills`, with Codex's `agents/openai.yaml` beside a prompt in the shared folder. It never downloads or runs anything.
-- **One store**: `store.sqlite3` in the app data folder (`%APPDATA%\app.smarttaskrouter.desktop` on Windows, `~/Library/Application Support/…` on macOS, `$XDG_DATA_HOME` or `~/.local/share/…` on Linux, or `PYGG_DATA_DIR`). Migrations in `migrations/` run in one transaction when it opens; the schema version is the number of migrations (v34). Reference: [SCHEMA.md](SCHEMA.md).
+- **Skills & Prompts** (`skills.rs`, ADR-039) reads the agents' global instruction files and skill, command and prompt folders, and the same at the root of each project folder the user added, and writes one `SKILL.md` per install into `~/.claude/skills` or `~/.agents/skills` or a project's `.claude/skills` or `.agents/skills`, with Codex's `agents/openai.yaml` beside a prompt in an `.agents/skills` folder. It never downloads or runs anything.
+- **One store**: `store.sqlite3` in the app data folder (`%APPDATA%\app.smarttaskrouter.desktop` on Windows, `~/Library/Application Support/…` on macOS, `$XDG_DATA_HOME` or `~/.local/share/…` on Linux, or `PYGG_DATA_DIR`). Migrations in `migrations/` run in one transaction when it opens; the schema version is the number of migrations (v35). Reference: [SCHEMA.md](SCHEMA.md).
 - **Secrets** live in the OS credential store (`vault.rs`: Windows Credential Manager, macOS Keychain, Linux Secret Service). The store keeps only a reference. Client tokens are stored hashed.
 - **Backups and logs**: a copy of the store goes to `backups/` at start-up and about once a day, newest three kept (`backup.rs`). The app's log is `logs/pygg.log`, redacted, rotated at 1 MB (`applog.rs`). A store that cannot be opened at start-up is explained, with an offer to restore the latest copy (`startup.rs`).
 - **One gateway per store**: `gateway::start` takes an OS lock on `<store>.gateway-lock` and holds it until every attempt it sent is settled.

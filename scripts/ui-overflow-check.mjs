@@ -2,7 +2,7 @@
 // Opens the browser preview with `?stress` data in headless Edge or Chrome at the app's minimum size (1024 × 640), its
 // default (1440 × 900) and a wide window (1990 × 1030), on every screen and in the states that broke or could break:
 // models tested on a connection of 40 long-named models, a row's menu, every sheet (Connect, Create API Key, Limits,
-// Edit Price, the combo editor, a skill), combos tested, a failed request expanded, keys shown, every agent's context
+// Edit Price, the combo editor, a skill, a project's skills, Add Project), combos tested, a failed request expanded, keys shown, every agent's context
 // files listed; every screen and the Connect and Create API Key sheets on a first run (`?empty`); and sheets and installs
 // whose change failed with a long error (`?fail`). It fails when:
 //   - a table or block whose content is wider than its container, unless that container scrolls sideways on purpose;
@@ -48,6 +48,8 @@ const states = [
   {screen: 'skills', name: 'a skill row menu', steps: `click('Actions for', 0); await wait(300);`, expect: '[role=menu]'},
   {screen: 'skills', name: 'a starter skill viewed', steps: `click('Actions for', 0); await wait(300); click('View…'); await wait(500);`, expect: '[role=dialog]'},
   {screen: 'skills', name: 'New Skill sheet', steps: `click('New Skill'); await wait(500);`, expect: '#skill-body'},
+  {screen: 'skills', name: 'a project’s skills sheet', steps: `click('Install Skills…', 0); await wait(600);`, expect: '.project-skills'},
+  {screen: 'skills', name: 'Add Project sheet', steps: `click('Add Project'); await wait(500);`, expect: '#skill-project-path'},
   {screen: 'endpoint', name: 'keys shown', steps: `for (let i = 0; i < 4; i++) click('Show the key', i); await wait(800);`, expect: '.token-full'},
   // First run: nothing connected, no keys, no requests.
   ...['overview', 'connections', 'endpoint', 'tools', 'combos', 'usage', 'skills'].map(screen => ({screen, query: 'empty', name: 'first run', steps: ''})),
@@ -69,6 +71,11 @@ const states = [
     fill('#skill-name', 'database-migration-reviewer-for-the-billing-service'); fill('#skill-description', 'Reviews migrations');
     fill('#skill-body', 'Review it.'); await wait(100); click('Save', -1); await wait(700);`, expect: '[role=dialog] .error-note'},
   {screen: 'skills', query: 'stress&fail', name: 'Install failed', steps: `click('Install for All', 0); await wait(700);`, expect: '.page > .group .error-note'},
+  {screen: 'skills', query: 'stress&fail', name: 'Add Project failed', steps: `click('Add Project'); await wait(500);
+    fill('#skill-project-path', 'D:/work/payments-platform-monorepo-with-a-very-long-folder-name/services/settlement'); await wait(100);
+    click('Add Project', -1); await wait(700);`, expect: '[role=dialog] .error-note'},
+  {screen: 'skills', query: 'stress&fail', name: 'Install in a project failed', steps: `click('Install Skills…', 0); await wait(600);
+    click('Install ', -1); await wait(700);`, expect: '[role=dialog] .error-note'},
   {screen: 'combos', query: 'stress&fail', name: 'Save Combo failed', steps: `click('Edit…', -1); await wait(600);
     click('Save Combo', -1); await wait(700);`, expect: '[role=dialog] .error-note'},
   {screen: 'usage', name: 'a failed request expanded', steps: `click('Requests'); await wait(800);

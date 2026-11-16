@@ -1110,20 +1110,45 @@ pub fn skills_delete(state: State<'_, AppState>, id: String) -> Res<()> {
     state.shared.with_db(|db| crate::skills::delete(db, &homes, &id))
 }
 
-/// Writes a skill into an agent's skills folder (`claude-code` or `agents`).
+/// Writes a skill into an agent's skills folder (`claude-code` or `agents`), globally or in a project the user added.
 #[tauri::command]
-pub fn skills_install(state: State<'_, AppState>, id: String, target: String) -> Res<crate::skills::Skill> {
+pub fn skills_install(
+    state: State<'_, AppState>, id: String, target: String, project: Option<String>,
+) -> Res<crate::skills::Skill> {
     let homes = crate::skills::Homes::from_env();
     let target = crate::skills::Target::parse(&target)?;
-    state.shared.with_db(|db| crate::skills::install(db, &homes, &id, target))
+    state.shared.with_db(|db| crate::skills::install(db, &homes, &id, target, project.as_deref()))
 }
 
-/// Removes Pygg's unchanged copy of a skill from an agent's skills folder.
+/// Removes Pygg's unchanged copy of a skill from an agent's skills folder, globally or in a project.
 #[tauri::command]
-pub fn skills_uninstall(state: State<'_, AppState>, id: String, target: String) -> Res<crate::skills::Skill> {
+pub fn skills_uninstall(
+    state: State<'_, AppState>, id: String, target: String, project: Option<String>,
+) -> Res<crate::skills::Skill> {
     let homes = crate::skills::Homes::from_env();
     let target = crate::skills::Target::parse(&target)?;
-    state.shared.with_db(|db| crate::skills::uninstall(db, &homes, &id, target))
+    state.shared.with_db(|db| crate::skills::uninstall(db, &homes, &id, target, project.as_deref()))
+}
+
+/// The project folders added for skills, with what each agent adds to every request there.
+#[tauri::command]
+pub fn skills_projects(state: State<'_, AppState>) -> Res<Vec<crate::skills::Project>> {
+    let homes = crate::skills::Homes::from_env();
+    state.shared.with_db(|db| crate::skills::projects(db, &homes))
+}
+
+/// Adds a project folder for skills.
+#[tauri::command]
+pub fn skills_add_project(state: State<'_, AppState>, path: String) -> Res<Vec<crate::skills::Project>> {
+    let homes = crate::skills::Homes::from_env();
+    state.shared.with_db(|db| crate::skills::add_project(db, &homes, &path))
+}
+
+/// Forgets a project folder once Pygg has no copy of a skill left in it.
+#[tauri::command]
+pub fn skills_remove_project(state: State<'_, AppState>, path: String) -> Res<Vec<crate::skills::Project>> {
+    let homes = crate::skills::Homes::from_env();
+    state.shared.with_db(|db| crate::skills::remove_project(db, &homes, &path))
 }
 
 /// What each agent sends with every request from its global instruction files, skills and commands.

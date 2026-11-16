@@ -338,13 +338,18 @@ export type Retention = {days: RetentionDays; lastRun: RetentionRun | null};
 export type SkillTarget = 'claude-code' | 'agents';
 /** installed: Pygg's copy, current; outdated: Pygg's copy of an earlier version; changed: edited since Pygg wrote it;
  *  other: a skill of that name Pygg did not write; absent: none. */
-export type SkillInstall = {target: SkillTarget; state: 'installed' | 'outdated' | 'changed' | 'other' | 'absent'; path: string};
+export type SkillInstall = {target: SkillTarget; state: 'installed' | 'outdated' | 'changed' | 'other' | 'absent'; path: string;
+  /** The project folder for an install into a project's own skills folder; null for the agents' global folders (schema v35). */
+  project?: string | null};
 export type Skill = {id: string; description: string; body: string; manual: boolean; origin: 'pygg' | 'mine'; updatedAt: number | null;
   installs: SkillInstall[]; listedTokens: number; bodyTokens: number};
 export type SkillEdit = {id: string; description: string; body: string; manual: boolean};
 export type ContextItem = {kind: 'instructions' | 'skill' | 'command' | 'prompt'; name: string; path: string; tokens: number;
   fullTokens: number; manual: boolean; pygg: boolean; inLibrary: boolean};
 export type AgentContext = {agent: 'claude-code' | 'codex' | 'opencode'; label: string; alwaysOnTokens: number; items: ContextItem[]};
+/** A project folder added for skills: its own skills folders are places to install, and `agents` is what each agent adds
+ *  to every request there, on top of its global files. */
+export type SkillProject = {path: string; name: string; addedAt: number; missing: boolean; pyggSkills: number; agents: AgentContext[]};
 
 /** How tasks turned out (ROADMAP C4): every paid step counts toward the money per kept result. */
 export type TaskQuality = {
@@ -509,9 +514,15 @@ export interface GatewayApi {
   saveSkill(skill: SkillEdit): Promise<Skill>;
   /** Deletes one of the user's skills; its installed copies must be removed first. */
   deleteSkill(id: string): Promise<void>;
-  installSkill(id: string, target: SkillTarget): Promise<Skill>;
+  /** Installs into the target's global folder, or into a project's own when `project` names one added here. */
+  installSkill(id: string, target: SkillTarget, project?: string | null): Promise<Skill>;
   /** Removes Pygg's unchanged copy from the target. */
-  uninstallSkill(id: string, target: SkillTarget): Promise<Skill>;
+  uninstallSkill(id: string, target: SkillTarget, project?: string | null): Promise<Skill>;
+  /** The project folders added for skills. */
+  skillProjects(): Promise<SkillProject[]>;
+  addSkillProject(path: string): Promise<SkillProject[]>;
+  /** Forgets a project folder once Pygg has no copy of a skill left in it. */
+  removeSkillProject(path: string): Promise<SkillProject[]>;
   /** What each agent sends with every request from its global instruction files, skills and commands. */
   skillsContext(): Promise<AgentContext[]>;
   /** Copies a skill from an agent's skills folder into the library. */
@@ -635,8 +646,11 @@ const native: GatewayApi = {
   skills: () => invoke('skills_list'),
   saveSkill: skill => invoke('skills_save', {skill}),
   deleteSkill: id => invoke('skills_delete', {id}),
-  installSkill: (id, target) => invoke('skills_install', {id, target}),
-  uninstallSkill: (id, target) => invoke('skills_uninstall', {id, target}),
+  installSkill: (id, target, project) => invoke('skills_install', {id, target, project: project ?? null}),
+  uninstallSkill: (id, target, project) => invoke('skills_uninstall', {id, target, project: project ?? null}),
+  skillProjects: () => invoke('skills_projects'),
+  addSkillProject: path => invoke('skills_add_project', {path}),
+  removeSkillProject: path => invoke('skills_remove_project', {path}),
   skillsContext: () => invoke('skills_context'),
   importSkill: path => invoke('skills_import', {path}),
   retention: () => invoke('retention_get'),

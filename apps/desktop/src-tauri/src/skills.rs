@@ -3,7 +3,8 @@
 //! folders, and a measure of the context each agent sends with every request before any work is done.
 //!
 //! - **Where skills go.** Claude Code reads `~/.claude/skills` (or `$CLAUDE_CONFIG_DIR/skills`); Codex reads
-//!   `~/.agents/skills`; OpenCode reads both and `~/.config/opencode/skills`. Pygg installs into the first two.
+//!   `~/.agents/skills`; OpenCode reads both and `~/.config/opencode/skills`. Pygg installs into the first two, and into
+//!   a project's own `.claude/skills` and `.agents/skills` for a project folder the user added (`skill_projects`).
 //! - **What an agent loads.** Each agent keeps only a skill's name and description in context and reads the
 //!   instructions when the skill is used. A skill marked `disable-model-invocation: true` (a "prompt": run only when the
 //!   user types `/name`) is left out of Claude Code's and OpenCode's list, so it costs nothing until used. Codex has its
@@ -12,8 +13,9 @@
 //! - **What Pygg writes.** A `SKILL.md` whose front matter carries `metadata.pygg-hash`, a hash of the rest of the file,
 //!   and for a prompt in the shared folder Codex reads, Codex's `agents/openai.yaml` as well. Pygg never overwrites a
 //!   skill folder it did not write, and never removes a file changed since it wrote it.
-//! - **What Pygg reads.** Only the agents' global skill, command and prompt folders and their global instruction files
-//!   (`CLAUDE.md`, `AGENTS.md`). A project's own files are the agent's business and differ per repository.
+//! - **What Pygg reads.** The agents' global skill, command and prompt folders and their global instruction files
+//!   (`CLAUDE.md`, `AGENTS.md`), and the same at the root of each project the user added. Never a project it was not
+//!   given, and never the folders below a project's root.
 //!
 //! Nothing here downloads anything or runs a script: a skill's folder gets its `SKILL.md` and, for a prompt Codex can
 //! see, `agents/openai.yaml`.
@@ -216,6 +218,8 @@ pub struct Install {
     /// copy, edited since), `other` (a skill of that name that Pygg did not write) or `absent`.
     pub state: &'static str,
     pub path: String,
+    /// The project folder, for an install into a project's own skills folder; none for the agents' global folders.
+    pub project: Option<String>,
 }
 
 /// A skill as the user saves it.
@@ -450,8 +454,19 @@ fn policy_state(skill_dir: &Path) -> Policy {
     }
 }
 
-fn install_state(homes: &Homes, target: Target, id: &str, expected: &str, manual: bool) -> Install {
-    let dir = homes.skills_dir(target).join(id);
+/// The skills folder Pygg installs into: an agent's global folder, or a project's own.
+fn skills_dir(homes: &Homes, project: Option<&Path>, target: Target) -> PathBuf {
+    match (project, target) {
+        (None, target) => homes.skills_dir(target),
+        (Some(root), Target::ClaudeCode) => root.join(".claude").join("skills"),
+        (Some(root), Target::Agents) => root.join(".agents").join("skills"),
+    }
+}
+
+fn install_state(
+    homes: &Homes, project: Option<&Path>, target: Target, id: &str, expected: &str, manual: bool,
+) -> Install {
+    let dir = skills_dir(homes, project, target).join(id);
     let path = dir.join("SKILL.md");
     let state = match std::fs::read_to_string(&path) {
         Err(_) if !dir.exists() => "absent",
@@ -469,13 +484,16 @@ fn install_state(homes: &Homes, target: Target, id: &str, expected: &str, manual
             (Some(true), ..) => "outdated",
         },
     };
-    Install { target, state, path: path.display().to_string() }
+    Install { target, state, path: path.display().to_string(), project: project.map(|p| p.display().to_string()) }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn skill(
-    homes: &Homes, id: &str, description: &str, body: &str, manual: bool, origin: &'static str, updated: Option<i64>,
+    homes: &Homes, projects: &[PathBuf], id: &str, description: &str, body: &str, manual: bool, origin: &'static str,
+    updated: Option<i64>,
 ) -> Skill {
     let expected = render(id, description, body, manual);
+    let places = std::iter::once(None).chain(projects.iter().map(|p| Some(p.as_path())));
     Skill {
         id: id.to_string(),
         description: description.to_string(),
@@ -483,7 +501,10 @@ fn skill(
         manual,
         origin,
         updated_at: updated,
-        installs: Target::ALL.iter().map(|t| install_state(homes, *t, id, &expected, manual)).collect(),
+        installs: places
+            .flat_map(|project| Target::ALL.into_iter().map(move |target| (project, target)))
+            .map(|(project, target)| install_state(homes, project, target, id, &expected, manual))
+            .collect(),
         listed_tokens: listed_tokens(id, description, manual),
         body_tokens: estimate_text_tokens(body),
     }
@@ -503,8 +524,9 @@ fn mine(conn: &Connection, id: &str) -> Result<Option<(String, String, bool, i64
 
 /// The library: Pygg's starters, then the user's own skills by name.
 pub fn library(conn: &Connection, homes: &Homes) -> Result<Vec<Skill>> {
+    let projects = project_paths(conn)?;
     let mut out: Vec<Skill> =
-        STARTERS.iter().map(|s| skill(homes, s.id, s.description, s.body, s.manual, "pygg", None)).collect();
+        STARTERS.iter().map(|s| skill(homes, &projects, s.id, s.description, s.body, s.manual, "pygg", None)).collect();
     let mut stmt = conn
         .prepare("SELECT id, description, body, manual, updated_at FROM skills ORDER BY id")
         .map_err(|e| e.to_string())?;
@@ -516,18 +538,19 @@ pub fn library(conn: &Connection, homes: &Homes) -> Result<Vec<Skill>> {
     for row in rows {
         let (id, description, body, manual, updated): (String, String, String, i64, i64) =
             row.map_err(|e| e.to_string())?;
-        out.push(skill(homes, &id, &description, &body, manual != 0, "mine", Some(updated)));
+        out.push(skill(homes, &projects, &id, &description, &body, manual != 0, "mine", Some(updated)));
     }
     Ok(out)
 }
 
 /// One skill of the library.
 pub fn get(conn: &Connection, homes: &Homes, id: &str) -> Result<Skill> {
+    let projects = project_paths(conn)?;
     if let Some(s) = starter(id) {
-        return Ok(skill(homes, s.id, s.description, s.body, s.manual, "pygg", None));
+        return Ok(skill(homes, &projects, s.id, s.description, s.body, s.manual, "pygg", None));
     }
     let (description, body, manual, updated) = mine(conn, id)?.ok_or_else(|| format!("There is no skill {id}."))?;
-    Ok(skill(homes, id, &description, &body, manual, "mine", Some(updated)))
+    Ok(skill(homes, &projects, id, &description, &body, manual, "mine", Some(updated)))
 }
 
 /// Saves one of the user's skills, new or edited. A starter's name is Pygg's: duplicate it under another name to change
@@ -574,16 +597,22 @@ fn write_atomically(path: &Path, text: &str) -> Result<()> {
     })
 }
 
-/// Writes the skill's `SKILL.md` into the target's skills folder, or brings Pygg's earlier copy up to date. A folder of
-/// that name that Pygg did not write, or a copy edited since, is left alone.
-pub fn install(conn: &Connection, homes: &Homes, id: &str, target: Target) -> Result<Skill> {
+/// Writes the skill's `SKILL.md` into the target's skills folder, globally or in a project the user added, or brings
+/// Pygg's earlier copy up to date. A folder of that name that Pygg did not write, or a copy edited since, is left alone.
+pub fn install(conn: &Connection, homes: &Homes, id: &str, target: Target, project: Option<&str>) -> Result<Skill> {
+    let root = listed_project(conn, project, true)?;
     let skill = get(conn, homes, id)?;
-    let install = skill.installs.iter().find(|i| i.target == target).expect("one state per target");
+    let install = skill
+        .installs
+        .iter()
+        .find(|i| i.target == target && i.project.as_deref() == project)
+        .expect("one state per target and place");
+    let folder = skills_dir(homes, root.as_deref(), target);
     match install.state {
         "other" => {
             return Err(format!(
                 "{} already holds a skill named {id} that Pygg did not write; it was left as it is.",
-                homes.skills_dir(target).display()
+                folder.display()
             ))
         }
         "changed" => {
@@ -595,7 +624,7 @@ pub fn install(conn: &Connection, homes: &Homes, id: &str, target: Target) -> Re
         "installed" => return Ok(skill),
         _ => {}
     }
-    let dir = homes.skills_dir(target).join(id);
+    let dir = folder.join(id);
     // Codex's file first: a prompt is never left visible to Codex because the second write failed.
     match (expected_policy(target, skill.manual), policy_state(&dir)) {
         (Some(text), _) => write_atomically(&codex_policy_path(&dir), text)?,
@@ -616,11 +645,12 @@ fn remove_policy(skill_dir: &Path) -> Result<()> {
 }
 
 /// Removes Pygg's copy from the target, if it is unchanged; its folder goes too when nothing else is in it.
-pub fn uninstall(conn: &Connection, homes: &Homes, id: &str, target: Target) -> Result<Skill> {
+pub fn uninstall(conn: &Connection, homes: &Homes, id: &str, target: Target, project: Option<&str>) -> Result<Skill> {
     if !valid_id(id) {
         return Err(format!("There is no skill {id}."));
     }
-    let dir = homes.skills_dir(target).join(id);
+    let root = listed_project(conn, project, false)?;
+    let dir = skills_dir(homes, root.as_deref(), target).join(id);
     let path = dir.join("SKILL.md");
     let Ok(text) = std::fs::read_to_string(&path) else { return get(conn, homes, id) };
     match ours_unchanged(&text) {
@@ -770,6 +800,24 @@ fn agent(agent: &'static str, label: &'static str, mut items: Vec<ContextItem>) 
     AgentContext { agent, label, always_on_tokens: items.iter().map(|i| i.tokens).sum(), items }
 }
 
+/// The skills OpenCode reads from several folders, a name found twice listed once.
+fn skills_once(dirs: impl IntoIterator<Item = PathBuf>, library: &[String]) -> Vec<ContextItem> {
+    let mut out: Vec<ContextItem> = Vec::new();
+    for dir in dirs {
+        for item in skills_in(&dir, RunByName::FrontMatter, library) {
+            if !out.iter().any(|i| i.name == item.name) {
+                out.push(item);
+            }
+        }
+    }
+    out
+}
+
+/// The first of these instruction files that exists, as the agent reads only one of them.
+fn first_instructions(paths: impl IntoIterator<Item = PathBuf>) -> Option<ContextItem> {
+    paths.into_iter().find_map(instructions)
+}
+
 /// What each agent sends with every request from its global files, largest first. Estimates lean high, as the
 /// gateway's do (three ASCII characters a token).
 pub fn context(conn: &Connection, homes: &Homes) -> Result<Vec<AgentContext>> {
@@ -779,22 +827,14 @@ pub fn context(conn: &Connection, homes: &Homes) -> Result<Vec<AgentContext>> {
     let mut claude: Vec<ContextItem> = instructions(homes.claude.join("CLAUDE.md")).into_iter().collect();
     claude.extend(skills_in(&claude_skills, RunByName::FrontMatter, &library));
     claude.extend(markdown_in(&homes.claude.join("commands"), "command"));
-    let mut codex: Vec<ContextItem> = ["AGENTS.override.md", "AGENTS.md"]
-        .iter()
-        .find_map(|f| instructions(homes.codex.join(f)))
-        .into_iter()
-        .collect();
+    let mut codex: Vec<ContextItem> =
+        first_instructions(["AGENTS.override.md", "AGENTS.md"].map(|f| homes.codex.join(f))).into_iter().collect();
     codex.extend(skills_in(&agents_skills, RunByName::CodexPolicy, &library));
     codex.extend(markdown_in(&homes.codex.join("prompts"), "prompt"));
-    let mut opencode: Vec<ContextItem> = instructions(homes.opencode.join("AGENTS.md")).into_iter().collect();
-    // OpenCode reads its own folder and both shared ones; a name found twice is listed once.
-    for dir in [homes.opencode.join("skills"), claude_skills, agents_skills] {
-        for item in skills_in(&dir, RunByName::FrontMatter, &library) {
-            if !opencode.iter().any(|i| i.kind == "skill" && i.name == item.name) {
-                opencode.push(item);
-            }
-        }
-    }
+    // OpenCode falls back to Claude Code's CLAUDE.md when it has no AGENTS.md of its own.
+    let mut opencode: Vec<ContextItem> =
+        first_instructions([homes.opencode.join("AGENTS.md"), homes.claude.join("CLAUDE.md")]).into_iter().collect();
+    opencode.extend(skills_once([homes.opencode.join("skills"), claude_skills, agents_skills], &library));
     Ok(vec![
         agent("claude-code", "Claude Code", claude),
         agent("codex", "Codex", codex),
@@ -802,11 +842,162 @@ pub fn context(conn: &Connection, homes: &Homes) -> Result<Vec<AgentContext>> {
     ])
 }
 
+/// What each agent adds to every request in a project, on top of its global files: the instruction files and skill
+/// folders at the project's root. Files in folders below the root, read only when the agent works there, are not
+/// counted.
+fn project_context(root: &Path, library: &[String]) -> Vec<AgentContext> {
+    let mut claude: Vec<ContextItem> = ["CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md"]
+        .iter()
+        .filter_map(|f| instructions(root.join(f)))
+        .collect();
+    claude.extend(skills_in(&root.join(".claude").join("skills"), RunByName::FrontMatter, library));
+    claude.extend(markdown_in(&root.join(".claude").join("commands"), "command"));
+    let mut codex: Vec<ContextItem> =
+        first_instructions(["AGENTS.override.md", "AGENTS.md"].map(|f| root.join(f))).into_iter().collect();
+    codex.extend(skills_in(&root.join(".agents").join("skills"), RunByName::CodexPolicy, library));
+    let mut opencode: Vec<ContextItem> =
+        first_instructions(["AGENTS.md", "CLAUDE.md"].map(|f| root.join(f))).into_iter().collect();
+    opencode.extend(skills_once([".opencode", ".claude", ".agents"].map(|d| root.join(d).join("skills")), library));
+    vec![
+        agent("claude-code", "Claude Code", claude),
+        agent("codex", "Codex", codex),
+        agent("opencode", "OpenCode", opencode),
+    ]
+}
+
+/// A project folder the user added, with what each agent adds there and how many of the library's skills Pygg has a
+/// copy of in it.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Project {
+    pub path: String,
+    pub name: String,
+    pub added_at: i64,
+    /// The folder is gone or cannot be read; its rows stay until the user removes them.
+    pub missing: bool,
+    pub pygg_skills: u64,
+    pub agents: Vec<AgentContext>,
+}
+
+fn project_paths(conn: &Connection) -> Result<Vec<PathBuf>> {
+    let mut stmt =
+        conn.prepare("SELECT path FROM skill_projects ORDER BY path COLLATE NOCASE").map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+    rows.map(|r| r.map(PathBuf::from).map_err(|e| e.to_string())).collect()
+}
+
+/// A project the user added, as stored; anything else is refused, so Pygg writes only where it was told to.
+fn listed_project(conn: &Connection, project: Option<&str>, must_exist: bool) -> Result<Option<PathBuf>> {
+    let Some(project) = project else { return Ok(None) };
+    if !project_paths(conn)?.iter().any(|p| p.as_os_str() == project) {
+        return Err(format!("{project} is not one of the projects added to Skills & Prompts."));
+    }
+    let root = PathBuf::from(project);
+    if must_exist && !root.is_dir() {
+        return Err(format!("{project} no longer exists."));
+    }
+    Ok(Some(root))
+}
+
+/// The library's skills Pygg has a copy of in a place, edited or not.
+fn pygg_copies(skills: &[Skill], project: &str) -> u64 {
+    skills
+        .iter()
+        .filter(|s| {
+            s.installs.iter().any(|i| {
+                i.project.as_deref() == Some(project) && matches!(i.state, "installed" | "outdated" | "changed")
+            })
+        })
+        .count() as u64
+}
+
+/// The projects the user added, by path.
+pub fn projects(conn: &Connection, homes: &Homes) -> Result<Vec<Project>> {
+    let skills = library(conn, homes)?;
+    let names: Vec<String> = skills.iter().map(|s| s.id.clone()).collect();
+    let mut stmt = conn
+        .prepare("SELECT path, added_at FROM skill_projects ORDER BY path COLLATE NOCASE")
+        .map_err(|e| e.to_string())?;
+    let rows: Vec<(String, i64)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(|e| e.to_string())?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|(path, added_at)| {
+            let root = PathBuf::from(&path);
+            let missing = !root.is_dir();
+            Project {
+                name: root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.clone()),
+                added_at,
+                missing,
+                pygg_skills: pygg_copies(&skills, &path),
+                agents: if missing { Vec::new() } else { project_context(&root, &names) },
+                path,
+            }
+        })
+        .collect())
+}
+
+/// A path as the user knows it: `canonicalize`'s `\\?\` prefix taken off a drive path on Windows.
+fn plain(path: PathBuf) -> PathBuf {
+    let text = path.display().to_string();
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) if !rest.starts_with("UNC") => PathBuf::from(rest),
+        _ => path,
+    }
+}
+
+/// Adds a project folder. Its own skills folders become places to install, and its instruction files are read.
+pub fn add_project(conn: &Connection, homes: &Homes, path: &str) -> Result<Vec<Project>> {
+    let root = std::fs::canonicalize(path.trim())
+        .ok()
+        .filter(|p| p.is_dir())
+        .map(plain)
+        .ok_or_else(|| format!("{path} is not a folder Pygg can read."))?;
+    let home = [homes.claude.parent(), homes.agents.parent()]
+        .into_iter()
+        .flatten()
+        .filter_map(|h| std::fs::canonicalize(h).ok().map(plain))
+        .any(|h| h == root);
+    if home {
+        return Err("That is your home folder, whose .claude and .agents folders are the agents' global ones. Use \
+                    Install for Claude Code or for Codex and OpenCode instead."
+            .into());
+    }
+    conn.execute(
+        "INSERT OR IGNORE INTO skill_projects (path, added_at) VALUES (?1, ?2)",
+        params![root.display().to_string(), now_ms()],
+    )
+    .map_err(|e| e.to_string())?;
+    projects(conn, homes)
+}
+
+/// Forgets a project folder. Pygg's copies in it must be removed first, so none is left behind unmanaged; a folder that
+/// no longer exists has none.
+pub fn remove_project(conn: &Connection, homes: &Homes, path: &str) -> Result<Vec<Project>> {
+    let skills = library(conn, homes)?;
+    let copies = pygg_copies(&skills, path);
+    if copies > 0 {
+        return Err(format!(
+            "Pygg still has {copies} skill{} installed in {path}; remove {} there first.",
+            if copies == 1 { "" } else { "s" },
+            if copies == 1 { "it" } else { "them" }
+        ));
+    }
+    conn.execute("DELETE FROM skill_projects WHERE path = ?1", [path]).map_err(|e| e.to_string())?;
+    projects(conn, homes)
+}
+
 /// Copies a skill found in an agent's folder into the library as the user's own, so it can be edited and installed for
 /// the other agents. Only a `SKILL.md` inside one of the folders `context` reads.
 pub fn import(conn: &Connection, homes: &Homes, path: &str) -> Result<Skill> {
     let path = PathBuf::from(path);
-    let allowed = [homes.claude.join("skills"), homes.agents.join("skills"), homes.opencode.join("skills")];
+    let mut allowed = vec![homes.claude.join("skills"), homes.agents.join("skills"), homes.opencode.join("skills")];
+    for root in project_paths(conn)? {
+        allowed.extend([".claude", ".agents", ".opencode"].map(|d| root.join(d).join("skills")));
+    }
     let dir = path.parent().ok_or("Choose a skill's SKILL.md.")?;
     if path.file_name().and_then(|n| n.to_str()) != Some("SKILL.md")
         || !allowed.iter().any(|a| dir.parent() == Some(a.as_path()))
@@ -908,7 +1099,7 @@ mod tests {
         let conn = db::open_in_memory().unwrap();
         save(&conn, &h, &edit("check-build")).unwrap();
 
-        let s = install(&conn, &h, "check-build", Target::ClaudeCode).unwrap();
+        let s = install(&conn, &h, "check-build", Target::ClaudeCode, None).unwrap();
         assert_eq!(s.installs[0].state, "installed");
         assert_eq!(s.installs[1].state, "absent");
         let file = h.claude.join("skills/check-build/SKILL.md");
@@ -917,21 +1108,21 @@ mod tests {
         // Edited in the library: the copy is outdated until installed again.
         save(&conn, &h, &SkillEdit { body: "Run the build twice.\n".into(), ..edit("check-build") }).unwrap();
         assert_eq!(get(&conn, &h, "check-build").unwrap().installs[0].state, "outdated");
-        install(&conn, &h, "check-build", Target::ClaudeCode).unwrap();
+        install(&conn, &h, "check-build", Target::ClaudeCode, None).unwrap();
         assert!(std::fs::read_to_string(&file).unwrap().contains("twice"));
 
         // Edited by hand: neither overwritten nor removed.
         std::fs::write(&file, std::fs::read_to_string(&file).unwrap().replace("twice", "three times")).unwrap();
         assert_eq!(get(&conn, &h, "check-build").unwrap().installs[0].state, "changed");
-        assert!(install(&conn, &h, "check-build", Target::ClaudeCode).unwrap_err().contains("edited"));
-        assert!(uninstall(&conn, &h, "check-build", Target::ClaudeCode).unwrap_err().contains("edited"));
+        assert!(install(&conn, &h, "check-build", Target::ClaudeCode, None).unwrap_err().contains("edited"));
+        assert!(uninstall(&conn, &h, "check-build", Target::ClaudeCode, None).unwrap_err().contains("edited"));
         assert!(delete(&conn, &h, "check-build").unwrap_err().contains("remove it there first"));
 
         // Put back as Pygg wrote it: removed, and the folder with it.
-        install(&conn, &h, "check-build", Target::Agents).unwrap();
+        install(&conn, &h, "check-build", Target::Agents, None).unwrap();
         std::fs::remove_file(&file).unwrap();
         std::fs::remove_dir(file.parent().unwrap()).unwrap();
-        let s = uninstall(&conn, &h, "check-build", Target::Agents).unwrap();
+        let s = uninstall(&conn, &h, "check-build", Target::Agents, None).unwrap();
         assert!(s.installs.iter().all(|i| i.state == "absent"));
         assert!(!h.agents.join("skills/check-build").exists());
         delete(&conn, &h, "check-build").unwrap();
@@ -947,8 +1138,8 @@ mod tests {
         std::fs::create_dir_all(theirs.parent().unwrap()).unwrap();
         std::fs::write(&theirs, "---\nname: review-diff\ndescription: mine\n---\nMine.\n").unwrap();
         assert_eq!(get(&conn, &h, "review-diff").unwrap().installs[1].state, "other");
-        assert!(install(&conn, &h, "review-diff", Target::Agents).unwrap_err().contains("did not write"));
-        assert!(uninstall(&conn, &h, "review-diff", Target::Agents).unwrap_err().contains("not written by Pygg"));
+        assert!(install(&conn, &h, "review-diff", Target::Agents, None).unwrap_err().contains("did not write"));
+        assert!(uninstall(&conn, &h, "review-diff", Target::Agents, None).unwrap_err().contains("not written by Pygg"));
         assert_eq!(
             std::fs::read_to_string(&theirs).unwrap(),
             "---\nname: review-diff\ndescription: mine\n---\nMine.\n"
@@ -981,7 +1172,7 @@ mod tests {
             .unwrap();
         std::fs::create_dir_all(h.codex.join("prompts")).unwrap();
         std::fs::write(h.codex.join("prompts/fix.md"), "Fix it\n").unwrap();
-        install(&conn, &h, "review-diff", Target::Agents).unwrap();
+        install(&conn, &h, "review-diff", Target::Agents, None).unwrap();
 
         let ctx = context(&conn, &h).unwrap();
         let claude = &ctx[0];
@@ -1010,6 +1201,7 @@ mod tests {
 
         let opencode = &ctx[2];
         assert_eq!(opencode.items.iter().filter(|i| i.kind == "skill").count(), 3, "both shared folders");
+        assert_eq!(opencode.items[0].name, "CLAUDE.md", "OpenCode falls back to CLAUDE.md");
         assert_eq!(opencode.items.iter().find(|i| i.name == "review-diff").unwrap().tokens, 0);
     }
 
@@ -1023,9 +1215,9 @@ mod tests {
         save(&conn, &h, &SkillEdit { manual: true, ..edit("release-notes") }).unwrap();
 
         // Claude Code's folder gets no Codex file; the shared folder does.
-        install(&conn, &h, "release-notes", Target::ClaudeCode).unwrap();
+        install(&conn, &h, "release-notes", Target::ClaudeCode, None).unwrap();
         assert!(!h.claude.join("skills/release-notes/agents").exists());
-        let s = install(&conn, &h, "release-notes", Target::Agents).unwrap();
+        let s = install(&conn, &h, "release-notes", Target::Agents, None).unwrap();
         assert_eq!(s.installs[1].state, "installed");
         assert_eq!(std::fs::read_to_string(&policy).unwrap(), CODEX_POLICY);
         assert!(implicit_invocation_off(CODEX_POLICY));
@@ -1033,30 +1225,30 @@ mod tests {
         // A copy installed before Pygg wrote Codex's file is brought up to date.
         std::fs::remove_file(&policy).unwrap();
         assert_eq!(get(&conn, &h, "release-notes").unwrap().installs[1].state, "outdated");
-        install(&conn, &h, "release-notes", Target::Agents).unwrap();
+        install(&conn, &h, "release-notes", Target::Agents, None).unwrap();
         assert!(policy.exists());
 
         // No longer a prompt: the file goes.
         save(&conn, &h, &edit("release-notes")).unwrap();
         assert_eq!(get(&conn, &h, "release-notes").unwrap().installs[1].state, "outdated");
-        install(&conn, &h, "release-notes", Target::Agents).unwrap();
+        install(&conn, &h, "release-notes", Target::Agents, None).unwrap();
         assert!(!skill_dir.join("agents").exists());
 
         // A prompt again, then Codex's file edited by hand: neither overwritten nor removed.
         save(&conn, &h, &SkillEdit { manual: true, ..edit("release-notes") }).unwrap();
-        install(&conn, &h, "release-notes", Target::Agents).unwrap();
+        install(&conn, &h, "release-notes", Target::Agents, None).unwrap();
         std::fs::write(&policy, "policy:\n  allow_implicit_invocation: false\ninterface:\n  brand_color: \"#000\"\n")
             .unwrap();
         assert_eq!(get(&conn, &h, "release-notes").unwrap().installs[1].state, "changed");
-        assert!(install(&conn, &h, "release-notes", Target::Agents).unwrap_err().contains("edited"));
-        assert!(uninstall(&conn, &h, "release-notes", Target::Agents).unwrap_err().contains("openai.yaml"));
+        assert!(install(&conn, &h, "release-notes", Target::Agents, None).unwrap_err().contains("edited"));
+        assert!(uninstall(&conn, &h, "release-notes", Target::Agents, None).unwrap_err().contains("openai.yaml"));
         assert!(skill_dir.join("SKILL.md").exists());
 
         // Pygg's own: removed with the skill, and the folders with them.
-        install(&conn, &h, "release-notes", Target::Agents).unwrap_err();
+        install(&conn, &h, "release-notes", Target::Agents, None).unwrap_err();
         std::fs::write(&policy, CODEX_POLICY.replace('\n', "\r\n")).unwrap();
         assert_eq!(get(&conn, &h, "release-notes").unwrap().installs[1].state, "installed", "line endings");
-        uninstall(&conn, &h, "release-notes", Target::Agents).unwrap();
+        uninstall(&conn, &h, "release-notes", Target::Agents, None).unwrap();
         assert!(!skill_dir.exists());
     }
 
@@ -1069,6 +1261,63 @@ mod tests {
         assert!(!implicit_invocation_off("policy:\n  allow_implicit_invocation: true\n"));
         assert!(!implicit_invocation_off("interface:\n  allow_implicit_invocation: false\n"));
         assert!(!implicit_invocation_off("# policy:\n#  allow_implicit_invocation: false\n"));
+    }
+
+    #[test]
+    fn a_project_added_gets_its_own_installs_and_its_own_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let h = homes(dir.path());
+        let conn = db::open_in_memory().unwrap();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::write(repo.join("CLAUDE.md"), "y".repeat(90)).unwrap();
+        std::fs::write(repo.join("AGENTS.md"), "z".repeat(60)).unwrap();
+        let given = repo.display().to_string();
+
+        // Only a project the user added is a place to write.
+        let refused = install(&conn, &h, "review-diff", Target::Agents, Some(&given)).unwrap_err();
+        assert!(refused.contains("not one of the projects"), "{refused}");
+        assert!(add_project(&conn, &h, &dir.path().display().to_string()).unwrap_err().contains("home folder"));
+        assert!(add_project(&conn, &h, &dir.path().join("gone").display().to_string()).is_err());
+        let list = add_project(&conn, &h, &given).unwrap();
+        assert_eq!((list.len(), list[0].name.as_str(), list[0].missing), (1, "repo", false));
+        assert_eq!(add_project(&conn, &h, &given).unwrap().len(), 1, "added once");
+        let path = list[0].path.clone();
+
+        let s = install(&conn, &h, "review-diff", Target::Agents, Some(&path)).unwrap();
+        assert_eq!(s.installs.len(), 4, "two global places and two in the project");
+        let here = |s: &Skill, t: Target| {
+            s.installs.iter().find(|i| i.target == t && i.project.as_deref() == Some(path.as_str())).unwrap().state
+        };
+        assert_eq!(here(&s, Target::Agents), "installed");
+        assert!(repo.join(".agents/skills/review-diff/agents/openai.yaml").exists(), "Codex reads the project's too");
+        assert!(!h.agents.join("skills/review-diff").exists(), "the global folder is untouched");
+        let s = install(&conn, &h, "review-diff", Target::ClaudeCode, Some(&path)).unwrap();
+        assert_eq!(here(&s, Target::ClaudeCode), "installed");
+        assert!(repo.join(".claude/skills/review-diff/SKILL.md").exists());
+
+        // What each agent adds in the project: its instruction file, not the prompt.
+        let p = &projects(&conn, &h).unwrap()[0];
+        assert_eq!(p.pygg_skills, 1);
+        assert_eq!(p.agents[0].always_on_tokens, 30, "Claude Code: CLAUDE.md");
+        assert_eq!(p.agents[1].always_on_tokens, 20, "Codex: AGENTS.md");
+        assert_eq!(p.agents[2].always_on_tokens, 20, "OpenCode: AGENTS.md before CLAUDE.md");
+        assert_eq!(p.agents[2].items.iter().filter(|i| i.kind == "skill").count(), 1, "one name, two folders");
+
+        // A skill found in the project can join the library.
+        let theirs = Path::new(&path).join(".claude/skills/deploy/SKILL.md");
+        std::fs::create_dir_all(theirs.parent().unwrap()).unwrap();
+        std::fs::write(&theirs, "---\nname: deploy\ndescription: Deploys\n---\nSteps\n").unwrap();
+        import(&conn, &h, &theirs.display().to_string()).unwrap();
+
+        // Forgotten only once Pygg's copies there are gone.
+        assert!(remove_project(&conn, &h, &path).unwrap_err().contains("remove it there first"));
+        uninstall(&conn, &h, "review-diff", Target::Agents, Some(&path)).unwrap();
+        uninstall(&conn, &h, "review-diff", Target::ClaudeCode, Some(&path)).unwrap();
+        assert!(!repo.join(".agents/skills/review-diff").exists());
+        assert!(remove_project(&conn, &h, &path).unwrap().is_empty());
+        assert_eq!(get(&conn, &h, "review-diff").unwrap().installs.len(), 2);
+        assert!(uninstall(&conn, &h, "review-diff", Target::Agents, Some(&path)).is_err());
     }
 
     #[test]
