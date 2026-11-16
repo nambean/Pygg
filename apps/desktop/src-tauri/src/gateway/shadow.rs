@@ -103,6 +103,54 @@ fn tool_outputs(surface: Surface, body: &Value) -> Vec<String> {
     out
 }
 
+/// Anthropic's context editing at its defaults (`clear_tool_uses_20250919`): once the prompt passes this many tokens,
+/// clear the old tool results.
+pub const CLEAR_TRIGGER_TOKENS: u64 = 100_000;
+/// … keeping this many of the most recent.
+pub const CLEAR_KEEP: usize = 3;
+
+/// What clearing old tool results would do to one request (ROADMAP item 4, shadow). Estimated tokens; nothing is cleared.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Clearing {
+    /// Tool results that would be cleared; 0 below the trigger.
+    pub count: u64,
+    /// Their tokens, which would no longer be sent.
+    pub tokens: u64,
+    /// The tokens from the newest cleared result to the end of the conversation. When a request clears one more result
+    /// than the one before it, this part no longer matches what the provider cached, and is written to the cache again.
+    pub tail_tokens: u64,
+}
+
+/// What Anthropic's context editing, at its defaults, would clear from this request. Only for OpenAI-format clients
+/// (Chat Completions and the Responses API): an Anthropic-format request is Claude Code's own, and its history is never
+/// touched (ADR-036). `None` without tool output.
+pub fn clearing(surface: Surface, body: &Value) -> Option<Clearing> {
+    let (items, is_output, content): (&Value, fn(&Value) -> bool, &str) = match surface {
+        Surface::Anthropic => return None,
+        Surface::OpenAi => (&body["messages"], |m| m["role"] == "tool", "content"),
+        Surface::Responses => (
+            &body["input"],
+            |i| i["type"] == "function_call_output" || i["type"] == "custom_tool_call_output",
+            "output",
+        ),
+    };
+    let items = items.as_array()?;
+    let outputs: Vec<usize> = (0..items.len()).filter(|i| is_output(&items[*i])).collect();
+    if outputs.is_empty() {
+        return None;
+    }
+    if super::estimate_text_tokens(&body.to_string()) < CLEAR_TRIGGER_TOKENS || outputs.len() <= CLEAR_KEEP {
+        return Some(Clearing::default());
+    }
+    let cleared = &outputs[..outputs.len() - CLEAR_KEEP];
+    let newest = *cleared.last().expect("at least one result is cleared");
+    Some(Clearing {
+        count: cleared.len() as u64,
+        tokens: cleared.iter().map(|i| super::estimate_text_tokens(&text_of(&items[*i][content]))).sum(),
+        tail_tokens: items[newest..].iter().map(|m| super::estimate_text_tokens(&m.to_string())).sum(),
+    })
+}
+
 /// About how many tokens of tool output the request repeats from earlier in itself: each output of at least
 /// `MIN_CHARS` that is identical to an earlier one counts in full, at four characters a token (an estimate, as
 /// named in the interface). `None` when the request has no tool output at all.
@@ -152,6 +200,35 @@ mod tests {
         let r = prefix(Surface::Responses, &responses).unwrap();
         assert_eq!(r.system_tokens, 7);
         assert_eq!(prefix(Surface::OpenAi, &json!({ "messages": [{ "role": "user", "content": "hi" }] })), None);
+    }
+
+    #[test]
+    fn measures_what_clearing_old_tool_results_would_take_out() {
+        let file = "x".repeat(30_000); // about 10,000 tokens each at the gateway's estimate
+        let chat = |results: usize| {
+            let mut messages = vec![json!({ "role": "user", "content": "go" })];
+            for n in 0..results {
+                messages.push(json!({ "role": "assistant", "tool_calls": [{ "id": format!("c{n}"), "type": "function",
+                    "function": { "name": "read", "arguments": "{}" } }] }));
+                messages.push(json!({ "role": "tool", "tool_call_id": format!("c{n}"), "content": file }));
+            }
+            json!({ "messages": messages })
+        };
+        // Under the trigger, or past it with no more than three results: nothing would be cleared.
+        assert_eq!(clearing(Surface::OpenAi, &chat(4)), Some(Clearing::default()));
+        assert_eq!(clearing(Surface::OpenAi, &json!({ "messages": [{ "role": "user", "content": "hi" }] })), None);
+        // Twelve results of about 10,000 tokens: the oldest nine go, and the tail runs from the ninth to the end.
+        let c = clearing(Surface::OpenAi, &chat(12)).unwrap();
+        assert_eq!((c.count, c.tokens), (9, 90_000));
+        assert!(c.tail_tokens > 40_000 && c.tail_tokens < 41_000, "{c:?}");
+
+        let responses = json!({ "input": (0..12).map(|n| json!({ "type": "function_call_output", "call_id": format!("c{n}"),
+            "output": file })).collect::<Vec<_>>() });
+        assert_eq!(clearing(Surface::Responses, &responses).unwrap().count, 9);
+        // Claude Code's own requests are never measured for clearing.
+        let anthropic = json!({ "messages": [{ "role": "user", "content": [{ "type": "tool_result", "tool_use_id": "c",
+            "content": file }] }] });
+        assert_eq!(clearing(Surface::Anthropic, &anthropic), None);
     }
 
     #[test]

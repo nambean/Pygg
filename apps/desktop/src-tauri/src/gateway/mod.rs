@@ -1140,6 +1140,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             cache_hint: cache_hint(incoming, &provider, &model_id, mode).to_string(),
             key_id: key.as_ref().map(|k| k.id.clone()),
             prefix: shadow::prefix(incoming.surface, incoming.body),
+            clearing: shadow::clearing(incoming.surface, incoming.body),
         };
         let started = Instant::now();
         let sent_ms = db_now();

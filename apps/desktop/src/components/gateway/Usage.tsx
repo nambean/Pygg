@@ -9,6 +9,7 @@ import { useGateway } from '../../hooks/useGateway';
 import { Badge, Empty, ErrorNote, Segmented, Spinner } from '../ui';
 import { UsageAlerts } from './UsageAlerts';
 import { RepeatedOutput } from './RepeatedOutput';
+import { ClearingShadow } from './ClearingShadow';
 import { CostOverTime } from './CostOverTime';
 import { Savings, SavingsDetails, useSavings } from './Savings';
 import { TokenMix, cacheMissLabel, cacheMissText } from './TokenMix';
@@ -186,6 +187,7 @@ export function Usage({onOpenTools, intent, onIntentDone}: {onOpenTools?: () => 
       <Routing days={Number(range)} onReview={() => { setShow('problems'); setOpenId(null); setPart('requests'); }}/>
       <SavingsDetails savings={savings} onPickClient={key => pick(setClient, key)}/>
       <RepeatedOutput days={Number(range)}/>
+      <ClearingShadow days={Number(range)}/>
 
       <div className="two-columns">
         <GroupTable title={t('By Model')} column={t('Model')} groups={data.byModel} mono onPick={key => pick(setModel, key)}/>

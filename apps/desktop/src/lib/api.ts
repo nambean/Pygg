@@ -286,7 +286,11 @@ export type RoutingSummary = { requests: number; attempts: number; answered: num
 
 /** Repeated tool output in a period's requests (P1-4, shadow): measured, never removed. Tokens are about-figures. */
 export type ShadowSummary = {requests: number; requestsWithRepeats: number; repeatedTokens: number; inputTokens: number;
-  cacheReadTokens: number};
+  cacheReadTokens: number; clearing: ClearingShadow};
+/** Clearing old tool results, in shadow (schema v37): what Anthropic's context editing at its defaults would have saved
+ *  on OpenAI-format clients' requests, less the cache writes it causes. Estimates; micro-USD at current prices. */
+export type ClearingShadow = {requests: number; overTrigger: number; clearedTokens: number; rewrittenTokens: number;
+  savedMicroUsd: number; extraMicroUsd: number; netMicroUsd: number; unpriced: number};
 
 /** Something in the ledger worth a look; `value` and `against` are micro-USD for money, counts for requests. */
 export type UsageAlert = {kind: 'near_limit' | 'over_limit' | 'spend_spike' | 'unknown_costs' | 'failures'; client: string | null;

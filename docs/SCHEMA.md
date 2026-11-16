@@ -1,6 +1,6 @@
 # Store schema
 
-> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v36
+> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v37
 
 The local SQLite store (`db.rs`): every table after all migrations, in order. Credentials are never here: a
 connection holds only a reference to its key in the OS credential store (ADR-002). Client tokens are stored as
@@ -462,6 +462,9 @@ Indexes: `tool_signatures_by_age`.
 | `tools_tokens` | INTEGER | yes |  |  | 0036_prefix_meter |
 | `system_tokens` | INTEGER | yes |  |  | 0036_prefix_meter |
 | `prefix_hash` | INTEGER | yes |  |  | 0036_prefix_meter |
+| `clear_count` | INTEGER | yes |  |  | 0037_clearing_shadow |
+| `clear_tokens` | INTEGER | yes |  |  | 0037_clearing_shadow |
+| `clear_tail_tokens` | INTEGER | yes |  |  | 0037_clearing_shadow |
 
 References: `attempt_id` → `attempts.id`.
 

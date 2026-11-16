@@ -2184,6 +2184,9 @@ pub struct AttemptFacts {
     pub key_id: Option<String>,
     /// The request's tool definitions and system prompt, measured (migration 0036); `None` when it carried neither.
     pub prefix: Option<super::shadow::Prefix>,
+    /// What clearing old tool results would take out of it (migration 0037, shadow); `None` without tool output or for
+    /// an Anthropic-format request.
+    pub clearing: Option<super::shadow::Clearing>,
 }
 
 impl<'a> UsageRecord<'a> {
@@ -2353,13 +2356,15 @@ fn insert_usage(conn: &Connection, r: &UsageRecord, at_risk_micro: Option<u64>) 
     let now = now_ms();
     let miss = cache_miss(conn, r, now)?;
     let prefix = r.facts.and_then(|f| f.prefix);
+    let clearing = r.facts.and_then(|f| f.clearing);
     conn.execute(
         "INSERT INTO usage_events (id, client_id, provider, model, input_tokens, output_tokens, cache_tokens, \
          cost_micro_usd, cost_status, source, created_at, outcome, http_status, latency_ms, requested_model, error, \
          cache_write_tokens, session_key, route_mode, at_risk_micro_usd, route_reason, repeated_tokens, request_id, attempt, \
-         billing, route_kind, cache_hint, key_id, cache_miss, tools_tokens, system_tokens, prefix_hash) \
+         billing, route_kind, cache_hint, key_id, cache_miss, tools_tokens, system_tokens, prefix_hash, clear_count, \
+         clear_tokens, clear_tail_tokens) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, \
-         ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)",
+         ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35)",
         params![
             uuid::Uuid::new_v4().to_string(), r.client_id, r.provider_id, r.model_id,
             r.input_tokens.map(|v| v as i64), r.output_tokens.map(|v| v as i64), r.cache_tokens.map(|v| v as i64),
@@ -2370,6 +2375,7 @@ fn insert_usage(conn: &Connection, r: &UsageRecord, at_risk_micro: Option<u64>) 
             r.facts.map(|f| f.billing.as_str()), r.facts.map(|f| f.route_kind.as_str()), r.facts.map(|f| f.cache_hint.as_str()),
             r.facts.and_then(|f| f.key_id.as_deref()), miss,
             prefix.map(|p| p.tools_tokens as i64), prefix.map(|p| p.system_tokens as i64), prefix.map(|p| p.hash),
+            clearing.map(|c| c.count as i64), clearing.map(|c| c.tokens as i64), clearing.map(|c| c.tail_tokens as i64),
         ],
     )?;
     if let Some(client) = r.client_id {
@@ -2586,6 +2592,100 @@ pub struct ShadowSummary {
     pub repeated_tokens: u64,
     pub input_tokens: u64,
     pub cache_read_tokens: u64,
+    /// Clearing old tool results, in shadow (migration 0037).
+    pub clearing: ClearingShadow,
+}
+
+/// What clearing old tool results (Anthropic's context editing, at its defaults) would have saved in a period, after the
+/// cache writes it causes (ROADMAP item 4). OpenAI-format clients only; answered requests with tool output. Estimates:
+/// the tokens are the gateway's, the money is each model's current price. Turning it on is worth asking only if `net` is
+/// above zero.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearingShadow {
+    /// Requests measured, and those past the trigger, where something would be cleared.
+    pub requests: u64,
+    pub over_trigger: u64,
+    /// Tool-result tokens that would not have been sent.
+    pub cleared_tokens: u64,
+    /// Tokens written to the cache again because a request cleared more than the one before it in its session.
+    pub rewritten_tokens: u64,
+    /// The input those tokens cost (at the cached price where the request read from the cache, else the input price),
+    /// the extra the rewrites would cost (cache-write price less cached price), and the difference, in micro-USD.
+    pub saved_micro_usd: u64,
+    pub extra_micro_usd: u64,
+    pub net_micro_usd: i64,
+    /// Requests past the trigger whose model has no price now: not in the money.
+    pub unpriced: u64,
+}
+
+pub fn clearing_shadow(conn: &Connection, since: i64) -> Result<ClearingShadow> {
+    use std::collections::HashMap;
+    let prices: HashMap<(String, String), Price> = list_models(conn, None)?
+        .into_iter()
+        .filter_map(|m| m.price.map(|p| ((m.provider_id, m.model_id), p)))
+        .collect();
+    let mut stmt = conn
+        .prepare(
+            "SELECT provider, model, client_id, session_key, clear_count, clear_tokens, clear_tail_tokens, \
+             COALESCE(cache_tokens, 0) FROM usage_events \
+             WHERE created_at >= ?1 AND outcome = 'ok' AND clear_count IS NOT NULL \
+             ORDER BY client_id, session_key, created_at, rowid",
+        )
+        .map_err(err)?;
+    let rows = stmt
+        .query_map([since], |r| {
+            let n = |i: usize| r.get::<_, Option<i64>>(i).map(|v| v.unwrap_or(0).max(0) as u64);
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                n(4)?,
+                n(5)?,
+                n(6)?,
+                n(7)?,
+            ))
+        })
+        .map_err(err)?;
+    let mut out = ClearingShadow::default();
+    // The cleared count of the session's request before; a request without a session is taken as clearing anew.
+    let mut before: Option<(Option<String>, String, u64)> = None;
+    let (mut saved, mut extra) = (0u128, 0u128);
+    for row in rows {
+        let (provider, model, client, session, count, cleared, tail, read) = row.map_err(err)?;
+        out.requests += 1;
+        let previous = match (&session, &before) {
+            (Some(s), Some((c, bs, n))) if *c == client && bs == s => *n,
+            _ => 0,
+        };
+        if let Some(s) = &session {
+            before = Some((client.clone(), s.clone(), count));
+        }
+        if count == 0 {
+            continue;
+        }
+        out.over_trigger += 1;
+        out.cleared_tokens += cleared;
+        let rewritten = if count > previous { tail } else { 0 };
+        out.rewritten_tokens += rewritten;
+        let Some(price) = prices.get(&(provider, model)) else {
+            out.unpriced += 1;
+            continue;
+        };
+        let cached = price.cached_input_micro_per_mtok.unwrap_or(price.input_micro_per_mtok);
+        let write = price.cache_write_micro_per_mtok.unwrap_or(price.input_micro_per_mtok);
+        let per_token = if read > 0 { cached } else { price.input_micro_per_mtok };
+        saved += u128::from(cleared) * u128::from(per_token);
+        // A rewrite costs extra only where the request read from the cache; otherwise it was paid in full already.
+        if read > 0 {
+            extra += u128::from(rewritten) * u128::from(write.saturating_sub(cached));
+        }
+    }
+    out.saved_micro_usd = (saved / 1_000_000) as u64;
+    out.extra_micro_usd = (extra / 1_000_000) as u64;
+    out.net_micro_usd = out.saved_micro_usd as i64 - out.extra_micro_usd as i64;
+    Ok(out)
 }
 
 pub fn shadow_summary(conn: &Connection, since: i64) -> Result<ShadowSummary> {
@@ -2602,10 +2702,12 @@ pub fn shadow_summary(conn: &Connection, since: i64) -> Result<ShadowSummary> {
                 repeated_tokens: n(2)?,
                 input_tokens: n(3)?,
                 cache_read_tokens: n(4)?,
+                clearing: ClearingShadow::default(),
             })
         },
     )
     .map_err(err)
+    .and_then(|summary| Ok(ShadowSummary { clearing: clearing_shadow(conn, since)?, ..summary }))
 }
 
 /// How a model has answered, from the ledger (SCREENS §5.4: "reliability appears only once measured, with the sample
@@ -3975,6 +4077,7 @@ mod tests {
                 cache_hint: "none".into(),
                 key_id: None,
                 prefix: None,
+                clearing: None,
             };
             record_usage(
                 &conn,
@@ -4070,6 +4173,65 @@ mod tests {
         assert_eq!((first.client.as_str(), first.session.as_str()), ("Codex", "s1"));
         assert_eq!((first.requests, first.changes, first.resent, first.resent_tokens), (4, 1, 1, 1300));
         assert_eq!(token_mix(&conn, 0).unwrap().prefix, meter);
+    }
+
+    /// ROADMAP item 4, shadow: what clearing old tool results would have saved, less the cache writes it causes when a
+    /// request clears more than the one before it in its session.
+    #[test]
+    fn the_clearing_shadow_weighs_what_it_saves_against_the_cache_writes_it_causes() {
+        use super::super::shadow::Clearing;
+        let conn = db::open_in_memory().unwrap();
+        let p = gemini(&conn);
+        let (client, _) = create_client(&conn, "Codex", None).unwrap();
+        add_model(&conn, &p.id, "m").unwrap();
+        let price = Price {
+            input_micro_per_mtok: 1_000_000,
+            output_micro_per_mtok: 5_000_000,
+            cached_input_micro_per_mtok: Some(100_000),
+            cache_write_micro_per_mtok: Some(1_250_000),
+            source: "user".into(),
+            observed_at: 0,
+        };
+        update_model(&conn, &p.id, "m", None, None, Some(Some(price))).unwrap();
+        let record = |model: &str, session: Option<&str>, clearing: Clearing, read: u64| {
+            let facts = AttemptFacts { cache_hint: "none".into(), clearing: Some(clearing), ..AttemptFacts::default() };
+            record_usage(
+                &conn,
+                &UsageRecord {
+                    client_id: Some(&client.id),
+                    provider_id: &p.id,
+                    model_id: model,
+                    requested_model: "auto",
+                    input_tokens: Some(150_000),
+                    output_tokens: Some(10),
+                    cache_tokens: Some(read),
+                    cost: &Cost::Estimated { micro_usd: 7, source: "x".into() },
+                    outcome: "ok",
+                    http_status: Some(200),
+                    latency_ms: 1,
+                    error: None,
+                    cache_write_tokens: None,
+                    session_key: session,
+                    route_mode: None,
+                    route_reason: None,
+                    repeated_tokens: None,
+                    facts: Some(&facts),
+                },
+            )
+            .unwrap();
+        };
+        let clear = |count, tokens, tail_tokens| Clearing { count, tokens, tail_tokens };
+        record("m", Some("s1"), Clearing::default(), 0); // under the trigger
+        record("m", Some("s1"), clear(9, 90_000, 40_000), 50_000); // clears anew: 9,000 saved, 46,000 more in writes
+        record("m", Some("s1"), clear(9, 90_000, 40_000), 120_000); // the same nine: 9,000 saved, nothing rewritten
+        record("m", Some("s1"), clear(10, 100_000, 30_000), 100_000); // one more: 10,000 saved, 34,500 more
+        record("m", None, clear(9, 90_000, 40_000), 0); // no cache read: 90,000 saved at the input price, no extra
+        record("free-x", Some("s2"), clear(1, 10_000, 5_000), 0); // no price: counted in tokens only
+
+        let shadow = clearing_shadow(&conn, 0).unwrap();
+        assert_eq!((shadow.requests, shadow.over_trigger, shadow.unpriced), (6, 5, 1));
+        assert_eq!((shadow.cleared_tokens, shadow.rewritten_tokens), (380_000, 115_000));
+        assert_eq!((shadow.saved_micro_usd, shadow.extra_micro_usd, shadow.net_micro_usd), (118_000, 80_500, 37_500));
     }
 
     #[test]

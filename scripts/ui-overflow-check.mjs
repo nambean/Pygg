@@ -81,6 +81,8 @@ const states = [
   {screen: 'usage', name: 'a failed request expanded', steps: `click('Requests'); await wait(800);
     const row = [...document.querySelectorAll('tr')].find(r => /429|failed|error/i.test(r.textContent) && r.querySelector('.row-toggle'));
     row?.querySelector('.row-toggle')?.click(); await wait(500);`, expect: '.ledger-detail'},
+  {screen: 'usage', query: 'stress', name: 'measured-only panels open', steps: `document.querySelectorAll('details.observation')
+    .forEach(d => { d.open = true; }); await wait(400);`, expect: 'details.observation[open] .totals-parts'},
   {screen: 'usage', query: 'stress', name: 'why the cache was missed', steps: `document.querySelectorAll('details.token-mix-details')
     .forEach(d => { d.open = true; }); await wait(400);`, expect: '.token-mix-details table'},
 ];

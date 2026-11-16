@@ -1113,8 +1113,10 @@ export function demoApi(): GatewayApi {
     },
     // Sample alerts for the preview (ADR-014): one client near its limit, and requests without a price.
     // Sample figures (ADR-014): an agent that re-read a few files.
+    // Clearing: shaped like a long Codex session on Claude Haiku, where the rewrites outweigh what clearing saves.
     usageShadow: async () => touch({requests: 48, requestsWithRepeats: 11, repeatedTokens: 38_400, inputTokens: 1_420_000,
-      cacheReadTokens: 1_050_000}),
+      cacheReadTokens: 1_050_000, clearing: {requests: 31, overTrigger: 6, clearedTokens: 412_000, rewrittenTokens: 236_000,
+        savedMicroUsd: 4_120, extraMicroUsd: 27_140, netMicroUsd: -23_020, unpriced: stress ? 2 : 0}}),
     usageAlerts: async () => {
       const day = Date.now() - 86_400_000;
       const unknown = events.filter(e => e.createdAt >= day && e.costStatus === 'unknown').length;
