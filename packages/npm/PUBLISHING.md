@@ -20,11 +20,11 @@ The packages are built by CI, not on the owner's PC: the macOS and Linux program
 3. Publish, from the folder holding the tarballs, platform packages first:
 
 ```powershell
-npm publish pygg-win32-x64-0.1.0-dev.1.tgz --access public --tag dev
-npm publish pygg-darwin-arm64-0.1.0-dev.1.tgz --access public --tag dev
-npm publish pygg-darwin-x64-0.1.0-dev.1.tgz --access public --tag dev
-npm publish pygg-linux-x64-0.1.0-dev.1.tgz --access public --tag dev
-npm publish pygg-cli-0.1.0-dev.1.tgz --access public --tag dev
+npm publish pygg-win32-x64-0.1.0-dev.2.tgz --access public --tag dev
+npm publish pygg-darwin-arm64-0.1.0-dev.2.tgz --access public --tag dev
+npm publish pygg-darwin-x64-0.1.0-dev.2.tgz --access public --tag dev
+npm publish pygg-linux-x64-0.1.0-dev.2.tgz --access public --tag dev
+npm publish pygg-cli-0.1.0-dev.2.tgz --access public --tag dev
 ```
 
 `--tag dev` keeps a pre-release off `latest`, and current npm refuses a pre-release version without a tag. npm asks for the two-factor code at each publish. People install it with `npm install -g @pygg/cli@dev`, then run `pygg`.
