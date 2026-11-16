@@ -340,10 +340,13 @@ fn message_id() -> String {
     format!("msg_{}", uuid::Uuid::new_v4().simple())
 }
 
-fn usage_json(usage: Option<&Usage>) -> Value {
+/// An OpenAI-format usage in Anthropic's terms, where `input_tokens` leaves out what was read from or written to the cache.
+pub(crate) fn usage_json(usage: Option<&Usage>) -> Value {
     let usage = usage.cloned().unwrap_or_default();
-    json!({ "input_tokens": usage.prompt.saturating_sub(usage.cached), "output_tokens": usage.completion,
-        "cache_read_input_tokens": usage.cached, "cache_creation_input_tokens": 0 })
+    let cached = usage.cached.min(usage.prompt);
+    let written = usage.cache_write.min(usage.prompt - cached);
+    json!({ "input_tokens": usage.prompt - cached - written, "output_tokens": usage.completion,
+        "cache_read_input_tokens": cached, "cache_creation_input_tokens": written })
 }
 
 fn parse_arguments(arguments: &Value) -> Value {
