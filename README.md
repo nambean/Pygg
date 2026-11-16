@@ -5,7 +5,9 @@
 </picture>
 </p>
 
-<h3 align="center">A local AI gateway that routes your coding agents across the providers you already have,<br>and records what every request cost.</h3>
+<h3 align="center">Run your coding agents on cheaper models without losing the answers.</h3>
+
+<p align="center">Pygg is a local gateway that routes each request to a model you connected, and measures what it saved:<br><b><a href="#measured-not-claimed">88% less per solved task</a></b> in our benchmark, with every task still solved.</p>
 
 <p align="center">
 <a href="https://github.com/nambean/Pygg/actions/workflows/ci.yml"><img src="https://github.com/nambean/Pygg/actions/workflows/ci.yml/badge.svg" alt="CI"></a>

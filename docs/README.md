@@ -2,7 +2,7 @@
 
 > **Status:** Current · the index of every project document, grouped by reader, and the rules they follow · reviewed 2026-11-14
 
-**Pygg** — *One Flow. Many Agents.* A local AI gateway that routes coding agents across the providers you connected and records what every request cost ([branding](../branding/README.md)). Smart tasks, run by agent CLIs and started from an IDE, are experimental and on hold. The repository is [nambean/Pygg](https://github.com/nambean/Pygg). Only the app's data folder (`app.smarttaskrouter.desktop`) and its credential service name keep the engineering name SmartTaskRouter.
+**Pygg** — *One Flow. Many Agents.* Run your coding agents on cheaper models without losing the answers: a local gateway that routes each request to a model you connected, and measures what it saved ([benchmarks](BENCHMARKS.md), [branding](../branding/README.md)). Smart tasks, run by agent CLIs and started from an IDE, are experimental and on hold. The repository is [nambean/Pygg](https://github.com/nambean/Pygg). Only the app's data folder (`app.smarttaskrouter.desktop`) and its credential service name keep the engineering name SmartTaskRouter.
 
 Every document here is final: it describes Pygg as it is now. How it got there is in the git history.
 
