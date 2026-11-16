@@ -27,7 +27,7 @@ What comes next, in order, and what must be true before a public release. What i
    - **Clearing old tool results** (Anthropic's context editing) in shadow first, for OpenAI-format clients only and never for Claude Code's native requests; opt-in only if the shadow shows a net saving after the cache writes it causes.
    Anything that changes a request is opt-in, reversible and checked for cache parity first. Never rewrite an external agent's history, inject instructions or split tasks into sub-agents to save tokens.
 5. **Codex's model catalog** for the models Pygg lists, so Codex gets `apply_patch` and real context sizes without a hand-written catalog.
-6. **Other platforms.** The macOS npm packages published once CI builds them (ADR-037); the desktop app on macOS and Linux (ADR-001).
+6. **Other platforms.** The macOS npm packages (published, ADR-037) run on a real Mac; the desktop app on macOS and Linux (ADR-001).
 7. **Housekeeping.** Demo data that replays recorded snapshots instead of copying the core's rules.
 8. **The Vietnamese translation**, last, once the interface's English text is final.
 
