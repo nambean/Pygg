@@ -1,5 +1,7 @@
 # @pygg/cli
 
+**Source, issues and releases: [github.com/nambean/Pygg](https://github.com/nambean/Pygg)**. Pygg is open source (MIT), and contributions are welcome.
+
 `pygg`: route your AI coding tools (Claude Code, Codex, OpenCode) through Pygg, a local gateway that picks a model for each request from the providers you connected, and records what each request cost.
 
 **npm installs this command only**, on Windows x64, macOS (Apple silicon and Intel) and Linux x64 (glibc): npm fetches the native program for your computer only. On Windows the [Pygg desktop app](https://github.com/nambean/Pygg) runs the gateway and is where you connect providers; on macOS and Linux, where there is no app yet, `pygg gateway add-connection` and `pygg gateway serve` do it from the terminal. Your coding tools are installed as usual. **`@dev` is a developer preview**: the native program is not code-signed, so Windows SmartScreen, macOS Gatekeeper or an antivirus may warn about it.
@@ -82,5 +84,15 @@ Two things the command does not do: it never starts a gateway by itself (the app
 ## Experimental: tasks from your IDE
 
 `pygg mcp setup claude-code`, `pygg mcp setup codex` and `pygg mcp setup opencode` register Pygg's MCP server (`pygg mcp`) in the tool, so it can hand coding tasks to Pygg. That is the experimental task integration, on hold; it is not how a tool's requests go through the gateway (see Start here).
+
+## Contributing
+
+Pygg is built in the open at [github.com/nambean/Pygg](https://github.com/nambean/Pygg), and help is welcome:
+
+- **Report a bug or ask for something**: [open an issue](https://github.com/nambean/Pygg/issues). Say what you ran, what you expected and what `pygg doctor` prints; never paste an API key.
+- **Send a change**: read [CONTRIBUTING](https://github.com/nambean/Pygg/blob/main/CONTRIBUTING.md), then open a pull request. Provider presets, platform fixes (macOS and Linux especially), documentation and tests are good places to start.
+- **Star the repository** if Pygg is useful to you: it helps others find it.
+
+Security problems go privately, as [SECURITY](https://github.com/nambean/Pygg/blob/main/docs/SECURITY.md) describes, not in a public issue.
 
 MIT licence.

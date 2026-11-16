@@ -8,6 +8,10 @@
     "url": "git+https://github.com/nambean/Pygg.git",
     "directory": "packages/npm/pygg"
   },
+  "homepage": "https://github.com/nambean/Pygg#readme",
+  "bugs": {
+    "url": "https://github.com/nambean/Pygg/issues"
+  },
   "bin": {
     "pygg": "bin/pygg.js"
   },

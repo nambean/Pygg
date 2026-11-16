@@ -64,6 +64,8 @@ export function manifest(platform, version) {
     description: `The native pygg-cli program for ${platform}, used by @pygg/cli (the pygg command). Developer preview, unsigned.`,
     license: 'MIT',
     repository: { type: 'git', url: 'git+https://github.com/nambean/Pygg.git' },
+    homepage: 'https://github.com/nambean/Pygg#readme',
+    bugs: { url: 'https://github.com/nambean/Pygg/issues' },
     os: [p.os],
     cpu: [p.cpu],
     ...(p.libc ? { libc: [p.libc] } : {}),
@@ -86,7 +88,7 @@ function packPlatform(platform, exe) {
   rmSync(stage, { recursive: true, force: true });
   mkdirSync(join(stage, 'bin'), { recursive: true });
   writeFileSync(join(stage, 'package.json'), `${JSON.stringify(manifest(platform, launcher.version), null, 2)}\n`);
-  writeFileSync(join(stage, 'README.md'), `# @pygg/${platform}\n\nThe native \`pygg-cli\` program for ${platform}. Install \`@pygg/cli\` instead: it brings the package for your computer and runs it as \`pygg\`.\n`);
+  writeFileSync(join(stage, 'README.md'), `# @pygg/${platform}\n\nThe native \`pygg-cli\` program for ${platform}. Install \`@pygg/cli\` instead: it brings the package for your computer and runs it as \`pygg\`.\n\nPygg is open source (MIT) at [github.com/nambean/Pygg](https://github.com/nambean/Pygg): issues, ideas and pull requests are welcome.\n`);
   copyFileSync(join(root, 'LICENSE'), join(stage, 'LICENSE'));
   const target = join(stage, 'bin', p.exe);
   copyFileSync(exe, target);
