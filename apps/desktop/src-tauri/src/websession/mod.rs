@@ -641,7 +641,12 @@ pub fn read_script(r: &Recipe) -> String {
     '[data-state="loading"], [data-loading="true"], [data-hatch-video-wrapper]:not([data-hatch-video-src])';
   // Where a site keeps what it made in media blocks, a video outside them is its waiting animation (2026-11-18, the
   // owner's DevTools: Muse plays its mascot as a blob: video beside the "•••" bubble until the real video is ready).
-  const waitingVideos = rootSel ? [...document.querySelectorAll('video')].filter(v => !scope.some(r => r.contains(v))) : [];
+  // An avatar in the page's header is a video too: a waiting animation is shown at least 120 px wide, and comes after
+  // the first reply on the page in document order (or there is none yet).
+  const firstReply = replies[0];
+  const after = v => !firstReply || (firstReply.compareDocumentPosition(v) & Node.DOCUMENT_POSITION_FOLLOWING) || firstReply.contains(v);
+  const waitingVideos = rootSel ? [...document.querySelectorAll('video')].filter(v => !scope.some(r => r.contains(v))
+    && v.getBoundingClientRect().width >= 120 && after(v)) : [];
   const making = new Set(areas.flatMap(a => [...a.querySelectorAll(marks)]).concat(waitingVideos)).size;
   return {{ count: replies.length, text: last, busy: {busy}, media, pending, making,
            approval: {approval}, challenge: !!document.querySelector({challenge}) || {challenge_hints}.some(h => body.includes(h)),
@@ -728,6 +733,29 @@ pub fn media_probe_script(r: &Recipe) -> String {
 }})()"#,
         reply = q(r.reply)
     )
+}
+
+/// The end of a reply: the words not yet given out, the page's media probe in the app log, and its `blob:` media
+/// copied out.
+#[allow(clippy::too_many_arguments)]
+async fn finish(
+    page: &dyn Page, recipe: &Recipe, timing: &Timing, text: String, sent: &str, denied: u64, media: Vec<Media>,
+    on_text: &mut (dyn FnMut(&str) + Send), note: &str,
+) -> Reply {
+    if text.len() > sent.len() {
+        if let Some(more) = text.strip_prefix(sent) {
+            on_text(more);
+        }
+    }
+    // Why pictures were or were not taken, in counts and markup only (owner's report, 2026-11-18).
+    let probe = page.eval(media_probe_script(recipe)).await.unwrap_or(Value::Null);
+    crate::applog::info(&format!(
+        "web reply on {}: {} picture(s), video(s) or file(s) taken{note}; page: {probe}",
+        recipe.preset,
+        media.len()
+    ));
+    let media = with_blob_media(page, media, timing.poll).await;
+    Reply { text, denied, media }
 }
 
 /// The most a `blob:` picture or video may be when it is copied out of the page.
@@ -1184,6 +1212,12 @@ pub async fn converse_marked(
     loop {
         let elapsed = started.elapsed();
         if elapsed > reply_wait {
+            // What came is kept: words or media already on the page are the reply, only cut at the time limit.
+            if last.as_deref().is_some_and(|t| !t.is_empty()) || !media.is_empty() {
+                let text = last.unwrap_or_default();
+                let note = ", ended at the time limit while the page still showed it was busy";
+                return Ok(finish(page, recipe, timing, text, &sent, denied, media, on_text, note).await);
+            }
             return Err(WebError::Timeout(REPLY_TIMEOUT));
         }
         if sent.is_empty() && media.is_empty() && !answering && elapsed > first_word {
@@ -1243,20 +1277,7 @@ pub async fn converse_marked(
                 if text.len() < 600 && SLOW_DOWN_HINTS.iter().any(|h| lower.contains(h) && !prompt_lower.contains(h)) {
                     return Err(WebError::SlowDown);
                 }
-                if text.len() > sent.len() {
-                    if let Some(more) = text.strip_prefix(sent.as_str()) {
-                        on_text(more);
-                    }
-                }
-                // Why pictures were or were not taken, in counts only (owner's report, 2026-11-18: none from Muse).
-                let probe = page.eval(media_probe_script(recipe)).await.unwrap_or(Value::Null);
-                crate::applog::info(&format!(
-                    "web reply on {}: {} picture(s), video(s) or file(s) taken; page: {probe}",
-                    recipe.preset,
-                    media.len()
-                ));
-                let media = with_blob_media(page, media, timing.poll).await;
-                return Ok(Reply { text, denied, media });
+                return Ok(finish(page, recipe, timing, text, &sent, denied, media, on_text, "").await);
             }
         }
     }

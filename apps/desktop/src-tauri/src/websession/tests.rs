@@ -193,6 +193,25 @@ fn a_reply_waits_while_the_site_shows_it_is_making_something() {
     });
 }
 
+/// A sign of making that never goes (Muse's thread header shows an animated avatar) holds the reply only until the time
+/// limit, and what came is kept: 2026-11-18, a reply of "Đây nè." and its video was lost to a timeout error.
+#[test]
+fn what_came_is_kept_when_a_sign_of_making_never_goes() {
+    rt().block_on(async {
+        let film = json!({ "kind": "video", "url": "https://cdn.example/horse.mp4" });
+        let page = FakePage::new(
+            vec![ready()],
+            vec![
+                json!({ "count": 0, "text": "", "making": 0 }),
+                json!({ "count": 1, "text": "Đây nè.", "media": [film], "making": 1 }),
+            ],
+        );
+        let reply =
+            converse(page.as_ref(), muse(), "video con ngựa hồng ngắn", &fast(), &mut |_: &str| {}).await.unwrap();
+        assert_eq!((reply.text.as_str(), reply.media.len()), ("Đây nè.", 1));
+    });
+}
+
 #[test]
 fn a_reply_streams_as_it_appears_and_ends_when_it_stops_changing() {
     rt().block_on(async {
