@@ -666,7 +666,9 @@ pub fn read_script(r: &Recipe) -> String {
     '[class*="skeleton" i], [class*="shimmer" i], [class*="typing" i], [aria-label*="typing" i], ' +
     '[data-state="loading"], [data-loading="true"], [data-hatch-video-wrapper]:not([data-hatch-video-src])';
   const making = new Set(areas.flatMap(a => [...a.querySelectorAll(marks)])).size;
-  return {{ count: replies.length, text: last, busy: {busy}, media, pending, making,
+  // The last few replies' words: a site may answer in several bubbles (Muse: "Making your PDF now…", then the file).
+  const tail = replies.slice(-8).map(e => (e.innerText || '').trim());
+  return {{ count: replies.length, text: last, tail, busy: {busy}, media, pending, making,
            approval: {approval}, challenge: !!document.querySelector({challenge}) || {challenge_hints}.some(h => body.includes(h)),
            restricted: {restricted}.some(h => body.includes(h) && !said.includes(h)) }};
 }})()"#,
@@ -729,9 +731,9 @@ pub fn media_probe_script(r: &Recipe) -> String {
     if (b.startsWith('url(') && wide(e)) backgrounds++;
   }}
   const turn = lastReply ? (lastReply.parentElement && lastReply.parentElement.parentElement) || lastReply : null;
-  const outline = [];
-  if (turn) {{
-    for (const e of [turn, ...turn.querySelectorAll('*')].slice(0, 120)) {{
+  const describe = (root, limit) => {{
+    const out = [];
+    for (const e of [root, ...root.querySelectorAll('*')].slice(0, limit)) {{
       const tag = e.tagName.toLowerCase();
       if (['path', 'g', 'span', 'p', 'br', 'strong', 'em', 'b', 'i', 'li', 'ul', 'ol', 'code', 'pre'].includes(tag)) continue;
       const bits = [tag];
@@ -743,12 +745,19 @@ pub fn media_probe_script(r: &Recipe) -> String {
         const v = e.getAttribute(a) || '';
         bits.push('[' + a + (v && v.length <= 12 ? '=' + v : '') + ']');
       }}
+      if (e.hasAttribute('href')) bits.push('[href=' + scheme(e.getAttribute('href')) + ']');
+      if (e.hasAttribute('download')) bits.push('[download]');
+      if (e.hasAttribute('aria-label')) bits.push('[aria-label]');
       const c = classes(e)[0];
       if (c) bits.push('.' + c);
-      outline.push(bits.join(''));
+      out.push(bits.join(''));
     }}
-  }}
-  return {{ busy: {busy}, replies: replies.length, imgs: imgs.length, kinds, large, loading, widest, videos, pictures, outline,
+    return out;
+  }};
+  const outline = turn ? describe(turn, 120) : [];
+  // Blocks the site marks as attachments (Muse: hatch-chat-attachment-presentation-*), described the same way.
+  const attachments = [...document.querySelectorAll('[data-testid*="attachment" i]')].slice(-4).map(a => describe(a, 40));
+  return {{ busy: {busy}, attachments, replies: replies.length, imgs: imgs.length, kinds, large, loading, widest, videos, pictures, outline,
            canvases: [...document.querySelectorAll('canvas')].filter(wide).length,
            svgs: [...document.querySelectorAll('svg')].filter(wide).length,
            pictureTags: document.querySelectorAll('picture').length, backgrounds,
@@ -759,6 +768,27 @@ pub fn media_probe_script(r: &Recipe) -> String {
         reply = q(r.reply),
         busy = r.busy.map(|b| format!("!!document.querySelector({})", q(b))).unwrap_or_else(|| "false".into())
     )
+}
+
+/// The words of every reply since the prompt, in order, one paragraph each: a site may answer in several bubbles.
+/// Without the replies' words (a page that reports only the last), the last reply's.
+fn reply_text(state: &ChatState, before: u64) -> String {
+    if state.tail.is_empty() || state.count <= before {
+        return state.text.clone();
+    }
+    let first = state.count.saturating_sub(state.tail.len() as u64);
+    let parts: Vec<&str> = state
+        .tail
+        .iter()
+        .enumerate()
+        .filter(|(i, t)| first + *i as u64 >= before && !t.is_empty())
+        .map(|(_, t)| t.as_str())
+        .collect();
+    if parts.is_empty() {
+        state.text.clone()
+    } else {
+        parts.join("\n\n")
+    }
 }
 
 /// How often a reply held open by the page's signs is described in the app log.
@@ -926,6 +956,8 @@ pub struct ChatState {
     /// Signs near the reply that the site is still making something: `aria-busy`, a progress bar, a skeleton or
     /// shimmer, a loading state, or a media block whose video has no address yet.
     pub making: u64,
+    /// The words of the last few replies, oldest first (at most eight).
+    pub tail: Vec<String>,
 }
 
 /// A picture, video or file the site showed with its reply: its address only (an https address, or a picture's data
@@ -1277,7 +1309,7 @@ pub async fn converse_marked(
             stable = 0;
         }
         let waiting = state.pending > 0 || making;
-        let text = state.text;
+        let text = reply_text(&state, base.count);
         let new = state.count > base.count || (!text.is_empty() && text != base.text);
         // A reply may be a picture alone.
         if (!new || text.is_empty()) && media.is_empty() {

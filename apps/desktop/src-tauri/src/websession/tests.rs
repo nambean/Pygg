@@ -228,6 +228,24 @@ fn muses_stop_button_holds_the_reply_until_the_video_is_made() {
     });
 }
 
+/// A reply in several bubbles keeps all its words (2026-11-18: Muse answered "Making your shopping list PDF now…" and
+/// then a second bubble, whose words were lost); replies from before the prompt are not part of it.
+#[test]
+fn a_reply_in_several_bubbles_keeps_all_its_words() {
+    rt().block_on(async {
+        let page = FakePage::new(
+            vec![ready()],
+            vec![
+                json!({ "count": 2, "text": "old", "tail": ["older", "old"] }),
+                json!({ "count": 3, "text": "Making your PDF now.", "tail": ["older", "old", "Making your PDF now."] }),
+                json!({ "count": 4, "text": "shopping-list.pdf", "tail": ["older", "old", "Making your PDF now.", "shopping-list.pdf"] }),
+            ],
+        );
+        let reply = converse(page.as_ref(), muse(), "a PDF", &fast(), &mut |_: &str| {}).await.unwrap();
+        assert_eq!(reply.text, "Making your PDF now.\n\nshopping-list.pdf");
+    });
+}
+
 #[test]
 fn a_reply_streams_as_it_appears_and_ends_when_it_stops_changing() {
     rt().block_on(async {
