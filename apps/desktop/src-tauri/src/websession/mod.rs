@@ -147,6 +147,9 @@ pub struct Recipe {
     /// Where the site puts the pictures and videos it made, when it says so in its markup: media elsewhere on the page
     /// (a mascot, an avatar, a decoration) is not the reply's. `None` looks at the whole page.
     pub media_root: Option<&'static str>,
+    /// The site's busy sign (`busy`) is trusted to the end: while it shows, the reply is not finished, however long
+    /// its words have been still. Off where a busy sign can stick (the reply's time limit still applies either way).
+    pub trust_busy: bool,
 }
 
 /// A check the site runs on the browser: a CAPTCHA, Cloudflare's "Just a moment" page or Turnstile, or a bot check.
@@ -222,6 +225,10 @@ pub const RECIPES: &[Recipe] = &[
         // `[data-testid="hatch-chat-attachment-presentation-video"]` (and `…-image`), a video's own address in the
         // wrapper's `data-hatch-video-src`, with a poster picture beside it; its animated mascot is outside.
         media_root: Some("[data-testid^=\"hatch-chat-attachment-presentation\"]"),
+        // 2026-11-18: while Muse makes a picture or video, its send button is a Stop button for as long as it takes; its
+        // words ("I'll generate…") come first and stay still meanwhile. Its status avatar is a looping video that never
+        // goes, so it is no sign of anything.
+        trust_busy: true,
     },
     // ChatGPT chats with visitors too, so "signed in" needs its Log in buttons gone. Sign-in: auth.openai.com (email,
     // phone), Google, Apple, Microsoft. Public page, 2026-11-12: `textarea[name="prompt"]`, a "Send message" button.
@@ -258,6 +265,7 @@ pub const RECIPES: &[Recipe] = &[
         challenge_hints: CHALLENGE_HINTS,
         quota_hints: QUOTA_HINTS,
         media_root: None,
+        trust_busy: false,
     },
     // Perplexity answers visitors too. Sign-in: an emailed code on perplexity.ai, Google, Apple. Public page,
     // 2026-11-12: a Lexical `div[contenteditable][role=textbox]`, a "Submit" button. Its "Computer" mode is an agent;
@@ -283,6 +291,7 @@ pub const RECIPES: &[Recipe] = &[
         challenge_hints: CHALLENGE_HINTS,
         quota_hints: QUOTA_HINTS,
         media_root: None,
+        trust_busy: false,
     },
     // DeepSeek needs an account: chat.deepseek.com sends a visitor to /sign_in (email or phone with a password,
     // Google, Apple). Its Send control has no label, so Enter sends; it shows no reliable "stop" control either.
@@ -307,6 +316,7 @@ pub const RECIPES: &[Recipe] = &[
         challenge_hints: CHALLENGE_HINTS,
         quota_hints: QUOTA_HINTS,
         media_root: None,
+        trust_busy: false,
     },
     // Grok sits behind Cloudflare: on 2026-11-12 even its sign-in page answered with "Just a moment" in a normal
     // browser. That check stops the connection until the user clears it in the window; Pygg never answers it. Sign-in:
@@ -333,6 +343,7 @@ pub const RECIPES: &[Recipe] = &[
         challenge_hints: CHALLENGE_HINTS,
         quota_hints: QUOTA_HINTS,
         media_root: None,
+        trust_busy: false,
     },
 ];
 
@@ -639,15 +650,7 @@ pub fn read_script(r: &Recipe) -> String {
   const marks = '[aria-busy="true"], [role="progressbar"], progress, .animate-pulse, .animate-bounce, ' +
     '[class*="skeleton" i], [class*="shimmer" i], [class*="typing" i], [aria-label*="typing" i], ' +
     '[data-state="loading"], [data-loading="true"], [data-hatch-video-wrapper]:not([data-hatch-video-src])';
-  // Where a site keeps what it made in media blocks, a video outside them is its waiting animation (2026-11-18, the
-  // owner's DevTools: Muse plays its mascot as a blob: video beside the "•••" bubble until the real video is ready).
-  // An avatar in the page's header is a video too: a waiting animation is shown at least 120 px wide, and comes after
-  // the first reply on the page in document order (or there is none yet).
-  const firstReply = replies[0];
-  const after = v => !firstReply || (firstReply.compareDocumentPosition(v) & Node.DOCUMENT_POSITION_FOLLOWING) || firstReply.contains(v);
-  const waitingVideos = rootSel ? [...document.querySelectorAll('video')].filter(v => !scope.some(r => r.contains(v))
-    && v.getBoundingClientRect().width >= 120 && after(v)) : [];
-  const making = new Set(areas.flatMap(a => [...a.querySelectorAll(marks)]).concat(waitingVideos)).size;
+  const making = new Set(areas.flatMap(a => [...a.querySelectorAll(marks)])).size;
   return {{ count: replies.length, text: last, busy: {busy}, media, pending, making,
            approval: {approval}, challenge: !!document.querySelector({challenge}) || {challenge_hints}.some(h => body.includes(h)),
            restricted: {restricted}.some(h => body.includes(h) && !said.includes(h)) }};
@@ -720,20 +723,28 @@ pub fn media_probe_script(r: &Recipe) -> String {
       const id = e.getAttribute('data-testid');
       if (id) bits.push('#' + id.slice(0, 60));
       for (const a of ['role', 'aria-busy', 'data-state', 'data-loading']) {{ const v = e.getAttribute(a); if (v) bits.push('[' + a + '=' + v.slice(0, 20) + ']'); }}
-      for (const a of e.getAttributeNames()) {{ if (a.startsWith('data-hatch')) bits.push('[' + a + ']'); }}
+      for (const a of e.getAttributeNames()) {{
+        if (!a.startsWith('data-hatch') || a.endsWith('-src') || a.endsWith('-poster')) continue;
+        const v = e.getAttribute(a) || '';
+        bits.push('[' + a + (v && v.length <= 12 ? '=' + v : '') + ']');
+      }}
       const c = classes(e)[0];
       if (c) bits.push('.' + c);
       outline.push(bits.join(''));
     }}
   }}
-  return {{ replies: replies.length, imgs: imgs.length, kinds, large, loading, widest, videos, pictures, outline,
+  return {{ busy: {busy}, replies: replies.length, imgs: imgs.length, kinds, large, loading, widest, videos, pictures, outline,
            canvases: [...document.querySelectorAll('canvas')].filter(wide).length,
            svgs: [...document.querySelectorAll('svg')].filter(wide).length,
            pictureTags: document.querySelectorAll('picture').length, backgrounds }};
 }})()"#,
-        reply = q(r.reply)
+        reply = q(r.reply),
+        busy = r.busy.map(|b| format!("!!document.querySelector({})", q(b))).unwrap_or_else(|| "false".into())
     )
 }
+
+/// How often a reply held open by the page's signs is described in the app log.
+const PROBE_EVERY: Duration = Duration::from_secs(20);
 
 /// The end of a reply: the words not yet given out, the page's media probe in the app log, and its `blob:` media
 /// copied out.
@@ -1204,6 +1215,7 @@ pub async fn converse_marked(
     let (first_word, reply_wait) = (timing.first_word_wait(prompt), timing.reply_wait(prompt));
     let (mut sent, mut last, mut stable, mut denied) = (String::new(), None::<String>, 0, 0u64);
     let mut media: Vec<Media> = Vec::new();
+    let mut last_probe = Instant::now();
     // The page has shown it is answering: its thinking is the first word.
     let mut answering = false;
     // A notice in the prompt itself is the user's text, not the site's.
@@ -1267,7 +1279,21 @@ pub async fn converse_marked(
         } else {
             stable += 1;
             let settled = if recipe.busy.is_some() { timing.stable } else { timing.stable_busy };
-            if !waiting && ((!state.busy && stable >= settled) || stable >= timing.stable_busy) {
+            let held = waiting || (recipe.trust_busy && state.busy);
+            if held && stable >= timing.stable_busy && last_probe.elapsed() >= PROBE_EVERY {
+                // What holds a still reply open, in the app log every 20 s: counts and markup only.
+                last_probe = Instant::now();
+                let probe = page.eval(media_probe_script(recipe)).await.unwrap_or(Value::Null);
+                crate::applog::info(&format!(
+                    "web reply on {} held after {} s (busy {}, making {}, loading {}): {probe}",
+                    recipe.preset,
+                    started.elapsed().as_secs(),
+                    state.busy,
+                    state.making,
+                    state.pending
+                ));
+            }
+            if !held && ((!state.busy && stable >= settled) || stable >= timing.stable_busy) {
                 let text = last.unwrap_or_default();
                 let lower = text.to_lowercase();
                 if recipe.quota_hints.iter().any(|h| lower.contains(h)) && text.len() < 600 {

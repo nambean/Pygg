@@ -212,6 +212,22 @@ fn what_came_is_kept_when_a_sign_of_making_never_goes() {
     });
 }
 
+/// Muse's Stop button stays while it makes a video, and its words come first and stay still: the reply waits for the
+/// button to go (2026-11-18), where another site's busy sign is trusted only a few reads.
+#[test]
+fn muses_stop_button_holds_the_reply_until_the_video_is_made() {
+    rt().block_on(async {
+        let film = json!({ "kind": "video", "url": "https://cdn.example/horse.mp4" });
+        let mut reads = vec![json!({ "count": 0, "text": "" })];
+        reads.extend((0..30).map(|_| json!({ "count": 1, "text": "Đây nè.", "busy": true })));
+        reads.push(json!({ "count": 1, "text": "Đây nè.", "media": [film], "busy": false }));
+        let page = FakePage::new(vec![ready()], reads);
+        let reply =
+            converse(page.as_ref(), muse(), "video con ngựa hồng ngắn", &fast(), &mut |_: &str| {}).await.unwrap();
+        assert_eq!(reply.media.len(), 1, "the video made while the Stop button showed");
+    });
+}
+
 #[test]
 fn a_reply_streams_as_it_appears_and_ends_when_it_stops_changing() {
     rt().block_on(async {
