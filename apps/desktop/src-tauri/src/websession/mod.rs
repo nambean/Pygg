@@ -590,7 +590,31 @@ pub fn read_script(r: &Recipe) -> String {
   const last = replies.length ? (replies[replies.length - 1].innerText || '').trim() : '';
   const body = document.body ? document.body.innerText.slice(0, 4000).toLowerCase() : '';
   const said = replies.map(e => (e.innerText || '').toLowerCase()).join(' ');
-  return {{ count: replies.length, text: last, busy: {busy},
+  // Pictures and videos on the page (Muse makes both): their addresses only, never their bytes. A picture still
+  // loading holds the reply open; small ones (avatars, icons) are left out.
+  const media = [], seen = new Set();
+  let pending = 0;
+  for (const img of document.querySelectorAll('img')) {{
+    const src = img.currentSrc || img.src || '';
+    if (!/^(https:|data:image\/)/.test(src) || seen.has(src)) continue;
+    const box = img.getBoundingClientRect();
+    if (!img.complete) {{ if (box.width >= 160) pending++; continue; }}
+    if (img.naturalWidth < 256 || img.naturalHeight < 256) continue;
+    seen.add(src); media.push({{ kind: 'image', url: src }});
+  }}
+  for (const a of replies.flatMap(r => [...r.querySelectorAll('a[href]')])) {{
+    const href = a.href || '';
+    if (!href.startsWith('https:') || seen.has(href)) continue;
+    if (!a.hasAttribute('download') && !/\.(pdf|docx?|xlsx?|pptx?|csv|tsv|zip|txt|md|json|xml|html?|mp3|wav|m4a|mp4|webm|mov|png|jpe?g|webp|gif|svg)([?#]|$)/i.test(new URL(href).pathname)) continue;
+    seen.add(href); media.push({{ kind: 'file', url: href }});
+  }}
+  for (const v of document.querySelectorAll('video')) {{
+    const source = v.querySelector('source[src]');
+    const src = v.currentSrc || v.src || (source ? source.src : '') || '';
+    if (!src.startsWith('https:') || seen.has(src)) continue;
+    seen.add(src); media.push({{ kind: 'video', url: src }});
+  }}
+  return {{ count: replies.length, text: last, busy: {busy}, media, pending,
            approval: {approval}, challenge: !!document.querySelector({challenge}) || {challenge_hints}.some(h => body.includes(h)),
            restricted: {restricted}.some(h => body.includes(h) && !said.includes(h)) }};
 }})()"#,
@@ -645,6 +669,20 @@ pub struct ChatState {
     pub challenge: bool,
     /// A suspension or restriction notice outside the replies (`RESTRICTION_HINTS`).
     pub restricted: bool,
+    /// Pictures and videos on the page, by address.
+    pub media: Vec<Media>,
+    /// Large pictures still loading.
+    pub pending: u64,
+}
+
+/// A picture, video or file the site showed with its reply: its address only (an https address, or a picture's data
+/// URL), never its bytes.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, serde::Serialize)]
+#[serde(default)]
+pub struct Media {
+    /// `image`, `video` or `file` (a download link in a reply).
+    pub kind: String,
+    pub url: String,
 }
 
 // ---------- Driving a page ----------
@@ -895,6 +933,8 @@ pub async fn open_chat(page: &dyn Page, recipe: &Recipe, timing: &Timing) -> Res
 pub struct Reply {
     pub text: String,
     pub denied: u64,
+    /// Pictures and videos that appeared after the prompt was sent (Muse makes them), in page order.
+    pub media: Vec<Media>,
 }
 
 /// Sends one prompt in a new chat and reads the reply as it appears, giving each new piece to `on_text`. The reply is
@@ -939,6 +979,7 @@ pub async fn converse_marked(
     let started = Instant::now();
     let (first_word, reply_wait) = (timing.first_word_wait(prompt), timing.reply_wait(prompt));
     let (mut sent, mut last, mut stable, mut denied) = (String::new(), None::<String>, 0, 0u64);
+    let mut media: Vec<Media> = Vec::new();
     // The page has shown it is answering: its thinking is the first word.
     let mut answering = false;
     // A notice in the prompt itself is the user's text, not the site's.
@@ -949,7 +990,7 @@ pub async fn converse_marked(
         if elapsed > reply_wait {
             return Err(WebError::Timeout(REPLY_TIMEOUT));
         }
-        if sent.is_empty() && !answering && elapsed > first_word {
+        if sent.is_empty() && media.is_empty() && !answering && elapsed > first_word {
             return Err(WebError::Timeout(NO_REPLY));
         }
         tokio::time::sleep(timing.poll).await;
@@ -966,9 +1007,17 @@ pub async fn converse_marked(
             denied += page.eval(deny_script(recipe)).await.ok().and_then(|v| v.as_u64()).unwrap_or(0);
             continue;
         }
+        // What appeared since the prompt was sent; a change keeps the reply open, as new text does.
+        let fresh: Vec<Media> = state.media.iter().filter(|m| !base.media.contains(m)).cloned().collect();
+        if fresh != media {
+            media = fresh;
+            stable = 0;
+        }
+        let waiting = state.pending > 0;
         let text = state.text;
         let new = state.count > base.count || (!text.is_empty() && text != base.text);
-        if !new || text.is_empty() {
+        // A reply may be a picture alone.
+        if (!new || text.is_empty()) && media.is_empty() {
             continue;
         }
         if last.as_deref() != Some(text.as_str()) {
@@ -985,7 +1034,7 @@ pub async fn converse_marked(
         } else {
             stable += 1;
             let settled = if recipe.busy.is_some() { timing.stable } else { timing.stable_busy };
-            if (!state.busy && stable >= settled) || stable >= timing.stable_busy {
+            if !waiting && ((!state.busy && stable >= settled) || stable >= timing.stable_busy) {
                 let text = last.unwrap_or_default();
                 let lower = text.to_lowercase();
                 if recipe.quota_hints.iter().any(|h| lower.contains(h)) && text.len() < 600 {
@@ -1000,7 +1049,7 @@ pub async fn converse_marked(
                         on_text(more);
                     }
                 }
-                return Ok(Reply { text, denied });
+                return Ok(Reply { text, denied, media });
             }
         }
     }
@@ -1216,6 +1265,34 @@ fn chunk(id: &str, model: &str, delta: Value, finish: Option<&str>) -> Bytes {
     Bytes::from(format!("data: {event}\n\n"))
 }
 
+/// What follows a web session's reply text: its pictures and videos as Markdown links, then any denied action.
+fn reply_tail(reply: &Reply) -> String {
+    media_note(&reply.media) + &denied_note(reply.denied)
+}
+
+/// Pictures as Markdown images, videos and files as links, so a client shows or saves them (`pygg chat` saves them).
+pub fn media_note(media: &[Media]) -> String {
+    let (mut images, mut videos, mut files) = (0, 0, 0);
+    let mut out = String::new();
+    for m in media {
+        match m.kind.as_str() {
+            "video" => {
+                videos += 1;
+                out.push_str(&format!("\n\n[video {videos}]({})", m.url));
+            }
+            "file" => {
+                files += 1;
+                out.push_str(&format!("\n\n[file {files}]({})", m.url));
+            }
+            _ => {
+                images += 1;
+                out.push_str(&format!("\n\n![image {images}]({})", m.url));
+            }
+        }
+    }
+    out
+}
+
 fn denied_note(denied: u64) -> String {
     if denied == 0 {
         String::new()
@@ -1379,7 +1456,8 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
             match event {
                 Event::Text(_) => {}
                 Event::Done(Ok(reply)) => {
-                    text = reply.text + &denied_note(reply.denied);
+                    let tail = reply_tail(&reply);
+                    text = reply.text + &tail;
                     break;
                 }
                 Event::Done(Err(e)) => return Err(Failed { error: e, sent: submitted.load(Ordering::SeqCst) }),
@@ -1397,7 +1475,8 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
     match first {
         Event::Done(Err(e)) => return Err(Failed { error: e, sent: submitted.load(Ordering::SeqCst) }),
         Event::Done(Ok(reply)) => {
-            let text = reply.text + &denied_note(reply.denied);
+            let tail = reply_tail(&reply);
+            let text = reply.text + &tail;
             pending.push(chunk(&completion_id, &model, json!({ "content": text }), None));
             finished = true;
         }
@@ -1412,7 +1491,7 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
             let out = match rx.recv().await {
                 Some(Event::Text(text)) => (chunk(&id, &model, json!({ "content": text }), None), false),
                 Some(Event::Done(Ok(reply))) => {
-                    let note = denied_note(reply.denied);
+                    let note = reply_tail(&reply);
                     let mut out = String::new();
                     if !note.is_empty() {
                         out.push_str(

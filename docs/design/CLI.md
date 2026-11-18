@@ -28,7 +28,8 @@ pygg statusline                       the launch's cost in one line, for Claude 
 Talk to any connected model through Pygg's router
 pygg chat [options]                   a conversation in the terminal; /model, /system, /set, /file, /new, /cost, /exit
 pygg ask [options] QUESTION…          one question, the answer on stdout (also from a pipe)   [--json] [-x]
-      options: -m MODEL, -s SYSTEM, -t TEMPERATURE, --max-tokens N, -f FILE…, --no-stream, -r (raw), --no-input
+      options: -m MODEL, -s SYSTEM, -t TEMPERATURE, --max-tokens N, -f FILE…, --no-stream, -r (raw), --no-input,
+               --save-dir DIR, --no-save (pictures, videos and files in an answer)
 pygg default [MODEL | --clear]        the model chat and ask use without -m
 
 Providers and models
@@ -82,6 +83,7 @@ Every command takes `--db PATH`; `pygg <command> --help` says more.
 - `--model` takes `connection/model`, a combo, `auto` or `auto/cheap` (default `auto`). A chat is one routing session (`chat-<uuid>`), so it stays on the model that first answered; `/model M` starts a new session for the next messages and sends the conversation so far with them. `/new` forgets the conversation.
 - The conversation is held in memory only (ADR-028). A message the gateway refused is taken out of it, so it can be changed and sent again. Every turn sends the whole conversation, so a web session such as Muse refuses a chat once it passes the site's prompt limit.
 - `ask` reads the question from its arguments, or from stdin when there are none and stdin is not a terminal. Exit codes: 0 answered, 1 no answer, 2 wrong usage.
+- **Pictures, videos and files.** A web session's answer carries what the site made as Markdown links after the text: `![image 1](URL)`, `[video 1](URL)`, `[file 1](URL)` (an https address, or a picture's `data:` URL). `chat` and `ask` save each into the current folder (`--save-dir DIR` elsewhere) as `pygg-image1-<id>.<ext>`, the extension from the address or the type the server gives, at most 500 MB each, and say where; `--no-save` prints the addresses instead. They are downloaded without the site's cookies, so an address that needs the signed-in session is reported as not saved.
 
 ### Changing things from the terminal
 

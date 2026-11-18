@@ -1,6 +1,6 @@
 {
   "name": "@pygg/cli",
-  "version": "0.1.0-dev.4",
+  "version": "0.1.0-dev.5",
   "description": "Route Claude Code, Codex and OpenCode through Pygg, a local AI gateway: set them up, start them through it, and see providers, models, requests and cost. Windows, macOS and Linux. Developer preview, unsigned.",
   "license": "MIT",
   "repository": {
@@ -26,10 +26,10 @@
     "test": "node --test test/launcher.test.js"
   },
   "optionalDependencies": {
-    "@pygg/darwin-arm64": "0.1.0-dev.4",
-    "@pygg/darwin-x64": "0.1.0-dev.4",
-    "@pygg/linux-x64": "0.1.0-dev.4",
-    "@pygg/win32-x64": "0.1.0-dev.4"
+    "@pygg/darwin-arm64": "0.1.0-dev.5",
+    "@pygg/darwin-x64": "0.1.0-dev.5",
+    "@pygg/linux-x64": "0.1.0-dev.5",
+    "@pygg/win32-x64": "0.1.0-dev.5"
   },
   "keywords": [
     "llm",

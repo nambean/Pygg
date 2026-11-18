@@ -29,6 +29,8 @@ const OPTIONS_HELP: &str =
   -f, --file PATH      add a text file after the question (repeat for more; up to 200 KB each)
   --no-stream          print the answer once it is complete
   --no-input           never read stdin (for scripts whose stdin stays open)
+  --save-dir DIR       where pictures, videos and files in an answer are saved (the current folder by default)
+  --no-save            print their addresses instead of saving them
   -r, --raw            no line about the model and cost after the answer";
 
 pub fn ask_help() -> String {
@@ -110,6 +112,8 @@ struct Options {
     json: bool,
     extract: bool,
     no_input: bool,
+    no_save: bool,
+    save_dir: Option<PathBuf>,
 }
 
 /// Parses the options; `Err(code)` when the command should stop with that exit code (help, a usage error).
@@ -157,6 +161,8 @@ fn parse(command: &str, args: Vec<String>, help: &str, ask: bool) -> Result<Opti
             "--no-stream" => o.settings.stream = false,
             "--no-input" => o.no_input = true,
             "-r" | "--raw" => o.raw = true,
+            "--no-save" => o.no_save = true,
+            "--save-dir" => o.save_dir = Some(PathBuf::from(value(&a)?)),
             "--json" if ask => o.json = true,
             "-x" | "--extract" if ask => o.extract = true,
             _ => return Err(usage(format!("unknown option {a} for pygg {command}."))),
@@ -465,6 +471,7 @@ pub async fn ask(args: Vec<String>) -> i32 {
     if !o.raw {
         eprintln!("\n{}", footer(&route, answer.attempts, took, cost.as_ref()));
     }
+    keep_media(&gw.http, &answer.text, o.no_save, o.save_dir.as_deref()).await;
     if answer.text.is_empty() {
         eprintln!("pygg: the answer was empty.");
         return 1;
@@ -586,6 +593,7 @@ pub async fn chat(args: Vec<String>) -> i32 {
                     let route = answer.route.as_deref().unwrap_or(&model);
                     eprintln!("{}", footer(route, answer.attempts, started.elapsed(), last.as_ref()));
                 }
+                keep_media(&gw.http, &answer.text, o.no_save, o.save_dir.as_deref()).await;
                 eprintln!();
                 messages.push(json!({ "role": "assistant", "content": answer.text }));
             }
@@ -601,6 +609,170 @@ pub async fn chat(args: Vec<String>) -> i32 {
     let answered = cost.as_ref().map_or(0, |c| c.answered);
     eprintln!("\nChat ended: {answered} answers, {}. Nothing of it was kept.", cost_text(cost.as_ref()));
     0
+}
+
+// ---------- Pictures, videos and files in an answer ----------
+
+/// The pictures, videos and files a web session put in an answer (`websession::media_note`): `![image 1](URL)`,
+/// `[video 1](URL)`, `[file 1](URL)`, as (label, URL).
+fn media_links(text: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        rest = &rest[open + 1..];
+        let Some(close) = rest.find("](") else { break };
+        let label = &rest[..close];
+        let after = &rest[close + 2..];
+        let Some(end) = after.find(')') else { break };
+        let url = &after[..end];
+        let kind = label.split(' ').next().unwrap_or("");
+        let numbered =
+            label.split(' ').nth(1).is_some_and(|n| n.parse::<u32>().is_ok()) && label.split(' ').count() == 2;
+        if numbered
+            && matches!(kind, "image" | "video" | "file")
+            && (url.starts_with("https://") || url.starts_with("data:image/"))
+        {
+            out.push((label.to_string(), url.to_string()));
+            rest = &after[end + 1..];
+        }
+    }
+    out
+}
+
+/// A file name's extension from the address, else from the type the server gave, else `bin`.
+fn extension(url: &str, content_type: Option<&str>) -> String {
+    let path = url.split(['?', '#']).next().unwrap_or("");
+    if let Some(ext) =
+        path.rsplit('/').next().and_then(|name| name.rsplit_once('.')).map(|(_, e)| e.to_ascii_lowercase())
+    {
+        if (1..=5).contains(&ext.len()) && ext.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return ext;
+        }
+    }
+    let mime = content_type.unwrap_or("").split(';').next().unwrap_or("").trim();
+    match mime {
+        "image/jpeg" => "jpg",
+        "image/png" => "png",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        "image/svg+xml" => "svg",
+        "video/mp4" => "mp4",
+        "video/webm" => "webm",
+        "video/quicktime" => "mov",
+        "audio/mpeg" => "mp3",
+        "application/pdf" => "pdf",
+        "application/zip" => "zip",
+        "text/plain" => "txt",
+        _ => "bin",
+    }
+    .to_string()
+}
+
+/// Standard base64 (a picture's data URL).
+fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    let value = |c: u8| -> Option<u32> {
+        Some(match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' | b'-' => 62,
+            b'/' | b'_' => 63,
+            _ => return None,
+        } as u32)
+    };
+    let clean: Vec<u8> = text.bytes().filter(|c| !c.is_ascii_whitespace() && *c != b'=').collect();
+    let mut out = Vec::with_capacity(clean.len() * 3 / 4);
+    for chunk in clean.chunks(4) {
+        let mut n = 0u32;
+        for (i, c) in chunk.iter().enumerate() {
+            n |= value(*c)? << (18 - 6 * i);
+        }
+        out.push((n >> 16) as u8);
+        if chunk.len() > 2 {
+            out.push((n >> 8) as u8);
+        }
+        if chunk.len() > 3 {
+            out.push(n as u8);
+        }
+    }
+    Some(out)
+}
+
+/// The most one picture, video or file may be, so a strange answer cannot fill the disk.
+const MEDIA_LIMIT: u64 = 500 * 1024 * 1024;
+
+/// Saves one picture, video or file into `dir`; the path it went to.
+async fn save_one(http: &reqwest::Client, label: &str, url: &str, dir: &Path) -> Result<PathBuf, String> {
+    let stem = format!("pygg-{}-{}", label.replace(' ', ""), &uuid::Uuid::new_v4().simple().to_string()[..6]);
+    if let Some(data) = url.strip_prefix("data:") {
+        let (head, body) = data.split_once(',').ok_or("a data address with no data")?;
+        let bytes = if head.ends_with(";base64") {
+            base64_decode(body).ok_or("data that is not base64")?
+        } else {
+            body.as_bytes().to_vec()
+        };
+        let mime = head.split(';').next();
+        let path = dir.join(format!("{stem}.{}", extension("", mime)));
+        std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+        return Ok(path);
+    }
+    let response = http.get(url).timeout(Duration::from_secs(300)).send().await.map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("the site answered HTTP {}", response.status().as_u16()));
+    }
+    if response.content_length().is_some_and(|n| n > MEDIA_LIMIT) {
+        return Err("it is larger than 500 MB".into());
+    }
+    let content_type = response.headers().get("content-type").and_then(|v| v.to_str().ok()).map(str::to_string);
+    let path = dir.join(format!("{stem}.{}", extension(url, content_type.as_deref())));
+    let mut file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
+    let mut stream = response.bytes_stream();
+    let mut written = 0u64;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        written += chunk.len() as u64;
+        if written > MEDIA_LIMIT {
+            drop(file);
+            let _ = std::fs::remove_file(&path);
+            return Err("it is larger than 500 MB".into());
+        }
+        file.write_all(&chunk).map_err(|e| e.to_string())?;
+    }
+    Ok(path)
+}
+
+/// Saves the pictures, videos and files in an answer (or lists them with --no-save), saying where each went.
+async fn keep_media(http: &reqwest::Client, text: &str, no_save: bool, save_dir: Option<&Path>) {
+    let links = media_links(text);
+    if links.is_empty() {
+        return;
+    }
+    if no_save {
+        for (label, url) in &links {
+            if !url.starts_with("data:") {
+                eprintln!("{label}: {url}");
+            }
+        }
+        return;
+    }
+    let dir = save_dir.map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        eprintln!("pygg: could not use {}: {e}", dir.display());
+        return;
+    }
+    for (label, url) in &links {
+        match save_one(http, label, url, &dir).await {
+            Ok(path) => {
+                let shown = std::fs::canonicalize(&path).unwrap_or(path);
+                let shown = shown.display().to_string();
+                eprintln!("Saved {label}: {}", shown.trim_start_matches(r"\\?\"));
+            }
+            Err(e) => eprintln!(
+                "{label} not saved ({e}): {}",
+                if url.starts_with("data:") { "(a data address)" } else { url }
+            ),
+        }
+    }
 }
 
 /// `/set NAME VALUE` in a chat.
@@ -781,6 +953,26 @@ mod tests {
             (b["temperature"].as_f64(), b["max_tokens"].as_u64(), b["stream"].as_bool()),
             (Some(0.0), Some(9), Some(false))
         );
+    }
+
+    #[test]
+    fn media_links_are_read_from_an_answer() {
+        let text = "Here you go.\n\n![image 1](https://cdn.x/a.jpg?oh=1)\n\n[video 1](https://cdn.x/v.mp4)\n\n\
+                    [file 1](https://cdn.x/r.pdf) and [a link](https://x.y) and [image 2](http://plain)";
+        let links = media_links(text);
+        let urls: Vec<&str> = links.iter().map(|(_, u)| u.as_str()).collect();
+        assert_eq!(urls, ["https://cdn.x/a.jpg?oh=1", "https://cdn.x/v.mp4", "https://cdn.x/r.pdf"]);
+        assert_eq!(links[1].0, "video 1");
+        assert_eq!(extension("https://cdn.x/a.jpg?oh=1", None), "jpg");
+        assert_eq!(extension("https://cdn.x/render/abc", Some("video/mp4")), "mp4");
+        assert_eq!(extension("https://cdn.x/x", None), "bin");
+    }
+
+    #[test]
+    fn data_pictures_decode() {
+        assert_eq!(base64_decode("aGVsbG8=").unwrap(), b"hello");
+        assert_eq!(base64_decode("aGk").unwrap(), b"hi");
+        assert!(base64_decode("a$b").is_none());
     }
 
     #[test]

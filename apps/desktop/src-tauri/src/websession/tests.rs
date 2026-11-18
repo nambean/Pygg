@@ -104,6 +104,45 @@ fn rt() -> tokio::runtime::Runtime {
 
 // ---------- The conversation ----------
 
+/// Pictures, videos and download links that appear after the prompt come back with the reply (owner's request,
+/// 2026-11-18: Muse makes pictures and videos); one already on the page is not the reply's, and a picture still loading
+/// holds the reply open.
+#[test]
+fn pictures_videos_and_files_come_back_with_the_reply() {
+    rt().block_on(async {
+        let old = json!({ "kind": "image", "url": "https://cdn.example/old.png" });
+        let cat = json!({ "kind": "image", "url": "https://cdn.example/cat.jpg" });
+        let clip = json!({ "kind": "video", "url": "https://cdn.example/cat.mp4" });
+        let page = FakePage::new(
+            vec![ready()],
+            vec![
+                json!({ "count": 0, "text": "", "media": [old] }),
+                json!({ "count": 1, "text": "Here you go.", "busy": true, "media": [old], "pending": 1 }),
+                json!({ "count": 1, "text": "Here you go.", "media": [old], "pending": 1 }),
+                json!({ "count": 1, "text": "Here you go.", "media": [old], "pending": 1 }),
+                json!({ "count": 1, "text": "Here you go.", "media": [old, cat] }),
+                json!({ "count": 1, "text": "Here you go.", "media": [old, cat, clip] }),
+            ],
+        );
+        let reply = converse(page.as_ref(), muse(), "a black cat", &fast(), &mut |_: &str| {}).await.unwrap();
+        assert_eq!(reply.text, "Here you go.");
+        let urls: Vec<&str> = reply.media.iter().map(|m| m.url.as_str()).collect();
+        assert_eq!(urls, ["https://cdn.example/cat.jpg", "https://cdn.example/cat.mp4"]);
+        assert_eq!(
+            media_note(&reply.media),
+            "\n\n![image 1](https://cdn.example/cat.jpg)\n\n[video 1](https://cdn.example/cat.mp4)"
+        );
+
+        // A reply that is a picture alone still ends.
+        let page = FakePage::new(
+            vec![ready()],
+            vec![json!({ "count": 0, "text": "" }), json!({ "count": 0, "text": "", "media": [cat] })],
+        );
+        let reply = converse(page.as_ref(), muse(), "draw", &fast(), &mut |_: &str| {}).await.unwrap();
+        assert_eq!((reply.text.as_str(), reply.media.len()), ("", 1));
+    });
+}
+
 #[test]
 fn a_reply_streams_as_it_appears_and_ends_when_it_stops_changing() {
     rt().block_on(async {
@@ -117,7 +156,7 @@ fn a_reply_streams_as_it_appears_and_ends_when_it_stops_changing() {
         })
         .await
         .unwrap();
-        assert_eq!(reply, Reply { text: "Hello".into(), denied: 0 });
+        assert_eq!(reply, Reply { text: "Hello".into(), denied: 0, media: vec![] });
         assert_eq!(pieces, ["Hel", "lo"]);
         // The prompt reached the page exactly, quoted as data, not as script.
         assert_eq!(page.filled.lock().unwrap().as_deref(), Some("Say \"hello\" </script>"));
