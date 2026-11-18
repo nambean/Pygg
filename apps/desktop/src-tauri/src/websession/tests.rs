@@ -40,6 +40,9 @@ struct FakePage {
     denials: AtomicUsize,
     /// What the page's blob copies came to (`blob_poll_script`).
     blobs: Mutex<Value>,
+    /// What pressing the site's download controls starts, and the files that then finish.
+    clicks: Mutex<Value>,
+    downloaded: Mutex<Vec<Downloaded>>,
 }
 
 impl FakePage {
@@ -58,6 +61,10 @@ impl FakePage {
 }
 
 impl Page for FakePage {
+    fn downloads(&self) -> Vec<Downloaded> {
+        std::mem::take(&mut *self.downloaded.lock().unwrap())
+    }
+
     fn navigate(&self, _url: &str) -> BoxFuture<'_, Result<(), WebError>> {
         self.navigations.fetch_add(1, Ordering::SeqCst);
         Box::pin(async { Ok(()) })
@@ -65,7 +72,9 @@ impl Page for FakePage {
 
     fn eval(&self, script: String) -> BoxFuture<'_, Result<Value, WebError>> {
         Box::pin(async move {
-            Ok(if script.contains("__pyggOld = true") {
+            Ok(if script.contains("menus++") {
+                self.clicks.lock().unwrap().clone()
+            } else if script.contains("__pyggOld = true") {
                 json!(true)
             } else if script.contains("hasInput") {
                 FakePage::next(&self.states)
@@ -230,6 +239,37 @@ fn muses_stop_button_holds_the_reply_until_the_video_is_made() {
 
 /// A reply in several bubbles keeps all its words (2026-11-18: Muse answered "Making your shopping list PDF now…" and
 /// then a second bubble, whose words were lost); replies from before the prompt are not part of it.
+/// A file or sound with no address on the page is taken by pressing the site's own download control (owner's
+/// decision, 2026-11-18): the download finished in Pygg's folder comes back as a data URL of its kind and is deleted.
+#[test]
+fn a_file_the_site_downloads_comes_back_with_the_reply() {
+    let dir = std::env::temp_dir().join(format!("pygg-dl-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let pdf = dir.join("shopping-list.pdf");
+    std::fs::write(&pdf, b"%PDF-1.7 hi").unwrap();
+    let wav = dir.join("waves.wav");
+    std::fs::write(&wav, b"RIFF").unwrap();
+    rt().block_on(async {
+        let page = FakePage::new(
+            vec![ready()],
+            vec![json!({ "count": 0, "text": "" }), json!({ "count": 1, "text": "Done. It's a one-page PDF." })],
+        );
+        *page.clicks.lock().unwrap() = json!({ "started": 2, "menus": 0 });
+        *page.downloaded.lock().unwrap() =
+            vec![Downloaded { path: Some(pdf.clone()), ok: true }, Downloaded { path: Some(wav.clone()), ok: true }];
+        let reply = converse(page.as_ref(), muse(), "a PDF", &fast(), &mut |_: &str| {}).await.unwrap();
+        let kinds: Vec<&str> = reply.media.iter().map(|m| m.kind.as_str()).collect();
+        assert_eq!(kinds, ["file", "audio"]);
+        assert_eq!(reply.media[0].url, "data:application/pdf;base64,JVBERi0xLjcgaGk=");
+        assert!(reply.media[1].url.starts_with("data:audio/wav;base64,"));
+    });
+    assert!(!pdf.exists() && !wav.exists(), "taken downloads are deleted");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        is_player_time("0:00") && is_player_time("1:05:30") && !is_player_time("Done.") && !is_player_time("10:0a")
+    );
+}
+
 #[test]
 fn a_reply_in_several_bubbles_keeps_all_its_words() {
     rt().block_on(async {
@@ -639,6 +679,8 @@ fn every_page_script_is_valid_javascript() {
     for r in RECIPES {
         let scripts = [
             ("probe", media_probe_script(r)),
+            ("download-click", download_click_script(r, 2)),
+            ("download-menu", download_menu_script()),
             ("blob-start", blob_start_script(&["blob:https://x/1".to_string()])),
             ("blob-poll", blob_poll_script(&["blob:https://x/1".to_string()])),
             ("mark", mark_script()),
@@ -650,6 +692,12 @@ fn every_page_script_is_valid_javascript() {
         ];
         for (name, script) in scripts {
             let file = dir.join(format!("{}-{name}.js", r.preset));
+            // A stray control character is still valid JavaScript (a backspace where `\b` was meant): none may be there.
+            assert!(
+                !script.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t')),
+                "{} {name} script has a control character",
+                r.preset
+            );
             std::fs::write(&file, &script).unwrap();
             let out = std::process::Command::new("node").arg("--check").arg(&file).output().unwrap();
             assert!(
@@ -674,6 +722,8 @@ fn no_script_reads_cookies_storage_or_the_network() {
             read_script(r),
             deny_script(r),
             media_probe_script(r),
+            download_click_script(r, 2),
+            download_menu_script(),
             blob_poll_script(&["blob:https://x/1".to_string()]),
         ];
         for script in scripts {

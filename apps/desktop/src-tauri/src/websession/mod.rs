@@ -747,7 +747,12 @@ pub fn media_probe_script(r: &Recipe) -> String {
       }}
       if (e.hasAttribute('href')) bits.push('[href=' + scheme(e.getAttribute('href')) + ']');
       if (e.hasAttribute('download')) bits.push('[download]');
-      if (e.hasAttribute('aria-label')) bits.push('[aria-label]');
+      if (e.hasAttribute('aria-label')) {{
+        // A control's label is the site's own words (Download, Share, More); a block's may be a file name: kept out.
+        const own = ['button', 'a'].includes(tag) || ['button', 'menuitem'].includes(e.getAttribute('role'));
+        bits.push(own ? '[aria-label=' + (e.getAttribute('aria-label') || '').slice(0, 30) + ']' : '[aria-label]');
+      }}
+      if (e.hasAttribute('aria-haspopup')) bits.push('[aria-haspopup=' + e.getAttribute('aria-haspopup') + ']');
       const c = classes(e)[0];
       if (c) bits.push('.' + c);
       out.push(bits.join(''));
@@ -770,6 +775,13 @@ pub fn media_probe_script(r: &Recipe) -> String {
     )
 }
 
+/// A player's clock ("0:00", "1:05:30"), which is not words of the reply.
+fn is_player_time(t: &str) -> bool {
+    let parts: Vec<&str> = t.split(':').collect();
+    (2..=3).contains(&parts.len())
+        && parts.iter().all(|p| !p.is_empty() && p.len() <= 2 && p.chars().all(|c| c.is_ascii_digit()))
+}
+
 /// The words of every reply since the prompt, in order, one paragraph each: a site may answer in several bubbles.
 /// Without the replies' words (a page that reports only the last), the last reply's.
 fn reply_text(state: &ChatState, before: u64) -> String {
@@ -781,7 +793,7 @@ fn reply_text(state: &ChatState, before: u64) -> String {
         .tail
         .iter()
         .enumerate()
-        .filter(|(i, t)| first + *i as u64 >= before && !t.is_empty())
+        .filter(|(i, t)| first + *i as u64 >= before && !t.is_empty() && !is_player_time(t))
         .map(|(_, t)| t.as_str())
         .collect();
     if parts.is_empty() {
@@ -789,6 +801,160 @@ fn reply_text(state: &ChatState, before: u64) -> String {
     } else {
         parts.join("\n\n")
     }
+}
+
+/// Where a reply's made files and sounds sit: the site's media blocks after the replies from before the prompt, and the
+/// message group of each new reply (Muse's audio player is a bubble of its own). Blocks that hold a picture or a video
+/// are left out: those are taken by address.
+fn download_targets_js(r: &Recipe, before: u64) -> String {
+    format!(
+        r#"const replies = [...document.querySelectorAll({reply})];
+  const anchor = {before} > 0 ? replies[{before} - 1] : null;
+  const fresh = el => !anchor || (anchor.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) && !anchor.contains(el);
+  const rootSel = {media_root};
+  const groups = replies.slice({before}).map(e => (e.parentElement && e.parentElement.parentElement) || e);
+  const blocks = [...new Set((rootSel ? [...document.querySelectorAll(rootSel)] : []).concat(groups))].filter(fresh)
+    .filter(b => !b.querySelector('[data-hatch-video-src]') && ![...b.querySelectorAll('img')].some(i => i.naturalWidth >= 256))
+    // Only a media block or one holding a player, a preview or a sound: a bubble of words is never pressed.
+    .filter(b => (rootSel && b.matches(rootSel)) || b.querySelector('[role="slider"], canvas, audio'));
+  window.__pyggClicked = window.__pyggClicked || new WeakSet();
+  const saying = /download|tải xuống|tải về/i;
+  const labelled = e => saying.test(e.getAttribute('aria-label') || '') || saying.test(e.getAttribute('title') || '');"#,
+        reply = q(r.reply),
+        before = before,
+        media_root = json!(r.media_root),
+    )
+}
+
+/// The owner's decision (2026-11-18): Pygg may press the site's own download control for a file or sound in the reply
+/// it just got, since those have no address on the page (Muse: a PDF card, an audio player). First a control named for
+/// downloading; else the block's menu button ("⋯"), whose items `download_menu_script` reads next. Each block once.
+/// Returns how many downloads were started and how many menus opened.
+pub fn download_click_script(r: &Recipe, before: u64) -> String {
+    format!(
+        r#"(() => {{
+  {targets}
+  let started = 0, menus = 0;
+  for (const b of blocks) {{
+    if (window.__pyggClicked.has(b)) continue;
+    const direct = b.querySelector('a[download]') || [...b.querySelectorAll('a, button, [role="button"]')].find(labelled);
+    if (direct) {{ window.__pyggClicked.add(b); direct.click(); started++; continue; }}
+    const menu = [...b.querySelectorAll('button[aria-haspopup="menu"], button[data-state="closed"]')].pop();
+    if (menu) {{ window.__pyggClicked.add(b); menu.click(); menus++; }}
+  }}
+  return {{ started, menus }};
+}})()"#,
+        targets = download_targets_js(r, before)
+    )
+}
+
+/// Presses the "Download" item of the menus `download_click_script` opened, and closes a menu that has none. The items'
+/// own words are read only to find that one, and nothing of them leaves the page. Returns how many were pressed.
+pub fn download_menu_script() -> String {
+    r#"(() => {
+  const saying = /download|tải xuống|tải về/i;
+  const items = [...document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], [data-radix-collection-item]')];
+  const item = items.find(i => saying.test(i.getAttribute('aria-label') || '') || saying.test((i.innerText || '').trim()));
+  if (item) { item.click(); return 1; }
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  return 0;
+})()"#
+        .to_string()
+}
+
+/// A finished download as a data URL, its kind (`audio`, `video`, `image`, `file`) from its name; the file is deleted
+/// once read. `None` past the size limit or when it cannot be read.
+fn downloaded_media(path: &std::path::Path) -> Option<Media> {
+    let size = std::fs::metadata(path).ok()?.len();
+    if size > BLOB_LIMIT {
+        let _ = std::fs::remove_file(path);
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    let _ = std::fs::remove_file(path);
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    let mime = match ext.as_str() {
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "m4a" | "aac" => "audio/mp4",
+        "ogg" | "oga" => "audio/ogg",
+        "weba" => "audio/webm",
+        "mp4" | "m4v" => "video/mp4",
+        "webm" => "video/webm",
+        "mov" => "video/quicktime",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "pdf" => "application/pdf",
+        "zip" => "application/zip",
+        "txt" => "text/plain",
+        "md" => "text/markdown",
+        "csv" => "text/csv",
+        "json" => "application/json",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        _ => "application/octet-stream",
+    };
+    let kind = mime.split('/').next().filter(|k| ["audio", "video", "image"].contains(k)).unwrap_or("file");
+    Some(Media { kind: kind.to_string(), url: format!("data:{mime};base64,{}", base64_encode(&bytes)) })
+}
+
+/// Standard base64.
+fn base64_encode(bytes: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n =
+            (chunk[0] as u32) << 16 | (*chunk.get(1).unwrap_or(&0) as u32) << 8 | *chunk.get(2).unwrap_or(&0) as u32;
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+/// Presses the site's own download controls for the files and sounds of a reply, and takes what downloads: as many as
+/// were started, or what came by `deadline`.
+async fn reply_downloads(
+    page: &dyn Page, recipe: &Recipe, before: u64, poll: Duration, deadline: Instant,
+) -> Vec<Media> {
+    if recipe.media_root.is_none() {
+        return Vec::new();
+    }
+    let opened = page.eval(download_click_script(recipe, before)).await.unwrap_or(Value::Null);
+    let mut expected = opened["started"].as_u64().unwrap_or(0);
+    let menus = opened["menus"].as_u64().unwrap_or(0);
+    for _ in 0..menus {
+        // The menu renders after its button is pressed.
+        tokio::time::sleep(poll.max(Duration::from_millis(300))).await;
+        expected += page.eval(download_menu_script()).await.ok().and_then(|v| v.as_u64()).unwrap_or(0);
+    }
+    let mut taken = Vec::new();
+    let mut done = 0u64;
+    while done < expected && Instant::now() < deadline {
+        tokio::time::sleep(poll).await;
+        for d in page.downloads() {
+            done += 1;
+            match d.path.filter(|_| d.ok).and_then(|p| downloaded_media(&p)) {
+                Some(m) => taken.push(m),
+                None => crate::applog::warn("a download the site started for its reply did not complete"),
+            }
+        }
+    }
+    if expected > 0 {
+        crate::applog::info(&format!(
+            "web reply on {}: {expected} download(s) started with the site's own controls, {} taken",
+            recipe.preset,
+            taken.len()
+        ));
+    }
+    taken
 }
 
 /// How often a reply held open by the page's signs is described in the app log.
@@ -799,7 +965,7 @@ const PROBE_EVERY: Duration = Duration::from_secs(20);
 #[allow(clippy::too_many_arguments)]
 async fn finish(
     page: &dyn Page, recipe: &Recipe, timing: &Timing, text: String, sent: &str, denied: u64, media: Vec<Media>,
-    on_text: &mut (dyn FnMut(&str) + Send), note: &str,
+    on_text: &mut (dyn FnMut(&str) + Send), note: &str, before: u64,
 ) -> Reply {
     if text.len() > sent.len() {
         if let Some(more) = text.strip_prefix(sent) {
@@ -813,7 +979,8 @@ async fn finish(
         recipe.preset,
         media.len()
     ));
-    let media = with_blob_media(page, media, timing.poll).await;
+    let mut media = with_blob_media(page, media, timing.poll).await;
+    media.extend(reply_downloads(page, recipe, before, timing.poll, Instant::now() + Duration::from_secs(120)).await);
     Reply { text, denied, media }
 }
 
@@ -1092,6 +1259,17 @@ pub trait Page: Send + Sync {
     fn navigate(&self, url: &str) -> BoxFuture<'_, Result<(), WebError>>;
     /// Runs one script and returns its value.
     fn eval(&self, script: String) -> BoxFuture<'_, Result<Value, WebError>>;
+    /// The downloads this page finished since the last call, taken (the window saves them in Pygg's own folder).
+    fn downloads(&self) -> Vec<Downloaded> {
+        Vec::new()
+    }
+}
+
+/// A file the site's own download control saved, in Pygg's folder for the connection (`window.rs`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Downloaded {
+    pub path: Option<std::path::PathBuf>,
+    pub ok: bool,
 }
 
 /// The windows of the web sessions: the app's (`window.rs`), or scripted ones in tests.
@@ -1278,7 +1456,7 @@ pub async fn converse_marked(
             if last.as_deref().is_some_and(|t| !t.is_empty()) || !media.is_empty() {
                 let text = last.unwrap_or_default();
                 let note = ", ended at the time limit while the page still showed it was busy";
-                return Ok(finish(page, recipe, timing, text, &sent, denied, media, on_text, note).await);
+                return Ok(finish(page, recipe, timing, text, &sent, denied, media, on_text, note, base.count).await);
             }
             return Err(WebError::Timeout(REPLY_TIMEOUT));
         }
@@ -1353,7 +1531,7 @@ pub async fn converse_marked(
                 if text.len() < 600 && SLOW_DOWN_HINTS.iter().any(|h| lower.contains(h) && !prompt_lower.contains(h)) {
                     return Err(WebError::SlowDown);
                 }
-                return Ok(finish(page, recipe, timing, text, &sent, denied, media, on_text, "").await);
+                return Ok(finish(page, recipe, timing, text, &sent, denied, media, on_text, "", base.count).await);
             }
         }
     }

@@ -42,11 +42,20 @@ pub struct AppWindows<R: Runtime> {
     /// https, like a browser, since sign-in passes through hosts no recipe can list. Pygg's own typing is held to the
     /// site's page either way (`fill_script`, `send_script`).
     signing_in: Arc<Mutex<HashSet<String>>>,
+    /// Files the site's own download controls saved for a reply (owner's decision, 2026-11-18), by connection, until
+    /// the reply takes them.
+    downloads: Arc<Mutex<HashMap<String, Vec<super::Downloaded>>>>,
 }
 
 impl<R: Runtime> AppWindows<R> {
     pub fn new(app: AppHandle<R>, root: PathBuf) -> Arc<AppWindows<R>> {
-        let windows = Arc::new(AppWindows { app, root, last_used: Arc::default(), signing_in: Arc::default() });
+        let windows = Arc::new(AppWindows {
+            app,
+            root,
+            last_used: Arc::default(),
+            signing_in: Arc::default(),
+            downloads: Arc::default(),
+        });
         // Closes hidden windows nobody has used for a while.
         let reaper = windows.clone();
         tauri::async_runtime::spawn(async move {
@@ -136,6 +145,37 @@ impl<R: Runtime> AppWindows<R> {
                 }
                 allowed
             })
+            // A download while Pygg drives the window goes to Pygg's folder for the connection, and the reply takes it
+            // (and deletes it); one the user starts while signing in goes where the system puts downloads.
+            .on_download({
+                let (signing_in, downloads, id) =
+                    (self.signing_in.clone(), self.downloads.clone(), provider.id.clone());
+                let folder = self.root.join("downloads").join(&provider.id);
+                move |_webview, event| {
+                    let user = signing_in.lock().unwrap_or_else(|p| p.into_inner()).contains(&id);
+                    match event {
+                        tauri::webview::DownloadEvent::Requested { destination, .. } if !user => {
+                            let _ = std::fs::create_dir_all(&folder);
+                            let name = destination
+                                .file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .filter(|n| !n.is_empty())
+                                .unwrap_or_else(|| "download".into());
+                            *destination = folder.join(format!("{}-{name}", uuid::Uuid::new_v4().simple()));
+                        }
+                        tauri::webview::DownloadEvent::Finished { path, success, .. } if !user => {
+                            downloads
+                                .lock()
+                                .unwrap_or_else(|p| p.into_inner())
+                                .entry(id.clone())
+                                .or_default()
+                                .push(super::Downloaded { path, ok: success });
+                        }
+                        _ => {}
+                    }
+                    true
+                }
+            })
             // No popups: a site that signs in through one is told so on the connection (host only), as for a refused address.
             .on_new_window(move |url, _| {
                 if cfg!(debug_assertions) && std::env::var_os("PYGG_WEB_DEVTOOLS").is_some() {
@@ -163,7 +203,7 @@ impl<R: Runtime> AppWindows<R> {
 impl<R: Runtime> Windows for AppWindows<R> {
     fn page(&self, provider: &Provider, recipe: &'static Recipe) -> Result<Arc<dyn Page>, WebError> {
         let window = self.ensure(provider, recipe).map_err(|_| WebError::Unavailable(NO_WINDOW))?;
-        Ok(Arc::new(WindowPage { window }))
+        Ok(Arc::new(WindowPage { window, provider_id: provider.id.clone(), downloads: self.downloads.clone() }))
     }
 
     fn show(&self, provider: &Provider, recipe: &'static Recipe) -> Result<(), String> {
@@ -201,9 +241,15 @@ impl<R: Runtime> Windows for AppWindows<R> {
 
 struct WindowPage<R: Runtime> {
     window: WebviewWindow<R>,
+    provider_id: String,
+    downloads: Arc<Mutex<HashMap<String, Vec<super::Downloaded>>>>,
 }
 
 impl<R: Runtime> Page for WindowPage<R> {
+    fn downloads(&self) -> Vec<super::Downloaded> {
+        self.downloads.lock().unwrap_or_else(|p| p.into_inner()).remove(&self.provider_id).unwrap_or_default()
+    }
+
     fn navigate(&self, url: &str) -> BoxFuture<'_, Result<(), WebError>> {
         let result = url
             .parse()
