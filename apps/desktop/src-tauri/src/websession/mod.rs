@@ -918,6 +918,17 @@ pub fn play_script(r: &Recipe, before: u64) -> String {
     )
 }
 
+/// The addresses the page's sound players are playing (`currentSrc`), each once. Muse plays a sound from a `blob:`
+/// address on an `<audio>` element it makes when Play is pressed, outside the reply's block, and drops the Blob itself
+/// (seen in the live page, 2026-11-19), so the sound is taken from that address while the player is paused.
+pub fn audio_sources_script() -> String {
+    r#"(() => {
+  const __pyggAudioSources = [...document.querySelectorAll('audio')].map(a => a.currentSrc || a.src || '');
+  return [...new Set(__pyggAudioSources.filter(u => u.startsWith('blob:') || u.startsWith('https:')))];
+})()"#
+        .to_string()
+}
+
 /// Pauses the players `play_script` started.
 pub fn pause_script(r: &Recipe) -> String {
     format!(
@@ -982,22 +993,41 @@ async fn finish(
         tokio::time::sleep(timing.poll).await;
         received.extend(page.network());
     }
-    // Sounds and documents the page holds in memory since the prompt (2b); a sound fetched only on Play is played
-    // once, muted, and paused when it is there (3).
-    let mut from_heap = page.heap_blobs(true, heap_base.to_vec()).await;
+    // Sounds and documents the page holds in memory since the prompt (2b).
+    let from_heap = page.heap_blobs(true, heap_base.to_vec()).await;
+    // A sound fetched only on Play (3): Play is pressed once, the window muted, and as soon as a player has a new
+    // address it is paused and that address is copied (a `blob:` one out of the page's memory).
     if recipe.play_audio && !from_heap.iter().any(|b| b.mime.starts_with("audio/")) {
+        let sources = |v: Value| -> Vec<String> {
+            v.as_array().map(|a| a.iter().filter_map(|u| u.as_str().map(str::to_string)).collect()).unwrap_or_default()
+        };
+        let old = sources(page.eval(audio_sources_script()).await.unwrap_or(Value::Null));
         let pressed = page.eval(play_script(recipe, before)).await.ok().and_then(|v| v.as_u64()).unwrap_or(0);
+        let mut playing: Vec<String> = Vec::new();
         if pressed > 0 {
-            for _ in 0..40 {
+            for _ in 0..80 {
                 tokio::time::sleep(timing.poll.max(Duration::from_millis(250))).await;
-                from_heap = page.heap_blobs(true, heap_base.to_vec()).await;
-                if from_heap.iter().filter(|b| b.mime.starts_with("audio/")).count() as u64 >= pressed {
+                playing = sources(page.eval(audio_sources_script()).await.unwrap_or(Value::Null))
+                    .into_iter()
+                    .filter(|u| !old.contains(u))
+                    .collect();
+                if playing.len() as u64 >= pressed {
                     break;
                 }
             }
             let _ = page.eval(pause_script(recipe)).await;
         }
-        crate::applog::info(&format!("web reply on {}: Play pressed on {pressed} sound(s)", recipe.preset));
+        crate::applog::info(&format!(
+            "web reply on {}: Play pressed on {pressed} sound(s), {} new player address(es)",
+            recipe.preset,
+            playing.len()
+        ));
+        let sounds = playing.into_iter().map(|url| Media { kind: "audio".to_string(), url }).collect();
+        for s in with_blob_media(page, sounds, timing.poll).await {
+            if !media.iter().any(|m| m.url == s.url) {
+                media.push(s);
+            }
+        }
     }
     let heap_note: Vec<String> = from_heap.iter().map(|b| format!("{} {} bytes", b.mime, b.size)).collect();
     if !heap_note.is_empty() {
