@@ -144,6 +144,9 @@ pub struct Recipe {
     pub challenge_hints: &'static [&'static str],
     /// Words of a finished reply that says the account reached its limit, in lower case.
     pub quota_hints: &'static [&'static str],
+    /// Where the site puts the pictures and videos it made, when it says so in its markup: media elsewhere on the page
+    /// (a mascot, an avatar, a decoration) is not the reply's. `None` looks at the whole page.
+    pub media_root: Option<&'static str>,
 }
 
 /// A check the site runs on the browser: a CAPTCHA, Cloudflare's "Just a moment" page or Turnstile, or a bot check.
@@ -215,6 +218,10 @@ pub const RECIPES: &[Recipe] = &[
         challenge_selectors: CHALLENGE_SELECTORS,
         challenge_hints: CHALLENGE_HINTS,
         quota_hints: QUOTA_HINTS,
+        // 2026-11-18, the owner's DevTools: a picture or video Muse made sits in
+        // `[data-testid="hatch-chat-attachment-presentation-video"]` (and `…-image`), a video's own address in the
+        // wrapper's `data-hatch-video-src`, with a poster picture beside it; its animated mascot is outside.
+        media_root: Some("[data-testid^=\"hatch-chat-attachment-presentation\"]"),
     },
     // ChatGPT chats with visitors too, so "signed in" needs its Log in buttons gone. Sign-in: auth.openai.com (email,
     // phone), Google, Apple, Microsoft. Public page, 2026-11-12: `textarea[name="prompt"]`, a "Send message" button.
@@ -250,6 +257,7 @@ pub const RECIPES: &[Recipe] = &[
         challenge_selectors: CHALLENGE_SELECTORS,
         challenge_hints: CHALLENGE_HINTS,
         quota_hints: QUOTA_HINTS,
+        media_root: None,
     },
     // Perplexity answers visitors too. Sign-in: an emailed code on perplexity.ai, Google, Apple. Public page,
     // 2026-11-12: a Lexical `div[contenteditable][role=textbox]`, a "Submit" button. Its "Computer" mode is an agent;
@@ -274,6 +282,7 @@ pub const RECIPES: &[Recipe] = &[
         challenge_selectors: CHALLENGE_SELECTORS,
         challenge_hints: CHALLENGE_HINTS,
         quota_hints: QUOTA_HINTS,
+        media_root: None,
     },
     // DeepSeek needs an account: chat.deepseek.com sends a visitor to /sign_in (email or phone with a password,
     // Google, Apple). Its Send control has no label, so Enter sends; it shows no reliable "stop" control either.
@@ -297,6 +306,7 @@ pub const RECIPES: &[Recipe] = &[
         challenge_selectors: CHALLENGE_SELECTORS,
         challenge_hints: CHALLENGE_HINTS,
         quota_hints: QUOTA_HINTS,
+        media_root: None,
     },
     // Grok sits behind Cloudflare: on 2026-11-12 even its sign-in page answered with "Just a moment" in a normal
     // browser. That check stops the connection until the user clears it in the window; Pygg never answers it. Sign-in:
@@ -322,6 +332,7 @@ pub const RECIPES: &[Recipe] = &[
         challenge_selectors: CHALLENGE_SELECTORS,
         challenge_hints: CHALLENGE_HINTS,
         quota_hints: QUOTA_HINTS,
+        media_root: None,
     },
 ];
 
@@ -594,7 +605,12 @@ pub fn read_script(r: &Recipe) -> String {
   // loading holds the reply open; small ones (avatars, icons) are left out.
   const media = [], seen = new Set();
   let pending = 0;
-  for (const img of document.querySelectorAll('img')) {{
+  const rootSel = {media_root};
+  const scope = rootSel ? [...document.querySelectorAll(rootSel)] : [document];
+  const inScope = sel => scope.flatMap(r => [...r.querySelectorAll(sel)]);
+  for (const img of inScope('img')) {{
+    // A video's poster sits beside it: the video is what was made.
+    if (img.parentElement && img.parentElement.querySelector('video')) continue;
     const src = img.currentSrc || img.src || '';
     if (!/^(https:|data:image\/|blob:)/.test(src) || seen.has(src)) continue;
     const box = img.getBoundingClientRect();
@@ -608,9 +624,10 @@ pub fn read_script(r: &Recipe) -> String {
     if (!a.hasAttribute('download') && !/\.(pdf|docx?|xlsx?|pptx?|csv|tsv|zip|txt|md|json|xml|html?|mp3|wav|m4a|mp4|webm|mov|png|jpe?g|webp|gif|svg)([?#]|$)/i.test(new URL(href).pathname)) continue;
     seen.add(href); media.push({{ kind: 'file', url: href }});
   }}
-  for (const v of document.querySelectorAll('video')) {{
+  for (const v of inScope('video')) {{
     const source = v.querySelector('source[src]');
-    const src = v.currentSrc || v.src || (source ? source.src : '') || '';
+    const wrapper = v.closest('[data-hatch-video-src]');
+    const src = (wrapper && wrapper.getAttribute('data-hatch-video-src')) || v.currentSrc || v.src || (source ? source.src : '') || '';
     if (!/^(https:|blob:)/.test(src) || seen.has(src)) continue;
     seen.add(src); media.push({{ kind: 'video', url: src }});
   }}
@@ -619,6 +636,7 @@ pub fn read_script(r: &Recipe) -> String {
            restricted: {restricted}.some(h => body.includes(h) && !said.includes(h)) }};
 }})()"#,
         reply = q(r.reply),
+        media_root = json!(r.media_root),
         restricted = json!(RESTRICTION_HINTS),
         busy = r.busy.map(|b| format!("!!document.querySelector({})", q(b))).unwrap_or_else(|| "false".into()),
         approval = r.approval.map(|a| format!("!!document.querySelector({})", q(a))).unwrap_or_else(|| "false".into()),
@@ -1075,6 +1093,37 @@ pub async fn open_chat(page: &dyn Page, recipe: &Recipe, timing: &Timing) -> Res
     }
 }
 
+/// How long a reply waits for a picture or video the prompt asked for, beyond its words.
+pub const MEDIA_WAIT: Duration = Duration::from_secs(180);
+
+/// Whether a prompt asks for a picture or video, in English or Vietnamese.
+pub fn asks_for_media(prompt: &str) -> bool {
+    let p = prompt.to_lowercase();
+    [
+        "image",
+        "picture",
+        "photo",
+        "video",
+        "draw ",
+        "drawing",
+        "paint",
+        "illustrat",
+        "animation",
+        "animated",
+        "clip",
+        "hình ảnh",
+        "bức ảnh",
+        "tấm ảnh",
+        "tạo ảnh",
+        "ảnh của",
+        "vẽ",
+        "phim",
+        "hoạt hình",
+    ]
+    .iter()
+    .any(|w| p.contains(w))
+}
+
 /// A finished reply, and how many of the site's requests for approval were denied on the way.
 #[derive(Debug, PartialEq)]
 pub struct Reply {
@@ -1127,6 +1176,8 @@ pub async fn converse_marked(
     let (first_word, reply_wait) = (timing.first_word_wait(prompt), timing.reply_wait(prompt));
     let (mut sent, mut last, mut stable, mut denied) = (String::new(), None::<String>, 0, 0u64);
     let mut media: Vec<Media> = Vec::new();
+    // A picture or video asked for comes after the words (Muse: "I'll generate…", then the video): held for.
+    let expects_media = asks_for_media(prompt);
     // The page has shown it is answering: its thinking is the first word.
     let mut answering = false;
     // A notice in the prompt itself is the user's text, not the site's.
@@ -1137,7 +1188,8 @@ pub async fn converse_marked(
         if elapsed > reply_wait {
             return Err(WebError::Timeout(REPLY_TIMEOUT));
         }
-        if sent.is_empty() && media.is_empty() && !answering && elapsed > first_word {
+        let media_due = expects_media && media.is_empty() && elapsed < MEDIA_WAIT;
+        if sent.is_empty() && media.is_empty() && !answering && elapsed > first_word && !media_due {
             return Err(WebError::Timeout(NO_REPLY));
         }
         tokio::time::sleep(timing.poll).await;
@@ -1181,7 +1233,9 @@ pub async fn converse_marked(
         } else {
             stable += 1;
             let settled = if recipe.busy.is_some() { timing.stable } else { timing.stable_busy };
-            if !waiting && ((!state.busy && stable >= settled) || stable >= timing.stable_busy) {
+            // A short reply to a request for a picture or video waits for it (a long one answered in words).
+            let holding = media_due && last.as_deref().map_or(0, |t| t.chars().count()) < 300;
+            if !waiting && !holding && ((!state.busy && stable >= settled) || stable >= timing.stable_busy) {
                 let text = last.unwrap_or_default();
                 let lower = text.to_lowercase();
                 if recipe.quota_hints.iter().any(|h| lower.contains(h)) && text.len() < 600 {

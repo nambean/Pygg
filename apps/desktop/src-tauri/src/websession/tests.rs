@@ -163,6 +163,36 @@ fn pictures_videos_and_files_come_back_with_the_reply() {
     });
 }
 
+/// A request for a picture or video waits for it after the words (owner's report, 2026-11-18: Muse said "I'll generate
+/// a short video…" and Pygg ended before the video came); a long answer to a question that only mentions an image does
+/// not wait.
+#[test]
+fn a_short_reply_to_a_request_for_a_video_waits_for_the_video() {
+    assert!(asks_for_media("make short video pokemon pikachu"));
+    assert!(asks_for_media("generate image cat black"));
+    assert!(asks_for_media("vẽ một con mèo đen"));
+    assert!(!asks_for_media("explain prompt caching in two sentences"));
+    assert!(!asks_for_media("điều này ảnh hưởng thế nào?"));
+    rt().block_on(async {
+        let film = json!({ "kind": "video", "url": "https://cdn.example/pikachu.mp4" });
+        let mut reads = vec![json!({ "count": 0, "text": "" })];
+        reads.extend((0..10).map(|_| json!({ "count": 1, "text": "I'll generate a short video for you." })));
+        reads.push(json!({ "count": 1, "text": "Here you go.", "media": [film] }));
+        let page = FakePage::new(vec![ready()], reads);
+        let reply = converse(page.as_ref(), muse(), "make short video pokemon pikachu", &fast(), &mut |_: &str| {})
+            .await
+            .unwrap();
+        assert_eq!(reply.media.len(), 1, "the video that came after the words");
+
+        let long = "A Docker image is a read-only template. ".repeat(12);
+        let page =
+            FakePage::new(vec![ready()], vec![json!({ "count": 0, "text": "" }), json!({ "count": 1, "text": long })]);
+        let reply =
+            converse(page.as_ref(), muse(), "what is a docker image?", &fast(), &mut |_: &str| {}).await.unwrap();
+        assert!(reply.media.is_empty() && reply.text.len() > 300);
+    });
+}
+
 #[test]
 fn a_reply_streams_as_it_appears_and_ends_when_it_stops_changing() {
     rt().block_on(async {
