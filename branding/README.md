@@ -19,6 +19,7 @@
 | `pygg-logo-full.png` | Horizontal logo and slogan (PNG, 640x178) |
 | `pygg.ico` | Windows favicon/icon (256x256 PNG-compressed entry) |
 | `pygg-social-preview.png` | GitHub's social preview, 1280x640 (Settings → General → Social preview); rendered from `pygg-social-preview.html` with headless Edge at that window size |
+| `pygg-demo-1080p.mp4` | The 36-second demo for X, LinkedIn and launch posts (1920x1080, silent); `docs/images/demo.gif` is the README's 960-wide copy. Made with HyperFrames from real CLI output and the browser preview's demo-data screenshots |
 | `brand.json` | Names, palette, asset paths |
 
 ### Colors

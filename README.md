@@ -44,6 +44,10 @@ Pygg runs on your computer. Connect your providers once (API keys, coding plans,
 ## A look at the app
 
 <p align="center">
+<img src="docs/images/demo.gif" alt="A 36-second demo: 36 coding tasks, Sonnet 5.5 solved 34, Haiku 5.5 through Pygg solved 36 for 88% less per solved task; the pygg CLI installed and Claude Code set up and started with the model auto; a request falling back from two rate-limited or empty keys to a local Ollama model; the Usage screen with estimated savings and each cost's source" width="760">
+</p>
+
+<p align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/home.png">
   <img src="docs/images/home-light.png" alt="Home: the gateway running on 127.0.0.1:8741, estimated savings against a chosen model, where the answers came from, and the last 24 hours of requests" width="760">
