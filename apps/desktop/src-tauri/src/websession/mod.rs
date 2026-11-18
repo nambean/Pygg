@@ -589,8 +589,7 @@ pub fn read_script(r: &Recipe) -> String {
   const replies = [...document.querySelectorAll({reply})];
   const last = replies.length ? (replies[replies.length - 1].innerText || '').trim() : '';
   const body = document.body ? document.body.innerText.slice(0, 4000).toLowerCase() : '';
-  const said = replies.map(e => (e.innerText || '').toLowerCase()).join('
-');
+  const said = replies.map(e => (e.innerText || '').toLowerCase()).join(' ');
   return {{ count: replies.length, text: last, busy: {busy},
            approval: {approval}, challenge: !!document.querySelector({challenge}) || {challenge_hints}.some(h => body.includes(h)),
            restricted: {restricted}.some(h => body.includes(h) && !said.includes(h)) }};

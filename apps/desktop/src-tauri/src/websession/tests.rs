@@ -480,6 +480,44 @@ fn the_window_goes_only_to_the_sites_hosts() {
     assert!(!host_allowed(r, "https://example.com/"));
 }
 
+/// Every script Pygg runs in a site's page is valid JavaScript (2026-11-18): a newline written into `join('\n')`
+/// left the reply-reading script unparsable, so every web session sent its prompt, read nothing and ended in "No reply
+/// appeared in time" for four days, while the scripted page in these tests never parses JavaScript. Node checks each
+/// script's syntax; the test is skipped where Node is not installed.
+#[test]
+fn every_page_script_is_valid_javascript() {
+    let Ok(node) = std::process::Command::new("node").arg("--version").output() else {
+        eprintln!("node not found: page scripts not syntax-checked");
+        return;
+    };
+    assert!(node.status.success());
+    let dir = std::env::temp_dir().join(format!("pygg-js-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let prompt = "a 'quoted' \"prompt\"\nover two lines";
+    for r in RECIPES {
+        let scripts = [
+            ("mark", mark_script()),
+            ("state", state_script(r)),
+            ("fill", fill_script(r, prompt)),
+            ("send", send_script(r)),
+            ("read", read_script(r)),
+            ("deny", deny_script(r)),
+        ];
+        for (name, script) in scripts {
+            let file = dir.join(format!("{}-{name}.js", r.preset));
+            std::fs::write(&file, &script).unwrap();
+            let out = std::process::Command::new("node").arg("--check").arg(&file).output().unwrap();
+            assert!(
+                out.status.success(),
+                "{} {name} script is not valid JavaScript:\n{}",
+                r.preset,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn no_script_reads_cookies_storage_or_the_network() {
     for r in RECIPES {
