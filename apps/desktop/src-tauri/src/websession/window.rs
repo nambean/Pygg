@@ -372,12 +372,14 @@ async fn read_heap_blobs<R: Runtime>(
         )
         .await?;
         let array = found.pointer("/objects/objectId")?.as_str()?.to_string();
+        // The prototypes that inherit from Blob's (`File.prototype`) are found too, and reading their type throws
+        // (Illegal invocation): each is read on its own, and one that throws counts as empty.
         let listed = devtools(
             window,
             "Runtime.callFunctionOn",
             json!({
                 "objectId": array,
-                "functionDeclaration": "function () { return this.map(b => [String(b.type || ''), Number(b.size) || 0]); }",
+                "functionDeclaration": "function () { return this.map(b => { try { return [String(b.type || ''), Number(b.size) || 0]; } catch (e) { return ['', 0]; } }); }",
                 "returnByValue": true,
                 "silent": true,
             }),
