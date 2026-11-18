@@ -44,6 +44,8 @@ pub struct AppWindows<R: Runtime> {
     signing_in: Arc<Mutex<HashSet<String>>>,
     /// What each connection's page received (sounds, documents, the site's API answers), until a reply takes it.
     received: Arc<Mutex<HashMap<String, Vec<super::Received>>>>,
+    /// Every response each page received, as `type from host`, until a reply takes it (for the app log).
+    seen: Arc<Mutex<HashMap<String, Vec<String>>>>,
 }
 
 impl<R: Runtime> AppWindows<R> {
@@ -54,6 +56,7 @@ impl<R: Runtime> AppWindows<R> {
             last_used: Arc::default(),
             signing_in: Arc::default(),
             received: Arc::default(),
+            seen: Arc::default(),
         });
         // Closes hidden windows nobody has used for a while.
         let reaper = windows.clone();
@@ -158,7 +161,7 @@ impl<R: Runtime> AppWindows<R> {
             .build()
             .map_err(|e| format!("Could not open the window: {e}"))?;
         #[cfg(windows)]
-        watch_responses(&window, self.received.clone(), provider.id.clone(), recipe.site);
+        watch_responses(&window, self.received.clone(), self.seen.clone(), provider.id.clone(), recipe.site);
         // Closing the window (it hides) ends the user's turn: back to the site's hosts only.
         let (signing_in, id) = (self.signing_in.clone(), provider.id.clone());
         window.on_window_event(move |event| {
@@ -173,7 +176,12 @@ impl<R: Runtime> AppWindows<R> {
 impl<R: Runtime> Windows for AppWindows<R> {
     fn page(&self, provider: &Provider, recipe: &'static Recipe) -> Result<Arc<dyn Page>, WebError> {
         let window = self.ensure(provider, recipe).map_err(|_| WebError::Unavailable(NO_WINDOW))?;
-        Ok(Arc::new(WindowPage { window, provider_id: provider.id.clone(), received: self.received.clone() }))
+        Ok(Arc::new(WindowPage {
+            window,
+            provider_id: provider.id.clone(),
+            received: self.received.clone(),
+            seen: self.seen.clone(),
+        }))
     }
 
     fn show(&self, provider: &Provider, recipe: &'static Recipe) -> Result<(), String> {
@@ -213,6 +221,7 @@ struct WindowPage<R: Runtime> {
     window: WebviewWindow<R>,
     provider_id: String,
     received: Arc<Mutex<HashMap<String, Vec<super::Received>>>>,
+    seen: Arc<Mutex<HashMap<String, Vec<String>>>>,
 }
 
 /// How many responses a connection keeps until its reply takes them, and the most one may be.
@@ -224,8 +233,8 @@ const KEPT_BYTES: usize = 100 * 1024 * 1024;
 /// (`super::worth_keeping`). Only responses: no request is changed or made, and no cookie or header is kept.
 #[cfg(windows)]
 fn watch_responses<R: Runtime>(
-    window: &WebviewWindow<R>, received: Arc<Mutex<HashMap<String, Vec<super::Received>>>>, id: String,
-    site: &'static str,
+    window: &WebviewWindow<R>, received: Arc<Mutex<HashMap<String, Vec<super::Received>>>>,
+    seen: Arc<Mutex<HashMap<String, Vec<String>>>>, id: String, site: &'static str,
 ) {
     let site_host = site.trim_start_matches("https://").trim_end_matches('/').to_string();
     let _ = window.with_webview(move |webview| unsafe {
@@ -251,6 +260,14 @@ fn watch_responses<R: Runtime>(
                 let mut mime = windows_core::PWSTR::null();
                 let _ = response.Headers()?.GetHeader(windows_core::w!("Content-Type"), &mut mime);
                 let mime = webview2_com::take_pwstr(mime);
+                {
+                    let mut all = seen.lock().unwrap_or_else(|p| p.into_inner());
+                    let list = all.entry(id.clone()).or_default();
+                    if list.len() < 400 {
+                        let kind = mime.split(';').next().unwrap_or("").trim();
+                        list.push(format!("{} from {host}", if kind.is_empty() { "(no type)" } else { kind }));
+                    }
+                }
                 if !super::worth_keeping(&mime, &host, &site_host) {
                     return Ok(());
                 }
@@ -292,6 +309,10 @@ fn watch_responses<R: Runtime>(
 impl<R: Runtime> Page for WindowPage<R> {
     fn network(&self) -> Vec<super::Received> {
         self.received.lock().unwrap_or_else(|p| p.into_inner()).remove(&self.provider_id).unwrap_or_default()
+    }
+
+    fn network_seen(&self) -> Vec<String> {
+        self.seen.lock().unwrap_or_else(|p| p.into_inner()).remove(&self.provider_id).unwrap_or_default()
     }
 
     fn navigate(&self, url: &str) -> BoxFuture<'_, Result<(), WebError>> {

@@ -825,7 +825,17 @@ fn network_media(received: Vec<Received>, preset: &str) -> Vec<Media> {
         if r.body.is_empty() || r.body.len() as u64 > BLOB_LIMIT {
             continue;
         }
-        let kind = if mime.starts_with("audio/") { "audio" } else { "file" };
+        // A generic type is replaced by what the bytes say; a body that is none of the kept kinds is left.
+        let generic =
+            matches!(mime.as_str(), "" | "application/octet-stream" | "binary/octet-stream" | "application/x-binary");
+        let (mime, kind) = match (generic, sniff(&r.body)) {
+            (true, Some((m, k))) => (m.to_string(), k),
+            (true, None) => continue,
+            (false, _) => {
+                let kind = if mime.starts_with("audio/") { "audio" } else { "file" };
+                (mime, kind)
+            }
+        };
         let url = format!("data:{mime};base64,{}", base64_encode(&r.body));
         if !seen.contains(&url) {
             seen.push(url.clone());
@@ -919,6 +929,22 @@ async fn finish(
         received.extend(page.network());
     }
     let _ = before;
+    let seen = page.network_seen();
+    if !seen.is_empty() {
+        let mut counts: Vec<(String, usize)> = Vec::new();
+        for s in seen {
+            match counts.iter_mut().find(|(k, _)| *k == s) {
+                Some((_, n)) => *n += 1,
+                None => counts.push((s, 1)),
+            }
+        }
+        let list: Vec<String> = counts.into_iter().map(|(k, n)| format!("{k} ×{n}")).collect();
+        crate::applog::info(&format!(
+            "web reply on {}: every response the page received: {}",
+            recipe.preset,
+            list.join(", ")
+        ));
+    }
     media.extend(network_media(received, recipe.preset));
     Reply { text, denied, media }
 }
@@ -1203,6 +1229,10 @@ pub trait Page: Send + Sync {
     fn network(&self) -> Vec<Received> {
         Vec::new()
     }
+    /// Every response the page received since the last call, as `type from host` only (for the app log), taken.
+    fn network_seen(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// One response the page received: its content type, the address's host, and its body (a sound or document, or the
@@ -1229,7 +1259,32 @@ pub fn worth_keeping(mime: &str, host: &str, site_host: &str) -> bool {
                 | "application/vnd.ms-powerpoint"
         )
         || mime.starts_with("application/vnd.openxmlformats-officedocument.")
+        // A file sent with no type of its own is kept to be recognised by its first bytes (`sniff`).
+        || matches!(mime.as_str(), "" | "application/octet-stream" | "binary/octet-stream" | "application/x-binary")
         || (mime.contains("json") && (host == site_host || host.ends_with(&format!(".{site_host}"))))
+}
+
+/// What a body is by its first bytes, whatever type it was sent with: a PDF, a sound, or a zip (Office documents are
+/// zips). `None` for anything else.
+pub fn sniff(body: &[u8]) -> Option<(&'static str, &'static str)> {
+    let at = |i: usize, s: &[u8]| body.len() >= i + s.len() && &body[i..i + s.len()] == s;
+    Some(if at(0, b"%PDF-") {
+        ("application/pdf", "file")
+    } else if at(0, b"ID3") || (body.len() > 1 && body[0] == 0xFF && body[1] & 0xE0 == 0xE0) {
+        ("audio/mpeg", "audio")
+    } else if at(0, b"RIFF") && at(8, b"WAVE") {
+        ("audio/wav", "audio")
+    } else if at(0, b"OggS") {
+        ("audio/ogg", "audio")
+    } else if at(0, b"fLaC") {
+        ("audio/flac", "audio")
+    } else if at(4, b"ftypM4A") || at(4, b"ftypm4a") {
+        ("audio/mp4", "audio")
+    } else if at(0, b"PK\x03\x04") {
+        ("application/zip", "file")
+    } else {
+        return None;
+    })
 }
 
 /// The windows of the web sessions: the app's (`window.rs`), or scripted ones in tests.
@@ -1380,6 +1435,7 @@ pub async fn converse_marked(
     open_chat(page, recipe, timing).await?;
     // What the page received before the prompt is not the reply's.
     let _ = page.network();
+    let _ = page.network_seen();
     let base: ChatState = eval_as(page, read_script(recipe)).await?;
     let filled: Value = page.eval(fill_script(recipe, prompt)).await?;
     if filled["offSite"] == true {

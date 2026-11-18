@@ -248,6 +248,12 @@ fn what_the_page_receives_comes_back_with_the_reply() {
     assert!(worth_keeping("application/json; charset=utf-8", "graph.muse.ai", "muse.ai"));
     assert!(!worth_keeping("application/json", "ads.example.com", "muse.ai"), "another site's JSON");
     assert!(!worth_keeping("image/jpeg", "scontent.fbcdn.net", "muse.ai"), "pictures come from the page");
+    assert!(worth_keeping("application/octet-stream", "scontent.fbcdn.net", "muse.ai"), "recognised by its bytes");
+    assert_eq!(sniff(b"%PDF-1.7"), Some(("application/pdf", "file")));
+    assert_eq!(sniff(b"ID3\x04\x00"), Some(("audio/mpeg", "audio")));
+    assert_eq!(sniff(b"RIFF\x24\x00\x00\x00WAVEfmt "), Some(("audio/wav", "audio")));
+    assert_eq!(sniff(b"\x00\x00\x00\x20ftypM4A "), Some(("audio/mp4", "audio")));
+    assert_eq!(sniff(b"<html>"), None);
     rt().block_on(async {
         let page = FakePage::new(
             vec![ready()],
@@ -262,6 +268,8 @@ fn what_the_page_receives_comes_back_with_the_reply() {
                 body: b"%PDF-1.7 hi".to_vec(),
             },
             Received { mime: "application/json".into(), host: "muse.ai".into(), body: api.as_bytes().to_vec() },
+            Received { mime: "application/octet-stream".into(), host: "cdn.example".into(), body: b"<html>".to_vec() },
+            Received { mime: "binary/octet-stream".into(), host: "cdn.example".into(), body: b"OggS\x00\x02".to_vec() },
         ];
         let reply = converse(page.as_ref(), muse(), "a PDF", &fast(), &mut |_: &str| {}).await.unwrap();
         let got: Vec<(&str, &str)> = reply.media.iter().map(|m| (m.kind.as_str(), m.url.as_str())).collect();
@@ -269,7 +277,8 @@ fn what_the_page_receives_comes_back_with_the_reply() {
             got,
             [
                 ("file", "data:application/pdf;base64,JVBERi0xLjcgaGk="),
-                ("audio", "https://video.fbcdn.net/v/rain.mp3?oh=1&oe=2")
+                ("audio", "https://video.fbcdn.net/v/rain.mp3?oh=1&oe=2"),
+                ("audio", "data:audio/ogg;base64,T2dnUwAC")
             ]
         );
     });
