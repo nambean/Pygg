@@ -3346,6 +3346,8 @@ fn a_session_over_its_limit_is_refused_and_other_sessions_go_on() {
             .await
             .unwrap();
         assert_eq!(anthropic.status(), 402);
+        let body: Value = anthropic.json().await.unwrap();
+        assert_eq!(body["error"]["type"], "billing_error", "Anthropic's type for 402, not a rate limit");
         // Another session, and a request that names none, are not held to s-1's spend.
         assert_eq!(rig.post_session("/v1/chat/completions", "s-2", small("main/fast")).await.status(), 200);
         assert_eq!(rig.post("/v1/chat/completions", small("main/fast")).await.status(), 200);
@@ -3368,7 +3370,9 @@ fn a_hold_that_would_pass_the_session_limit_is_refused_with_402() {
         rig.set_limits(Some(1_000), None);
         let refused = rig.post_session("/v1/chat/completions", "s-hold", chat("main/fast")).await;
         assert_eq!(refused.status(), 402);
-        assert!(refused.text().await.unwrap().contains("would pass the session limit"));
+        let text = refused.text().await.unwrap();
+        assert!(text.contains("would pass the session limit ($0.0000 counted, $0.0000 held, $0.0010 limit)"), "{text}");
+        assert!(text.contains("--session-usd"), "it says what to change: {text}");
         assert_eq!(rig.journal_len(), 0);
     });
 }

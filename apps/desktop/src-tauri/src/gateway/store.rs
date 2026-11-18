@@ -1397,26 +1397,44 @@ pub struct LimitHit {
     pub limit: u64,
 }
 
+/// Dollars as a limit's messages show them: to the tenth of a cent under a cent, so a small limit does not read $0.00.
+pub fn usd(micro: u64) -> String {
+    if micro < 10_000 {
+        format!("${:.4}", micro as f64 / 1e6)
+    } else {
+        format!("${:.2}", micro as f64 / 1e6)
+    }
+}
+
+impl LimitScope {
+    /// What to change once this limit stops a request, for the key named `client`.
+    pub fn remedy(self, client: &str) -> String {
+        let (then, flag) = match self {
+            LimitScope::Session => ("Start a new session, or raise or remove the limit", "--session-usd"),
+            LimitScope::Day => ("It resets at 00:00 UTC; or raise or remove the limit", "--day-usd"),
+            LimitScope::Month => ("Raise or remove the limit", "--monthly-usd"),
+        };
+        format!(
+            "{then} in Pygg → Endpoint → API Keys → Limits…, or with `pygg gateway client --name \"{client}\" {flag} N` \
+             (0 removes it)."
+        )
+    }
+}
+
 impl LimitHit {
     /// The refusal a client sees: which limit, how much was counted, and what to change.
     pub fn message(&self, client: &str) -> String {
-        let usd =
-            |m: u64| if m < 10_000 { format!("${:.4}", m as f64 / 1e6) } else { format!("${:.2}", m as f64 / 1e6) };
-        let (counted, then, flag) = match self.scope {
-            LimitScope::Session => {
-                ("this session has used", "Start a new session, or raise or remove the limit", "--session-usd")
-            }
-            LimitScope::Day => {
-                ("today (UTC) this key has used", "It resets at 00:00 UTC; or raise or remove the limit", "--day-usd")
-            }
-            LimitScope::Month => ("this month this key has used", "Raise or remove the limit", "--monthly-usd"),
+        let counted = match self.scope {
+            LimitScope::Session => "this session has used",
+            LimitScope::Day => "today (UTC) this key has used",
+            LimitScope::Month => "this month this key has used",
         };
         format!(
-            "API key \"{client}\" has reached its {} limit ({}): {counted} {}. Nothing was sent. {then} in Pygg → \
-             Endpoint → API Keys → Limits…, or with `pygg gateway client --name \"{client}\" {flag} N` (0 removes it).",
+            "API key \"{client}\" has reached its {} limit ({}): {counted} {}. Nothing was sent. {}",
             self.scope.label(),
             usd(self.limit),
             usd(self.counted),
+            self.scope.remedy(client),
         )
     }
 }

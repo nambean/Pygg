@@ -1126,8 +1126,14 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 Attempt { db: shared.db.clone(), id, settled: false, owner: Some(owner) }
             }
             Ok(Err(over)) => {
-                skipped.push(format!("{name}: up to ${:.4} (estimated) would pass the {} limit (${:.2} counted, ${:.2} held, ${:.2} limit)",
-                    over.wanted as f64 / 1e6, over.scope.label(), over.spent as f64 / 1e6, over.reserved as f64 / 1e6, over.budget as f64 / 1e6));
+                skipped.push(format!(
+                    "{name}: up to {} (estimated) would pass the {} limit ({} counted, {} held, {} limit)",
+                    store::usd(over.wanted),
+                    over.scope.label(),
+                    store::usd(over.spent),
+                    store::usd(over.reserved),
+                    store::usd(over.budget)
+                ));
                 over_scope.get_or_insert(over.scope);
                 continue;
             }
@@ -1510,7 +1516,11 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
     } else {
         (StatusCode::BAD_GATEWAY, "api_error")
     };
-    let message = format!("No target could take \"{requested}\": {}.", skipped.join("; "));
+    let mut message = format!("No target could take \"{requested}\": {}.", skipped.join("; "));
+    // A session or day limit stopped it: say what to change, as a limit already reached does (cost plan A3).
+    if let Some(scope @ (store::LimitScope::Session | store::LimitScope::Day)) = over_scope {
+        message = format!("{message} Nothing was sent. {}", scope.remedy(&client.name));
+    }
     crate::applog::warn(&format!("request {request_id}: {message}"));
     Err(Refusal { retry_after: wait, ..Refusal::new(status, kind, message) })
 }

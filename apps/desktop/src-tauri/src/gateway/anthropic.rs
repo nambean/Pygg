@@ -40,6 +40,7 @@ fn error_kind(status: StatusCode) -> &'static str {
         401 => "authentication_error",
         403 => "permission_error",
         404 => "not_found_error",
+        402 => "billing_error",
         429 => "rate_limit_error",
         529 | 503 => "overloaded_error",
         _ => "api_error",
@@ -60,6 +61,9 @@ fn refusal_response(refusal: Refusal) -> Response {
         return response;
     }
     let kind = match refusal.kind {
+        // A session or day limit refuses with 402: Anthropic's own type for it, so a client does not take it for a rate
+        // limit and wait (cost plan A3). The monthly limit's 429 stays a rate limit.
+        "budget_exceeded" if refusal.status == StatusCode::PAYMENT_REQUIRED => "billing_error",
         "budget_exceeded" | "rate_limit_error" => "rate_limit_error",
         "model_not_found" => "not_found_error",
         _ => error_kind(refusal.status),
