@@ -839,7 +839,12 @@ pub fn download_click_script(r: &Recipe, before: u64) -> String {
     if (window.__pyggClicked.has(b)) continue;
     const direct = b.querySelector('a[download]') || [...b.querySelectorAll('a, button, [role="button"]')].find(labelled);
     if (direct) {{ window.__pyggClicked.add(b); direct.click(); started++; continue; }}
-    const menu = [...b.querySelectorAll('button[aria-haspopup="menu"], button[data-state="closed"]')].pop();
+    // The block's own menu ("Audio options"), else the menu of the message it sits in ("More options": a file card
+    // has no button of its own).
+    const own = [...b.querySelectorAll('button[aria-haspopup="menu"]')].pop();
+    let holder = b.parentElement;
+    while (holder && !own && !holder.querySelector('button[aria-haspopup="menu"]')) holder = holder.parentElement;
+    const menu = own || (holder ? [...holder.querySelectorAll('button[aria-haspopup="menu"]')].pop() : null);
     if (menu) {{ window.__pyggClicked.add(b); menu.click(); menus++; }}
   }}
   return {{ started, menus }};
@@ -855,9 +860,11 @@ pub fn download_menu_script() -> String {
   const saying = /download|tải xuống|tải về/i;
   const items = [...document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], [data-radix-collection-item]')];
   const item = items.find(i => saying.test(i.getAttribute('aria-label') || '') || saying.test((i.innerText || '').trim()));
-  if (item) { item.click(); return 1; }
+  if (item) { item.click(); return { pressed: 1, items: [] }; }
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-  return 0;
+  // The menu's own words (the site's interface: Share, Copy…), for the app log, so a missing Download is seen.
+  const names = items.slice(0, 12).map(i => ((i.getAttribute('aria-label') || i.innerText || '').trim()).slice(0, 30));
+  return { pressed: 0, items: names };
 })()"#
         .to_string()
 }
@@ -933,7 +940,15 @@ async fn reply_downloads(
     for _ in 0..menus {
         // The menu renders after its button is pressed.
         tokio::time::sleep(poll.max(Duration::from_millis(300))).await;
-        expected += page.eval(download_menu_script()).await.ok().and_then(|v| v.as_u64()).unwrap_or(0);
+        let menu = page.eval(download_menu_script()).await.unwrap_or(Value::Null);
+        let pressed = menu["pressed"].as_u64().unwrap_or(0);
+        expected += pressed;
+        if pressed == 0 {
+            crate::applog::info(&format!(
+                "web reply on {}: a media block's menu has no Download item; its items: {}",
+                recipe.preset, menu["items"]
+            ));
+        }
     }
     let mut taken = Vec::new();
     let mut done = 0u64;
