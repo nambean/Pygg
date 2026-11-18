@@ -845,7 +845,17 @@ pub fn download_click_script(r: &Recipe, before: u64) -> String {
     let holder = b.parentElement;
     while (holder && !own && !holder.querySelector('button[aria-haspopup="menu"]')) holder = holder.parentElement;
     const menu = own || (holder ? [...holder.querySelectorAll('button[aria-haspopup="menu"]')].pop() : null);
-    if (menu) {{ window.__pyggClicked.add(b); menu.click(); menus++; }}
+    if (menu) {{
+      window.__pyggClicked.add(b);
+      // A Radix menu (Muse's `dropdown-menu-trigger`) opens on the pointer going down, not on click(), and on Enter.
+      const opts = {{ bubbles: true, cancelable: true, button: 0, buttons: 1, pointerType: 'mouse', isPrimary: true }};
+      menu.dispatchEvent(new PointerEvent('pointerdown', opts));
+      if (menu.getAttribute('aria-expanded') !== 'true') {{
+        menu.focus();
+        menu.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }}));
+      }}
+      menus++;
+    }}
   }}
   return {{ started, menus }};
 }})()"#,
