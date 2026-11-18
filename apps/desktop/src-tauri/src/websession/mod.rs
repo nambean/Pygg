@@ -619,9 +619,18 @@ pub fn read_script(r: &Recipe) -> String {
   const rootSel = {media_root};
   const scope = rootSel ? [...document.querySelectorAll(rootSel)] : [document];
   const inScope = sel => scope.flatMap(r => [...r.querySelectorAll(sel)]);
+  // A video the site made, named on its wrapper before the <video> is even there (Muse: `data-hatch-video-src`, set
+  // when the video is ready; the <video> comes on hover or play, its poster picture before it).
+  const wrappers = inScope('[data-hatch-video-src]');
+  for (const w of wrappers) {{
+    const src = w.getAttribute('data-hatch-video-src') || '';
+    if (!/^(https:|blob:)/.test(src) || seen.has(src)) continue;
+    seen.add(src); media.push({{ kind: 'video', url: src }});
+  }}
   for (const img of inScope('img')) {{
-    // A video's poster sits beside it: the video is what was made.
+    // A video's poster sits beside it, or inside its wrapper: the video is what was made.
     if (img.parentElement && img.parentElement.querySelector('video')) continue;
+    if (img.closest('[data-hatch-video-wrapper], [data-hatch-video-src], [data-hatch-video-poster]')) continue;
     const src = img.currentSrc || img.src || '';
     if (!/^(https:|data:image\/|blob:)/.test(src) || seen.has(src)) continue;
     const box = img.getBoundingClientRect();
@@ -641,6 +650,12 @@ pub fn read_script(r: &Recipe) -> String {
     const src = (wrapper && wrapper.getAttribute('data-hatch-video-src')) || v.currentSrc || v.src || (source ? source.src : '') || '';
     if (!/^(https:|blob:)/.test(src) || seen.has(src)) continue;
     seen.add(src); media.push({{ kind: 'video', url: src }});
+  }}
+  for (const a of inScope('audio')) {{
+    const source = a.querySelector('source[src]');
+    const src = a.currentSrc || a.src || (source ? source.src : '') || '';
+    if (!/^(https:|blob:)/.test(src) || seen.has(src)) continue;
+    seen.add(src); media.push({{ kind: 'audio', url: src }});
   }}
   // Signs that the site is still making something, near the last reply and in its media blocks. Only an increase
   // over the page before the prompt holds the reply, so a sign that is always there does not.
@@ -736,7 +751,10 @@ pub fn media_probe_script(r: &Recipe) -> String {
   return {{ busy: {busy}, replies: replies.length, imgs: imgs.length, kinds, large, loading, widest, videos, pictures, outline,
            canvases: [...document.querySelectorAll('canvas')].filter(wide).length,
            svgs: [...document.querySelectorAll('svg')].filter(wide).length,
-           pictureTags: document.querySelectorAll('picture').length, backgrounds }};
+           pictureTags: document.querySelectorAll('picture').length, backgrounds,
+           audios: [...document.querySelectorAll('audio')].map(a => scheme(a.currentSrc || a.src)),
+           videoWrappers: [...document.querySelectorAll('[data-hatch-video-src]')].map(w => scheme(w.getAttribute('data-hatch-video-src'))),
+           links: [...document.querySelectorAll('a[href]')].filter(a => lastReply && (lastReply.contains(a) || (lastReply.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING))).map(a => scheme(a.href) + (a.hasAttribute('download') ? 'download' : '')) }};
 }})()"#,
         reply = q(r.reply),
         busy = r.busy.map(|b| format!("!!document.querySelector({})", q(b))).unwrap_or_else(|| "false".into())
@@ -915,7 +933,7 @@ pub struct ChatState {
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct Media {
-    /// `image`, `video` or `file` (a download link in a reply).
+    /// `image`, `video`, `audio` or `file` (a download link in a reply).
     pub kind: String,
     pub url: String,
 }
@@ -1526,7 +1544,7 @@ fn reply_tail(reply: &Reply) -> String {
 
 /// Pictures as Markdown images, videos and files as links, so a client shows or saves them (`pygg chat` saves them).
 pub fn media_note(media: &[Media]) -> String {
-    let (mut images, mut videos, mut files) = (0, 0, 0);
+    let (mut images, mut videos, mut files, mut audios) = (0, 0, 0, 0);
     let mut out = String::new();
     for m in media {
         match m.kind.as_str() {
@@ -1537,6 +1555,10 @@ pub fn media_note(media: &[Media]) -> String {
             "file" => {
                 files += 1;
                 out.push_str(&format!("\n\n[file {files}]({})", m.url));
+            }
+            "audio" => {
+                audios += 1;
+                out.push_str(&format!("\n\n[audio {audios}]({})", m.url));
             }
             _ => {
                 images += 1;

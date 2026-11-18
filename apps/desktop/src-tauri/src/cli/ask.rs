@@ -632,7 +632,7 @@ pub async fn chat(args: Vec<String>) -> i32 {
 
 /// Where the pictures, videos and files a web session adds after its text begin (`websession::media_note`).
 fn media_start(text: &str) -> Option<usize> {
-    ["\n\n![image ", "\n\n[video ", "\n\n[file "].iter().filter_map(|m| text.find(m)).min()
+    ["\n\n![image ", "\n\n[video ", "\n\n[audio ", "\n\n[file "].iter().filter_map(|m| text.find(m)).min()
 }
 
 /// The pictures, videos and files a web session put in an answer (`websession::media_note`): `![image 1](URL)`,
@@ -651,7 +651,7 @@ fn media_links(text: &str) -> Vec<(String, String)> {
         let numbered =
             label.split(' ').nth(1).is_some_and(|n| n.parse::<u32>().is_ok()) && label.split(' ').count() == 2;
         if numbered
-            && matches!(kind, "image" | "video" | "file")
+            && matches!(kind, "image" | "video" | "audio" | "file")
             // A picture or video copied out of the page comes as a data URL (Muse's videos: `data:video/mp4`).
             && (url.starts_with("https://") || url.starts_with("data:"))
         {
@@ -682,7 +682,11 @@ fn extension(url: &str, content_type: Option<&str>) -> String {
         "video/mp4" => "mp4",
         "video/webm" => "webm",
         "video/quicktime" => "mov",
-        "audio/mpeg" => "mp3",
+        "audio/mpeg" | "audio/mp3" => "mp3",
+        "audio/wav" | "audio/x-wav" | "audio/wave" => "wav",
+        "audio/ogg" => "ogg",
+        "audio/webm" => "weba",
+        "audio/mp4" | "audio/aac" | "audio/x-m4a" => "m4a",
         "application/pdf" => "pdf",
         "application/zip" => "zip",
         "text/plain" => "txt",
@@ -738,6 +742,7 @@ async fn save_one(http: &reqwest::Client, label: &str, url: &str, dir: &Path) ->
         // A video copied from the page may carry no type: it is saved as MP4, a picture as PNG.
         let ext = match extension("", mime).as_str() {
             "bin" if label.starts_with("video") => "mp4".to_string(),
+            "bin" if label.starts_with("audio") => "mp3".to_string(),
             "bin" if label.starts_with("image") => "png".to_string(),
             ext => ext.to_string(),
         };
@@ -995,6 +1000,11 @@ mod tests {
         // Muse's video, copied out of the page (2026-11-18: it was taken, then skipped here as not a picture).
         let muse = media_links("I'll make it.\n\n[video 1](data:video/mp4;base64,AAAAIGZ0eXA=)");
         assert_eq!(muse, [("video 1".to_string(), "data:video/mp4;base64,AAAAIGZ0eXA=".to_string())]);
+        let song = media_links("Nghe nè.\n\n[audio 1](data:audio/mpeg;base64,SUQz)");
+        assert_eq!(song[0].0, "audio 1");
+        assert_eq!(media_start("Nghe nè.\n\n[audio 1](data:audio/mpeg;base64,SUQz)"), Some("Nghe nè.".len()));
+        assert_eq!(extension("", Some("audio/mpeg")), "mp3");
+        assert_eq!(extension("", Some("audio/wav")), "wav");
         assert_eq!(extension("https://cdn.x/a.jpg?oh=1", None), "jpg");
         assert_eq!(extension("https://cdn.x/render/abc", Some("video/mp4")), "mp4");
         assert_eq!(extension("https://cdn.x/x", None), "bin");
