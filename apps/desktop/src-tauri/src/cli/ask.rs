@@ -280,9 +280,11 @@ async fn send(
     if !streamed {
         let value: Value = response.json().await.map_err(|e| e.to_string())?;
         text = answer_text(&value);
-        let _ = write!(out, "{text}");
+        let _ = write!(out, "{}", &text[..media_start(&text).unwrap_or(text.len())]);
         return Ok(Answer { text, route, attempts });
     }
+    // The pictures, videos and files after the text are saved, not printed (a picture's data URL is long).
+    let mut hiding = false;
     let mut buffer = String::new();
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
@@ -293,9 +295,24 @@ async fn send(
             buffer.drain(..=end);
             match sse_delta(&line) {
                 Delta::Text(t) => {
+                    let before = text.len();
                     text.push_str(&t);
-                    let _ = write!(out, "{t}");
-                    let _ = out.flush();
+                    if !hiding {
+                        // Where the links start may fall inside this piece, or across the last two.
+                        let mut from = before.saturating_sub(16);
+                        while !text.is_char_boundary(from) {
+                            from -= 1;
+                        }
+                        let shown = match media_start(&text[from..]) {
+                            Some(i) => {
+                                hiding = true;
+                                &text[before..(from + i).max(before)]
+                            }
+                            None => &text[before..],
+                        };
+                        let _ = write!(out, "{shown}");
+                        let _ = out.flush();
+                    }
                 }
                 Delta::Error(e) => return Err(e),
                 Delta::None => {}
@@ -612,6 +629,11 @@ pub async fn chat(args: Vec<String>) -> i32 {
 }
 
 // ---------- Pictures, videos and files in an answer ----------
+
+/// Where the pictures, videos and files a web session adds after its text begin (`websession::media_note`).
+fn media_start(text: &str) -> Option<usize> {
+    ["\n\n![image ", "\n\n[video ", "\n\n[file "].iter().filter_map(|m| text.find(m)).min()
+}
 
 /// The pictures, videos and files a web session put in an answer (`websession::media_note`): `![image 1](URL)`,
 /// `[video 1](URL)`, `[file 1](URL)`, as (label, URL).
@@ -966,6 +988,13 @@ mod tests {
         assert_eq!(extension("https://cdn.x/a.jpg?oh=1", None), "jpg");
         assert_eq!(extension("https://cdn.x/render/abc", Some("video/mp4")), "mp4");
         assert_eq!(extension("https://cdn.x/x", None), "bin");
+    }
+
+    #[test]
+    fn the_links_after_the_text_are_not_printed() {
+        assert_eq!(media_start("Here you go.\n\n![image 1](data:image/png;base64,AAA)"), Some(12));
+        assert_eq!(media_start("Here.\n\n[video 1](https://x/v.mp4)\n\n![image 1](https://x/a.jpg)"), Some(5));
+        assert_eq!(media_start("plain [link](https://x)"), None);
     }
 
     #[test]

@@ -38,6 +38,8 @@ struct FakePage {
     filled: Mutex<Option<String>>,
     navigations: AtomicUsize,
     denials: AtomicUsize,
+    /// What the page's blob copies came to (`blob_poll_script`).
+    blobs: Mutex<Value>,
 }
 
 impl FakePage {
@@ -75,6 +77,8 @@ impl Page for FakePage {
                 json!({ "ok": true })
             } else if script.contains("'clicked'") {
                 self.send.lock().unwrap().clone().unwrap_or(json!("clicked"))
+            } else if script.contains("out[u] = store[u]") {
+                self.blobs.lock().unwrap().clone()
             } else if script.contains("denied++") {
                 self.denials.fetch_add(1, Ordering::SeqCst);
                 json!(1)
@@ -132,6 +136,22 @@ fn pictures_videos_and_files_come_back_with_the_reply() {
             media_note(&reply.media),
             "\n\n![image 1](https://cdn.example/cat.jpg)\n\n[video 1](https://cdn.example/cat.mp4)"
         );
+
+        // Pictures and videos shown from blob: addresses are copied out of the page; one that fails is left out.
+        let pic = json!({ "kind": "image", "url": "blob:https://muse.ai/p1" });
+        let film = json!({ "kind": "video", "url": "blob:https://muse.ai/v1" });
+        let page = FakePage::new(
+            vec![ready()],
+            vec![
+                json!({ "count": 0, "text": "" }),
+                json!({ "count": 1, "text": "Here you go.", "media": [pic, film] }),
+            ],
+        );
+        *page.blobs.lock().unwrap() =
+            json!({ "blob:https://muse.ai/p1": "data:image/png;base64,iVBO", "blob:https://muse.ai/v1": "error" });
+        let reply = converse(page.as_ref(), muse(), "a cat", &fast(), &mut |_: &str| {}).await.unwrap();
+        let urls: Vec<&str> = reply.media.iter().map(|m| m.url.as_str()).collect();
+        assert_eq!(urls, ["data:image/png;base64,iVBO"]);
 
         // A reply that is a picture alone still ends.
         let page = FakePage::new(
@@ -536,7 +556,8 @@ fn every_page_script_is_valid_javascript() {
     for r in RECIPES {
         let scripts = [
             ("probe", media_probe_script()),
-            ("blobs", blob_pictures_script(&["blob:https://x/1".to_string()])),
+            ("blob-start", blob_start_script(&["blob:https://x/1".to_string()])),
+            ("blob-poll", blob_poll_script(&["blob:https://x/1".to_string()])),
             ("mark", mark_script()),
             ("state", state_script(r)),
             ("fill", fill_script(r, prompt)),
@@ -570,7 +591,7 @@ fn no_script_reads_cookies_storage_or_the_network() {
             read_script(r),
             deny_script(r),
             media_probe_script(),
-            blob_pictures_script(&["blob:https://x/1".to_string()]),
+            blob_poll_script(&["blob:https://x/1".to_string()]),
         ];
         for script in scripts {
             let lower = script.to_lowercase();
@@ -588,6 +609,15 @@ fn no_script_reads_cookies_storage_or_the_network() {
                 assert!(!lower.contains(forbidden), "{} script uses {forbidden}: {script}", r.preset);
             }
         }
+    }
+    // The one script that calls fetch reads the page's own blob: addresses, never the network.
+    let copy = blob_start_script(&["blob:https://x/1".to_string()]).to_lowercase();
+    assert_eq!(copy.matches("fetch(").count(), 1);
+    assert!(copy.find("if (!u.startswith('blob:')").unwrap() < copy.find("fetch(").unwrap());
+    for forbidden in
+        ["cookie", "localstorage", "sessionstorage", "indexeddb", "xmlhttprequest", "websocket", "credentials"]
+    {
+        assert!(!copy.contains(forbidden), "the blob copy uses {forbidden}");
     }
 }
 

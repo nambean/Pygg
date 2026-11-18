@@ -611,7 +611,7 @@ pub fn read_script(r: &Recipe) -> String {
   for (const v of document.querySelectorAll('video')) {{
     const source = v.querySelector('source[src]');
     const src = v.currentSrc || v.src || (source ? source.src : '') || '';
-    if (!src.startsWith('https:') || seen.has(src)) continue;
+    if (!/^(https:|blob:)/.test(src) || seen.has(src)) continue;
     seen.add(src); media.push({{ kind: 'video', url: src }});
   }}
   return {{ count: replies.length, text: last, busy: {busy}, media, pending,
@@ -660,22 +660,45 @@ pub fn media_probe_script() -> String {
         .to_string()
 }
 
-/// Copies pictures shown from `blob:` addresses into data URLs, in the page, so they leave the window (a `blob:`
-/// address means nothing outside it). Drawn on a canvas from the picture already shown: nothing is fetched.
-pub fn blob_pictures_script(urls: &[String]) -> String {
+/// The most a `blob:` picture or video may be when it is copied out of the page.
+const BLOB_LIMIT: u64 = 100 * 1024 * 1024;
+
+/// Starts copying the `blob:` pictures and videos of a reply into data URLs, in the page (a `blob:` address means nothing
+/// outside the window). It reads the page's own memory: `fetch` is called on `blob:` addresses only, never the network
+/// (test `no_script_reads_cookies_storage_or_the_network`). The page cannot hand back a promise, so the results wait in
+/// the page until `blob_poll_script` takes them.
+pub fn blob_start_script(urls: &[String]) -> String {
     format!(
         r#"(() => {{
-  const wanted = new Set({urls});
+  const store = window.__pyggMedia = window.__pyggMedia || {{}};
+  for (const u of {urls}) {{
+    if (!u.startsWith('blob:') || store[u]) continue;
+    store[u] = 'pending';
+    fetch(u).then(r => r.blob()).then(b => {{
+      if (b.size > {limit}) {{ store[u] = 'too-large'; return; }}
+      const reader = new FileReader();
+      reader.onload = () => {{ store[u] = String(reader.result); }};
+      reader.onerror = () => {{ store[u] = 'error'; }};
+      reader.readAsDataURL(b);
+    }}).catch(() => {{ store[u] = 'error'; }});
+  }}
+  return true;
+}})()"#,
+        urls = json!(urls),
+        limit = BLOB_LIMIT
+    )
+}
+
+/// What became of each copy `blob_start_script` started: a data URL, `pending`, `too-large` or `error`. A finished copy
+/// is handed back once and dropped from the page.
+pub fn blob_poll_script(urls: &[String]) -> String {
+    format!(
+        r#"(() => {{
+  const store = window.__pyggMedia || {{}};
   const out = {{}};
-  for (const img of document.querySelectorAll('img')) {{
-    const src = img.currentSrc || img.src || '';
-    if (!wanted.has(src) || out[src] || !img.complete || !img.naturalWidth) continue;
-    try {{
-      const c = document.createElement('canvas');
-      c.width = img.naturalWidth; c.height = img.naturalHeight;
-      c.getContext('2d').drawImage(img, 0, 0);
-      out[src] = c.toDataURL('image/png');
-    }} catch (e) {{}}
+  for (const u of {urls}) {{
+    out[u] = store[u] || 'missing';
+    if (out[u] !== 'pending') delete store[u];
   }}
   return out;
 }})()"#,
@@ -683,21 +706,46 @@ pub fn blob_pictures_script(urls: &[String]) -> String {
     )
 }
 
-/// The reply's `blob:` pictures as data URLs; one that cannot be copied is left out.
-async fn with_blob_pictures(page: &dyn Page, media: Vec<Media>) -> Vec<Media> {
+/// The reply's `blob:` pictures and videos as data URLs, waiting up to a minute for the copies; one that cannot be
+/// copied is left out and said in the app log.
+async fn with_blob_media(page: &dyn Page, media: Vec<Media>, poll: Duration) -> Vec<Media> {
     let blobs: Vec<String> = media.iter().filter(|m| m.url.starts_with("blob:")).map(|m| m.url.clone()).collect();
     if blobs.is_empty() {
         return media;
     }
-    let copies = page.eval(blob_pictures_script(&blobs)).await.unwrap_or(Value::Null);
+    let _ = page.eval(blob_start_script(&blobs)).await;
+    let started = Instant::now();
+    let mut copies: HashMap<String, String> = HashMap::new();
+    while copies.len() < blobs.len() && started.elapsed() < Duration::from_secs(60) {
+        tokio::time::sleep(poll).await;
+        let left: Vec<String> = blobs.iter().filter(|u| !copies.contains_key(*u)).cloned().collect();
+        let Ok(Value::Object(found)) = page.eval(blob_poll_script(&left)).await else { continue };
+        for (url, result) in found {
+            match result.as_str() {
+                Some("pending") | None => {}
+                Some(done) => {
+                    copies.insert(url, done.to_string());
+                }
+            }
+        }
+    }
     media
         .into_iter()
         .filter_map(|m| {
             if !m.url.starts_with("blob:") {
                 return Some(m);
             }
-            let url = copies[m.url.as_str()].as_str().filter(|u| u.starts_with("data:image/"))?.to_string();
-            Some(Media { url, ..m })
+            match copies.get(&m.url) {
+                Some(data) if data.starts_with("data:") => Some(Media { url: data.clone(), ..m }),
+                other => {
+                    crate::applog::warn(&format!(
+                        "a {} on the web page could not be copied: {}",
+                        m.kind,
+                        other.map(String::as_str).unwrap_or("no answer in a minute")
+                    ));
+                    None
+                }
+            }
         })
         .collect()
 }
@@ -1131,7 +1179,7 @@ pub async fn converse_marked(
                     recipe.preset,
                     media.len()
                 ));
-                let media = with_blob_pictures(page, media).await;
+                let media = with_blob_media(page, media, timing.poll).await;
                 return Ok(Reply { text, denied, media });
             }
         }
