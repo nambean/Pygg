@@ -596,7 +596,7 @@ pub fn read_script(r: &Recipe) -> String {
   let pending = 0;
   for (const img of document.querySelectorAll('img')) {{
     const src = img.currentSrc || img.src || '';
-    if (!/^(https:|data:image\/)/.test(src) || seen.has(src)) continue;
+    if (!/^(https:|data:image\/|blob:)/.test(src) || seen.has(src)) continue;
     const box = img.getBoundingClientRect();
     if (!img.complete) {{ if (box.width >= 160) pending++; continue; }}
     if (img.naturalWidth < 256 || img.naturalHeight < 256) continue;
@@ -625,6 +625,81 @@ pub fn read_script(r: &Recipe) -> String {
         challenge = q(r.challenge_selectors),
         challenge_hints = json!(r.challenge_hints)
     )
+}
+
+/// What the page holds in pictures and videos, as counts and address kinds only (never an address, never text), for the
+/// app log after each reply: why a reply's pictures were or were not taken.
+pub fn media_probe_script() -> String {
+    r#"(() => {
+  const scheme = s => ((s || '').match(/^[a-z]+:/) || ['none'])[0];
+  const imgs = [...document.querySelectorAll('img')];
+  const kinds = {};
+  let large = 0, loading = 0, widest = 0;
+  for (const i of imgs) {
+    const k = scheme(i.currentSrc || i.src);
+    kinds[k] = (kinds[k] || 0) + 1;
+    if (!i.complete) loading++;
+    if (i.naturalWidth >= 256 && i.naturalHeight >= 256) large++;
+    widest = Math.max(widest, i.naturalWidth || 0);
+  }
+  const videos = [...document.querySelectorAll('video')].map(v => {
+    const source = v.querySelector('source[src]');
+    return scheme(v.currentSrc || v.src || (source ? source.src : ''));
+  });
+  const wide = e => e.getBoundingClientRect().width >= 200;
+  let backgrounds = 0;
+  for (const e of document.querySelectorAll('div,span,a,button,figure')) {
+    const b = getComputedStyle(e).backgroundImage || '';
+    if (b.startsWith('url(') && wide(e)) backgrounds++;
+  }
+  return { imgs: imgs.length, kinds, large, loading, widest, videos,
+           canvases: [...document.querySelectorAll('canvas')].filter(wide).length,
+           svgs: [...document.querySelectorAll('svg')].filter(wide).length,
+           pictures: document.querySelectorAll('picture').length, backgrounds };
+})()"#
+        .to_string()
+}
+
+/// Copies pictures shown from `blob:` addresses into data URLs, in the page, so they leave the window (a `blob:`
+/// address means nothing outside it). Drawn on a canvas from the picture already shown: nothing is fetched.
+pub fn blob_pictures_script(urls: &[String]) -> String {
+    format!(
+        r#"(() => {{
+  const wanted = new Set({urls});
+  const out = {{}};
+  for (const img of document.querySelectorAll('img')) {{
+    const src = img.currentSrc || img.src || '';
+    if (!wanted.has(src) || out[src] || !img.complete || !img.naturalWidth) continue;
+    try {{
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
+      out[src] = c.toDataURL('image/png');
+    }} catch (e) {{}}
+  }}
+  return out;
+}})()"#,
+        urls = json!(urls)
+    )
+}
+
+/// The reply's `blob:` pictures as data URLs; one that cannot be copied is left out.
+async fn with_blob_pictures(page: &dyn Page, media: Vec<Media>) -> Vec<Media> {
+    let blobs: Vec<String> = media.iter().filter(|m| m.url.starts_with("blob:")).map(|m| m.url.clone()).collect();
+    if blobs.is_empty() {
+        return media;
+    }
+    let copies = page.eval(blob_pictures_script(&blobs)).await.unwrap_or(Value::Null);
+    media
+        .into_iter()
+        .filter_map(|m| {
+            if !m.url.starts_with("blob:") {
+                return Some(m);
+            }
+            let url = copies[m.url.as_str()].as_str().filter(|u| u.starts_with("data:image/"))?.to_string();
+            Some(Media { url, ..m })
+        })
+        .collect()
 }
 
 /// Clicks the site's own "deny" on every pending request for approval; returns how many.
@@ -1049,6 +1124,14 @@ pub async fn converse_marked(
                         on_text(more);
                     }
                 }
+                // Why pictures were or were not taken, in counts only (owner's report, 2026-11-18: none from Muse).
+                let probe = page.eval(media_probe_script()).await.unwrap_or(Value::Null);
+                crate::applog::info(&format!(
+                    "web reply on {}: {} picture(s), video(s) or file(s) taken; page: {probe}",
+                    recipe.preset,
+                    media.len()
+                ));
+                let media = with_blob_pictures(page, media).await;
                 return Ok(Reply { text, denied, media });
             }
         }
