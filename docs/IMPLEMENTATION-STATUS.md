@@ -163,7 +163,7 @@ Built and kept, with no new work until they are re-evaluated. Details: [AGENTS](
 | Ollama (Docker, GPU) | Both formats; benchmark runs with `qwen3:8b` |
 | DeepSeek API | A real 402 (no balance), relayed and recorded |
 | OpenAI, Groq, Mistral and others | Real 401 answers only (error fixtures) |
-| Web sessions | All five sites through the app's gateway. Pictures, videos and download links that appear after Send come back as Markdown links after the reply's text, and `pygg chat` / `ask` save them (2026-11-18: unit tests with a scripted page and a local provider; live on Muse: a picture shown from a `blob:` address came back as a PNG data URL; Muse's videos not yet) |
+| Web sessions | All five sites through the app's gateway. Pictures, videos and download links that appear after Send come back as Markdown links after the reply's text, and `pygg chat` / `ask` save them (2026-11-18: unit tests with a scripted page and a local provider; live on Muse: a picture and a video, both shown from `blob:` addresses, came back and `pygg ask` saved them as files with npm 0.1.0-dev.6) |
 
 ## Not verified yet
 
