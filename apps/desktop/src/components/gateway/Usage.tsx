@@ -10,6 +10,7 @@ import { Badge, Empty, ErrorNote, Segmented, Spinner } from '../ui';
 import { UsageAlerts } from './UsageAlerts';
 import { RepeatedOutput } from './RepeatedOutput';
 import { ClearingShadow } from './ClearingShadow';
+import { CacheLifetime } from './CacheLifetime';
 import { CostOverTime } from './CostOverTime';
 import { Savings, SavingsDetails, useSavings } from './Savings';
 import { TokenMix, cacheMissLabel, cacheMissText } from './TokenMix';
@@ -188,6 +189,7 @@ export function Usage({onOpenTools, intent, onIntentDone}: {onOpenTools?: () => 
       <SavingsDetails savings={savings} onPickClient={key => pick(setClient, key)}/>
       <RepeatedOutput days={Number(range)}/>
       <ClearingShadow days={Number(range)}/>
+      <CacheLifetime days={Number(range)}/>
 
       <div className="two-columns">
         <GroupTable title={t('By Model')} column={t('Model')} groups={data.byModel} mono onPick={key => pick(setModel, key)}/>

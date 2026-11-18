@@ -2594,6 +2594,130 @@ pub struct ShadowSummary {
     pub cache_read_tokens: u64,
     /// Clearing old tool results, in shadow (migration 0037).
     pub clearing: ClearingShadow,
+    /// A longer cache lifetime, in shadow.
+    pub lifetime: CacheLifetime,
+}
+
+/// Anthropic's longer cache lifetime: one hour instead of five minutes.
+pub const CACHE_HOUR_MS: i64 = 60 * 60 * 1000;
+/// How often a keep-alive would re-send a session's last request to hold its five-minute cache: just under five minutes.
+pub const KEEP_ALIVE_MS: i64 = 270 * 1000;
+
+/// What a longer cache lifetime would have changed in a period (ROADMAP item 4, measured only): for each session on a
+/// model that bills cache writes (Anthropic's way), the answers that missed only because more than five minutes had
+/// passed, and what two ways of keeping the cache longer would have cost and saved.
+/// - **One-hour lifetime:** every cache write at twice the input price instead of the five-minute write price; a miss
+///   after a pause of up to an hour reads the session's previous prompt instead of writing it again.
+/// - **Keep-alive:** the session's last request re-sent every 4.5 minutes, read from the cache, for up to an hour
+///   after it; the same misses become reads, and every re-send is a cache read of the whole last prompt, paid also
+///   when the user never came back.
+///
+/// Estimates from the ledger's tokens and each model's current price. Nothing is sent.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheLifetime {
+    pub sessions: u64,
+    pub requests: u64,
+    /// Pauses of five minutes to an hour between two answers of one session and model.
+    pub idle_gaps: u64,
+    /// Answers after such a pause that read nothing because the cache had expired, and the tokens of the previous
+    /// prompt they wrote again.
+    pub expired_misses: u64,
+    pub recovered_tokens: u64,
+    /// What reading those tokens instead of writing them again would save (cache-write price less cached price).
+    pub saved_micro_usd: u64,
+    /// One hour: the extra on every other cache write, and the difference.
+    pub hour_extra_micro_usd: u64,
+    pub hour_net_micro_usd: i64,
+    /// Keep-alive: the re-sends, their cache reads, and the difference.
+    pub keep_alive_requests: u64,
+    pub keep_alive_extra_micro_usd: u64,
+    pub keep_alive_net_micro_usd: i64,
+    /// Answers on a model without a cached price: counted, not in the money.
+    pub unpriced: u64,
+}
+
+pub fn cache_lifetime(conn: &Connection, since: i64, now: i64) -> Result<CacheLifetime> {
+    use std::collections::HashMap;
+    let prices: HashMap<(String, String), Price> = list_models(conn, None)?
+        .into_iter()
+        .filter_map(|m| m.price.map(|p| ((m.provider_id, m.model_id), p)))
+        .collect();
+    // Only models that wrote to the cache in the period: a provider that never reports writes (OpenAI, DeepSeek, Gemini)
+    // caches on its own terms, without a five-minute lifetime to buy longer.
+    let mut stmt = conn
+        .prepare(
+            "SELECT u.provider, u.model, u.client_id, u.session_key, u.created_at, u.input_tokens, \
+             COALESCE(u.cache_write_tokens, 0), COALESCE(u.cache_miss, '') FROM usage_events u \
+             WHERE u.created_at >= ?1 AND u.outcome = 'ok' AND u.session_key IS NOT NULL AND u.input_tokens IS NOT NULL \
+             AND EXISTS (SELECT 1 FROM usage_events w WHERE w.provider = u.provider AND w.model = u.model \
+               AND w.created_at >= ?1 AND w.cache_write_tokens > 0) \
+             ORDER BY u.client_id, u.session_key, u.provider, u.model, u.created_at, u.rowid",
+        )
+        .map_err(err)?;
+    type Row = (String, String, Option<String>, String, i64, u64, u64, String);
+    let rows: Vec<Row> = stmt
+        .query_map([since], |r| {
+            let n = |i: usize| r.get::<_, i64>(i).map(|v| v.max(0) as u64);
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, n(5)?, n(6)?, r.get(7)?))
+        })
+        .map_err(err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(err)?;
+
+    let mut out = CacheLifetime::default();
+    let (mut saved, mut hour_extra, mut keep_extra) = (0u128, 0u128, 0u128);
+    // Re-sends held after an answer, until the next one or for at most an hour.
+    let pings = |gap: i64| -> u64 { (gap.min(CACHE_HOUR_MS) / KEEP_ALIVE_MS).max(0) as u64 };
+    let mut i = 0;
+    while i < rows.len() {
+        let key = |r: &Row| (r.2.clone(), r.3.clone(), r.0.clone(), r.1.clone());
+        let mut end = i;
+        while end < rows.len() && key(&rows[end]) == key(&rows[i]) {
+            end += 1;
+        }
+        let group = &rows[i..end];
+        out.sessions += 1;
+        out.requests += group.len() as u64;
+        let price = prices.get(&(group[0].0.clone(), group[0].1.clone()));
+        let (mut recovered, mut writes, mut reads) = (0u64, 0u64, 0u64);
+        for (j, row) in group.iter().enumerate() {
+            let (at, prompt, write, miss) = (row.4, row.5, row.6, row.7.as_str());
+            writes += write;
+            let next_at = group.get(j + 1).map(|n| n.4).unwrap_or(now);
+            let held = pings(next_at - at);
+            out.keep_alive_requests += held;
+            reads += held * prompt;
+            let Some(before) = j.checked_sub(1).map(|b| &group[b]) else { continue };
+            let gap = at - before.4;
+            if !(CACHE_WARM_MS..=CACHE_HOUR_MS).contains(&gap) {
+                continue;
+            }
+            out.idle_gaps += 1;
+            if miss == "cache_expired" {
+                out.expired_misses += 1;
+                recovered += write.min(before.5);
+            }
+        }
+        out.recovered_tokens += recovered;
+        match price.and_then(|p| p.cached_input_micro_per_mtok.map(|cached| (p, cached))) {
+            None => out.unpriced += group.len() as u64,
+            Some((p, cached)) => {
+                let write5 = p.cache_write_micro_per_mtok.unwrap_or(p.input_micro_per_mtok);
+                let write60 = p.input_micro_per_mtok * 2;
+                saved += u128::from(recovered) * u128::from(write5.saturating_sub(cached));
+                hour_extra += u128::from(writes - recovered) * u128::from(write60.saturating_sub(write5));
+                keep_extra += u128::from(reads) * u128::from(cached);
+            }
+        }
+        i = end;
+    }
+    out.saved_micro_usd = (saved / 1_000_000) as u64;
+    out.hour_extra_micro_usd = (hour_extra / 1_000_000) as u64;
+    out.keep_alive_extra_micro_usd = (keep_extra / 1_000_000) as u64;
+    out.hour_net_micro_usd = out.saved_micro_usd as i64 - out.hour_extra_micro_usd as i64;
+    out.keep_alive_net_micro_usd = out.saved_micro_usd as i64 - out.keep_alive_extra_micro_usd as i64;
+    Ok(out)
 }
 
 /// What clearing old tool results (Anthropic's context editing, at its defaults) would have saved in a period, after the
@@ -2703,11 +2827,18 @@ pub fn shadow_summary(conn: &Connection, since: i64) -> Result<ShadowSummary> {
                 input_tokens: n(3)?,
                 cache_read_tokens: n(4)?,
                 clearing: ClearingShadow::default(),
+                lifetime: CacheLifetime::default(),
             })
         },
     )
     .map_err(err)
-    .and_then(|summary| Ok(ShadowSummary { clearing: clearing_shadow(conn, since)?, ..summary }))
+    .and_then(|summary| {
+        Ok(ShadowSummary {
+            clearing: clearing_shadow(conn, since)?,
+            lifetime: cache_lifetime(conn, since, now_ms())?,
+            ..summary
+        })
+    })
 }
 
 /// How a model has answered, from the ledger (SCREENS §5.4: "reliability appears only once measured, with the sample
@@ -4232,6 +4363,76 @@ mod tests {
         assert_eq!((shadow.requests, shadow.over_trigger, shadow.unpriced), (6, 5, 1));
         assert_eq!((shadow.cleared_tokens, shadow.rewritten_tokens), (380_000, 115_000));
         assert_eq!((shadow.saved_micro_usd, shadow.extra_micro_usd, shadow.net_micro_usd), (118_000, 80_500, 37_500));
+    }
+
+    #[test]
+    fn a_longer_cache_lifetime_is_weighed_from_the_pauses_in_each_session() {
+        let conn = db::open_in_memory().unwrap();
+        let p = gemini(&conn);
+        let (client, _) = create_client(&conn, "Codex", None).unwrap();
+        for m in ["haiku", "gpt"] {
+            add_model(&conn, &p.id, m).unwrap();
+        }
+        let price = Price {
+            input_micro_per_mtok: 1_000_000,
+            output_micro_per_mtok: 5_000_000,
+            cached_input_micro_per_mtok: Some(100_000),
+            cache_write_micro_per_mtok: Some(1_250_000),
+            source: "user".into(),
+            observed_at: 0,
+        };
+        update_model(&conn, &p.id, "haiku", None, None, Some(Some(price))).unwrap();
+        let min = 60_000;
+        let record = |model: &str, session: &str, at: i64, prompt: u64, read: u64, write: u64, miss: &str| {
+            let facts = AttemptFacts { cache_hint: "added".into(), ..AttemptFacts::default() };
+            record_usage(
+                &conn,
+                &UsageRecord {
+                    client_id: Some(&client.id),
+                    provider_id: &p.id,
+                    model_id: model,
+                    requested_model: "auto",
+                    input_tokens: Some(prompt),
+                    output_tokens: Some(10),
+                    cache_tokens: Some(read),
+                    cost: &Cost::Estimated { micro_usd: 7, source: "x".into() },
+                    outcome: "ok",
+                    http_status: Some(200),
+                    latency_ms: 1,
+                    error: None,
+                    cache_write_tokens: Some(write),
+                    session_key: Some(session),
+                    route_mode: None,
+                    route_reason: None,
+                    repeated_tokens: None,
+                    facts: Some(&facts),
+                },
+            )
+            .unwrap();
+            conn.execute(
+                "UPDATE usage_events SET created_at = ?1, cache_miss = NULLIF(?2, '') WHERE rowid = last_insert_rowid()",
+                params![at, miss],
+            )
+            .unwrap();
+        };
+        let t0 = 1_000_000_000;
+        record("haiku", "s1", t0, 10_000, 0, 10_000, "first_request");
+        record("haiku", "s1", t0 + 2 * min, 11_000, 10_000, 1_000, ""); // a hit after two minutes
+        record("haiku", "s1", t0 + 22 * min, 12_000, 0, 12_000, "cache_expired"); // twenty minutes: 11,000 recoverable
+        record("haiku", "s1", t0 + 142 * min, 13_000, 0, 13_000, "cache_expired"); // two hours: not recoverable
+        record("gpt", "s2", t0, 50_000, 0, 0, "first_request"); // never writes to a cache: not measured
+        record("gpt", "s2", t0 + 30 * min, 50_000, 0, 0, "cache_expired");
+
+        let shadow = cache_lifetime(&conn, 0, t0 + 145 * min).unwrap();
+        assert_eq!((shadow.sessions, shadow.requests, shadow.unpriced), (1, 4, 0));
+        assert_eq!((shadow.idle_gaps, shadow.expired_misses, shadow.recovered_tokens), (1, 1, 11_000));
+        // Reading 11,000 tokens instead of writing them: 11,000 × ($1.25 − $0.10) per million.
+        assert_eq!(shadow.saved_micro_usd, 12_650);
+        // One hour: the other 25,000 written tokens at $2.00 instead of $1.25.
+        assert_eq!((shadow.hour_extra_micro_usd, shadow.hour_net_micro_usd), (18_750, -6_100));
+        // Keep-alive: 4 re-sends of 11,000 in the twenty minutes, 13 of 12,000 in the hour after; none yet after the last.
+        assert_eq!(shadow.keep_alive_requests, 17);
+        assert_eq!((shadow.keep_alive_extra_micro_usd, shadow.keep_alive_net_micro_usd), (20_000, -7_350));
     }
 
     #[test]

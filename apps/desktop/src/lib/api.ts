@@ -286,11 +286,17 @@ export type RoutingSummary = { requests: number; attempts: number; answered: num
 
 /** Repeated tool output in a period's requests (P1-4, shadow): measured, never removed. Tokens are about-figures. */
 export type ShadowSummary = {requests: number; requestsWithRepeats: number; repeatedTokens: number; inputTokens: number;
-  cacheReadTokens: number; clearing: ClearingShadow};
+  cacheReadTokens: number; clearing: ClearingShadow; lifetime: CacheLifetime};
 /** Clearing old tool results, in shadow (schema v37): what Anthropic's context editing at its defaults would have saved
  *  on OpenAI-format clients' requests, less the cache writes it causes. Estimates; micro-USD at current prices. */
 export type ClearingShadow = {requests: number; overTrigger: number; clearedTokens: number; rewrittenTokens: number;
   savedMicroUsd: number; extraMicroUsd: number; netMicroUsd: number; unpriced: number};
+/** A longer cache lifetime, in shadow (store::cache_lifetime): on models that bill cache writes, the answers that missed
+ *  only because more than five minutes had passed, and what a one-hour lifetime or a keep-alive would have cost and
+ *  saved. Estimates; micro-USD at current prices. */
+export type CacheLifetime = {sessions: number; requests: number; idleGaps: number; expiredMisses: number;
+  recoveredTokens: number; savedMicroUsd: number; hourExtraMicroUsd: number; hourNetMicroUsd: number;
+  keepAliveRequests: number; keepAliveExtraMicroUsd: number; keepAliveNetMicroUsd: number; unpriced: number};
 
 /** Something in the ledger worth a look; `value` and `against` are micro-USD for money, counts for requests. */
 export type UsageAlert = {kind: 'near_limit' | 'over_limit' | 'spend_spike' | 'unknown_costs' | 'failures'; client: string | null;

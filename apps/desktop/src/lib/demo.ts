@@ -1116,7 +1116,11 @@ export function demoApi(): GatewayApi {
     // Clearing: shaped like a long Codex session on Claude Haiku, where the rewrites outweigh what clearing saves.
     usageShadow: async () => touch({requests: 48, requestsWithRepeats: 11, repeatedTokens: 38_400, inputTokens: 1_420_000,
       cacheReadTokens: 1_050_000, clearing: {requests: 31, overTrigger: 6, clearedTokens: 412_000, rewrittenTokens: 236_000,
-        savedMicroUsd: 4_120, extraMicroUsd: 27_140, netMicroUsd: -23_020, unpriced: stress ? 2 : 0}}),
+        savedMicroUsd: 4_120, extraMicroUsd: 27_140, netMicroUsd: -23_020, unpriced: stress ? 2 : 0},
+      // Lifetime: Claude Code sessions with a few coffee breaks; the one-hour lifetime pays, the keep-alive does not.
+      lifetime: {sessions: 9, requests: 214, idleGaps: 7, expiredMisses: 6, recoveredTokens: 486_000,
+        savedMicroUsd: 559_000, hourExtraMicroUsd: 402_000, hourNetMicroUsd: 157_000, keepAliveRequests: stress ? 1_204 : 61,
+        keepAliveExtraMicroUsd: 612_000, keepAliveNetMicroUsd: -53_000, unpriced: stress ? 3 : 0}}),
     usageAlerts: async () => {
       const day = Date.now() - 86_400_000;
       const unknown = events.filter(e => e.createdAt >= day && e.costStatus === 'unknown').length;
