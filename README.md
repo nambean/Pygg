@@ -163,6 +163,20 @@ Coding agents ──HTTP──► Gateway 127.0.0.1:8741 (axum) ──► OpenAI
 - **[`@pygg/cli` on npm](https://www.npmjs.com/package/@pygg/cli):** a Node launcher with one optional package per platform (ADR-037).
 - **Smart tasks** (experimental, on hold): IDE agents hand subtasks to Pygg over MCP; agent CLIs run them in Git worktrees against approved checks ([AGENTS.md](docs/AGENTS.md)).
 
+## Is Pygg a fork of 9router?
+
+No. Pygg is the same kind of tool as [9router](https://github.com/decolua/9router): a local router that points your coding agents at the providers you already have. 9router was one of the inspirations for building the gateway first (ADR-016). Pygg's code is written from scratch in Rust; the one part that follows 9router is the Muse web-session recipe, credited under MIT in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md).
+
+Where they differ, read from 9router's documentation and source (not run here):
+
+- **Re-sending.** 9router moves to the next model on a 5xx or a timeout; Pygg does not re-send a request the provider may already have run, unless you allow one retry.
+- **`Retry-After`.** 9router uses fixed cooldowns; Pygg waits as long as the provider says.
+- **Prompt cache.** Pygg keeps each session on one key by default (9router with its `smart` strategy) and adds Anthropic's cache marker for OpenAI-format agents such as Codex.
+- **Cost.** 9router's cost is "for tracking only"; Pygg records every attempt, fallbacks included, with where its cost came from.
+- **Web sessions.** Both drive AI websites; Pygg holds each site behind a guard (one request at a time, rests, a daily cap) that cannot be switched off.
+
+The full table, with LiteLLM, OpenRouter, OmniRoute and claude-code-router: [BENCHMARKS.md](docs/BENCHMARKS.md#pygg-next-to-other-gateways).
+
 ## Documentation
 
 | | |

@@ -18,6 +18,7 @@
 | `pygg-icon-512.png` | App/store icon |
 | `pygg-logo-full.png` | Horizontal logo and slogan (PNG, 640x178) |
 | `pygg.ico` | Windows favicon/icon (256x256 PNG-compressed entry) |
+| `pygg-social-preview.png` | GitHub's social preview, 1280x640 (Settings → General → Social preview); rendered from `pygg-social-preview.html` with headless Edge at that window size |
 | `brand.json` | Names, palette, asset paths |
 
 ### Colors
