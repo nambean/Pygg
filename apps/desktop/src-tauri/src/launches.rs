@@ -12,6 +12,8 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
+use crate::gateway::hints::RequestClasses;
+
 /// A repository's state at one moment, read from a folder inside it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -245,7 +247,7 @@ fn money(micro: u64) -> String {
 /// What the launch cost and what changed, as `pygg run` prints it when the tool exits.
 pub fn receipt(
     tool: &str, session: &str, cost: &SessionCost, compared: Option<(&str, u64, u64)>,
-    git: Option<(&GitState, &GitChange)>, note: Option<&str>,
+    classes: Option<&RequestClasses>, git: Option<(&GitState, &GitChange)>, note: Option<&str>,
 ) -> String {
     let mut lines = vec![format!("Pygg · this launch of {tool} ({session})")];
     let row = |label: &str, text: String| format!("  {label:<10} {text}");
@@ -290,6 +292,18 @@ pub fn receipt(
                     money(last)
                 ),
             ));
+        }
+        if let Some(c) = classes.filter(|c| c.requests > 0) {
+            lines.push(row("Classes", class_line(c)));
+            if c.most_agents_one_prompt >= FAN_OUT_WARNING {
+                lines.push(row(
+                    "Fan-out",
+                    format!(
+                        "one prompt started {} subagents; each starts its own conversation and writes its own cache",
+                        c.most_agents_one_prompt
+                    ),
+                ));
+            }
         }
         if let Some((baseline, routed, at_baseline)) = compared {
             lines.push(row(
@@ -348,8 +362,34 @@ pub fn receipt(
     lines.join("\n")
 }
 
-/// The one line `pygg statusline` prints for Claude Code.
-pub fn status_line(cost: &SessionCost) -> String {
+/// From this many subagents started by one prompt, the receipt points it out.
+pub const FAN_OUT_WARNING: u64 = 10;
+
+/// Each request class's money and requests, and for subagents how many there were and how many worked at once.
+fn class_line(c: &RequestClasses) -> String {
+    c.groups
+        .iter()
+        .map(|g| {
+            let mut s = format!("{} {} ×{}", g.key, money(g.known_micro_usd), g.requests);
+            if g.unknown_cost > 0 {
+                s.push_str(&format!(" +{} unpriced", g.unknown_cost));
+            }
+            if g.key == "subagent" && g.agents > 0 {
+                s.push_str(&format!(
+                    " ({} agent{}, at most {} at once)",
+                    g.agents,
+                    plural(g.agents),
+                    c.peak_parallel_agents
+                ));
+            }
+            s
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+/// The one line `pygg statusline` prints for Claude Code; `agents` is the session's subagents so far.
+pub fn status_line(cost: &SessionCost, agents: u64) -> String {
     if cost.answered + cost.failed == 0 {
         return "Pygg · no request yet".into();
     }
@@ -360,6 +400,9 @@ pub fn status_line(cost: &SessionCost) -> String {
     }
     if let Some((m, _)) = cost.models.first() {
         parts.push(if cost.models.len() > 1 { format!("{m} +{}", cost.models.len() - 1) } else { m.clone() });
+    }
+    if agents > 0 {
+        parts.push(format!("{agents} subagent{}", plural(agents)));
     }
     if cost.fell_back > 0 {
         parts.push(format!("{} fallback{}", cost.fell_back, plural(cost.fell_back)));
@@ -422,8 +465,8 @@ mod tests {
         assert_eq!(cost.models, vec![("haiku".to_string(), 20), ("glm".to_string(), 1)]);
         assert_eq!(cost.depth, Some((145, 245)));
         assert_eq!(cache_percent(&cost), Some(80));
-        let line = status_line(&cost);
-        assert!(line.starts_with("Pygg $0.0039 · 80% cache · haiku +1 · 1 fallback"), "{line}");
+        let line = status_line(&cost, 2);
+        assert!(line.starts_with("Pygg $0.0039 · 80% cache · haiku +1 · 2 subagents · 1 fallback"), "{line}");
     }
 
     #[test]
@@ -441,14 +484,43 @@ mod tests {
         let before = GitState { root: "C:/repo".into(), branch: Some("main".into()), head: Some("a".into()), dirty: 1 };
         let change =
             GitChange { head: Some("b".into()), commits: Some(2), files: 5, insertions: 120, deletions: 14, dirty: 0 };
+        let classes = RequestClasses {
+            requests: 40,
+            groups: vec![
+                crate::gateway::hints::ClassGroup {
+                    key: "main".into(),
+                    requests: 20,
+                    known_micro_usd: 300_000,
+                    ..Default::default()
+                },
+                crate::gateway::hints::ClassGroup {
+                    key: "subagent".into(),
+                    requests: 20,
+                    known_micro_usd: 120_000,
+                    unknown_cost: 1,
+                    agents: 12,
+                    ..Default::default()
+                },
+            ],
+            agents: 12,
+            most_agents_one_prompt: 12,
+            peak_parallel_agents: 5,
+            ..Default::default()
+        };
         let text = receipt(
             "Claude Code",
             "launch-x",
             &cost,
             Some(("anthropic/opus", 420_000, 2_100_000)),
+            Some(&classes),
             Some((&before, &change)),
             None,
         );
+        assert!(
+            text.contains("main $0.30 ×20 · subagent $0.12 ×20 +1 unpriced (12 agents, at most 5 at once)"),
+            "{text}"
+        );
+        assert!(text.contains("one prompt started 12 subagents"), "{text}");
         assert!(
             text.contains("$0.42 for 3 answered requests (1 with no known cost; 1 on a subscription, not counted)"),
             "{text}"
@@ -457,7 +529,7 @@ mod tests {
         assert!(text.contains("$2.10 at anthropic/opus with the same tokens, against $0.42"), "{text}");
         assert!(text.contains("C:/repo (main): 2 commits, 5 files changed since the start, +120 −14"), "{text}");
         assert!(text.contains("1 file already had changes at the start"), "{text}");
-        let none = receipt("Codex", "launch-y", &SessionCost::default(), None, None, Some("not saved"));
+        let none = receipt("Codex", "launch-y", &SessionCost::default(), None, None, None, Some("not saved"));
         assert!(none.contains("none reached Pygg's gateway") && none.contains("not in a Git repository"), "{none}");
     }
 

@@ -1032,7 +1032,22 @@ export function demoApi(): GatewayApi {
       const add = (into: TokenParts, p: TokenParts) => { into.newInput += p.newInput; into.cacheRead += p.cacheRead; into.cacheWrite += p.cacheWrite; into.output += p.output; };
       const list = events.filter(e => e.createdAt >= Date.now() - days * 86_400_000);
       const mix: TokenMix = {tokens: zero(), cost: zero(), requests: list.length, withTokens: 0, unsplitMicroUsd: 0, unknownCostRequests: 0, byClient: [], byModel: [], misses: [],
-        prefix: {sessions: 0, requests: 0, firstToolsTokens: 0, firstSystemTokens: 0, changes: 0, resent: 0, resentTokens: 0, top: []}};
+        prefix: {sessions: 0, requests: 0, firstToolsTokens: 0, firstSystemTokens: 0, changes: 0, resent: 0, resentTokens: 0, top: []},
+        classes: {requests: 0, sessions: 0, groups: [], agentTypes: [], agents: 0, mostAgentsOnePrompt: 0, peakParallelAgents: 0}};
+      // As gateway::hints::request_classes for Claude Code's answers: made-up shares, shaped like sessions with subagents.
+      const claude = list.filter(e => e.client === 'Claude Code' && e.outcome === 'ok');
+      if (claude.length > 0) {
+        const share = (f: number) => Math.round(claude.length * f);
+        const money = (f: number) => Math.round(claude.reduce((n, e) => n + (e.costMicroUsd ?? 0), 0) * f);
+        const group = (key: string, f: number, agents: number, read: number) => ({key, requests: share(f), knownMicroUsd: money(f),
+          unknownCost: 0, promptTokens: share(f) * 42_000, cacheReadTokens: Math.round(share(f) * 42_000 * read),
+          cacheWriteTokens: Math.round(share(f) * 42_000 * (1 - read) * 0.6), agents});
+        mix.classes = {requests: claude.length, sessions: new Set(claude.map(e => e.sessionKey)).size,
+          groups: [group('main', 0.58, 0, 0.94), group('subagent', 0.31, 7, 0.71), group('compaction', 0.02, 0, 0.12),
+            group('auxiliary', 0.09, 0, 0.35)],
+          agentTypes: [group('Explore', 0.22, 5, 0.69), group('general-purpose', 0.09, 2, 0.76)],
+          agents: 7, mostAgentsOnePrompt: 4, peakParallelAgents: 3};
+      }
       // As store::prefix_meter: each session's tools and system prompt at its first answer, then changes and uncached resends.
       // Claude Code carries far more tool definitions than the others; the sizes are made up, shaped like real ones.
       const sessions = new Map<string, PrefixSession>();

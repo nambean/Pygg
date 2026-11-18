@@ -245,6 +245,15 @@ async fn fake_anthropic(
             "message": "This model does not support assistant message prefill. The conversation must end with a user message." } })))
             .into_response();
     }
+    // Claude Code's hint headers are Pygg's to read, never the provider's (gateway/hints.rs).
+    if headers.keys().any(|k| k.as_str().starts_with("x-claude-code-")) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "type": "error", "error": { "type": "invalid_request_error",
+            "message": "a Claude Code hint header reached the provider" } })),
+        )
+            .into_response();
+    }
     let seen = format!(
         "cache_control={} thinking={} beta={}",
         body.to_string().contains("cache_control"),
@@ -939,6 +948,44 @@ fn an_anthropic_request_to_an_anthropic_connection_passes_through_unchanged() {
         tokio::time::sleep(Duration::from_millis(100)).await;
         let event = rig.ledger().pop().unwrap();
         assert_eq!((event.cache_tokens, event.output_tokens, event.outcome.as_str()), (Some(900), Some(7), "ok"));
+    });
+}
+
+/// Cost plan A2: Claude Code's hint headers are kept with the attempt and not forwarded.
+#[test]
+fn claude_codes_hint_headers_are_recorded_and_not_forwarded() {
+    rt().block_on(async {
+        let rig = rig().await;
+        let response = rig
+            .http
+            .post(format!("{}/v1/messages", rig.base))
+            .header("x-api-key", &rig.token)
+            .header("anthropic-version", "2023-06-01")
+            .header("x-claude-code-request-class", "subagent")
+            .header("x-claude-code-agent-type", "Explore")
+            .header("x-claude-code-agent-id", "agent-7")
+            .header("x-claude-code-prompt-id", "prompt-1")
+            .header("x-claude-code-session-id", "cc-session")
+            .json(&claude_request(false))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200, "no hint header reached the provider");
+        let row: (Option<String>, Option<String>, Option<String>, Option<String>) = rig
+            .shared
+            .with_db(|db| {
+                db.query_row(
+                    "SELECT request_class, agent_type, agent_id, prompt_id FROM usage_events ORDER BY created_at DESC LIMIT 1",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                )
+                .map_err(|e| e.to_string())
+            })
+            .unwrap();
+        assert_eq!(
+            row,
+            (Some("subagent".into()), Some("Explore".into()), Some("agent-7".into()), Some("prompt-1".into()))
+        );
     });
 }
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { CacheMissCause, CacheMissGroup, PrefixMeter, PrefixSession, TokenMix as Mix, TokenMixGroup, TokenParts } from '../../lib/api';
+import type { CacheMissCause, CacheMissGroup, ClassGroup, PrefixMeter, PrefixSession, RequestClasses, TokenMix as Mix, TokenMixGroup, TokenParts } from '../../lib/api';
 import { plural, t } from '../../lib/i18n';
 import { microUsd, tokens } from '../../lib/money';
 import { useGateway } from '../../hooks/useGateway';
@@ -95,6 +95,7 @@ export function TokenMix({days}: {days: number}) {
         <p className="group-footnote">{t('Answers that read nothing from the provider’s cache, with the likeliest cause read from the ledger. The provider does not say why.')}</p>
       </details>}
       {m.prefix.sessions > 0 && <PrefixDetails meter={m.prefix}/>}
+      {m.classes.requests > 0 && <ClassDetails classes={m.classes}/>}
       {m.withTokens > 0 && <details className="token-mix-details">
         <summary>{t('By client and model')}</summary>
         <div className="table-scroll"><MixTable title={t('Client')} groups={m.byClient}/></div>
@@ -102,6 +103,47 @@ export function TokenMix({days}: {days: number}) {
       </details>}
     </div>
   </section>;
+}
+
+const classLabel = (key: string) => ({
+  main: t('Main conversation'), subagent: t('Subagents'), workflow: t('Workflows'), compaction: t('Compaction'),
+  auxiliary: t('Side requests'), other: t('Other'),
+}[key] ?? key);
+
+/** Claude Code's requests by kind (gateway::hints::request_classes): what the main conversation, subagents, compaction
+ *  and side requests cost, and how far subagents fanned out. Only launches started with `pygg run claude` send these. */
+function ClassDetails({classes: c}: {classes: RequestClasses}) {
+  return <details className="token-mix-details">
+    <summary>{plural(c.requests, 'By request kind (Claude Code): {n} request', 'By request kind (Claude Code): {n} requests')}</summary>
+    <div className="table-scroll"><ClassTable title={t('Kind')} groups={c.groups} label={classLabel}/></div>
+    {c.agentTypes.length > 0 && <div className="table-scroll"><ClassTable title={t('Subagent type')} groups={c.agentTypes} label={k => k}/></div>}
+    <p className="group-footnote">
+      {c.agents > 0 && <>{plural(c.agents, '{n} subagent', '{n} subagents')}{', '}
+        {t('at most {n} working at once in a session, at most {m} started by one prompt.',
+          {n: c.peakParallelAgents, m: c.mostAgentsOnePrompt})}{' '}</>}
+      {t('Each subagent starts a conversation of its own, so its first request writes a new cache. Claude Code says what each request is only when started with pygg run claude.')}
+    </p>
+  </details>;
+}
+
+function ClassTable({title, groups, label}: {title: string; groups: ClassGroup[]; label: (k: string) => string}) {
+  return <table className="data-table" aria-label={title}>
+    <thead><tr>
+      <th scope="col">{title}</th><th scope="col" className="num">{t('Requests')}</th>
+      <th scope="col" className="num">{t('Agents')}</th><th scope="col" className="num">{t('From cache')}</th>
+      <th scope="col" className="num">{t('Cache writes')}</th><th scope="col" className="num">{t('Known cost')}</th>
+    </tr></thead>
+    <tbody>
+      {groups.map(g => <tr key={g.key}>
+        <td title={g.key}>{label(g.key)}</td>
+        <td className="num">{g.requests}</td>
+        <td className="num">{g.agents > 0 ? g.agents : '—'}</td>
+        <td className="num">{g.promptTokens > 0 ? `${pct(g.cacheReadTokens, g.promptTokens)}%` : '—'}</td>
+        <td className="num">{tokens(g.cacheWriteTokens)}</td>
+        <td className="num">{microUsd(g.knownMicroUsd)}{g.unknownCost > 0 && <span className="secondary"> +{g.unknownCost} ?</span>}</td>
+      </tr>)}
+    </tbody>
+  </table>;
 }
 
 function MixTable({title, groups, mono}: {title: string; groups: TokenMixGroup[]; mono?: boolean}) {

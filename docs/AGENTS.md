@@ -39,6 +39,7 @@ ANTHROPIC_DEFAULT_OPUS_MODEL    the same
 ANTHROPIC_DEFAULT_SONNET_MODEL  the same
 ANTHROPIC_DEFAULT_HAIKU_MODEL   the same
 ANTHROPIC_CUSTOM_HEADERS        x-pygg-session: launch-<uuid>
+CLAUDE_CODE_GATEWAY_HINT_HEADERS 1
 ```
 
 `ANTHROPIC_API_KEY`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX` and a host session's variables are removed first. A plain `claude` keeps the user's sign-in and plan. **Remove** revokes the key and deletes it from the credential store.
@@ -61,13 +62,16 @@ Pygg · this launch of Claude Code (launch-…)
 
 - **Cost** is the ledger's known money for the launch's session, failed attempts with a known cost included. Requests with no known cost and subscription requests are counted beside it, never taken as $0.
 - **Depth** appears from 20 priced requests on: the average of the first ten against the last ten. A high cache share means caching works, not that the session was cheap.
+- **Classes** (Claude Code only): money and requests by what each request was, from Claude Code's gateway hint headers: `main`, `subagent`, `workflow`, `compaction`, `auxiliary` (side requests such as titles and classifiers). For subagents, how many there were and how many worked at once. **Fan-out** is added when one prompt started 10 or more subagents: each starts its own conversation and writes its own cache.
 - **Compared** appears when a model to compare with is chosen (Usage → Savings); it is the same estimate as there, for this session.
 - **Git** is read from the folder `pygg run` was started in: HEAD, branch and the tracked files with uncommitted changes before the tool starts; after it exits, the commits made since and `git diff --shortstat` from the starting HEAD to the working tree. Changes that were already uncommitted at the start are included and said so. A change in Git is not proof the work was good; it lets cost be set against what came of it.
 - **The launch is kept** in `launches` (schema v38): the session id, tool, model, times, exit code, the repository's folder, branch, commit ids and the counts above, never file names or code. `pygg run` writes the row only when the store already has the table (the app migrates it; `pygg run` never does); otherwise the receipt says it was not saved. Rows go with the ledger's history setting.
 
-**Status line.** `pygg run --statusline claude` starts Claude Code with `--settings` naming `pygg statusline` as its status line, for that launch only, so its own setting is untouched. `pygg statusline` prints the launch's cost so far, cache share, the model that answered and fallbacks (`Pygg $0.42 · 91% cache · claude-haiku-5-5 · 1 fallback`). It finds the launch from `x-pygg-session` in `ANTHROPIC_CUSTOM_HEADERS`, or `PYGG_ATTEMPT_ID`, and reads the store without writing it.
+**Request classes.** The launcher sets `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`, so Claude Code (2.1.273 and later) tells the gateway what each request is, which subagent sent it (its type and a random id per spawn) and which prompt it serves (2.1.283 and later). The gateway keeps the class, agent type, agent id and prompt id with the attempt (schema v39, `gateway/hints.rs`) and forwards none of these headers to the provider. A class outside Claude Code's documented list is kept as `other`; an id that is not short printable ASCII is dropped. Usage → Token Mix → By request kind and `pygg usage` show the same split for the period, with the subagent types, the most subagents one prompt started and the most working at once in a session (each agent's span runs from the start of its first request to the end of its last). Codex and OpenCode send no such headers.
 
-Verified: unit tests (`launches::tests`, including Git in a scratch repository). Not yet run live with a tool's real session.
+**Status line.** `pygg run --statusline claude` starts Claude Code with `--settings` naming `pygg statusline` as its status line, for that launch only, so its own setting is untouched. `pygg statusline` prints the launch's cost so far, cache share, the model that answered and fallbacks (`Pygg $0.42 · 91% cache · claude-haiku-5-5 · 1 fallback`). It also counts the launch's subagents. It finds the launch from `x-pygg-session` in `ANTHROPIC_CUSTOM_HEADERS`, or `PYGG_ATTEMPT_ID`, and reads the store without writing it.
+
+Verified: unit tests (`launches::tests`, including Git in a scratch repository; `gateway::hints::tests`); a gateway test sends the hint headers and checks they are recorded and that none reaches the provider; the browser preview's Usage with demo data. Not yet run live with a tool's real session.
 
 ### Codex
 

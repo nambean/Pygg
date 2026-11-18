@@ -681,6 +681,7 @@ pub fn usage(args: &[String]) -> Result<i32, Fail> {
             "tokens": mix.tokens, "tokenCostMicroUsd": mix.cost, "tokenCostNote": "known cost split by each model's current prices",
             "byClient": summary.by_client.iter().map(group).collect::<Vec<_>>(),
             "byModel": summary.by_model.iter().map(group).collect::<Vec<_>>(),
+            "requestClasses": mix.classes,
         })));
     }
     if t.requests == 0 {
@@ -728,6 +729,30 @@ pub fn usage(args: &[String]) -> Result<i32, Fail> {
             })
             .collect();
         table(&["NAME", "REQUESTS", "KNOWN COST", ""], &rows);
+    }
+    let c = &mix.classes;
+    if c.requests > 0 {
+        println!("\nBy request kind (Claude Code started with pygg run)");
+        let rows: Vec<Vec<String>> = c
+            .groups
+            .iter()
+            .map(|g| {
+                vec![
+                    g.key.clone(),
+                    g.requests.to_string(),
+                    if g.agents > 0 { g.agents.to_string() } else { "-".into() },
+                    money(g.known_micro_usd),
+                    if g.unknown_cost > 0 { format!("+{} unknown", g.unknown_cost) } else { String::new() },
+                ]
+            })
+            .collect();
+        table(&["KIND", "REQUESTS", "AGENTS", "KNOWN COST", ""], &rows);
+        if c.agents > 0 {
+            println!(
+                "{} subagents; at most {} at once in a session, at most {} started by one prompt",
+                c.agents, c.peak_parallel_agents, c.most_agents_one_prompt
+            );
+        }
     }
     Ok(0)
 }

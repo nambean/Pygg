@@ -194,7 +194,8 @@ fn print_receipt(
         .as_ref()
         .filter(|s| s.baseline_priced && s.compared > 0)
         .and_then(|s| s.baseline.as_deref().map(|b| (b, s.routed_micro_usd, s.baseline_micro_usd)));
-    Ok(crate::launches::receipt(tool_name(tool), session, &cost, compared, git, note))
+    let classes = crate::gateway::hints::request_classes(&conn, 0, Some(session)).ok();
+    Ok(crate::launches::receipt(tool_name(tool), session, &cost, compared, classes.as_ref(), git, note))
 }
 
 /// Claude Code's `--settings` for this launch: its status line runs `pygg statusline` (this program).

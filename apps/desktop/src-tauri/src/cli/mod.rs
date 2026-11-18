@@ -407,10 +407,15 @@ fn statusline(args: &[String]) -> String {
     )
     .and_then(|conn| {
         conn.busy_timeout(Duration::from_millis(500))?;
-        crate::launches::session_cost(&conn, &session)
+        let agents: i64 = conn.query_row(
+            "SELECT COUNT(DISTINCT agent_id) FROM usage_events WHERE session_key = ?1 AND created_at >= 0",
+            [&session],
+            |r| r.get(0),
+        )?;
+        Ok((crate::launches::session_cost(&conn, &session)?, agents.max(0) as u64))
     });
     match cost {
-        Ok(cost) => crate::launches::status_line(&cost),
+        Ok((cost, agents)) => crate::launches::status_line(&cost, agents),
         Err(_) => "Pygg · could not read the ledger".into(),
     }
 }

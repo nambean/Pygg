@@ -25,6 +25,7 @@ pub mod anthropic;
 pub mod auto;
 pub mod catalog;
 pub mod checker;
+pub mod hints;
 pub mod keys;
 pub mod model_test;
 pub mod oauth;
@@ -1141,6 +1142,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             key_id: key.as_ref().map(|k| k.id.clone()),
             prefix: shadow::prefix(incoming.surface, incoming.body),
             clearing: shadow::clearing(incoming.surface, incoming.body),
+            hint: hints::from_headers(incoming.headers),
         };
         let started = Instant::now();
         let sent_ms = db_now();

@@ -244,7 +244,14 @@ export type TokenMix = {
   misses: CacheMissGroup[];
   /** What sessions carry before their conversation (schema v36). */
   prefix: PrefixMeter;
+  /** Claude Code's requests by kind and its subagents' fan-out, from its hint headers (schema v39). */
+  classes: RequestClasses;
 };
+/** One request class (main, subagent, workflow, compaction, auxiliary, other) or subagent type (gateway::hints). */
+export type ClassGroup = {key: string; requests: number; knownMicroUsd: number; unknownCost: number; promptTokens: number;
+  cacheReadTokens: number; cacheWriteTokens: number; agents: number};
+export type RequestClasses = {requests: number; sessions: number; groups: ClassGroup[]; agentTypes: ClassGroup[];
+  agents: number; mostAgentsOnePrompt: number; peakParallelAgents: number};
 /** One session's tool definitions and system prompt, measured on its first request, and how often they went again
  *  without a cache read. Estimated tokens; Pygg keeps the numbers, never the text. */
 export type PrefixSession = {client: string; session: string; toolsTokens: number; systemTokens: number; requests: number;

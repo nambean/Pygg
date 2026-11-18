@@ -2187,6 +2187,8 @@ pub struct AttemptFacts {
     /// What clearing old tool results would take out of it (migration 0037, shadow); `None` without tool output or for
     /// an Anthropic-format request.
     pub clearing: Option<super::shadow::Clearing>,
+    /// Claude Code's hint headers (migration 0039); `None` when the request carried none.
+    pub hint: Option<super::hints::RequestHint>,
 }
 
 impl<'a> UsageRecord<'a> {
@@ -2357,14 +2359,15 @@ fn insert_usage(conn: &Connection, r: &UsageRecord, at_risk_micro: Option<u64>) 
     let miss = cache_miss(conn, r, now)?;
     let prefix = r.facts.and_then(|f| f.prefix);
     let clearing = r.facts.and_then(|f| f.clearing);
+    let hint = r.facts.and_then(|f| f.hint.as_ref());
     conn.execute(
         "INSERT INTO usage_events (id, client_id, provider, model, input_tokens, output_tokens, cache_tokens, \
          cost_micro_usd, cost_status, source, created_at, outcome, http_status, latency_ms, requested_model, error, \
          cache_write_tokens, session_key, route_mode, at_risk_micro_usd, route_reason, repeated_tokens, request_id, attempt, \
          billing, route_kind, cache_hint, key_id, cache_miss, tools_tokens, system_tokens, prefix_hash, clear_count, \
-         clear_tokens, clear_tail_tokens) \
+         clear_tokens, clear_tail_tokens, request_class, agent_type, agent_id, prompt_id) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, \
-         ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35)",
+         ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39)",
         params![
             uuid::Uuid::new_v4().to_string(), r.client_id, r.provider_id, r.model_id,
             r.input_tokens.map(|v| v as i64), r.output_tokens.map(|v| v as i64), r.cache_tokens.map(|v| v as i64),
@@ -2376,6 +2379,8 @@ fn insert_usage(conn: &Connection, r: &UsageRecord, at_risk_micro: Option<u64>) 
             r.facts.and_then(|f| f.key_id.as_deref()), miss,
             prefix.map(|p| p.tools_tokens as i64), prefix.map(|p| p.system_tokens as i64), prefix.map(|p| p.hash),
             clearing.map(|c| c.count as i64), clearing.map(|c| c.tokens as i64), clearing.map(|c| c.tail_tokens as i64),
+            hint.and_then(|h| h.class.as_deref()), hint.and_then(|h| h.agent_type.as_deref()),
+            hint.and_then(|h| h.agent_id.as_deref()), hint.and_then(|h| h.prompt_id.as_deref()),
         ],
     )?;
     if let Some(client) = r.client_id {
@@ -3154,6 +3159,8 @@ pub struct TokenMix {
     pub misses: Vec<CacheMissGroup>,
     /// What sessions carry before their conversation, and how often it was sent again uncached (migration 0036).
     pub prefix: PrefixMeter,
+    /// Claude Code's requests by kind and its subagents' fan-out, from its hint headers (migration 0039).
+    pub classes: super::hints::RequestClasses,
 }
 
 /// The tool definitions and system prompts of the period's sessions (ROADMAP item 4), from their answered requests.
@@ -3365,6 +3372,7 @@ pub fn token_mix(conn: &Connection, since: i64) -> Result<TokenMix> {
         .collect::<rusqlite::Result<_>>()
         .map_err(err)?;
     mix.prefix = prefix_meter(conn, since)?;
+    mix.classes = super::hints::request_classes(conn, since, None)?;
     Ok(mix)
 }
 
@@ -4209,6 +4217,7 @@ mod tests {
                 key_id: None,
                 prefix: None,
                 clearing: None,
+                hint: None,
             };
             record_usage(
                 &conn,

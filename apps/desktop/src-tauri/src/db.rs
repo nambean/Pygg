@@ -44,6 +44,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0036_prefix_meter.sql"),
     include_str!("../migrations/0037_clearing_shadow.sql"),
     include_str!("../migrations/0038_launches.sql"),
+    include_str!("../migrations/0039_request_class.sql"),
 ];
 
 pub const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;
