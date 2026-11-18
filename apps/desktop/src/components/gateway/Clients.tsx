@@ -116,21 +116,32 @@ function Spend({client: c}: {client: Client}) {
       title={t('Requests that failed or were cut off after reaching the provider. Their cost is unknown, so the amount held for them counts against the limit.')}>
       {t('+ {amount} possibly charged', {amount: microUsd(c.monthAtRiskMicroUsd)})}</small>}
     {c.reservedMicroUsd > 0 && <small className="secondary">{t('{amount} held for requests in flight', {amount: microUsd(c.reservedMicroUsd)})}</small>}
+    {c.dayBudgetMicroUsd != null && <small className={(c.dayCountedMicroUsd ?? 0) >= c.dayBudgetMicroUsd ? 'error-text' : 'secondary'}>
+      {(c.dayCountedMicroUsd ?? 0) >= c.dayBudgetMicroUsd
+        ? t('Daily limit reached: {amount} today (UTC); refused until 00:00 UTC', {amount: microUsd(c.dayCountedMicroUsd ?? 0)})
+        : t('Today (UTC): {amount} of {limit}', {amount: microUsd(c.dayCountedMicroUsd ?? 0), limit: microUsd(c.dayBudgetMicroUsd)})}</small>}
     {c.monthUnknownRequests > 0 && <small className="secondary">{plural(c.monthUnknownRequests, '+ {n} request with unknown cost', '+ {n} requests with unknown cost')}</small>}
   </span>;
 }
 
+/** Whether the key has any money limit: monthly, per session or per day. */
+function hasLimit(c: Client): boolean {
+  return c.monthlyBudgetMicroUsd !== null || c.sessionBudgetMicroUsd != null || c.dayBudgetMicroUsd != null;
+}
+
 function policySummary(c: Client): string {
-  const unknown = c.monthlyBudgetMicroUsd === null ? '' : c.unknownCostPolicy === 'block'
+  const unknown = !hasLimit(c) ? '' : c.unknownCostPolicy === 'block'
     ? ` · ${t('unknown prices blocked')}` : ` · ${t('unknown prices allowed')}`;
   const scope = c.allowedConnections === null ? ''
     : ` · ${plural(c.allowedConnections.length, 'only {n} connection', 'only {n} connections')}`;
   const retries = c.paidRetries > 0
     ? ` · ${plural(c.paidRetries, 'retries {n} model after a server error', 'retries up to {n} models after a server error')}` : '';
   const tasks = c.mayRunTasks ? ` · ${t('may start smart tasks')}` : '';
-  const strictness = c.strictBudget && c.monthlyBudgetMicroUsd !== null ? ` · ${t('strict limit')}` : '';
+  const strictness = c.strictBudget && hasLimit(c) ? ` · ${t('strict limit')}` : '';
+  const session = c.sessionBudgetMicroUsd != null ? ` · ${t('{amount} a session', {amount: microUsd(c.sessionBudgetMicroUsd)})}` : '';
+  const day = c.dayBudgetMicroUsd != null ? ` · ${t('{amount} a day', {amount: microUsd(c.dayBudgetMicroUsd)})}` : '';
   const training = c.requireNoTraining ? ` · ${t('only providers that do not train on its data')}` : '';
-  return plural(c.maxConcurrency, 'up to {n} request at once', 'up to {n} requests at once') + unknown + scope + retries + tasks + training + strictness;
+  return plural(c.maxConcurrency, 'up to {n} request at once', 'up to {n} requests at once') + session + day + unknown + scope + retries + tasks + training + strictness;
 }
 
 /** What a new key gets from Policies → Defaults for New API Keys, and the built-in values where a default is not set
@@ -222,6 +233,8 @@ function CreateSheet({onClose}: {onClose: () => void}) {
 
 export function LimitSheet({client: c, onClose}: {client: Client; onClose: () => void}) {
   const [limit, setLimit] = useState(c.monthlyBudgetMicroUsd ? String(c.monthlyBudgetMicroUsd / 1_000_000) : '');
+  const [sessionLimit, setSessionLimit] = useState(c.sessionBudgetMicroUsd ? String(c.sessionBudgetMicroUsd / 1_000_000) : '');
+  const [dayLimit, setDayLimit] = useState(c.dayBudgetMicroUsd ? String(c.dayBudgetMicroUsd / 1_000_000) : '');
   const [unknown, setUnknown] = useState(c.unknownCostPolicy);
   const [concurrency, setConcurrency] = useState(String(c.maxConcurrency));
   const connections = useGateway(api => api.connections());
@@ -235,13 +248,18 @@ export function LimitSheet({client: c, onClose}: {client: Client; onClose: () =>
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const amount = parseUsd(limit);
+  const perSession = parseUsd(sessionLimit);
+  const perDay = parseUsd(dayLimit);
+  const usable = (v: number | null) => v === null || (Number.isFinite(v) && v > 0);
+  const limited = amount !== null || perSession !== null || perDay !== null;
   const inFlight = Number(concurrency);
-  const valid = (amount === null || (Number.isFinite(amount) && amount > 0))
+  const valid = usable(amount) && usable(perSession) && usable(perDay)
     && /^\d+$/.test(concurrency) && inFlight >= 1 && inFlight <= 256;
   const save = () => {
     setBusy(true);
     call(async api => {
       await api.setClientBudget(c.id, amount);
+      await api.setClientLimits(c.id, perSession, perDay);
       await api.setClientPolicy(c.id, {maxConcurrency: inFlight, unknownCostPolicy: unknown,
         restrictConnections: restricted, allowedConnections: allowed, paidRetries, autoMinTier, mayRunTasks,
         requireNoTraining: noTraining, strictBudget: strict});
@@ -258,20 +276,34 @@ export function LimitSheet({client: c, onClose}: {client: Client; onClose: () =>
     </>}>
     <div className="form">
       <FormRow label={t('Monthly limit')} htmlFor="limit" hint={t('Leave empty for no limit. Resets on the 1st (UTC). Checked against an estimate before each request, so the provider’s bill can end up higher.')}>
-        <span className={valid ? 'money-input' : 'money-input invalid'}>
+        <span className={usable(amount) ? 'money-input' : 'money-input invalid'}>
           <span aria-hidden>$</span>
           <input id="limit" inputMode="decimal" value={limit} onChange={e => setLimit(e.target.value)} placeholder={t('No limit')} autoFocus/>
         </span>
       </FormRow>
+      <FormRow label={t('Session limit')} htmlFor="session-limit"
+        hint={t('Leave empty for no limit. One routing session: a launch from pygg run, or whatever sends the same x-pygg-session header. Once reached, its next request is refused with 402; a request already running is never cut. Requests that name no session are held to the other limits only.')}>
+        <span className={usable(perSession) ? 'money-input' : 'money-input invalid'}>
+          <span aria-hidden>$</span>
+          <input id="session-limit" inputMode="decimal" value={sessionLimit} onChange={e => setSessionLimit(e.target.value)} placeholder={t('No limit')}/>
+        </span>
+      </FormRow>
+      <FormRow label={t('Daily limit')} htmlFor="day-limit"
+        hint={t('Leave empty for no limit. Resets at 00:00 UTC. Once reached, every request from this key is refused with 402 until then; a request already running is never cut.')}>
+        <span className={usable(perDay) ? 'money-input' : 'money-input invalid'}>
+          <span aria-hidden>$</span>
+          <input id="day-limit" inputMode="decimal" value={dayLimit} onChange={e => setDayLimit(e.target.value)} placeholder={t('No limit')}/>
+        </span>
+      </FormRow>
       <FormRow label={t('Strict limit')} htmlFor="strict-budget"
-        hint={amount === null ? t('Applies once the client has a limit.')
+        hint={!limited ? t('Applies once the client has a limit.')
           : strict ? t('Each request is held at the most it could cost: its own output limit, or all the model can write. Models whose price or maximum output is unknown are not used. The bill can still differ if a provider changes its price.') + ' ' + t('A strict limit holds each request at the most it could cost (output limit × price): Claude Code on a large repository is held at over $1 a request, so prefer the estimated limit there.')
           : t('Off: a request without an output limit is estimated at 4,096 output tokens, so a long answer can take the month past the limit.')}>
         <label className="check-row"><input id="strict-budget" type="checkbox" checked={strict}
           onChange={e => setStrict(e.target.checked)}/>{t('Hold the most a request could cost')}</label>
       </FormRow>
       <FormRow label={t('Unknown price')} htmlFor="unknown-policy"
-        hint={amount === null ? t('Applies once the client has a limit.')
+        hint={!limited ? t('Applies once the client has a limit.')
           : unknown === 'block' ? t('Models without a price are skipped, so the limit can’t be passed unseen.')
           : t('Models without a price may answer; their cost isn’t counted against the limit.')}>
         <select id="unknown-policy" className="popup-button" value={unknown} onChange={e => setUnknown(e.target.value as 'block' | 'allow')}>

@@ -954,12 +954,27 @@ pub struct Client {
     pub strict_budget: bool,
     /// Whether a copy of the token is in the OS credential store, so it can be shown again (migration 0023).
     pub token_viewable: bool,
+    /// A limit per routing session, the `x-pygg-session` a request names (cost plan A3, migration 0040). A request
+    /// that names no session is not held to it.
+    pub session_budget_micro_usd: Option<u64>,
+    /// A limit per UTC day (cost plan A3).
+    pub day_budget_micro_usd: Option<u64>,
+    /// Known spend plus spend at risk today (UTC): what the day limit is checked against.
+    pub day_counted_micro_usd: u64,
 }
 
 impl Client {
     /// What the monthly limit is checked against: known spend plus spend at risk.
     pub fn counted_micro_usd(&self) -> u64 {
         self.month_spend_micro_usd + self.month_at_risk_micro_usd
+    }
+
+    /// Whether any money limit is set: monthly, per session or per day. Requests are then held at an estimate of
+    /// their cost, and a price that is unknown follows the client's policy for it.
+    pub fn has_money_limit(&self) -> bool {
+        self.monthly_budget_micro_usd.is_some()
+            || self.session_budget_micro_usd.is_some()
+            || self.day_budget_micro_usd.is_some()
     }
 
     /// Whether this client may send a request to the connection. Fails closed: a restricted client may use only
@@ -1008,13 +1023,16 @@ pub fn month_start(now: i64) -> i64 {
 
 fn client_row(conn: &Connection, row: &rusqlite::Row) -> rusqlite::Result<Client> {
     let id: String = row.get(0)?;
-    let since = month_start(now_ms());
-    let (spend, unknown, at_risk): (i64, i64, i64) = conn.query_row(
+    let now = now_ms();
+    let since = month_start(now);
+    // A UTC day always starts within its UTC month, so one pass over the month gives both.
+    let (spend, unknown, at_risk, today): (i64, i64, i64, i64) = conn.query_row(
         "SELECT COALESCE(SUM(cost_micro_usd), 0), COALESCE(SUM(cost_status = 'unknown'), 0), \
-         COALESCE(SUM(CASE WHEN cost_micro_usd IS NULL THEN at_risk_micro_usd END), 0) FROM usage_events \
-         WHERE client_id = ?1 AND created_at >= ?2",
-        params![id, since],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+         COALESCE(SUM(CASE WHEN cost_micro_usd IS NULL THEN at_risk_micro_usd END), 0), \
+         COALESCE(SUM(CASE WHEN created_at >= ?3 THEN COALESCE(cost_micro_usd, at_risk_micro_usd, 0) END), 0) \
+         FROM usage_events WHERE client_id = ?1 AND created_at >= ?2",
+        params![id, since, day_start(now)],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
     )?;
     let reserved: i64 = conn.query_row(
         "SELECT COALESCE(SUM(reserved_micro), 0) FROM budget_reservations WHERE client_id = ?1",
@@ -1045,12 +1063,20 @@ fn client_row(conn: &Connection, row: &rusqlite::Row) -> rusqlite::Result<Client
         require_no_training: row.get(13)?,
         strict_budget: row.get(14)?,
         token_viewable: row.get(15)?,
+        session_budget_micro_usd: row.get::<_, Option<i64>>(16)?.map(|v| v.max(0) as u64),
+        day_budget_micro_usd: row.get::<_, Option<i64>>(17)?.map(|v| v.max(0) as u64),
+        day_counted_micro_usd: today.max(0) as u64,
     })
 }
 
 const CLIENT_COLUMNS: &str = "id, name, token_prefix, monthly_budget_micro_usd, created_at, last_used_at, revoked_at, \
     max_concurrency, unknown_cost_policy, allowed_connections, paid_retries, auto_min_tier, may_run_tasks, require_no_training, strict_budget, \
-    token_ref IS NOT NULL";
+    token_ref IS NOT NULL, session_budget_micro_usd, day_budget_micro_usd";
+
+/// Unix milliseconds at the start of the current UTC day.
+pub fn day_start(now: i64) -> i64 {
+    now - now.rem_euclid(86_400_000)
+}
 
 pub fn list_clients(conn: &Connection) -> Result<Vec<Client>> {
     let mut stmt = conn
@@ -1208,6 +1234,19 @@ pub fn set_client_budget(conn: &Connection, id: &str, monthly_budget_micro_usd: 
     .map_err(err)
 }
 
+/// Sets the limits per routing session and per UTC day (cost plan A3); `None` turns one off.
+pub fn set_client_limits(conn: &Connection, id: &str, session: Option<u64>, day: Option<u64>) -> Result<()> {
+    if session == Some(0) || day == Some(0) {
+        return Err("Enter a limit above $0, or none".into());
+    }
+    conn.execute(
+        "UPDATE gateway_clients SET session_budget_micro_usd = ?2, day_budget_micro_usd = ?3 WHERE id = ?1",
+        params![id, session.map(|v| v as i64), day.map(|v| v as i64)],
+    )
+    .map(|_| ())
+    .map_err(err)
+}
+
 pub fn set_client_policy(
     conn: &Connection, id: &str, max_concurrency: Option<u32>, unknown_cost_policy: Option<&str>,
 ) -> Result<()> {
@@ -1321,13 +1360,156 @@ pub fn set_client_may_run_tasks(conn: &Connection, id: &str, allowed: bool) -> R
 
 // ---------- Budget reservations (ROADMAP P0-3) ----------
 
+/// Which of a client's money limits (cost plan A3 adds the session and the day to the month).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LimitScope {
+    Session,
+    Day,
+    Month,
+}
+
+impl LimitScope {
+    /// As it reads in a message: "the session limit", "the daily limit", "the monthly limit".
+    pub fn label(self) -> &'static str {
+        match self {
+            LimitScope::Session => "session",
+            LimitScope::Day => "daily",
+            LimitScope::Month => "monthly",
+        }
+    }
+}
+
 /// Why a reservation was refused.
 #[derive(Debug, PartialEq)]
 pub struct OverBudget {
+    pub scope: LimitScope,
     pub spent: u64,
     pub reserved: u64,
     pub budget: u64,
     pub wanted: u64,
+}
+
+/// A session or day limit already reached (cost plan A3): what was counted against it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LimitHit {
+    pub scope: LimitScope,
+    pub counted: u64,
+    pub limit: u64,
+}
+
+impl LimitHit {
+    /// The refusal a client sees: which limit, how much was counted, and what to change.
+    pub fn message(&self, client: &str) -> String {
+        let usd =
+            |m: u64| if m < 10_000 { format!("${:.4}", m as f64 / 1e6) } else { format!("${:.2}", m as f64 / 1e6) };
+        let (counted, then, flag) = match self.scope {
+            LimitScope::Session => {
+                ("this session has used", "Start a new session, or raise or remove the limit", "--session-usd")
+            }
+            LimitScope::Day => {
+                ("today (UTC) this key has used", "It resets at 00:00 UTC; or raise or remove the limit", "--day-usd")
+            }
+            LimitScope::Month => ("this month this key has used", "Raise or remove the limit", "--monthly-usd"),
+        };
+        format!(
+            "API key \"{client}\" has reached its {} limit ({}): {counted} {}. Nothing was sent. {then} in Pygg → \
+             Endpoint → API Keys → Limits…, or with `pygg gateway client --name \"{client}\" {flag} N` (0 removes it).",
+            self.scope.label(),
+            usd(self.limit),
+            usd(self.counted),
+        )
+    }
+}
+
+/// Spend counted against a session or day limit: known spend plus spend at risk, from the ledger.
+fn counted_in(
+    conn: &Connection, client_id: &str, scope: LimitScope, session: Option<&str>, now: i64,
+) -> rusqlite::Result<u64> {
+    let spent: i64 = match scope {
+        LimitScope::Session => conn.query_row(
+            &format!("SELECT {COUNTED_SPEND} FROM usage_events WHERE client_id = ?1 AND session_key = ?2 AND created_at >= 0"),
+            params![client_id, session.unwrap_or_default()],
+            |r| r.get(0),
+        )?,
+        LimitScope::Day | LimitScope::Month => conn.query_row(
+            &format!("SELECT {COUNTED_SPEND} FROM usage_events WHERE client_id = ?1 AND created_at >= ?2"),
+            params![client_id, if scope == LimitScope::Day { day_start(now) } else { month_start(now) }],
+            |r| r.get(0),
+        )?,
+    };
+    Ok(spent.max(0) as u64)
+}
+
+/// The client's session and day limits that apply to a request, as `(scope, limit)`, session first. The session limit
+/// applies only to a request that names a session.
+fn short_limits(conn: &Connection, client_id: &str, session: Option<&str>) -> rusqlite::Result<Vec<(LimitScope, u64)>> {
+    let (per_session, per_day): (Option<i64>, Option<i64>) = conn.query_row(
+        "SELECT session_budget_micro_usd, day_budget_micro_usd FROM gateway_clients WHERE id = ?1",
+        [client_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let mut limits = Vec::new();
+    if let (Some(limit), Some(_)) = (per_session, session) {
+        limits.push((LimitScope::Session, limit.max(0) as u64));
+    }
+    if let Some(limit) = per_day {
+        limits.push((LimitScope::Day, limit.max(0) as u64));
+    }
+    Ok(limits)
+}
+
+/// The first of a client's session and day limits that is already reached, checked before a request is routed (cost
+/// plan A3). Spend already counted only: what requests in flight hold is checked when each attempt is opened.
+pub fn reached_limit(conn: &Connection, client_id: &str, session: Option<&str>, now: i64) -> Result<Option<LimitHit>> {
+    for (scope, limit) in short_limits(conn, client_id, session).map_err(err)? {
+        let counted = counted_in(conn, client_id, scope, session, now).map_err(err)?;
+        if counted >= limit {
+            return Ok(Some(LimitHit { scope, counted, limit }));
+        }
+    }
+    Ok(None)
+}
+
+/// A session's limits as its status line and receipt show them (cost plan A3): the key that sent its latest request,
+/// its session and day limits, and what was counted against each. `None` when the session has no request or the key
+/// no such limit, or the store is older than these limits.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SessionLimits {
+    pub client: String,
+    pub session: Option<(u64, u64)>,
+    pub day: Option<(u64, u64)>,
+}
+
+impl SessionLimits {
+    /// The limit reached, if one is: the session's first.
+    pub fn reached(&self) -> Option<LimitHit> {
+        let hit = |scope, pair: Option<(u64, u64)>| {
+            pair.filter(|(counted, limit)| counted >= limit).map(|(counted, limit)| LimitHit { scope, counted, limit })
+        };
+        hit(LimitScope::Session, self.session).or_else(|| hit(LimitScope::Day, self.day))
+    }
+}
+
+pub fn session_limits(conn: &Connection, session: &str, now: i64) -> Result<Option<SessionLimits>> {
+    let latest: Option<(String, String)> = conn
+        .query_row(
+            "SELECT e.client_id, c.name FROM usage_events e JOIN gateway_clients c ON c.id = e.client_id \
+             WHERE e.session_key = ?1 AND e.created_at >= 0 ORDER BY e.created_at DESC LIMIT 1",
+            [session],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(err)?;
+    let Some((client_id, client)) = latest else { return Ok(None) };
+    let mut limits = SessionLimits { client, ..Default::default() };
+    for (scope, limit) in short_limits(conn, &client_id, Some(session)).map_err(err)? {
+        let pair = Some((counted_in(conn, &client_id, scope, Some(session), now).map_err(err)?, limit));
+        match scope {
+            LimitScope::Session => limits.session = pair,
+            _ => limits.day = pair,
+        }
+    }
+    Ok((limits.session.is_some() || limits.day.is_some()).then_some(limits))
 }
 
 /// Runs `f` inside `BEGIN IMMEDIATE`: it commits when `f` returns `Ok(true)`, rolls back on `Ok(false)` or an
@@ -1365,27 +1547,35 @@ pub struct AttemptStart<'a> {
 /// insert happen under one `BEGIN IMMEDIATE`, so two requests cannot both take the last dollar. Returns
 /// the attempt id, or why the hold does not fit. A hold of 0 is never refused here.
 pub fn open_attempt(conn: &Connection, a: &AttemptStart) -> Result<std::result::Result<String, OverBudget>> {
+    open_attempt_at(conn, a, now_ms())
+}
+
+/// `open_attempt` at a given time. Each limit that applies (the session's, the day's, the month's: cost plan A3) is
+/// checked against spend counted in its period plus what attempts in flight hold; a request is held to all of them.
+fn open_attempt_at(conn: &Connection, a: &AttemptStart, now: i64) -> Result<std::result::Result<String, OverBudget>> {
     immediate(conn, || {
         if a.hold_micro > 0 {
-            let budget: Option<i64> = conn.query_row(
+            let monthly: Option<i64> = conn.query_row(
                 "SELECT monthly_budget_micro_usd FROM gateway_clients WHERE id = ?1",
                 [a.client_id],
                 |r| r.get(0),
             )?;
-            if let Some(budget) = budget.map(|b| b.max(0) as u64) {
-                let spent: i64 = conn.query_row(
-                    &format!("SELECT {COUNTED_SPEND} FROM usage_events WHERE client_id = ?1 AND created_at >= ?2"),
-                    params![a.client_id, month_start(now_ms())],
-                    |r| r.get(0),
-                )?;
+            let mut limits = short_limits(conn, a.client_id, a.session_key)?;
+            if let Some(budget) = monthly {
+                limits.push((LimitScope::Month, budget.max(0) as u64));
+            }
+            for (scope, budget) in limits {
+                let spent = counted_in(conn, a.client_id, scope, a.session_key, now)?;
+                // Holds of attempts in flight: the session's own for a session limit, all of the client's otherwise.
                 let reserved: i64 = conn.query_row(
-                    "SELECT COALESCE(SUM(reserved_micro), 0) FROM budget_reservations WHERE client_id = ?1",
-                    [a.client_id],
+                    "SELECT COALESCE(SUM(reserved_micro), 0) FROM budget_reservations WHERE client_id = ?1 \
+                     AND (?2 IS NULL OR session_key = ?2)",
+                    params![a.client_id, (scope == LimitScope::Session).then_some(a.session_key).flatten()],
                     |r| r.get(0),
                 )?;
-                let (spent, reserved) = (spent.max(0) as u64, reserved.max(0) as u64);
+                let reserved = reserved.max(0) as u64;
                 if spent + reserved + a.hold_micro > budget || spent >= budget {
-                    return Ok((Err(OverBudget { spent, reserved, budget, wanted: a.hold_micro }), false));
+                    return Ok((Err(OverBudget { scope, spent, reserved, budget, wanted: a.hold_micro }), false));
                 }
             }
         }

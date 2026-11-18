@@ -13,6 +13,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::gateway::hints::RequestClasses;
+use crate::gateway::store::{LimitScope, SessionLimits};
 
 /// A repository's state at one moment, read from a folder inside it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -248,6 +249,7 @@ fn money(micro: u64) -> String {
 pub fn receipt(
     tool: &str, session: &str, cost: &SessionCost, compared: Option<(&str, u64, u64)>,
     classes: Option<&RequestClasses>, git: Option<(&GitState, &GitChange)>, note: Option<&str>,
+    limits: Option<&SessionLimits>,
 ) -> String {
     let mut lines = vec![format!("Pygg · this launch of {tool} ({session})")];
     let row = |label: &str, text: String| format!("  {label:<10} {text}");
@@ -315,6 +317,9 @@ pub fn receipt(
                 ),
             ));
         }
+    }
+    if let Some(text) = limits.and_then(limit_text) {
+        lines.push(row("Limit", text));
     }
     match git {
         None => lines.push(row("Git", "not in a Git repository".into())),
@@ -388,8 +393,35 @@ fn class_line(c: &RequestClasses) -> String {
         .join(" · ")
 }
 
-/// The one line `pygg statusline` prints for Claude Code; `agents` is the session's subagents so far.
-pub fn status_line(cost: &SessionCost, agents: u64) -> String {
+/// The session and day limits of the key a launch used (cost plan A3), for its receipt: what each has counted, and
+/// whether Pygg now refuses the launch's requests.
+fn limit_text(limits: &SessionLimits) -> Option<String> {
+    if let Some(hit) = limits.reached() {
+        let after = match hit.scope {
+            LimitScope::Session => "Pygg refuses this session's further requests (402)",
+            _ => "Pygg refuses this key's requests (402) until 00:00 UTC",
+        };
+        return Some(format!(
+            "the {} limit of {} on key \"{}\" is reached ({} counted): {after}",
+            hit.scope.label(),
+            money(hit.limit),
+            limits.client,
+            money(hit.counted)
+        ));
+    }
+    let mut parts = Vec::new();
+    if let Some((counted, limit)) = limits.session {
+        parts.push(format!("{} of the session limit {}", money(counted), money(limit)));
+    }
+    if let Some((counted, limit)) = limits.day {
+        parts.push(format!("{} of the daily limit {} (UTC)", money(counted), money(limit)));
+    }
+    (!parts.is_empty()).then(|| parts.join(" · "))
+}
+
+/// The one line `pygg statusline` prints for Claude Code; `agents` is the session's subagents so far, `limits` its
+/// key's session and day limits.
+pub fn status_line(cost: &SessionCost, agents: u64, limits: Option<&SessionLimits>) -> String {
     if cost.answered + cost.failed == 0 {
         return "Pygg · no request yet".into();
     }
@@ -406,6 +438,16 @@ pub fn status_line(cost: &SessionCost, agents: u64) -> String {
     }
     if cost.fell_back > 0 {
         parts.push(format!("{} fallback{}", cost.fell_back, plural(cost.fell_back)));
+    }
+    if let Some(limits) = limits {
+        match limits.reached() {
+            Some(hit) => parts.insert(1, format!("{} limit {} reached", hit.scope.label(), money(hit.limit))),
+            None => {
+                if let Some((_, limit)) = limits.session {
+                    parts[0].push_str(&format!(" of {}", money(limit)));
+                }
+            }
+        }
     }
     parts.join(" · ")
 }
@@ -465,8 +507,30 @@ mod tests {
         assert_eq!(cost.models, vec![("haiku".to_string(), 20), ("glm".to_string(), 1)]);
         assert_eq!(cost.depth, Some((145, 245)));
         assert_eq!(cache_percent(&cost), Some(80));
-        let line = status_line(&cost, 2);
+        let line = status_line(&cost, 2, None);
         assert!(line.starts_with("Pygg $0.0039 · 80% cache · haiku +1 · 2 subagents · 1 fallback"), "{line}");
+    }
+
+    #[test]
+    fn a_session_or_day_limit_shows_in_the_status_line_and_the_receipt() {
+        let cost = SessionCost { answered: 2, known_micro_usd: 2_000_000, ..Default::default() };
+        let open = SessionLimits { client: "Claude Code".into(), session: Some((2_000_000, 5_000_000)), day: None };
+        let line = status_line(&cost, 0, Some(&open));
+        assert!(line.starts_with("Pygg $2.00 of $5.00"), "{line}");
+        let text = receipt("Claude Code", "s", &cost, None, None, None, None, Some(&open));
+        assert!(text.contains("Limit") && text.contains("$2.00 of the session limit $5.00"), "{text}");
+
+        let spent = SessionCost { known_micro_usd: 5_100_000, ..cost };
+        let reached = SessionLimits { session: Some((5_100_000, 5_000_000)), ..open.clone() };
+        let line = status_line(&spent, 0, Some(&reached));
+        assert!(line.starts_with("Pygg $5.10 · session limit $5.00 reached"), "{line}");
+        let text = receipt("Claude Code", "s", &spent, None, None, None, None, Some(&reached));
+        assert!(text.contains("refuses this session's further requests (402)"), "{text}");
+
+        let day = SessionLimits { session: None, day: Some((20_000_000, 20_000_000)), ..open };
+        assert!(status_line(&spent, 0, Some(&day)).contains("daily limit $20.00 reached"));
+        let text = receipt("Claude Code", "s", &spent, None, None, None, None, Some(&day));
+        assert!(text.contains("until 00:00 UTC"), "{text}");
     }
 
     #[test]
@@ -515,6 +579,7 @@ mod tests {
             Some(&classes),
             Some((&before, &change)),
             None,
+            None,
         );
         assert!(
             text.contains("main $0.30 ×20 · subagent $0.12 ×20 +1 unpriced (12 agents, at most 5 at once)"),
@@ -529,7 +594,7 @@ mod tests {
         assert!(text.contains("$2.10 at anthropic/opus with the same tokens, against $0.42"), "{text}");
         assert!(text.contains("C:/repo (main): 2 commits, 5 files changed since the start, +120 −14"), "{text}");
         assert!(text.contains("1 file already had changes at the start"), "{text}");
-        let none = receipt("Codex", "launch-y", &SessionCost::default(), None, None, None, Some("not saved"));
+        let none = receipt("Codex", "launch-y", &SessionCost::default(), None, None, None, Some("not saved"), None);
         assert!(none.contains("none reached Pygg's gateway") && none.contains("not in a Git repository"), "{none}");
     }
 

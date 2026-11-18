@@ -557,7 +557,9 @@ pub fn keys(args: &[String]) -> Result<i32, Fail> {
         return Ok(print_json(json!({ "schemaVersion": JSON_SCHEMA, "keys": clients.iter().map(|c| json!({
             "name": c.name, "prefix": c.token_prefix, "createdAt": c.created_at, "lastUsedAt": c.last_used_at,
             "revoked": c.revoked_at.is_some(), "monthlyLimitMicroUsd": c.monthly_budget_micro_usd,
-            "monthSpendMicroUsd": c.month_spend_micro_usd })).collect::<Vec<_>>() })));
+            "monthSpendMicroUsd": c.month_spend_micro_usd, "sessionLimitMicroUsd": c.session_budget_micro_usd,
+            "dayLimitMicroUsd": c.day_budget_micro_usd, "dayCountedMicroUsd": c.day_counted_micro_usd,
+        })).collect::<Vec<_>>() })));
     }
     let rows: Vec<Vec<String>> = clients
         .iter()
@@ -568,11 +570,15 @@ pub fn keys(args: &[String]) -> Result<i32, Fail> {
                 c.last_used_at.map(super::read::ago).unwrap_or("never".into()),
                 money(c.month_spend_micro_usd),
                 c.monthly_budget_micro_usd.map(money).unwrap_or("none".into()),
+                c.session_budget_micro_usd.map(money).unwrap_or("none".into()),
+                c.day_budget_micro_usd
+                    .map(|l| format!("{} of {}", money(c.day_counted_micro_usd), money(l)))
+                    .unwrap_or("none".into()),
                 if c.revoked_at.is_some() { "revoked".into() } else { String::new() },
             ]
         })
         .collect();
-    table(&["NAME", "KEY", "LAST USED", "THIS MONTH", "MONTHLY LIMIT", ""], &rows);
+    table(&["NAME", "KEY", "LAST USED", "THIS MONTH", "MONTHLY LIMIT", "SESSION LIMIT", "TODAY (UTC)", ""], &rows);
     println!(
         "\nKeys are made and limited in the app (Endpoint → API Keys); a key is shown only once, when it is made."
     );

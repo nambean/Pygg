@@ -462,10 +462,12 @@ fn statusline(args: &[String]) -> String {
             [&session],
             |r| r.get(0),
         )?;
-        Ok((crate::launches::session_cost(&conn, &session)?, agents.max(0) as u64))
+        // A store older than the session and day limits has none to show.
+        let limits = crate::gateway::store::session_limits(&conn, &session, crate::db::now_ms()).ok().flatten();
+        Ok((crate::launches::session_cost(&conn, &session)?, agents.max(0) as u64, limits))
     });
     match cost {
-        Ok((cost, agents)) => crate::launches::status_line(&cost, agents),
+        Ok((cost, agents, limits)) => crate::launches::status_line(&cost, agents, limits.as_ref()),
         Err(_) => "Pygg · could not read the ledger".into(),
     }
 }

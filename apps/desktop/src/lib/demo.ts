@@ -215,7 +215,7 @@ export function demoApi(): GatewayApi {
       lastUsedAt: now - 4 * 60_000, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0,
       maxConcurrency: 8, unknownCostPolicy: 'block', reservedMicroUsd: 412_000, monthAtRiskMicroUsd: 0,
       allowedConnections: ['anthropic', 'gemini'], paidRetries: 0, autoMinTier: 'T2', mayRunTasks: true, requireNoTraining: false, strictBudget: false,
-      tokenViewable: true},
+      tokenViewable: true, sessionBudgetMicroUsd: 5_000_000, dayBudgetMicroUsd: 8_000_000, dayCountedMicroUsd: 2_140_000},
     {id: 'k2', name: 'Scripts', tokenPrefix: 'str-81d2e7aa', monthlyBudgetMicroUsd: null, createdAt: now - 3 * 86_400_000,
       lastUsedAt: now - 3 * 3_600_000, revokedAt: null, monthSpendMicroUsd: 0, monthUnknownRequests: 0, spend: 0,
       maxConcurrency: 4, unknownCostPolicy: 'allow', reservedMicroUsd: 0, monthAtRiskMicroUsd: 0,
@@ -946,6 +946,14 @@ export function demoApi(): GatewayApi {
     setClientBudget: async (id, usd) => {
       const c = clients.find(x => x.id === id);
       if (c) c.monthlyBudgetMicroUsd = usd == null ? null : Math.round(usd * 1_000_000);
+      await sleep(80);
+    },
+    setClientLimits: async (id, sessionUsd, dayUsd) => {
+      const c = clients.find(x => x.id === id);
+      if (c) {
+        c.sessionBudgetMicroUsd = sessionUsd == null ? null : Math.round(sessionUsd * 1_000_000);
+        c.dayBudgetMicroUsd = dayUsd == null ? null : Math.round(dayUsd * 1_000_000);
+      }
       await sleep(80);
     },
     setClientPolicy: async (id, policy) => {

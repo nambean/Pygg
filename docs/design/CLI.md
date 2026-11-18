@@ -107,7 +107,8 @@ pygg gateway [--db PATH] <command>
   test-model --model CONNECTION/MODEL    one short request (a paid model costs a little)
   create-client --name NAME [--monthly-usd N]
   client --name NAME [--auto-min-tier T0-T4] [--paid-retries N] [--tasks yes|no] [--no-training yes|no]
-         [--strict yes|no] [--monthly-usd N]
+         [--strict yes|no] [--monthly-usd N] [--session-usd N] [--day-usd N]
+                         0 removes a limit; a session is the x-pygg-session a request names, a day a UTC day
   combo --name NAME --member CONNECTION/MODEL [--member …]
   model --model CONNECTION/MODEL [--tier T0-T4] [--context N] [--max-output N] [--tools yes|no] [--vision yes|no]
         [--price-in USD] [--price-out USD] [--price-cached USD] [--price-cache-write USD] [--price-source WHERE]

@@ -195,7 +195,18 @@ fn print_receipt(
         .filter(|s| s.baseline_priced && s.compared > 0)
         .and_then(|s| s.baseline.as_deref().map(|b| (b, s.routed_micro_usd, s.baseline_micro_usd)));
     let classes = crate::gateway::hints::request_classes(&conn, 0, Some(session)).ok();
-    Ok(crate::launches::receipt(tool_name(tool), session, &cost, compared, classes.as_ref(), git, note))
+    // A store older than the session and day limits has none to show.
+    let limits = crate::gateway::store::session_limits(&conn, session, crate::db::now_ms()).ok().flatten();
+    Ok(crate::launches::receipt(
+        tool_name(tool),
+        session,
+        &cost,
+        compared,
+        classes.as_ref(),
+        git,
+        note,
+        limits.as_ref(),
+    ))
 }
 
 /// Claude Code's `--settings` for this launch: its status line runs `pygg statusline` (this program).

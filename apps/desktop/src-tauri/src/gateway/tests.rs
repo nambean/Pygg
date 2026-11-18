@@ -3290,3 +3290,182 @@ fn round_robin_spreads_new_requests_and_a_session_keeps_its_key() {
         assert_eq!(windows.iter().find(|w| w.kind == "requests").and_then(|w| w.remaining), Some(99));
     });
 }
+
+// ---------- Cost plan A3: session and day limits that stop ----------
+
+impl Rig {
+    fn set_limits(&self, session: Option<u64>, day: Option<u64>) {
+        self.shared.with_db(|db| store::set_client_limits(db, &self.client_id, session, day)).unwrap();
+    }
+}
+
+/// A request whose hold is small (16 output tokens), so the limits are reached by spend, not by one hold.
+fn small(model: &str) -> Value {
+    json!({ "model": model, "max_tokens": 16, "messages": [{ "role": "user", "content": "ping" }] })
+}
+
+#[test]
+fn session_and_day_limits_are_off_by_default() {
+    rt().block_on(async {
+        let rig = rig().await;
+        let client = rig.client();
+        assert_eq!((client.session_budget_micro_usd, client.day_budget_micro_usd), (None, None));
+        assert!(!client.has_money_limit());
+        for _ in 0..3 {
+            assert_eq!(rig.post_session("/v1/chat/completions", "s-off", small("main/fast")).await.status(), 200);
+        }
+        // Nothing is held for a client without a limit, and $0 is not a limit.
+        assert_eq!(rig.client().day_counted_micro_usd, 900);
+        assert!(rig.shared.with_db(|db| store::set_client_limits(db, &rig.client_id, Some(0), None)).is_err());
+    });
+}
+
+#[test]
+fn a_session_over_its_limit_is_refused_and_other_sessions_go_on() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.set_limits(Some(500), None);
+        // Each answer costs 300: the first two are sent (0 and 300 counted, under 500), the third is refused.
+        assert_eq!(rig.post_session("/v1/chat/completions", "s-1", small("main/fast")).await.status(), 200);
+        assert_eq!(rig.post_session("/v1/chat/completions", "s-1", small("main/fast")).await.status(), 200);
+        let refused = rig.post_session("/v1/chat/completions", "s-1", small("main/fast")).await;
+        assert_eq!(refused.status(), 402, "not 429: an agent retries a 429");
+        let body: Value = refused.json().await.unwrap();
+        let message = body["error"]["message"].as_str().unwrap();
+        assert_eq!(body["error"]["type"], "budget_exceeded");
+        assert!(message.contains("session limit ($0.0005)") && message.contains("--session-usd"), "{message}");
+        assert_eq!(rig.fake.count("fast"), 2, "the refused request was never sent");
+        // The Anthropic surface refuses the same way.
+        let anthropic = rig
+            .http
+            .post(format!("{}/v1/messages", rig.base))
+            .bearer_auth(&rig.token)
+            .header(SESSION_HEADER, "s-1")
+            .json(&json!({ "model": "claude/sonnet", "max_tokens": 16, "messages": [{ "role": "user", "content": "hi" }] }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(anthropic.status(), 402);
+        // Another session, and a request that names none, are not held to s-1's spend.
+        assert_eq!(rig.post_session("/v1/chat/completions", "s-2", small("main/fast")).await.status(), 200);
+        assert_eq!(rig.post("/v1/chat/completions", small("main/fast")).await.status(), 200);
+        // The status line and the receipt read the same from the ledger.
+        let limits = rig.shared.with_db(|db| store::session_limits(db, "s-1", crate::db::now_ms())).unwrap().unwrap();
+        assert_eq!((limits.client.as_str(), limits.session, limits.day), ("Tests", Some((600, 500)), None));
+        assert_eq!(limits.reached().map(|h| h.scope), Some(store::LimitScope::Session));
+        assert_eq!(rig.shared.with_db(|db| store::session_limits(db, "unknown", 0)).unwrap(), None);
+        // Removing the limit lets s-1 go on.
+        rig.set_limits(None, None);
+        assert_eq!(rig.post_session("/v1/chat/completions", "s-1", small("main/fast")).await.status(), 200);
+    });
+}
+
+#[test]
+fn a_hold_that_would_pass_the_session_limit_is_refused_with_402() {
+    rt().block_on(async {
+        let rig = rig().await;
+        // No output limit: the request is estimated at 4,096 output tokens (about $0.0016), more than the limit.
+        rig.set_limits(Some(1_000), None);
+        let refused = rig.post_session("/v1/chat/completions", "s-hold", chat("main/fast")).await;
+        assert_eq!(refused.status(), 402);
+        assert!(refused.text().await.unwrap().contains("would pass the session limit"));
+        assert_eq!(rig.journal_len(), 0);
+    });
+}
+
+#[test]
+fn a_day_over_its_limit_is_refused_for_every_session() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.set_limits(None, Some(500));
+        assert_eq!(rig.post_session("/v1/chat/completions", "d-1", small("main/fast")).await.status(), 200);
+        assert_eq!(rig.post_session("/v1/chat/completions", "d-2", small("main/fast")).await.status(), 200);
+        for refused in [
+            rig.post_session("/v1/chat/completions", "d-3", small("main/fast")).await,
+            rig.post("/v1/chat/completions", small("main/fast")).await,
+        ] {
+            assert_eq!(refused.status(), 402);
+            let text = refused.text().await.unwrap();
+            assert!(text.contains("daily limit") && text.contains("00:00 UTC"), "{text}");
+        }
+        assert_eq!(rig.client().day_counted_micro_usd, 600);
+    });
+}
+
+#[test]
+fn a_new_utc_day_lifts_the_day_limit() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.set_limits(None, Some(500));
+        rig.post("/v1/chat/completions", small("main/fast")).await;
+        rig.post("/v1/chat/completions", small("main/fast")).await;
+        assert_eq!(rig.post("/v1/chat/completions", small("main/fast")).await.status(), 402);
+        // Yesterday's spend: the same entries, a day earlier.
+        rig.shared.with_db(|db| db.execute("UPDATE usage_events SET created_at = created_at - 86400000", [])).unwrap();
+        assert_eq!(rig.client().day_counted_micro_usd, 0);
+        assert_eq!(rig.post("/v1/chat/completions", small("main/fast")).await.status(), 200);
+    });
+}
+
+#[test]
+fn a_request_in_flight_is_not_cut_when_its_session_passes_the_limit() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.priced("main", "drip");
+        rig.set_limits(Some(1_000_000), None);
+        assert_eq!(rig.post_session("/v1/chat/completions", "s-run", small("main/fast")).await.status(), 200);
+        let stream = {
+            let (http, base, token) = (rig.http.clone(), rig.base.clone(), rig.token.clone());
+            tokio::spawn(async move {
+                let response = http
+                    .post(format!("{base}/v1/chat/completions"))
+                    .bearer_auth(token)
+                    .header(SESSION_HEADER, "s-run")
+                    .json(&json!({ "model": "main/drip", "stream": true, "max_tokens": 16, "messages": [] }))
+                    .send()
+                    .await
+                    .unwrap();
+                (response.status().as_u16(), response.text().await.unwrap())
+            })
+        };
+        // While it streams, the limit drops under what the session has spent: the next request is refused...
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        rig.set_limits(Some(100), None);
+        assert_eq!(rig.post_session("/v1/chat/completions", "s-run", small("main/fast")).await.status(), 402);
+        // ...and the one already running finishes, whole, and is counted.
+        let (status, body) = stream.await.unwrap();
+        assert_eq!(status, 200);
+        assert!(body.contains("[DONE]"), "the stream ran to its end");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(rig.ledger().iter().filter(|e| e.model == "drip" && e.outcome == "ok").count(), 1);
+        assert_eq!(rig.journal_len(), 0);
+    });
+}
+
+#[test]
+fn the_day_limit_holds_requests_in_flight_together() {
+    let conn = crate::db::open_in_memory().unwrap();
+    let (client, _) = store::create_client(&conn, "Tests", None).unwrap();
+    store::set_client_limits(&conn, &client.id, Some(5_000), Some(8_000)).unwrap();
+    let start = |session: &'static str, hold| store::AttemptStart {
+        client_id: &client.id,
+        provider_id: "main",
+        model_id: "fast",
+        requested_model: "main/fast",
+        session_key: Some(session),
+        route_mode: "native",
+        hold_micro: hold,
+        owner_generation: "g1",
+    };
+    // Two sessions in flight: each fits its own session limit, the day holds both.
+    store::open_attempt(&conn, &start("a", 4_000)).unwrap().unwrap();
+    store::open_attempt(&conn, &start("b", 4_000)).unwrap().unwrap();
+    let over = store::open_attempt(&conn, &start("c", 1_000)).unwrap().unwrap_err();
+    assert_eq!((over.scope, over.reserved, over.budget), (store::LimitScope::Day, 8_000, 8_000));
+    // Within a session, its own holds count first.
+    let over = store::open_attempt(&conn, &start("a", 2_000)).unwrap().unwrap_err();
+    assert_eq!((over.scope, over.reserved), (store::LimitScope::Session, 4_000));
+    // A request that names no session is held to the day only.
+    let none = store::AttemptStart { session_key: None, ..start("a", 1_000) };
+    assert_eq!(store::open_attempt(&conn, &none).unwrap().unwrap_err().scope, store::LimitScope::Day);
+}

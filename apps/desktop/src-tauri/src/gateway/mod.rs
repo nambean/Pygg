@@ -600,6 +600,19 @@ pub fn authenticate(shared: &Shared, headers: &HeaderMap) -> Result<Client, Refu
             ));
         }
     }
+    // A session or day limit already reached (cost plan A3) refuses before routing, with 402: agents retry a 429, and
+    // waiting does not lift a session limit. A request already running is never cut; it is counted when it settles.
+    if client.session_budget_micro_usd.is_some() || client.day_budget_micro_usd.is_some() {
+        let session = session_key(headers);
+        let hit = shared
+            .with_db(|db| store::reached_limit(db, &client.id, session.as_deref(), db_now()))
+            .map_err(|e| Refusal::new(StatusCode::INTERNAL_SERVER_ERROR, "api_error", e))?;
+        if let Some(hit) = hit {
+            let message = hit.message(&client.name);
+            crate::applog::warn(&format!("refused a request: {message}"));
+            return Err(Refusal::new(StatusCode::PAYMENT_REQUIRED, "budget_exceeded", message));
+        }
+    }
     Ok(client)
 }
 
@@ -954,7 +967,9 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
     // model); other connections of the group may not, which would be using a sibling key to get around a limit.
     let mut blocked_groups: HashMap<String, String> = HashMap::new();
     let mut retry_at: Option<i64> = None;
-    let has_limit = client.monthly_budget_micro_usd.is_some();
+    let has_limit = client.has_money_limit();
+    // The first limit a hold did not fit (cost plan A3): a session or day limit refuses with 402, the month with 429.
+    let mut over_scope: Option<store::LimitScope> = None;
     // Further targets this client allows after a failure the provider may have processed (reviews FR-02, PR-02).
     let mut paid_retries_left = client.paid_retries;
     let mut accounting_held = false;
@@ -1111,8 +1126,9 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 Attempt { db: shared.db.clone(), id, settled: false, owner: Some(owner) }
             }
             Ok(Err(over)) => {
-                skipped.push(format!("{name}: up to ${:.4} (estimated) would pass the monthly limit (${:.2} counted, ${:.2} held, ${:.2} limit)",
-                    over.wanted as f64 / 1e6, over.spent as f64 / 1e6, over.reserved as f64 / 1e6, over.budget as f64 / 1e6));
+                skipped.push(format!("{name}: up to ${:.4} (estimated) would pass the {} limit (${:.2} counted, ${:.2} held, ${:.2} limit)",
+                    over.wanted as f64 / 1e6, over.scope.label(), over.spent as f64 / 1e6, over.reserved as f64 / 1e6, over.budget as f64 / 1e6));
+                over_scope.get_or_insert(over.scope);
                 continue;
             }
             Err(e) => {
@@ -1478,12 +1494,15 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         return Err(refusal);
     }
     let wait = retry_at.map(|at| ((at - db_now()).max(1000) as u64).div_ceil(1000));
-    let over_budget = skipped.iter().any(|s| s.contains("monthly limit") || s.contains("spending limit"));
+    let over_budget = over_scope.is_some() || skipped.iter().any(|s| s.contains("spending limit"));
     let tools_only = tools_refused && skipped.iter().all(|s| s.ends_with(crate::websession::NO_TOOLS));
     let (status, kind) = if accounting_held {
         (StatusCode::SERVICE_UNAVAILABLE, "api_error")
     } else if tools_only {
         (StatusCode::BAD_REQUEST, "invalid_request_error")
+    } else if matches!(over_scope, Some(store::LimitScope::Session | store::LimitScope::Day)) {
+        // Not 429: agents retry a 429, and waiting does not lift a session limit (cost plan A3).
+        (StatusCode::PAYMENT_REQUIRED, "budget_exceeded")
     } else if over_budget {
         (StatusCode::TOO_MANY_REQUESTS, "budget_exceeded")
     } else if wait.is_some() {

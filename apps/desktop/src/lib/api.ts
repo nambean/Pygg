@@ -222,6 +222,12 @@ export type Client = {
   requireNoTraining: boolean;
   /** A strict limit: each request held at the most it could cost; unknown price or maximum output not used. */
   strictBudget: boolean;
+  /** A limit per routing session (the x-pygg-session a request names); null or absent: none. */
+  sessionBudgetMicroUsd?: number | null;
+  /** A limit per UTC day; null or absent: none. */
+  dayBudgetMicroUsd?: number | null;
+  /** Known spend plus spend at risk today (UTC): what the day limit is checked against. */
+  dayCountedMicroUsd?: number;
 };
 
 export type UsageGroup = {
@@ -497,6 +503,8 @@ export interface GatewayApi {
   deleteClient(id: string): Promise<void>;
   deleteRevokedClients(): Promise<number>;
   setClientBudget(id: string, monthlyBudgetUsd: number | null): Promise<void>;
+  /** The limits per routing session and per UTC day; null turns one off. */
+  setClientLimits(id: string, sessionBudgetUsd: number | null, dayBudgetUsd: number | null): Promise<void>;
   setClientPolicy(id: string, policy: {maxConcurrency?: number; unknownCostPolicy?: 'block' | 'allow';
     /** true with allowedConnections restricts the client; false lets it use every connection. */
     restrictConnections?: boolean; allowedConnections?: string[]; paidRetries?: number; autoMinTier?: Tier;
@@ -653,6 +661,7 @@ const native: GatewayApi = {
   deleteClient: id => invoke('client_delete', {id}),
   deleteRevokedClients: () => invoke('client_delete_revoked'),
   setClientBudget: (id, monthlyBudgetUsd) => invoke('client_set_budget', {id, monthlyBudgetUsd}),
+  setClientLimits: (id, sessionBudgetUsd, dayBudgetUsd) => invoke('client_set_limits', {id, sessionBudgetUsd, dayBudgetUsd}),
   setClientPolicy: (id, policy) => invoke('client_set_policy', {id, ...policy}),
   setModelCapabilities: (providerId, modelId, capabilities) => invoke('model_set_capabilities', {providerId, modelId, capabilities}),
   autoSimulate: (clientId, alias, needs) => invoke('auto_simulate', {clientId, alias, needs}),

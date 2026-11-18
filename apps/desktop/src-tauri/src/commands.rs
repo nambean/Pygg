@@ -812,6 +812,9 @@ pub fn auto_simulate(
                 require_no_training: false,
                 strict_budget: false,
                 token_viewable: false,
+                session_budget_micro_usd: None,
+                day_budget_micro_usd: None,
+                day_counted_micro_usd: 0,
             },
         };
         gateway::auto::plan(db, &client, &alias, strategy, &needs)
@@ -913,7 +916,7 @@ fn budget(usd: Option<f64>) -> Res<Option<u64>> {
     match usd {
         None => Ok(None),
         Some(v) if v.is_finite() && v > 0.0 && v <= 100_000.0 => Ok(Some((v * 1_000_000.0).round() as u64)),
-        Some(_) => Err("Enter a monthly limit above $0".into()),
+        Some(_) => Err("Enter a limit above $0".into()),
     }
 }
 
@@ -978,6 +981,15 @@ pub fn client_delete_revoked(state: State<'_, AppState>) -> Res<u32> {
 pub fn client_set_budget(state: State<'_, AppState>, id: String, monthly_budget_usd: Option<f64>) -> Res<()> {
     let limit = budget(monthly_budget_usd)?;
     state.shared.with_db(|db| store::set_client_budget(db, &id, limit))
+}
+
+/// The limits per routing session and per UTC day (cost plan A3); `None` turns one off.
+#[tauri::command]
+pub fn client_set_limits(
+    state: State<'_, AppState>, id: String, session_budget_usd: Option<f64>, day_budget_usd: Option<f64>,
+) -> Res<()> {
+    let (session, day) = (budget(session_budget_usd)?, budget(day_budget_usd)?);
+    state.shared.with_db(|db| store::set_client_limits(db, &id, session, day))
 }
 
 /// Requests allowed in flight at once, and whether a target with an unknown price may be used while the

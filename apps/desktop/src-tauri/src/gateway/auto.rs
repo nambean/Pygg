@@ -517,7 +517,7 @@ fn judge(
             match &model.price {
                 Some(price) => {
                     // A strict limit holds the most the request could cost, as the gateway's admission does.
-                    let strict = client.strict_budget && client.monthly_budget_micro_usd.is_some();
+                    let strict = client.strict_budget && client.has_money_limit();
                     let estimate = match (strict, needs.max_tokens, caps.max_output_tokens) {
                     (true, None, Some(most)) => Needs { max_tokens: Some(most), ..needs.clone() }.estimate_micro(price),
                     (true, None, None) => return no(FACTS, "this client's limit is strict, and neither the request nor the model states a maximum output".into()),

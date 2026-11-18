@@ -15,7 +15,8 @@
 //!                             [--tools yes|no] [--vision yes|no] [--price-in USD] [--price-out USD] [--billing TYPE]
 //!                             [--price-cached USD] [--price-cache-write USD] [--price-source WHERE]   (USD per million tokens)
 //!   gateway [--db PATH] client --name NAME [--auto-min-tier T0-T4] [--paid-retries N] [--tasks yes|no] [--no-training yes|no]
-//!                             [--strict yes|no] [--monthly-usd N (0 removes the limit)]
+//!                             [--strict yes|no] [--monthly-usd N] [--session-usd N] [--day-usd N]
+//!       (0 removes a limit; a session is the `x-pygg-session` a request names, a day is a UTC day)
 //!   gateway [--db PATH] terms --id CONNECTION --terms no_training|may_train|unknown [--source WHERE]
 //!   gateway [--db PATH] auto --alias auto|auto/cheap [--client NAME] [--anthropic yes] [--tools yes] [--prompt N] [--max-tokens N]
 //!                             [--thinking adaptive|enabled] [--effort low|medium|high|xhigh|max]
@@ -57,7 +58,7 @@ const HELP: &str = "usage: gateway [--db PATH] <command> [--flag value …]
   test-model --model CONNECTION/MODEL    one short request (a paid model costs a little)
   create-client --name NAME [--monthly-usd N]
   client --name NAME [--auto-min-tier T0-T4] [--paid-retries N] [--tasks yes|no] [--no-training yes|no]
-         [--strict yes|no] [--monthly-usd N]
+         [--strict yes|no] [--monthly-usd N] [--session-usd N] [--day-usd N]   (0 removes a limit)
   combo --name NAME --member CONNECTION/MODEL [--member …]
   model --model CONNECTION/MODEL [--tier T0-T4] [--context N] [--max-output N] [--tools yes|no] [--vision yes|no]
         [--price-in USD] [--price-out USD] [--price-cached USD] [--price-cache-write USD] [--price-source WHERE]
@@ -408,6 +409,21 @@ pub async fn run(mut args: Vec<String>) {
                             .filter(|v| v.is_finite() && *v >= 0.0)
                             .ok_or("bad --monthly-usd")?;
                         store::set_client_budget(db, &client.id, (limit > 0.0).then(|| (limit * 1e6).round() as u64))?;
+                    }
+                    // Session and day limits (cost plan A3): a flag left out keeps that limit as it is.
+                    let usd = |flag: &str, current: Option<u64>| -> store::Result<Option<u64>> {
+                        let Some(value) = one(flag) else { return Ok(current) };
+                        let limit = value
+                            .parse::<f64>()
+                            .ok()
+                            .filter(|v| v.is_finite() && *v >= 0.0)
+                            .ok_or(format!("bad --{flag}"))?;
+                        Ok((limit > 0.0).then(|| (limit * 1e6).round() as u64))
+                    };
+                    if one("session-usd").is_some() || one("day-usd").is_some() {
+                        let session = usd("session-usd", client.session_budget_micro_usd)?;
+                        let day = usd("day-usd", client.day_budget_micro_usd)?;
+                        store::set_client_limits(db, &client.id, session, day)?;
                     }
                     Ok(())
                 })
