@@ -19,6 +19,8 @@
 <img src="https://img.shields.io/badge/status-developer%20preview-orange" alt="Status: developer preview">
 </p>
 
+https://github.com/user-attachments/assets/85708783-8be3-4292-955c-783cc066bbd1
+
 <p align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/usage-dark.svg">
@@ -42,10 +44,6 @@ Pygg runs on your computer. Connect your providers once (API keys, coding plans,
 - **Local, with your own accounts.** The gateway listens on 127.0.0.1 only and needs a Pygg API key; provider keys stay in the OS credential store. Each tool's setup is backed up first, and Remove puts it back.
 
 ## A look at the app
-
-<p align="center">
-<img src="docs/images/demo.gif" alt="A 36-second demo: 36 coding tasks, Sonnet 5.5 solved 34, Haiku 5.5 through Pygg solved 36 for 88% less per solved task; the pygg CLI installed and Claude Code set up and started with the model auto; a request falling back from two rate-limited or empty keys to a local Ollama model; the Usage screen with estimated savings and each cost's source" width="760">
-</p>
 
 <p align="center">
 <picture>
