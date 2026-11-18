@@ -418,9 +418,13 @@ Combos: lists of models tried in turn (or the cheapest first), asked for by name
 They are made in the app (Combos).";
 
 const LAUNCHES_HELP: &str = "usage: pygg launches [--limit N] [--json] [--db PATH]
+       pygg launches --by-repo [--weeks N] [--json] [--db PATH]
 
 The tools started with pygg run, newest first: the tool, the repository and branch, requests, cost, and what changed
-in Git during the launch (commits, files, lines). Only the repository's folder, branch and commit ids are kept.";
+in Git during the launch (commits, files, lines). Only the repository's folder, branch and commit ids are kept.
+
+--by-repo: per repository and UTC week (8 weeks by default), the launches' known cost, the commits they made, cost
+per commit, and the launches that changed nothing. Observations, not a measure of productivity or quality.";
 
 const SAVINGS_HELP: &str = "usage: pygg savings [--days N] [--json] [--db PATH]
 

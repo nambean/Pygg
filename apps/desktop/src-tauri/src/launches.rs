@@ -149,6 +149,81 @@ pub fn record_end(
     .map(|_| ())
 }
 
+/// Unix milliseconds at the start of the UTC week (Monday 00:00) that `at` falls in.
+pub fn week_start(at: i64) -> i64 {
+    let days = at.div_euclid(86_400_000);
+    // 1970-01-01 was a Thursday: three days after a Monday.
+    (days - (days + 3).rem_euclid(7)) * 86_400_000
+}
+
+/// One repository's launches in one UTC week (cost plan B5): their known cost and what changed in Git. Observations
+/// only: a commit is not a unit of work and a launch that changed nothing may have answered a question (ADR-036).
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoWeek {
+    /// The repository's folder; `None` for launches outside a Git repository.
+    pub repo: Option<String>,
+    pub week_start: i64,
+    pub launches: u64,
+    /// Launches still running, or cut off before `pygg run` could settle them: what they changed is not known.
+    pub unsettled: u64,
+    pub requests: u64,
+    pub known_micro_usd: u64,
+    /// Requests with no known cost (subscription requests not included), counted beside the money, never as $0.
+    pub unknown_cost: u64,
+    pub commits: u64,
+    /// Settled launches in a repository that made no commit and left no change against their starting commit.
+    pub changed_nothing: u64,
+    pub changed_nothing_micro_usd: u64,
+}
+
+impl RepoWeek {
+    /// Known cost divided by the commits made, when there were commits.
+    pub fn per_commit(&self) -> Option<u64> {
+        (self.commits > 0).then(|| self.known_micro_usd / self.commits)
+    }
+}
+
+/// Launches started at or after `since`, grouped by repository and UTC week, newest week first within a repository.
+pub fn by_repo(conn: &Connection, since: i64) -> rusqlite::Result<Vec<RepoWeek>> {
+    type Row = (String, i64, Option<i64>, Option<String>, Option<i64>, Option<i64>);
+    let rows: Vec<Row> = conn
+        .prepare(
+            "SELECT session_key, started_at, finished_at, repo, commits, files_changed FROM launches              WHERE started_at >= ?1 ORDER BY repo, started_at",
+        )?
+        .query_map([since], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut weeks: Vec<RepoWeek> = Vec::new();
+    for (session, started, finished, repo, commits, files) in rows {
+        let cost = session_cost(conn, &session)?;
+        let week = week_start(started);
+        let at = match weeks.iter().position(|w| w.repo == repo && w.week_start == week) {
+            Some(at) => at,
+            None => {
+                weeks.push(RepoWeek { repo: repo.clone(), week_start: week, ..Default::default() });
+                weeks.len() - 1
+            }
+        };
+        let w = &mut weeks[at];
+        w.launches += 1;
+        w.requests += cost.answered + cost.failed;
+        w.known_micro_usd += cost.known_micro_usd;
+        w.unknown_cost += cost.unknown_cost;
+        if finished.is_none() {
+            w.unsettled += 1;
+            continue;
+        }
+        w.commits += commits.unwrap_or(0).max(0) as u64;
+        // `commits` is NULL when HEAD moved off the starting commit's line: something changed.
+        if repo.is_some() && commits == Some(0) && files.unwrap_or(0) == 0 {
+            w.changed_nothing += 1;
+            w.changed_nothing_micro_usd += cost.known_micro_usd;
+        }
+    }
+    weeks.sort_by(|a, b| a.repo.cmp(&b.repo).then(b.week_start.cmp(&a.week_start)));
+    Ok(weeks)
+}
+
 /// How many requests the depth line averages at each end of a session, and the fewest answered requests it needs.
 const DEPTH_WINDOW: usize = 10;
 
@@ -615,6 +690,67 @@ mod tests {
         );
         assert_eq!(session_from_env(None, Some("launch-3")).as_deref(), Some("launch-3"));
         assert_eq!(session_from_env(Some("X-Other: a"), Some(" ")), None);
+    }
+
+    #[test]
+    fn weeks_start_on_monday_utc() {
+        let day = 86_400_000;
+        // Day 4 (1970-01-05) was a Monday; day 3 a Sunday, in the week from 1969-12-29.
+        assert_eq!(week_start(3 * day), -3 * day);
+        assert_eq!(week_start(4 * day - 1), -3 * day);
+        assert_eq!(week_start(4 * day), 4 * day);
+        assert_eq!(week_start(10 * day + day - 1), 4 * day);
+        assert_eq!(week_start(11 * day + 1), 11 * day);
+    }
+
+    #[test]
+    fn launches_are_summed_by_repository_and_week() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let day = 86_400_000;
+        let monday = 11 * day;
+        let git =
+            |root: &str| GitState { root: root.into(), branch: Some("main".into()), head: Some("a".into()), dirty: 0 };
+        let change = |commits: Option<u64>, files: u64| GitChange {
+            head: Some("b".into()),
+            commits,
+            files,
+            insertions: files,
+            deletions: 0,
+            dirty: 0,
+        };
+        let launch = |session: &str, at: i64, repo: Option<&str>, change: Option<GitChange>, cost: i64| {
+            record_start(&conn, session, "claude", None, at, repo.map(git).as_ref()).unwrap();
+            if let Some(change) = change {
+                record_end(&conn, session, at + 1000, 0, Some(&change)).unwrap();
+            }
+            conn.execute(
+                "INSERT INTO usage_events (id, client_id, provider, model, cost_micro_usd, cost_status, source,                  created_at, outcome, session_key, billing)                  VALUES (?1, 'c', 'p', 'm', ?2, 'estimated', 'price: test', ?3, 'ok', ?1, 'paid')",
+                params![session, cost, at + 10],
+            )
+            .unwrap();
+        };
+        launch("a1", monday + day, Some("F:/app"), Some(change(Some(2), 3)), 400_000);
+        launch("a2", monday + 2 * day, Some("F:/app"), Some(change(Some(0), 0)), 100_000);
+        launch("a3", monday + 3 * day, Some("F:/app"), Some(change(Some(0), 2)), 50_000);
+        launch("a4", monday + 4 * day, Some("F:/app"), None, 10_000);
+        launch("b1", monday - day, Some("F:/app"), Some(change(Some(1), 1)), 70_000);
+        launch("n1", monday + day, None, Some(change(Some(0), 0)), 5_000);
+        launch("old", monday - 30 * day, Some("F:/app"), Some(change(Some(0), 0)), 1);
+
+        let weeks = by_repo(&conn, monday - 7 * day).unwrap();
+        assert_eq!(weeks.len(), 3, "{weeks:?}");
+        let this = &weeks[1];
+        assert_eq!((this.repo.as_deref(), this.week_start), (Some("F:/app"), monday));
+        assert_eq!((this.launches, this.unsettled, this.requests), (4, 1, 4));
+        assert_eq!((this.known_micro_usd, this.commits), (560_000, 2));
+        assert_eq!(this.per_commit(), Some(280_000));
+        // a2 only: a3 left uncommitted changes, a4 is not settled.
+        assert_eq!((this.changed_nothing, this.changed_nothing_micro_usd), (1, 100_000));
+        let before = &weeks[2];
+        assert_eq!((before.week_start, before.launches, before.commits), (monday - 7 * day, 1, 1));
+        // Outside Git, a launch is counted but never "changed nothing": there is nothing to compare.
+        let outside = &weeks[0];
+        assert_eq!((outside.repo.as_deref(), outside.changed_nothing, outside.per_commit()), (None, 0, None));
     }
 
     #[test]

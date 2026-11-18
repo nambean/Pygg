@@ -617,7 +617,10 @@ pub fn combos(args: &[String]) -> Result<i32, Fail> {
 
 /// `pygg launches`: the `pygg run` launches, with cost and what changed in Git (launches.rs).
 pub fn launches(args: &[String]) -> Result<i32, Fail> {
-    let opts = Opts::parse("launches", args, &["json"], &["db", "limit"])?;
+    let opts = Opts::parse("launches", args, &["json", "by-repo"], &["db", "limit", "weeks"])?;
+    if opts.has("by-repo") {
+        return launches_by_repo(&opts);
+    }
     let limit = opts.number("launches", "limit", 1..=500, 20)?;
     let conn = open_read(&opts)?;
     type Row = (
@@ -698,6 +701,57 @@ pub fn launches(args: &[String]) -> Result<i32, Fail> {
         })
         .collect();
     table(&["STARTED (UTC)", "TOOL", "REPO", "REQUESTS", "COST", "GIT", ""], &rows);
+    Ok(0)
+}
+
+/// What `--by-repo` prints under its table: these are observations, not a measure of work (ADR-036).
+const BY_REPO_NOTE: &str = "Observations from the ledger and Git, not a measure of productivity or quality: a commit is \
+not a unit of work, and a launch that changed nothing may have answered a question or reviewed code. \
+\"Changed nothing\": a settled launch in a repository that made no commit and left no change against its starting commit.";
+
+/// `pygg launches --by-repo`: cost per repository per UTC week, per commit, and the launches that changed nothing.
+fn launches_by_repo(opts: &Opts) -> Result<i32, Fail> {
+    let weeks = opts.number("launches", "weeks", 1..=104, 8)?;
+    let conn = open_read(opts)?;
+    let since = crate::launches::week_start(crate::db::now_ms()) - (weeks - 1) * 7 * 86_400_000;
+    let rows = crate::launches::by_repo(&conn, since).map_err(op)?;
+    if opts.has("json") {
+        return Ok(print_json(json!({ "schemaVersion": JSON_SCHEMA, "weeks": weeks, "since": since,
+            "note": BY_REPO_NOTE, "repos": rows.iter().map(|w| json!({
+            "repo": w.repo, "weekStart": w.week_start, "launches": w.launches, "unsettled": w.unsettled,
+            "requests": w.requests, "knownMicroUsd": w.known_micro_usd, "unknownCost": w.unknown_cost,
+            "commits": w.commits, "perCommitMicroUsd": w.per_commit(), "changedNothing": w.changed_nothing,
+            "changedNothingMicroUsd": w.changed_nothing_micro_usd })).collect::<Vec<_>>() })));
+    }
+    if rows.is_empty() {
+        println!("No launches in the last {weeks} weeks. Start a tool through Pygg with pygg run claude (or codex, opencode).");
+        return Ok(0);
+    }
+    let table_rows: Vec<Vec<String>> = rows
+        .iter()
+        .map(|w| {
+            let repo = w.repo.as_deref().unwrap_or("(not in Git)");
+            let mut launches = w.launches.to_string();
+            if w.unsettled > 0 {
+                launches.push_str(&format!(" ({} unsettled)", w.unsettled));
+            }
+            vec![
+                repo.to_string(),
+                super::read::when(w.week_start).chars().take(10).collect(),
+                launches,
+                format!("{}{}", money(w.known_micro_usd), if w.unknown_cost > 0 { " +?" } else { "" }),
+                w.commits.to_string(),
+                w.per_commit().map(money).unwrap_or("-".into()),
+                if w.repo.is_none() {
+                    "-".into()
+                } else {
+                    format!("{} ({})", w.changed_nothing, money(w.changed_nothing_micro_usd))
+                },
+            ]
+        })
+        .collect();
+    table(&["REPOSITORY", "WEEK (UTC)", "LAUNCHES", "COST", "COMMITS", "PER COMMIT", "CHANGED NOTHING"], &table_rows);
+    println!("\n{BY_REPO_NOTE}");
     Ok(0)
 }
 

@@ -54,6 +54,8 @@ pygg logs                             recent request attempts, newest first, UTC
 pygg usage                            requests, known and unknown cost, token mix, by client and model   [--days 1|7|30]
 pygg savings [--days N]               the saving estimate against the model chosen to compare with
 pygg launches [--limit N]             pygg run launches: tool, repository, requests, cost, what changed in Git
+pygg launches --by-repo [--weeks N]   per repository and UTC week: cost, commits, cost per commit, launches that
+                                      changed nothing (observations, not productivity)
 
 Advanced
 pygg gateway <command> …              the gateway without the window (below)
