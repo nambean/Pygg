@@ -555,7 +555,7 @@ fn every_page_script_is_valid_javascript() {
     let prompt = "a 'quoted' \"prompt\"\nover two lines";
     for r in RECIPES {
         let scripts = [
-            ("probe", media_probe_script()),
+            ("probe", media_probe_script(r)),
             ("blob-start", blob_start_script(&["blob:https://x/1".to_string()])),
             ("blob-poll", blob_poll_script(&["blob:https://x/1".to_string()])),
             ("mark", mark_script()),
@@ -590,7 +590,7 @@ fn no_script_reads_cookies_storage_or_the_network() {
             send_script(r),
             read_script(r),
             deny_script(r),
-            media_probe_script(),
+            media_probe_script(r),
             blob_poll_script(&["blob:https://x/1".to_string()]),
         ];
         for script in scripts {

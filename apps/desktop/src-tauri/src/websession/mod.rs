@@ -627,37 +627,61 @@ pub fn read_script(r: &Recipe) -> String {
     )
 }
 
-/// What the page holds in pictures and videos, as counts and address kinds only (never an address, never text), for the
-/// app log after each reply: why a reply's pictures were or were not taken.
-pub fn media_probe_script() -> String {
-    r#"(() => {
+/// What the page holds in pictures and videos, for the app log after each reply: why a reply's pictures were or were
+/// not taken. Counts, address kinds, sizes, a video's own settings (loop, muted, autoplay, controls, length), where each
+/// sits against the last reply, and the first CSS class names of it and its parents: the site's markup, never an
+/// address and never any text of the page.
+pub fn media_probe_script(r: &Recipe) -> String {
+    format!(
+        r#"(() => {{
+  const replies = [...document.querySelectorAll({reply})];
+  const lastReply = replies[replies.length - 1];
+  const where = e => !lastReply ? 'no-reply' : lastReply.contains(e) ? 'in-reply'
+    : (lastReply.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING) ? 'after-reply' : 'before-reply';
+  const classes = e => {{
+    const c = e.className;
+    const text = typeof c === 'string' ? c : (c && c.baseVal) || '';
+    return text.split(/\s+/).filter(Boolean).slice(0, 3).map(x => x.slice(0, 40));
+  }};
+  const box = e => {{ const b = e.getBoundingClientRect(); return Math.round(b.width) + 'x' + Math.round(b.height); }};
+  const up = e => {{
+    const out = [];
+    let p = e.parentElement;
+    for (let i = 0; i < 4 && p; i++, p = p.parentElement) out.push(p.tagName.toLowerCase() + (classes(p)[0] ? '.' + classes(p)[0] : ''));
+    return out;
+  }};
   const scheme = s => ((s || '').match(/^[a-z]+:/) || ['none'])[0];
   const imgs = [...document.querySelectorAll('img')];
-  const kinds = {};
+  const kinds = {{}};
   let large = 0, loading = 0, widest = 0;
-  for (const i of imgs) {
+  for (const i of imgs) {{
     const k = scheme(i.currentSrc || i.src);
     kinds[k] = (kinds[k] || 0) + 1;
     if (!i.complete) loading++;
     if (i.naturalWidth >= 256 && i.naturalHeight >= 256) large++;
     widest = Math.max(widest, i.naturalWidth || 0);
-  }
-  const videos = [...document.querySelectorAll('video')].map(v => {
+  }}
+  const videos = [...document.querySelectorAll('video')].map(v => {{
     const source = v.querySelector('source[src]');
-    return scheme(v.currentSrc || v.src || (source ? source.src : ''));
-  });
+    return {{ src: scheme(v.currentSrc || v.src || (source ? source.src : '')), loop: v.loop, muted: v.muted,
+             autoplay: v.autoplay, controls: v.controls, shown: box(v), frame: v.videoWidth + 'x' + v.videoHeight,
+             seconds: Math.round(v.duration || 0), where: where(v), cls: classes(v), up: up(v) }};
+  }});
+  const pictures = imgs.filter(i => i.naturalWidth >= 256 && i.naturalHeight >= 256).map(i => ({{
+    src: scheme(i.currentSrc || i.src), shown: box(i), where: where(i), cls: classes(i), up: up(i) }}));
   const wide = e => e.getBoundingClientRect().width >= 200;
   let backgrounds = 0;
-  for (const e of document.querySelectorAll('div,span,a,button,figure')) {
+  for (const e of document.querySelectorAll('div,span,a,button,figure')) {{
     const b = getComputedStyle(e).backgroundImage || '';
     if (b.startsWith('url(') && wide(e)) backgrounds++;
-  }
-  return { imgs: imgs.length, kinds, large, loading, widest, videos,
+  }}
+  return {{ replies: replies.length, imgs: imgs.length, kinds, large, loading, widest, videos, pictures,
            canvases: [...document.querySelectorAll('canvas')].filter(wide).length,
            svgs: [...document.querySelectorAll('svg')].filter(wide).length,
-           pictures: document.querySelectorAll('picture').length, backgrounds };
-})()"#
-        .to_string()
+           pictureTags: document.querySelectorAll('picture').length, backgrounds }};
+}})()"#,
+        reply = q(r.reply)
+    )
 }
 
 /// The most a `blob:` picture or video may be when it is copied out of the page.
@@ -1173,7 +1197,7 @@ pub async fn converse_marked(
                     }
                 }
                 // Why pictures were or were not taken, in counts only (owner's report, 2026-11-18: none from Muse).
-                let probe = page.eval(media_probe_script()).await.unwrap_or(Value::Null);
+                let probe = page.eval(media_probe_script(recipe)).await.unwrap_or(Value::Null);
                 crate::applog::info(&format!(
                     "web reply on {}: {} picture(s), video(s) or file(s) taken; page: {probe}",
                     recipe.preset,
@@ -1548,6 +1572,18 @@ async fn start(service: &Arc<Service>, provider_id: &str, body: &[u8]) -> Result
         };
         let result =
             converse_marked(page.as_ref(), recipe, &prompt, &task_service.timing, &mut on_text, &task_submitted).await;
+        // The page again 90 seconds later, in the app log: whether a picture or video the site was still making turned
+        // up after the reply ended (owner's report, 2026-11-18: Muse's videos came back as its mascot). Counts and markup
+        // only, as after the reply.
+        if result.is_ok() {
+            let (later, preset) = (page.clone(), recipe.preset);
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(90)).await;
+                if let Ok(probe) = later.eval(media_probe_script(recipe)).await {
+                    crate::applog::info(&format!("web page on {preset}, 90 s after the reply: {probe}"));
+                }
+            });
+        }
         match &result {
             Ok(_) => task_service.record(&id, "signed_in", SIGNED_IN),
             Err(e) => {
