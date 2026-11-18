@@ -103,8 +103,15 @@ impl Usage {
             prompt: n(&usage["prompt_tokens"]),
             completion: n(&usage["completion_tokens"]),
             cached: cached.map_or(0, n),
-            // OpenRouter reports what it wrote to an Anthropic model's cache (live check, 2026-11-16).
-            cache_write: n(&usage["prompt_tokens_details"]["cache_write_tokens"]),
+            // OpenRouter reports what it wrote to an Anthropic model's cache (live check, 2026-11-16); Alibaba Model
+            // Studio, what a client's explicit `cache_control` wrote, under Anthropic's name (its context-cache docs).
+            cache_write: [
+                &usage["prompt_tokens_details"]["cache_write_tokens"],
+                &usage["prompt_tokens_details"]["cache_creation_input_tokens"],
+            ]
+            .into_iter()
+            .find(|v| v.is_u64())
+            .map_or(0, n),
             cache_reported: cached.is_some(),
             provider_cost_usd: usage["cost"].as_f64().filter(|c| c.is_finite() && *c >= 0.0),
         })
@@ -286,6 +293,11 @@ mod tests {
             "prompt_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 11933}, "cost": 0.001502025}))
         .unwrap();
         assert_eq!((written.cached, written.cache_write, written.cache_reported), (0, 11933, true));
+        // Alibaba Model Studio's OpenAI-compatible answer to an explicit cache marker: both inside `prompt_tokens`.
+        let qwen = Usage::from_json(&serde_json::json!({"prompt_tokens": 3000, "completion_tokens": 9,
+            "prompt_tokens_details": {"cached_tokens": 1200, "cache_creation_input_tokens": 1790}}))
+        .unwrap();
+        assert_eq!((qwen.prompt, qwen.cached, qwen.cache_write), (3000, 1200, 1790));
         assert_eq!(
             crate::gateway::anthropic::usage_json(Some(&written)),
             serde_json::json!({ "input_tokens": 4, "output_tokens": 20, "cache_read_input_tokens": 0,
