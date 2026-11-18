@@ -6,6 +6,8 @@
 //!   pygg setup [claude|codex|opencode]   route a coding tool through Pygg (setup.rs)
 //!   pygg run claude|codex|opencode   start it through Pygg, a routing session per launch (run.rs), and its receipt
 //!   pygg statusline                  the launch's cost in one line, for Claude Code's status line (launches.rs)
+//!   pygg chat [--model M]            a conversation with any connected model through the gateway (ask.rs)
+//!   pygg ask [--model M] QUESTION    one question through the gateway, the answer printed (ask.rs)
 //!   pygg status | doctor             is the gateway answering; plus the schema, the tools and providers needing attention
 //!   pygg providers | models | logs | usage   read the store, `--json` on each (read.rs)
 //!   pygg gateway [--db P] …          the headless gateway: serve, connections, clients, combos, usage (advanced)
@@ -18,6 +20,7 @@
 //! done, 1 failed, 2 wrong usage, 3 a check found a problem; `run` returns the tool's own.
 
 pub mod agent;
+pub mod ask;
 pub mod gateway;
 pub mod read;
 pub mod run;
@@ -42,6 +45,10 @@ Use coding tools through Pygg
                               (pygg run --model auto/cheap claude: Pygg's options go before the tool's name)
                               prints the launch's cost, cache and Git changes when the tool exits
   statusline                  this launch's cost in one line (pygg run --statusline claude sets it up)
+
+Talk to any connected model through Pygg's router
+  chat [--model M]            a conversation in the terminal (pygg chat --model muse/muse); nothing is kept
+  ask [--model M] QUESTION    one question, the answer printed (also from a pipe: echo QUESTION | pygg ask)
 
 See what Pygg has and does (read only; --json on each)
   status                      is the gateway answering, and on which store
@@ -504,6 +511,8 @@ pub async fn run(mut args: Vec<String>) -> i32 {
         }
         "setup" => setup::run(args).await,
         "run" => run::run(args).await,
+        "ask" => ask::ask(args).await,
+        "chat" => ask::chat(args).await,
         "statusline" if wants_help(&args) => help(STATUSLINE_HELP),
         "statusline" => {
             println!("{}", statusline(&args));

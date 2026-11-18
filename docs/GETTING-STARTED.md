@@ -190,7 +190,11 @@ pygg setup              # the tools Pygg can set up, and their state
 pygg providers          # connections, their health and models
 pygg logs               # recent requests
 pygg usage              # requests and cost
+pygg chat --model muse/muse                  # talk to any connected model through Pygg's router
+pygg ask --model auto/cheap "a question"     # one question, the answer printed
 ```
+
+`pygg chat` and `pygg ask` are AI command-line tools of their own: every connection Pygg serves can answer them, a web session included, with the same routing, fallbacks and ledger. The conversation is kept in memory only.
 
 Without npm: `& "$env:LOCALAPPDATA\Pygg\pygg-cli.exe" doctor`. The read commands take `--json`. Keys are never taken on the command line: `pygg gateway add-connection` reads one from an environment variable (`--key-env`). `pygg <command> --help` lists every option, and [design/CLI.md](design/CLI.md) describes every command.
 

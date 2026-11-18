@@ -91,7 +91,7 @@ The installer is **not code-signed**, so SmartScreen says "Windows protected you
 npm install -g @pygg/cli@dev
 ```
 
-`0.1.0-dev.2` under the tag `dev`, for **Windows x64**, **macOS** (Apple silicon and Intel) and **Linux x64** (glibc). On Windows the CLI uses the desktop app's store and gateway; on macOS and Linux, where there is no app yet, `pygg gateway serve` runs the gateway in a terminal of its own.
+`0.1.0-dev.3` under the tag `dev`, for **Windows x64**, **macOS** (Apple silicon and Intel) and **Linux x64** (glibc). On Windows the CLI uses the desktop app's store and gateway; on macOS and Linux, where there is no app yet, `pygg gateway serve` runs the gateway in a terminal of its own.
 
 ## Quick start
 
@@ -116,6 +116,13 @@ pygg run codex             # or: codex --profile pygg -m auto/cheap
 ```bash
 pygg setup opencode
 pygg run opencode          # then /models → Pygg → auto
+```
+
+**Chat in the terminal** with any connected model, through the same router, fallbacks and ledger:
+
+```bash
+pygg chat --model muse/muse                 # a conversation; /model, /new, /cost, /exit; nothing is kept
+pygg ask --model auto/cheap "Explain git worktree in two sentences"
 ```
 
 **Editors and SDKs** (Cline, Continue, Roo Code, the OpenAI or Anthropic SDKs): base URL `http://127.0.0.1:8741/v1`, a key from **Endpoint → API Keys**, model `auto`.

@@ -207,6 +207,8 @@ This replaces the parts of [design/SCREENS.md](design/SCREENS.md) that assume ta
 
 **Why:** Open source fits a local tool that holds keys and code. A fixed budget keeps the benchmark honest about what it can claim. Auto Chat would make the app a chat client.
 
+**Chat from the command line (owner's decision, 2026-11-18).** `pygg chat` and `pygg ask` talk to any connected model through the gateway from a terminal, like other AI command-line tools, with Pygg's routing, fallbacks, web-session guard and ledger. They are clients of the gateway with an API key of their own ("Pygg CLI (ask)"). A conversation lives in the command's memory and is forgotten when it ends: there is still no conversation store, memory screen or chat in the app.
+
 ## ADR-029 — Quality signals in Pygg's own ledger, in TensorZero's shape
 
 **Decision:** Pygg does not adopt TensorZero: it is archived by its maintainers, needs Postgres or ClickHouse and a second gateway with its own model names, stores whole conversations and sends usage analytics by default. Pygg borrows its data model instead: **metrics** (name, boolean or float, the level they describe, whether more or less is better) and **feedback** rows keyed to a request, an attempt or a task, with their source. Migration 0015 adds both and seeds `checks_passed`, `result_kept`, `retried`, `cancelled`, `declined` and `rework_minutes`. The task engine records them as they happen, and `tasks::quality` gives the known money per kept result, counting every paid step.

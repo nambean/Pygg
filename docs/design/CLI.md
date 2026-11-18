@@ -25,6 +25,10 @@ pygg setup claude|codex|opencode      route the tool through Pygg   [--dry-run |
 pygg run [--model M] [--statusline] [--db PATH] claude|codex|opencode [the tool's own arguments…]
 pygg statusline                       the launch's cost in one line, for Claude Code's status line   [--db PATH]
 
+Talk to any connected model through Pygg's router
+pygg chat [--model M] [--db PATH]     a conversation in the terminal; /model M, /new, /cost, /exit; nothing kept
+pygg ask [--model M] [--db PATH] QUESTION…   one question, the answer on stdout (also from a pipe)
+
 See what Pygg has and does (read only; --json on each)
 pygg status                           is the gateway answering, on which store, which schema   [--port N]
 pygg doctor                           status, plus coding tools, agents found, providers needing attention
@@ -51,6 +55,14 @@ Every command takes `--db PATH`; `pygg <command> --help` says more.
 - `pygg setup claude` keeps the launcher's key in the OS credential store; no file changes. `codex` and `opencode` back up the tool's configuration, then add Pygg's provider. `--dry-run` writes nothing; `--remove` takes Pygg out and revokes the key. Details: [AGENTS.md](../AGENTS.md).
 - Older names still work: `claude-launcher`, `codex-models`, `opencode-models`. `pygg setup claude-code` is refused with a pointer to `pygg mcp setup claude-code`.
 - `pygg run`: Pygg's options go **before** the tool's name; everything after it is the tool's, `--help` included (`pygg run claude --help` is Claude Code's help). `--model` and `--statusline` are for `claude` only. Each launch gets its own routing session. `run` checks the set-up, the gateway and the tool before starting, then returns the tool's own exit code. When the tool exits it prints the launch's receipt on stderr: cost, cache, models, and what changed in Git ([AGENTS.md](../AGENTS.md), "The session receipt").
+
+### `chat` and `ask`
+
+- Both send Chat Completions requests to the gateway's `/v1/chat/completions` with `stream: true`, so the answer is printed as it arrives, then a line on stderr: the model that answered (`x-pygg-route`), the time, a fallback if there was one, and the cost the ledger knows (`cost unknown` or `on a plan` where there is no price per request).
+- They use an API key of their own, "Pygg CLI (ask)", made at first use and kept in the OS credential store (`cli.ask` in settings names it); a key missing from the credential store is revoked and made again. Its limits are set like any client's.
+- `--model` takes `connection/model`, a combo, `auto` or `auto/cheap` (default `auto`). A chat is one routing session (`chat-<uuid>`), so it stays on the model that first answered; `/model M` starts a new session for the next messages and sends the conversation so far with them. `/new` forgets the conversation.
+- The conversation is held in memory only (ADR-028). A message the gateway refused is taken out of it, so it can be changed and sent again. Every turn sends the whole conversation, so a web session such as Muse refuses a chat once it passes the site's prompt limit.
+- `ask` reads the question from its arguments, or from stdin when there are none and stdin is not a terminal. Exit codes: 0 answered, 1 no answer, 2 wrong usage.
 
 ### `gateway` (advanced)
 
