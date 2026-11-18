@@ -3363,12 +3363,30 @@ fn a_session_over_its_limit_is_refused_and_other_sessions_go_on() {
 }
 
 #[test]
-fn a_hold_that_would_pass_the_session_limit_is_refused_with_402() {
+fn an_estimated_session_limit_sends_while_spend_is_under_it() {
     rt().block_on(async {
         let rig = rig().await;
-        // No output limit: the request is estimated at 4,096 output tokens (about $0.0016), more than the limit.
+        // The request's hold (4,096 output tokens, about $0.0016) is more than the limit; its spend so far is not.
         rig.set_limits(Some(1_000), None);
-        let refused = rig.post_session("/v1/chat/completions", "s-hold", chat("main/fast")).await;
+        assert_eq!(rig.post_session("/v1/chat/completions", "s-est", chat("main/fast")).await.status(), 200);
+        assert_eq!(rig.post_session("/v1/chat/completions", "s-est", chat("main/fast")).await.status(), 200);
+        assert_eq!(rig.post_session("/v1/chat/completions", "s-est", chat("main/fast")).await.status(), 200);
+        // 900 counted, under 1,000: one more goes, and takes the session over.
+        assert_eq!(rig.post_session("/v1/chat/completions", "s-est", chat("main/fast")).await.status(), 200);
+        assert_eq!(rig.post_session("/v1/chat/completions", "s-est", chat("main/fast")).await.status(), 402);
+    });
+}
+
+#[test]
+fn a_hold_that_would_pass_a_strict_session_limit_is_refused_with_402() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.shared.with_db(|db| store::set_client_strict_budget(db, &rig.client_id, true)).unwrap();
+        // Strict: held at its stated 4,096 output tokens (about $0.0016), more than the limit.
+        rig.set_limits(Some(1_000), None);
+        let body =
+            json!({ "model": "main/fast", "max_tokens": 4096, "messages": [{ "role": "user", "content": "ping" }] });
+        let refused = rig.post_session("/v1/chat/completions", "s-hold", body).await;
         assert_eq!(refused.status(), 402);
         let text = refused.text().await.unwrap();
         assert!(text.contains("would pass the session limit ($0.0000 counted, $0.0000 held, $0.0010 limit)"), "{text}");
@@ -3447,10 +3465,11 @@ fn a_request_in_flight_is_not_cut_when_its_session_passes_the_limit() {
 }
 
 #[test]
-fn the_day_limit_holds_requests_in_flight_together() {
+fn a_strict_day_limit_holds_requests_in_flight_together() {
     let conn = crate::db::open_in_memory().unwrap();
     let (client, _) = store::create_client(&conn, "Tests", None).unwrap();
     store::set_client_limits(&conn, &client.id, Some(5_000), Some(8_000)).unwrap();
+    store::set_client_strict_budget(&conn, &client.id, true).unwrap();
     let start = |session: &'static str, hold| store::AttemptStart {
         client_id: &client.id,
         provider_id: "main",
@@ -3472,4 +3491,11 @@ fn the_day_limit_holds_requests_in_flight_together() {
     // A request that names no session is held to the day only.
     let none = store::AttemptStart { session_key: None, ..start("a", 1_000) };
     assert_eq!(store::open_attempt(&conn, &none).unwrap().unwrap_err().scope, store::LimitScope::Day);
+    // Not strict: holds do not count against the session and day limits, spend does (none yet).
+    store::set_client_strict_budget(&conn, &client.id, false).unwrap();
+    store::open_attempt(&conn, &start("c", 9_000)).unwrap().unwrap();
+    // The monthly limit still counts holds, strict or not.
+    store::set_client_budget(&conn, &client.id, Some(20_000)).unwrap();
+    let over = store::open_attempt(&conn, &start("d", 4_000)).unwrap().unwrap_err();
+    assert_eq!((over.scope, over.reserved), (store::LimitScope::Month, 17_000));
 }

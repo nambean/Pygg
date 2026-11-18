@@ -1570,13 +1570,19 @@ pub fn open_attempt(conn: &Connection, a: &AttemptStart) -> Result<std::result::
 
 /// `open_attempt` at a given time. Each limit that applies (the session's, the day's, the month's: cost plan A3) is
 /// checked against spend counted in its period plus what attempts in flight hold; a request is held to all of them.
+///
+/// Except a session or day limit that is not strict: it is checked against counted spend only, so a request is sent
+/// while the spend is under the limit and requests in flight can take it a little over. A hold is sized from the
+/// request's output limit with all its input at the cache-write price: for a coding agent's turn (32,000–64,000
+/// output tokens, a long cached prompt) 15 to 20 times what it usually costs, so with a few subagents in flight a $5
+/// session limit would stop a session that had spent $0.50. A strict limit opted into that worst case.
 fn open_attempt_at(conn: &Connection, a: &AttemptStart, now: i64) -> Result<std::result::Result<String, OverBudget>> {
     immediate(conn, || {
         if a.hold_micro > 0 {
-            let monthly: Option<i64> = conn.query_row(
-                "SELECT monthly_budget_micro_usd FROM gateway_clients WHERE id = ?1",
+            let (monthly, strict): (Option<i64>, bool) = conn.query_row(
+                "SELECT monthly_budget_micro_usd, strict_budget FROM gateway_clients WHERE id = ?1",
                 [a.client_id],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )?;
             let mut limits = short_limits(conn, a.client_id, a.session_key)?;
             if let Some(budget) = monthly {
@@ -1584,6 +1590,15 @@ fn open_attempt_at(conn: &Connection, a: &AttemptStart, now: i64) -> Result<std:
             }
             for (scope, budget) in limits {
                 let spent = counted_in(conn, a.client_id, scope, a.session_key, now)?;
+                if scope != LimitScope::Month && !strict {
+                    if spent >= budget {
+                        return Ok((
+                            Err(OverBudget { scope, spent, reserved: 0, budget, wanted: a.hold_micro }),
+                            false,
+                        ));
+                    }
+                    continue;
+                }
                 // Holds of attempts in flight: the session's own for a session limit, all of the client's otherwise.
                 let reserved: i64 = conn.query_row(
                     "SELECT COALESCE(SUM(reserved_micro), 0) FROM budget_reservations WHERE client_id = ?1 \

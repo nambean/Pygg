@@ -282,14 +282,14 @@ export function LimitSheet({client: c, onClose}: {client: Client; onClose: () =>
         </span>
       </FormRow>
       <FormRow label={t('Session limit')} htmlFor="session-limit"
-        hint={t('Leave empty for no limit. One routing session: a launch from pygg run, or whatever sends the same x-pygg-session header. Once reached, its next request is refused with 402; a request already running is never cut. Requests that name no session are held to the other limits only.')}>
+        hint={t('Leave empty for no limit. One routing session: a launch from pygg run, or whatever sends the same x-pygg-session header. Once its counted spend reaches the limit, its next request is refused with 402; requests already running are never cut, so it can end a little over. Strict holds each request at the most it could cost instead. Requests that name no session are held to the other limits only.')}>
         <span className={usable(perSession) ? 'money-input' : 'money-input invalid'}>
           <span aria-hidden>$</span>
           <input id="session-limit" inputMode="decimal" value={sessionLimit} onChange={e => setSessionLimit(e.target.value)} placeholder={t('No limit')}/>
         </span>
       </FormRow>
       <FormRow label={t('Daily limit')} htmlFor="day-limit"
-        hint={t('Leave empty for no limit. Resets at 00:00 UTC. Once reached, every request from this key is refused with 402 until then; a request already running is never cut.')}>
+        hint={t('Leave empty for no limit. Resets at 00:00 UTC. Once its counted spend reaches the limit, every request from this key is refused with 402 until then; requests already running are never cut.')}>
         <span className={usable(perDay) ? 'money-input' : 'money-input invalid'}>
           <span aria-hidden>$</span>
           <input id="day-limit" inputMode="decimal" value={dayLimit} onChange={e => setDayLimit(e.target.value)} placeholder={t('No limit')}/>
