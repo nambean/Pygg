@@ -332,6 +332,13 @@ This replaces the parts of [design/SCREENS.md](design/SCREENS.md) that assume ta
 
 **Consequence:** Every saving Pygg shows is one it can trace in the ledger.
 
+**What is claimed, by scope (2026-11-18).** Savings measured on single tasks do not carry over to long work: cheaper models lose far more on feature-sized and release-sized benchmarks (SWE-EVO, FeatureBench) than on SWE-bench Verified. Parallel agents multiply tokens (about 4× chat for one agent, 15× for a multi-agent system) while people can review only a few at once. So Pygg claims:
+- **One bounded task:** cost per solved task, from checks the agent cannot edit, on the user's repository where measured.
+- **Parallel sessions:** that their cost can be seen and bounded (per session, per request class, with limits), not that more agents get more done.
+- **A whole project:** observations only (cost per launch, per commit, launches that changed nothing), never productivity or return on spend.
+
+Each `pygg run` launch is kept with what changed in Git (`launches`, schema v38) so cost can be set against what came of it.
+
 ## ADR-037 — One npm command for every platform
 
 **Decision:** A small launcher with one optional dependency per platform, each restricted by `os`, `cpu` and, on Linux, `libc`, so npm fetches only the matching one (as esbuild, Biome, SWC and Turbo do).

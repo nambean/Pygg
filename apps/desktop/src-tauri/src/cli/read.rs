@@ -213,7 +213,7 @@ fn table(headers: &[&str], rows: &[Vec<String>]) {
     }
 }
 
-fn money(micro: u64) -> String {
+pub(crate) fn money(micro: u64) -> String {
     let usd = micro as f64 / 1e6;
     if micro > 0 && usd < 0.0001 {
         "<$0.0001".into()

@@ -25,6 +25,7 @@ The same rows are in the app under **CLI Tools → One-Click Setup** (`integrati
 - The key is a client like any other: it reaches the connections, may not start tasks, and its limits are set in **Endpoint → API Keys → Limits…**.
 - **Each launch is a routing session.** `pygg run` gives each launch a fresh session id (`launch-<uuid>`). The gateway keeps that launch on the model that answered it while the model stays eligible, which keeps the provider's prompt cache. A long-lived tool shares one session until it is started again.
 - `pygg run` checks that the tool is set up, that the gateway answers and that the tool is installed (on PATH or in `~/.local/bin`) before it starts anything.
+- **A receipt when the tool exits** (below).
 
 ### Claude Code: the launcher
 
@@ -43,6 +44,30 @@ ANTHROPIC_CUSTOM_HEADERS        x-pygg-session: launch-<uuid>
 `ANTHROPIC_API_KEY`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX` and a host session's variables are removed first. A plain `claude` keeps the user's sign-in and plan. **Remove** revokes the key and deletes it from the credential store.
 
 Verified: unit tests (`launcher::tests`, `cli::run::tests`); live with Claude Code 2.1.322 up to the gateway (key and `auto` reached it; with no provider connected it answered 422). A session answered by a model through the launcher is not yet verified.
+
+### The session receipt
+
+When a tool started by `pygg run` exits, Pygg prints what the launch cost and what came of it (`launches.rs`):
+
+```text
+Pygg · this launch of Claude Code (launch-…)
+  Cost       $0.42 for 34 answered requests (2 on a subscription, not counted)
+  Cache      91% of the prompt read from cache, 4% written to it
+  Models     claude-haiku-5-5 ×30, glm-5 ×4 · 1 failed attempt, 1 answered by the next model
+  Depth      a request cost $0.0040 at the start and $0.019 at the end (each turn sends the conversation again)
+  Compared   $1.90 at anthropic/claude-sonnet-5-5 with the same tokens, against $0.42 (an estimate)
+  Git        F:/work/app (main): 2 commits, 5 files changed since the start, +120 −14
+```
+
+- **Cost** is the ledger's known money for the launch's session, failed attempts with a known cost included. Requests with no known cost and subscription requests are counted beside it, never taken as $0.
+- **Depth** appears from 20 priced requests on: the average of the first ten against the last ten. A high cache share means caching works, not that the session was cheap.
+- **Compared** appears when a model to compare with is chosen (Usage → Savings); it is the same estimate as there, for this session.
+- **Git** is read from the folder `pygg run` was started in: HEAD, branch and the tracked files with uncommitted changes before the tool starts; after it exits, the commits made since and `git diff --shortstat` from the starting HEAD to the working tree. Changes that were already uncommitted at the start are included and said so. A change in Git is not proof the work was good; it lets cost be set against what came of it.
+- **The launch is kept** in `launches` (schema v38): the session id, tool, model, times, exit code, the repository's folder, branch, commit ids and the counts above, never file names or code. `pygg run` writes the row only when the store already has the table (the app migrates it; `pygg run` never does); otherwise the receipt says it was not saved. Rows go with the ledger's history setting.
+
+**Status line.** `pygg run --statusline claude` starts Claude Code with `--settings` naming `pygg statusline` as its status line, for that launch only, so its own setting is untouched. `pygg statusline` prints the launch's cost so far, cache share, the model that answered and fallbacks (`Pygg $0.42 · 91% cache · claude-haiku-5-5 · 1 fallback`). It finds the launch from `x-pygg-session` in `ANTHROPIC_CUSTOM_HEADERS`, or `PYGG_ATTEMPT_ID`, and reads the store without writing it.
+
+Verified: unit tests (`launches::tests`, including Git in a scratch repository). Not yet run live with a tool's real session.
 
 ### Codex
 

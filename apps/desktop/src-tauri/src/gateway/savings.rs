@@ -172,6 +172,15 @@ type Row = (
 /// The estimate since `since`; the trend in periods of `bucket_ms` aligned to the user's clock (`offset_ms` east of UTC),
 /// as `store::usage_over_time` aligns the usage chart.
 pub fn savings(conn: &Connection, since: i64, bucket_ms: i64, offset_ms: i64) -> Result<Savings> {
+    savings_in(conn, since, None, bucket_ms, offset_ms)
+}
+
+/// The same estimate for one routing session's requests (`pygg run`'s receipt, launches.rs).
+pub fn session_savings(conn: &Connection, session: &str) -> Result<Savings> {
+    savings_in(conn, 0, Some(session), 86_400_000, 0)
+}
+
+fn savings_in(conn: &Connection, since: i64, session: Option<&str>, bucket_ms: i64, offset_ms: i64) -> Result<Savings> {
     let baseline = store::setting(conn, BASELINE_SETTING)?.filter(|s| s.contains('/'));
     let price = match &baseline {
         Some(b) => baseline_price(conn, b)?,
@@ -182,34 +191,40 @@ pub fn savings(conn: &Connection, since: i64, bucket_ms: i64, offset_ms: i64) ->
         out.suggested = suggestion(conn, since)?;
     }
     // Only requests to the user's connections: an agent's own run (`agent:…`) has no connection here.
-    let mut stmt = conn.prepare(concat!(
-        "SELECT u.outcome, u.input_tokens, u.output_tokens, u.cache_tokens, u.cache_write_tokens, u.cost_micro_usd, ",
-        "u.cost_status, u.provider, u.model, c.name, u.requested_model, u.created_at, u.billing, u.route_kind FROM usage_events u ",
-        "JOIN providers p ON p.id = u.provider LEFT JOIN gateway_clients c ON c.id = u.client_id WHERE u.created_at >= ?1 ",
-        "ORDER BY u.created_at"))
+    // One session's rows by the session index (migration 0038), else the period's.
+    let filter = if session.is_some() { "u.session_key = ?2 AND u.created_at >= ?1" } else { "u.created_at >= ?1" };
+    let mut stmt = conn
+        .prepare(&format!(
+        "SELECT u.outcome, u.input_tokens, u.output_tokens, u.cache_tokens, u.cache_write_tokens, u.cost_micro_usd, \
+         u.cost_status, u.provider, u.model, c.name, u.requested_model, u.created_at, u.billing, u.route_kind \
+         FROM usage_events u JOIN providers p ON p.id = u.provider LEFT JOIN gateway_clients c ON c.id = u.client_id \
+         WHERE {filter} ORDER BY u.created_at"))
         .map_err(|e| e.to_string())?;
-    let rows: Vec<Row> = stmt
-        .query_map(params![since], |r| {
-            Ok((
-                r.get(0)?,
-                r.get(1)?,
-                r.get(2)?,
-                r.get(3)?,
-                r.get(4)?,
-                r.get(5)?,
-                r.get(6)?,
-                r.get(7)?,
-                r.get(8)?,
-                r.get(9)?,
-                r.get(10)?,
-                r.get(11)?,
-                r.get(12)?,
-                r.get(13)?,
-            ))
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<rusqlite::Result<_>>()
-        .map_err(|e| e.to_string())?;
+    let map = |r: &rusqlite::Row| {
+        Ok((
+            r.get(0)?,
+            r.get(1)?,
+            r.get(2)?,
+            r.get(3)?,
+            r.get(4)?,
+            r.get(5)?,
+            r.get(6)?,
+            r.get(7)?,
+            r.get(8)?,
+            r.get(9)?,
+            r.get(10)?,
+            r.get(11)?,
+            r.get(12)?,
+            r.get(13)?,
+        ))
+    };
+    let rows: Vec<Row> = match session {
+        Some(s) => stmt.query_map(params![since, s], map),
+        None => stmt.query_map(params![since], map),
+    }
+    .map_err(|e| e.to_string())?
+    .collect::<rusqlite::Result<_>>()
+    .map_err(|e| e.to_string())?;
     // Billing by the same rule as the model list and the ledger (store::pricing_for), once per model.
     let mut billing_of: HashMap<(String, String), String> = HashMap::new();
     let bucket_ms = bucket_ms.max(60_000);

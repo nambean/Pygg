@@ -22,7 +22,8 @@ pygg                                  where you are: gateway, providers, tools s
 Use coding tools through Pygg
 pygg setup                            the tools: installed, Pygg set-up, the next command
 pygg setup claude|codex|opencode      route the tool through Pygg   [--dry-run | --remove] [--db PATH]
-pygg run [--model M] [--db PATH] claude|codex|opencode [the tool's own arguments…]
+pygg run [--model M] [--statusline] [--db PATH] claude|codex|opencode [the tool's own arguments…]
+pygg statusline                       the launch's cost in one line, for Claude Code's status line   [--db PATH]
 
 See what Pygg has and does (read only; --json on each)
 pygg status                           is the gateway answering, on which store, which schema   [--port N]
@@ -49,7 +50,7 @@ Every command takes `--db PATH`; `pygg <command> --help` says more.
 
 - `pygg setup claude` keeps the launcher's key in the OS credential store; no file changes. `codex` and `opencode` back up the tool's configuration, then add Pygg's provider. `--dry-run` writes nothing; `--remove` takes Pygg out and revokes the key. Details: [AGENTS.md](../AGENTS.md).
 - Older names still work: `claude-launcher`, `codex-models`, `opencode-models`. `pygg setup claude-code` is refused with a pointer to `pygg mcp setup claude-code`.
-- `pygg run`: Pygg's options go **before** the tool's name; everything after it is the tool's, `--help` included (`pygg run claude --help` is Claude Code's help). `--model` is for `claude` only. Each launch gets its own routing session. `run` checks the set-up, the gateway and the tool before starting, then returns the tool's own exit code.
+- `pygg run`: Pygg's options go **before** the tool's name; everything after it is the tool's, `--help` included (`pygg run claude --help` is Claude Code's help). `--model` and `--statusline` are for `claude` only. Each launch gets its own routing session. `run` checks the set-up, the gateway and the tool before starting, then returns the tool's own exit code. When the tool exits it prints the launch's receipt on stderr: cost, cache, models, and what changed in Git ([AGENTS.md](../AGENTS.md), "The session receipt").
 
 ### `gateway` (advanced)
 

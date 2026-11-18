@@ -90,6 +90,7 @@ pub fn prune(conn: &Connection, now: i64) -> store::Result<Option<Pruned>> {
     let usage_rows =
         tx.execute(&format!("DELETE FROM usage_events WHERE {USAGE_GONE}"), params![before]).map_err(err)? as u64;
     tx.execute(&format!("DELETE FROM feedback WHERE {FEEDBACK_GONE}"), params![before]).map_err(err)?;
+    tx.execute("DELETE FROM launches WHERE started_at < ?1", params![before]).map_err(err)?;
     let route_decisions = tx
         .execute(&format!("DELETE FROM route_decisions WHERE {DECISIONS_GONE}"), params![before])
         .map_err(err)? as u64;

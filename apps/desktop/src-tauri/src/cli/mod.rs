@@ -4,7 +4,8 @@
 //!
 //!   pygg                             where you are: gateway, providers, tools set up, and what to type next
 //!   pygg setup [claude|codex|opencode]   route a coding tool through Pygg (setup.rs)
-//!   pygg run claude|codex|opencode   start it through Pygg, a routing session per launch (run.rs)
+//!   pygg run claude|codex|opencode   start it through Pygg, a routing session per launch (run.rs), and its receipt
+//!   pygg statusline                  the launch's cost in one line, for Claude Code's status line (launches.rs)
 //!   pygg status | doctor             is the gateway answering; plus the schema, the tools and providers needing attention
 //!   pygg providers | models | logs | usage   read the store, `--json` on each (read.rs)
 //!   pygg gateway [--db P] …          the headless gateway: serve, connections, clients, combos, usage (advanced)
@@ -39,6 +40,8 @@ Use coding tools through Pygg
   setup claude|codex|opencode route the tool through Pygg   (--dry-run previews, --remove undoes)
   run claude|codex|opencode   start it through Pygg, with a routing session for this launch
                               (pygg run --model auto/cheap claude: Pygg's options go before the tool's name)
+                              prints the launch's cost, cache and Git changes when the tool exits
+  statusline                  this launch's cost in one line (pygg run --statusline claude sets it up)
 
 See what Pygg has and does (read only; --json on each)
   status                      is the gateway answering, and on which store
@@ -381,6 +384,37 @@ async fn doctor(args: &[String]) -> Result<i32, Fail> {
     Ok(if ok { 0 } else { 3 })
 }
 
+const STATUSLINE_HELP: &str = "usage: pygg statusline [--db PATH]
+
+One line for Claude Code's status line: what this launch's requests through Pygg cost so far, how much of the prompt
+came from the cache, the model that answered and any fallback. It finds the launch from the session `pygg run` gave
+it, so start Claude Code with `pygg run --statusline claude`, which sets it up for that launch only. Claude Code's own
+status line setting is not changed. It reads the store and never writes it.";
+
+/// `pygg statusline`: never fails, since Claude Code shows whatever it prints.
+fn statusline(args: &[String]) -> String {
+    let headers = std::env::var("ANTHROPIC_CUSTOM_HEADERS").ok();
+    let attempt = std::env::var(crate::agents::ATTEMPT_ENV).ok();
+    let Some(session) = crate::launches::session_from_env(headers.as_deref(), attempt.as_deref()) else {
+        return "Pygg · not started with pygg run".into();
+    };
+    let Some(store) = flag(args, "--db").map(PathBuf::from).or_else(default_store).filter(|p| p.is_file()) else {
+        return "Pygg · store not found".into();
+    };
+    let cost = rusqlite::Connection::open_with_flags(
+        &store,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .and_then(|conn| {
+        conn.busy_timeout(Duration::from_millis(500))?;
+        crate::launches::session_cost(&conn, &session)
+    });
+    match cost {
+        Ok(cost) => crate::launches::status_line(&cost),
+        Err(_) => "Pygg · could not read the ledger".into(),
+    }
+}
+
 /// Writes the diagnostics bundle of the store to `--out`, reading the store without migrating it.
 async fn diagnostics(args: &[String]) -> Result<PathBuf, String> {
     let out = flag(args, "--out").map(PathBuf::from).ok_or("pass --out PATH, the zip to write")?;
@@ -465,6 +499,11 @@ pub async fn run(mut args: Vec<String>) -> i32 {
         }
         "setup" => setup::run(args).await,
         "run" => run::run(args).await,
+        "statusline" if wants_help(&args) => help(STATUSLINE_HELP),
+        "statusline" => {
+            println!("{}", statusline(&args));
+            0
+        }
         "diagnostics" if wants_help(&args) => help(DIAGNOSTICS_HELP),
         "diagnostics" => match diagnostics(&args).await {
             Ok(path) => {

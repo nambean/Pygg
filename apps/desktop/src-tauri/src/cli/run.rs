@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-pub const HELP: &str = "usage: pygg run [--model M] [--db PATH] claude [arguments for claude…]
+pub const HELP: &str = "usage: pygg run [--model M] [--statusline] [--db PATH] claude [arguments for claude…]
        pygg run [--db PATH] opencode [arguments for opencode…]
        pygg run [--db PATH] codex [arguments for codex…]
 
@@ -17,7 +17,9 @@ claude: starts Claude Code with its requests going through Pygg: the gateway's a
 key (kept in the system's credential store, never in a file) and the model auto, for this launch only. Claude Code's
 own settings and sign-in are not changed; run plain `claude` to use them as before.
 
-  --model M   a model for every slot instead of auto: auto/cheap, a combo, or connection/model
+  --model M      a model for every slot instead of auto: auto/cheap, a combo, or connection/model
+  --statusline   show this launch's cost through Pygg in Claude Code's status line (`pygg statusline`), for this
+                 launch only; Claude Code's own status line setting is not changed
 
 opencode, codex: starts the tool as set up in Pygg → CLI Tools (`pygg setup opencode`, `pygg setup
 codex-models`; codex runs with --profile pygg), with a routing session of its own for this launch.
@@ -25,6 +27,11 @@ codex-models`; codex runs with --profile pygg), with a routing session of its ow
 Each launch gets its own routing session: the gateway keeps the launch on the model that answered it, while that
 model stays eligible, so its prompt cache is kept. An editor or a long-lived tool shares one session across its
 conversations until it is started again.
+
+When the tool exits, Pygg prints the launch's receipt: what its requests cost (unknown and subscription ones counted
+apart), how much of the prompt came from the cache, which models answered, and what changed in the Git repository the
+tool ran in (commits and changed lines since the start). Only the repository's folder, branch and commit ids are kept,
+never file names or code.
 
 Set Claude Code up once with `pygg setup claude` or in Pygg → CLI Tools.";
 
@@ -47,10 +54,11 @@ Use: pygg run claude, pygg run opencode or pygg run codex"
         );
         return 2;
     };
-    if let Some(unknown) = args[..at].iter().find(|a| a.starts_with("--") && !matches!(a.as_str(), "--model" | "--db"))
+    if let Some(unknown) =
+        args[..at].iter().find(|a| a.starts_with("--") && !matches!(a.as_str(), "--model" | "--db" | "--statusline"))
     {
         eprintln!(
-            "pygg: unknown option {unknown} for pygg run (Pygg's options go before the tool's name: --model, --db).
+            "pygg: unknown option {unknown} for pygg run (Pygg's options go before the tool's name: --model, --statusline, --db).
 Use: pygg run --help"
         );
         return 2;
@@ -64,6 +72,11 @@ Use: pygg run --help"
     }
     if tool != "claude" && super::flag(ours, "--model").is_some() {
         eprintln!("--model is for claude. Choose {tool}'s model in {tool} itself (Pygg's provider lists auto first).");
+        return 2;
+    }
+    let statusline = ours.iter().any(|a| a == "--statusline");
+    if tool != "claude" && statusline {
+        eprintln!("--statusline is for claude: OpenCode and Codex have no status line command.");
         return 2;
     }
     let Some(store) =
@@ -113,13 +126,17 @@ Use: pygg run --help"
     let mut command = std::process::Command::new(&launch.program);
     command.args(&launch.prefix);
     let session = crate::launcher::launch_session();
+    let model = super::flag(ours, "--model");
     match token {
         Some(token) => {
+            if statusline {
+                command.args(statusline_settings());
+            }
             command.args(tool_args);
             for name in crate::launcher::removed_variables() {
                 command.env_remove(name);
             }
-            let model = super::flag(ours, "--model").unwrap_or_else(|| "auto".into());
+            let model = model.clone().unwrap_or_else(|| "auto".into());
             for (k, v) in crate::launcher::environment(&format!("http://127.0.0.1:{port}"), &token, &model, &session) {
                 command.env(k, v);
             }
@@ -129,13 +146,64 @@ Use: pygg run --help"
             command.env(crate::agents::ATTEMPT_ENV, &session);
         }
     }
-    match command.status() {
+    let folder = std::env::current_dir().ok();
+    let before = folder.as_deref().and_then(crate::launches::git_state);
+    let recorder = recorder(&store);
+    let saved = recorder.as_ref().is_some_and(|c| {
+        crate::launches::record_start(c, &session, tool, model.as_deref(), crate::db::now_ms(), before.as_ref()).is_ok()
+    });
+    let code = match command.status() {
         Ok(status) => status.code().unwrap_or(1),
         Err(e) => {
             eprintln!("{} could not be started: {e}", tool_name(tool));
-            1
+            return 1;
         }
+    };
+    let change = folder.as_deref().zip(before.as_ref()).and_then(|(f, b)| crate::launches::git_change(f, b));
+    if let (Some(c), true) = (&recorder, saved) {
+        let _ = crate::launches::record_end(c, &session, crate::db::now_ms(), code, change.as_ref());
     }
+    // The gateway settles an attempt's row just after its stream ends.
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let note = (!saved).then_some("This launch was not saved: open the updated Pygg once so its store has launches.");
+    match print_receipt(&store, tool, &session, before.as_ref().zip(change.as_ref()), note) {
+        Ok(text) => eprintln!("\n{text}"),
+        Err(e) => eprintln!("\nPygg could not read this launch's cost: {e}"),
+    }
+    code
+}
+
+/// A connection that may write the launch's row: only to a store that already has the table (the app migrates it,
+/// `pygg run` never does).
+fn recorder(store: &std::path::Path) -> Option<rusqlite::Connection> {
+    let conn = rusqlite::Connection::open_with_flags(store, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE).ok()?;
+    conn.busy_timeout(Duration::from_secs(5)).ok()?;
+    crate::launches::can_record(&conn).then_some(conn)
+}
+
+fn print_receipt(
+    store: &std::path::Path, tool: &str, session: &str,
+    git: Option<(&crate::launches::GitState, &crate::launches::GitChange)>, note: Option<&str>,
+) -> Result<String, String> {
+    let conn = rusqlite::Connection::open_with_flags(store, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(Duration::from_secs(5));
+    let cost = crate::launches::session_cost(&conn, session).map_err(|e| e.to_string())?;
+    let savings = crate::gateway::savings::session_savings(&conn, session).ok();
+    let compared = savings
+        .as_ref()
+        .filter(|s| s.baseline_priced && s.compared > 0)
+        .and_then(|s| s.baseline.as_deref().map(|b| (b, s.routed_micro_usd, s.baseline_micro_usd)));
+    Ok(crate::launches::receipt(tool_name(tool), session, &cost, compared, git, note))
+}
+
+/// Claude Code's `--settings` for this launch: its status line runs `pygg statusline` (this program).
+fn statusline_settings() -> [String; 2] {
+    let program =
+        std::env::current_exe().map(|p| p.display().to_string().replace('\\', "/")).unwrap_or_else(|_| "pygg".into());
+    let command = format!("\"{program}\" statusline");
+    let settings = serde_json::json!({ "statusLine": { "type": "command", "command": command, "padding": 0 } });
+    ["--settings".into(), settings.to_string()]
 }
 
 fn tool_name(tool: &str) -> &'static str {

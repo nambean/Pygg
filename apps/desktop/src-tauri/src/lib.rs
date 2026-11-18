@@ -25,6 +25,7 @@ pub mod handoff;
 pub mod integrations;
 pub mod isolation;
 pub mod launcher;
+pub mod launches;
 pub mod mcp;
 pub mod messages;
 pub mod process;

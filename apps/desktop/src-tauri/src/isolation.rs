@@ -33,7 +33,7 @@ impl std::fmt::Display for IsolationError {
 
 impl std::error::Error for IsolationError {}
 
-fn git(dir: &Path, args: &[&str]) -> Result<String, IsolationError> {
+pub(crate) fn git(dir: &Path, args: &[&str]) -> Result<String, IsolationError> {
     let mut command = Command::new("git");
     command.arg("-C").arg(dir).args(args).stdin(Stdio::null());
     no_window(&mut command);
