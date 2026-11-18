@@ -803,119 +803,72 @@ fn reply_text(state: &ChatState, before: u64) -> String {
     }
 }
 
-/// Where a reply's made files and sounds sit: the site's media blocks after the replies from before the prompt, and the
-/// message group of each new reply (Muse's audio player is a bubble of its own). Blocks that hold a picture or a video
-/// are left out: those are taken by address.
-fn download_targets_js(r: &Recipe, before: u64) -> String {
-    format!(
-        r#"const replies = [...document.querySelectorAll({reply})];
-  const anchor = {before} > 0 ? replies[{before} - 1] : null;
-  const fresh = el => !anchor || (anchor.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) && !anchor.contains(el);
-  const rootSel = {media_root};
-  const groups = replies.slice({before}).map(e => (e.parentElement && e.parentElement.parentElement) || e);
-  const blocks = [...new Set((rootSel ? [...document.querySelectorAll(rootSel)] : []).concat(groups))].filter(fresh)
-    .filter(b => !b.querySelector('[data-hatch-video-src]') && ![...b.querySelectorAll('img')].some(i => i.naturalWidth >= 256))
-    // Only a media block or one holding a player, a preview or a sound: a bubble of words is never pressed.
-    .filter(b => (rootSel && b.matches(rootSel)) || b.querySelector('[role="slider"], canvas, audio'));
-  window.__pyggClicked = window.__pyggClicked || new WeakSet();
-  const saying = /download|tải xuống|tải về/i;
-  const labelled = e => saying.test(e.getAttribute('aria-label') || '') || saying.test(e.getAttribute('title') || '');"#,
-        reply = q(r.reply),
-        before = before,
-        media_root = json!(r.media_root),
-    )
-}
-
-/// The owner's decision (2026-11-18): Pygg may press the site's own download control for a file or sound in the reply
-/// it just got, since those have no address on the page (Muse: a PDF card, an audio player). First a control named for
-/// downloading; else the block's menu button ("⋯"), whose items `download_menu_script` reads next. Each block once.
-/// Returns how many downloads were started and how many menus opened.
-pub fn download_click_script(r: &Recipe, before: u64) -> String {
-    format!(
-        r#"(() => {{
-  {targets}
-  let started = 0, menus = 0;
-  for (const b of blocks) {{
-    if (window.__pyggClicked.has(b)) continue;
-    const direct = b.querySelector('a[download]') || [...b.querySelectorAll('a, button, [role="button"]')].find(labelled);
-    if (direct) {{ window.__pyggClicked.add(b); direct.click(); started++; continue; }}
-    // The block's own menu ("Audio options"), else the menu of the message it sits in ("More options": a file card
-    // has no button of its own).
-    const own = [...b.querySelectorAll('button[aria-haspopup="menu"]')].pop();
-    let holder = b.parentElement;
-    while (holder && !own && !holder.querySelector('button[aria-haspopup="menu"]')) holder = holder.parentElement;
-    const menu = own || (holder ? [...holder.querySelectorAll('button[aria-haspopup="menu"]')].pop() : null);
-    if (menu) {{
-      window.__pyggClicked.add(b);
-      // A Radix menu (Muse's `dropdown-menu-trigger`) opens on the pointer going down, not on click(), and on Enter.
-      const opts = {{ bubbles: true, cancelable: true, button: 0, buttons: 1, pointerType: 'mouse', isPrimary: true }};
-      menu.dispatchEvent(new PointerEvent('pointerdown', opts));
-      if (menu.getAttribute('aria-expanded') !== 'true') {{
-        menu.focus();
-        menu.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }}));
-      }}
-      menus++;
-    }}
-  }}
-  return {{ started, menus }};
-}})()"#,
-        targets = download_targets_js(r, before)
-    )
-}
-
-/// Presses the "Download" item of the menus `download_click_script` opened, and closes a menu that has none. The items'
-/// own words are read only to find that one, and nothing of them leaves the page. Returns how many were pressed.
-pub fn download_menu_script() -> String {
-    r#"(() => {
-  const saying = /download|tải xuống|tải về/i;
-  const items = [...document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], [data-radix-collection-item]')];
-  const item = items.find(i => saying.test(i.getAttribute('aria-label') || '') || saying.test((i.innerText || '').trim()));
-  if (item) { item.click(); return { pressed: 1, items: [] }; }
-  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-  // The menu's own words (the site's interface: Share, Copy…), for the app log, so a missing Download is seen.
-  const names = items.slice(0, 12).map(i => ((i.getAttribute('aria-label') || i.innerText || '').trim()).slice(0, 30));
-  return { pressed: 0, items: names };
-})()"#
-        .to_string()
-}
-
-/// A finished download as a data URL, its kind (`audio`, `video`, `image`, `file`) from its name; the file is deleted
-/// once read. `None` past the size limit or when it cannot be read.
-fn downloaded_media(path: &std::path::Path) -> Option<Media> {
-    let size = std::fs::metadata(path).ok()?.len();
-    if size > BLOB_LIMIT {
-        let _ = std::fs::remove_file(path);
-        return None;
+/// The media a reply's page received from the network after the prompt: a sound or document as a data URL of its
+/// kind, and the addresses of sounds and files named in the site's API answers (a player that loads its sound only on
+/// Play still has it named there). What was taken and what was seen goes to the app log, by kind and host only.
+fn network_media(received: Vec<Received>, preset: &str) -> Vec<Media> {
+    let mut out: Vec<Media> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    let mut summary: Vec<String> = Vec::new();
+    for r in received {
+        let mime = r.mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+        summary.push(format!("{mime} from {} ({} bytes)", r.host, r.body.len()));
+        if mime.contains("json") {
+            for url in media_addresses(&String::from_utf8_lossy(&r.body)) {
+                if !seen.contains(&url.url) {
+                    seen.push(url.url.clone());
+                    out.push(url);
+                }
+            }
+            continue;
+        }
+        if r.body.is_empty() || r.body.len() as u64 > BLOB_LIMIT {
+            continue;
+        }
+        let kind = if mime.starts_with("audio/") { "audio" } else { "file" };
+        let url = format!("data:{mime};base64,{}", base64_encode(&r.body));
+        if !seen.contains(&url) {
+            seen.push(url.clone());
+            out.push(Media { kind: kind.to_string(), url });
+        }
     }
-    let bytes = std::fs::read(path).ok()?;
-    let _ = std::fs::remove_file(path);
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    let mime = match ext.as_str() {
-        "mp3" => "audio/mpeg",
-        "wav" => "audio/wav",
-        "m4a" | "aac" => "audio/mp4",
-        "ogg" | "oga" => "audio/ogg",
-        "weba" => "audio/webm",
-        "mp4" | "m4v" => "video/mp4",
-        "webm" => "video/webm",
-        "mov" => "video/quicktime",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "webp" => "image/webp",
-        "gif" => "image/gif",
-        "pdf" => "application/pdf",
-        "zip" => "application/zip",
-        "txt" => "text/plain",
-        "md" => "text/markdown",
-        "csv" => "text/csv",
-        "json" => "application/json",
-        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        _ => "application/octet-stream",
-    };
-    let kind = mime.split('/').next().filter(|k| ["audio", "video", "image"].contains(k)).unwrap_or("file");
-    Some(Media { kind: kind.to_string(), url: format!("data:{mime};base64,{}", base64_encode(&bytes)) })
+    if !summary.is_empty() {
+        crate::applog::info(&format!(
+            "web reply on {preset}: the page received {}; {} sound(s) or file(s) taken from it",
+            summary.join(", "),
+            out.len()
+        ));
+    }
+    out
+}
+
+/// https addresses of sounds and documents in a text (an API answer), by their extension; `\u002F` and `\/` escapes
+/// undone.
+fn media_addresses(text: &str) -> Vec<Media> {
+    let text = text.replace("\\u002F", "/").replace("\\/", "/").replace("\\u0026", "&");
+    let mut out = Vec::new();
+    let mut rest = text.as_str();
+    while let Some(i) = rest.find("https://") {
+        let tail = &rest[i..];
+        let end = tail
+            .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '\\' | ')'))
+            .unwrap_or(tail.len());
+        let url = &tail[..end];
+        rest = &tail[end..];
+        let path = url.split(['?', '#']).next().unwrap_or("").to_ascii_lowercase();
+        let kind = if [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".weba", ".flac"]
+            .iter()
+            .any(|e| path.ends_with(e))
+        {
+            "audio"
+        } else if [".pdf", ".docx", ".xlsx", ".pptx", ".csv", ".zip", ".txt", ".md"].iter().any(|e| path.ends_with(e)) {
+            "file"
+        } else {
+            continue;
+        };
+        out.push(Media { kind: kind.to_string(), url: url.to_string() });
+    }
+    out
 }
 
 /// Standard base64.
@@ -934,52 +887,6 @@ fn base64_encode(bytes: &[u8]) -> String {
         }
     }
     out
-}
-
-/// Presses the site's own download controls for the files and sounds of a reply, and takes what downloads: as many as
-/// were started, or what came by `deadline`.
-async fn reply_downloads(
-    page: &dyn Page, recipe: &Recipe, before: u64, poll: Duration, deadline: Instant,
-) -> Vec<Media> {
-    if recipe.media_root.is_none() {
-        return Vec::new();
-    }
-    let opened = page.eval(download_click_script(recipe, before)).await.unwrap_or(Value::Null);
-    let mut expected = opened["started"].as_u64().unwrap_or(0);
-    let menus = opened["menus"].as_u64().unwrap_or(0);
-    for _ in 0..menus {
-        // The menu renders after its button is pressed.
-        tokio::time::sleep(poll.max(Duration::from_millis(300))).await;
-        let menu = page.eval(download_menu_script()).await.unwrap_or(Value::Null);
-        let pressed = menu["pressed"].as_u64().unwrap_or(0);
-        expected += pressed;
-        if pressed == 0 {
-            crate::applog::info(&format!(
-                "web reply on {}: a media block's menu has no Download item; its items: {}",
-                recipe.preset, menu["items"]
-            ));
-        }
-    }
-    let mut taken = Vec::new();
-    let mut done = 0u64;
-    while done < expected && Instant::now() < deadline {
-        tokio::time::sleep(poll).await;
-        for d in page.downloads() {
-            done += 1;
-            match d.path.filter(|_| d.ok).and_then(|p| downloaded_media(&p)) {
-                Some(m) => taken.push(m),
-                None => crate::applog::warn("a download the site started for its reply did not complete"),
-            }
-        }
-    }
-    if expected > 0 {
-        crate::applog::info(&format!(
-            "web reply on {}: {expected} download(s) started with the site's own controls, {} taken",
-            recipe.preset,
-            taken.len()
-        ));
-    }
-    taken
 }
 
 /// How often a reply held open by the page's signs is described in the app log.
@@ -1005,7 +912,14 @@ async fn finish(
         media.len()
     ));
     let mut media = with_blob_media(page, media, timing.poll).await;
-    media.extend(reply_downloads(page, recipe, before, timing.poll, Instant::now() + Duration::from_secs(120)).await);
+    // A response still being read when the words settled is given a few reads to arrive.
+    let mut received = page.network();
+    for _ in 0..3 {
+        tokio::time::sleep(timing.poll).await;
+        received.extend(page.network());
+    }
+    let _ = before;
+    media.extend(network_media(received, recipe.preset));
     Reply { text, denied, media }
 }
 
@@ -1284,17 +1198,38 @@ pub trait Page: Send + Sync {
     fn navigate(&self, url: &str) -> BoxFuture<'_, Result<(), WebError>>;
     /// Runs one script and returns its value.
     fn eval(&self, script: String) -> BoxFuture<'_, Result<Value, WebError>>;
-    /// The downloads this page finished since the last call, taken (the window saves them in Pygg's own folder).
-    fn downloads(&self) -> Vec<Downloaded> {
+    /// What the page received from the network since the last call, taken: sounds, documents and the site's own API
+    /// answers (`window.rs` reads WebView2's response events). Never a request, a cookie or a header.
+    fn network(&self) -> Vec<Received> {
         Vec::new()
     }
 }
 
-/// A file the site's own download control saved, in Pygg's folder for the connection (`window.rs`).
+/// One response the page received: its content type, the address's host, and its body (a sound or document, or the
+/// text of the site's API answer).
 #[derive(Clone, Debug, PartialEq)]
-pub struct Downloaded {
-    pub path: Option<std::path::PathBuf>,
-    pub ok: bool,
+pub struct Received {
+    pub mime: String,
+    pub host: String,
+    pub body: Vec<u8>,
+}
+
+/// Whether a response is kept for the reply: a sound, a document, or the site's own API answer in JSON (searched for
+/// the addresses of what it made). Pictures and videos come from the page itself.
+pub fn worth_keeping(mime: &str, host: &str, site_host: &str) -> bool {
+    let mime = mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    mime.starts_with("audio/")
+        || matches!(
+            mime.as_str(),
+            "application/pdf"
+                | "application/zip"
+                | "application/msword"
+                | "text/csv"
+                | "application/vnd.ms-excel"
+                | "application/vnd.ms-powerpoint"
+        )
+        || mime.starts_with("application/vnd.openxmlformats-officedocument.")
+        || (mime.contains("json") && (host == site_host || host.ends_with(&format!(".{site_host}"))))
 }
 
 /// The windows of the web sessions: the app's (`window.rs`), or scripted ones in tests.
@@ -1443,6 +1378,8 @@ pub async fn converse_marked(
     submitted: &AtomicBool,
 ) -> Result<Reply, WebError> {
     open_chat(page, recipe, timing).await?;
+    // What the page received before the prompt is not the reply's.
+    let _ = page.network();
     let base: ChatState = eval_as(page, read_script(recipe)).await?;
     let filled: Value = page.eval(fill_script(recipe, prompt)).await?;
     if filled["offSite"] == true {

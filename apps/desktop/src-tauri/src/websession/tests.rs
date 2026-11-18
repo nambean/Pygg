@@ -40,9 +40,9 @@ struct FakePage {
     denials: AtomicUsize,
     /// What the page's blob copies came to (`blob_poll_script`).
     blobs: Mutex<Value>,
-    /// What pressing the site's download controls starts, and the files that then finish.
-    clicks: Mutex<Value>,
-    downloaded: Mutex<Vec<Downloaded>>,
+    /// What the page receives after the prompt (the first call, made before it, finds nothing).
+    received: Mutex<Vec<Received>>,
+    network_calls: AtomicUsize,
 }
 
 impl FakePage {
@@ -61,8 +61,11 @@ impl FakePage {
 }
 
 impl Page for FakePage {
-    fn downloads(&self) -> Vec<Downloaded> {
-        std::mem::take(&mut *self.downloaded.lock().unwrap())
+    fn network(&self) -> Vec<Received> {
+        if self.network_calls.fetch_add(1, Ordering::SeqCst) == 0 {
+            return Vec::new();
+        }
+        std::mem::take(&mut *self.received.lock().unwrap())
     }
 
     fn navigate(&self, _url: &str) -> BoxFuture<'_, Result<(), WebError>> {
@@ -72,9 +75,7 @@ impl Page for FakePage {
 
     fn eval(&self, script: String) -> BoxFuture<'_, Result<Value, WebError>> {
         Box::pin(async move {
-            Ok(if script.contains("menus++") {
-                self.clicks.lock().unwrap().clone()
-            } else if script.contains("__pyggOld = true") {
+            Ok(if script.contains("__pyggOld = true") {
                 json!(true)
             } else if script.contains("hasInput") {
                 FakePage::next(&self.states)
@@ -237,39 +238,48 @@ fn muses_stop_button_holds_the_reply_until_the_video_is_made() {
     });
 }
 
-/// A reply in several bubbles keeps all its words (2026-11-18: Muse answered "Making your shopping list PDF now…" and
-/// then a second bubble, whose words were lost); replies from before the prompt are not part of it.
-/// A file or sound with no address on the page is taken by pressing the site's own download control (owner's
-/// decision, 2026-11-18): the download finished in Pygg's folder comes back as a data URL of its kind and is deleted.
+/// What the page receives after the prompt is read for the reply (2026-11-18, the owner's call for another way than the
+/// page's markup): a document or sound the page loaded comes back as a data URL of its kind, a sound named in the
+/// site's API answer by its address, and pictures or the site's other traffic are not kept at all.
 #[test]
-fn a_file_the_site_downloads_comes_back_with_the_reply() {
-    let dir = std::env::temp_dir().join(format!("pygg-dl-{}", uuid::Uuid::new_v4().simple()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let pdf = dir.join("shopping-list.pdf");
-    std::fs::write(&pdf, b"%PDF-1.7 hi").unwrap();
-    let wav = dir.join("waves.wav");
-    std::fs::write(&wav, b"RIFF").unwrap();
+fn what_the_page_receives_comes_back_with_the_reply() {
+    assert!(worth_keeping("application/pdf", "scontent.fbcdn.net", "muse.ai"));
+    assert!(worth_keeping("audio/mpeg", "video.fbcdn.net", "muse.ai"));
+    assert!(worth_keeping("application/json; charset=utf-8", "graph.muse.ai", "muse.ai"));
+    assert!(!worth_keeping("application/json", "ads.example.com", "muse.ai"), "another site's JSON");
+    assert!(!worth_keeping("image/jpeg", "scontent.fbcdn.net", "muse.ai"), "pictures come from the page");
     rt().block_on(async {
         let page = FakePage::new(
             vec![ready()],
             vec![json!({ "count": 0, "text": "" }), json!({ "count": 1, "text": "Done. It's a one-page PDF." })],
         );
-        *page.clicks.lock().unwrap() = json!({ "started": 2, "menus": 0 });
-        *page.downloaded.lock().unwrap() =
-            vec![Downloaded { path: Some(pdf.clone()), ok: true }, Downloaded { path: Some(wav.clone()), ok: true }];
+        let api =
+            r#"{"data":{"audio":"https:\/\/video.fbcdn.net\/v\/rain.mp3?oh=1&oe=2","x":"https://muse.ai/app.js"}}"#;
+        *page.received.lock().unwrap() = vec![
+            Received {
+                mime: "application/pdf".into(),
+                host: "scontent.fbcdn.net".into(),
+                body: b"%PDF-1.7 hi".to_vec(),
+            },
+            Received { mime: "application/json".into(), host: "muse.ai".into(), body: api.as_bytes().to_vec() },
+        ];
         let reply = converse(page.as_ref(), muse(), "a PDF", &fast(), &mut |_: &str| {}).await.unwrap();
-        let kinds: Vec<&str> = reply.media.iter().map(|m| m.kind.as_str()).collect();
-        assert_eq!(kinds, ["file", "audio"]);
-        assert_eq!(reply.media[0].url, "data:application/pdf;base64,JVBERi0xLjcgaGk=");
-        assert!(reply.media[1].url.starts_with("data:audio/wav;base64,"));
+        let got: Vec<(&str, &str)> = reply.media.iter().map(|m| (m.kind.as_str(), m.url.as_str())).collect();
+        assert_eq!(
+            got,
+            [
+                ("file", "data:application/pdf;base64,JVBERi0xLjcgaGk="),
+                ("audio", "https://video.fbcdn.net/v/rain.mp3?oh=1&oe=2")
+            ]
+        );
     });
-    assert!(!pdf.exists() && !wav.exists(), "taken downloads are deleted");
-    let _ = std::fs::remove_dir_all(&dir);
     assert!(
         is_player_time("0:00") && is_player_time("1:05:30") && !is_player_time("Done.") && !is_player_time("10:0a")
     );
 }
 
+/// A reply in several bubbles keeps all its words (2026-11-18: Muse answered "Making your shopping list PDF now…" and
+/// then a second bubble, whose words were lost); replies from before the prompt are not part of it.
 #[test]
 fn a_reply_in_several_bubbles_keeps_all_its_words() {
     rt().block_on(async {
@@ -679,8 +689,6 @@ fn every_page_script_is_valid_javascript() {
     for r in RECIPES {
         let scripts = [
             ("probe", media_probe_script(r)),
-            ("download-click", download_click_script(r, 2)),
-            ("download-menu", download_menu_script()),
             ("blob-start", blob_start_script(&["blob:https://x/1".to_string()])),
             ("blob-poll", blob_poll_script(&["blob:https://x/1".to_string()])),
             ("mark", mark_script()),
@@ -722,8 +730,6 @@ fn no_script_reads_cookies_storage_or_the_network() {
             read_script(r),
             deny_script(r),
             media_probe_script(r),
-            download_click_script(r, 2),
-            download_menu_script(),
             blob_poll_script(&["blob:https://x/1".to_string()]),
         ];
         for script in scripts {

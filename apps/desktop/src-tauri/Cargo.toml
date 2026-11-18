@@ -17,7 +17,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # and macOS with no webview libraries (ADR-037).
 [features]
 default = ["app"]
-app = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-single-instance", "dep:tauri-plugin-notification", "dep:tauri-plugin-dialog"]
+app = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-single-instance", "dep:tauri-plugin-notification", "dep:tauri-plugin-dialog", "dep:webview2-com", "dep:windows-core"]
 
 [[bin]]
 name = "pygg-desktop"
@@ -63,7 +63,11 @@ winreg = "0.55"
 windows-version = "0.1"
 # The snap layouts overlay over the green window button (src/snap.rs): the same `windows` crate tao, wry and
 # tauri already use (0.62 in Cargo.lock), with the Win32 features it needs. No new crate.
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+# A web session's window reads what its page receives (websession/window.rs, 2026-11-18): WebView2's response events,
+# through the webview2-com that wry already uses (0.39 in Cargo.lock). No new crate.
+webview2-com = { version = "0.39", optional = true }
+windows-core = { version = "0.62", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 # Ending a whole process group on timeout or cancel.

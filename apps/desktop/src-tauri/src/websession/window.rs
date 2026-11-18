@@ -42,9 +42,8 @@ pub struct AppWindows<R: Runtime> {
     /// https, like a browser, since sign-in passes through hosts no recipe can list. Pygg's own typing is held to the
     /// site's page either way (`fill_script`, `send_script`).
     signing_in: Arc<Mutex<HashSet<String>>>,
-    /// Files the site's own download controls saved for a reply (owner's decision, 2026-11-18), by connection, until
-    /// the reply takes them.
-    downloads: Arc<Mutex<HashMap<String, Vec<super::Downloaded>>>>,
+    /// What each connection's page received (sounds, documents, the site's API answers), until a reply takes it.
+    received: Arc<Mutex<HashMap<String, Vec<super::Received>>>>,
 }
 
 impl<R: Runtime> AppWindows<R> {
@@ -54,7 +53,7 @@ impl<R: Runtime> AppWindows<R> {
             root,
             last_used: Arc::default(),
             signing_in: Arc::default(),
-            downloads: Arc::default(),
+            received: Arc::default(),
         });
         // Closes hidden windows nobody has used for a while.
         let reaper = windows.clone();
@@ -145,37 +144,6 @@ impl<R: Runtime> AppWindows<R> {
                 }
                 allowed
             })
-            // A download while Pygg drives the window goes to Pygg's folder for the connection, and the reply takes it
-            // (and deletes it); one the user starts while signing in goes where the system puts downloads.
-            .on_download({
-                let (signing_in, downloads, id) =
-                    (self.signing_in.clone(), self.downloads.clone(), provider.id.clone());
-                let folder = self.root.join("downloads").join(&provider.id);
-                move |_webview, event| {
-                    let user = signing_in.lock().unwrap_or_else(|p| p.into_inner()).contains(&id);
-                    match event {
-                        tauri::webview::DownloadEvent::Requested { destination, .. } if !user => {
-                            let _ = std::fs::create_dir_all(&folder);
-                            let name = destination
-                                .file_name()
-                                .map(|n| n.to_string_lossy().to_string())
-                                .filter(|n| !n.is_empty())
-                                .unwrap_or_else(|| "download".into());
-                            *destination = folder.join(format!("{}-{name}", uuid::Uuid::new_v4().simple()));
-                        }
-                        tauri::webview::DownloadEvent::Finished { path, success, .. } if !user => {
-                            downloads
-                                .lock()
-                                .unwrap_or_else(|p| p.into_inner())
-                                .entry(id.clone())
-                                .or_default()
-                                .push(super::Downloaded { path, ok: success });
-                        }
-                        _ => {}
-                    }
-                    true
-                }
-            })
             // No popups: a site that signs in through one is told so on the connection (host only), as for a refused address.
             .on_new_window(move |url, _| {
                 if cfg!(debug_assertions) && std::env::var_os("PYGG_WEB_DEVTOOLS").is_some() {
@@ -189,6 +157,8 @@ impl<R: Runtime> AppWindows<R> {
             })
             .build()
             .map_err(|e| format!("Could not open the window: {e}"))?;
+        #[cfg(windows)]
+        watch_responses(&window, self.received.clone(), provider.id.clone(), recipe.site);
         // Closing the window (it hides) ends the user's turn: back to the site's hosts only.
         let (signing_in, id) = (self.signing_in.clone(), provider.id.clone());
         window.on_window_event(move |event| {
@@ -203,7 +173,7 @@ impl<R: Runtime> AppWindows<R> {
 impl<R: Runtime> Windows for AppWindows<R> {
     fn page(&self, provider: &Provider, recipe: &'static Recipe) -> Result<Arc<dyn Page>, WebError> {
         let window = self.ensure(provider, recipe).map_err(|_| WebError::Unavailable(NO_WINDOW))?;
-        Ok(Arc::new(WindowPage { window, provider_id: provider.id.clone(), downloads: self.downloads.clone() }))
+        Ok(Arc::new(WindowPage { window, provider_id: provider.id.clone(), received: self.received.clone() }))
     }
 
     fn show(&self, provider: &Provider, recipe: &'static Recipe) -> Result<(), String> {
@@ -242,12 +212,86 @@ impl<R: Runtime> Windows for AppWindows<R> {
 struct WindowPage<R: Runtime> {
     window: WebviewWindow<R>,
     provider_id: String,
-    downloads: Arc<Mutex<HashMap<String, Vec<super::Downloaded>>>>,
+    received: Arc<Mutex<HashMap<String, Vec<super::Received>>>>,
+}
+
+/// How many responses a connection keeps until its reply takes them, and the most one may be.
+const KEPT: usize = 24;
+const KEPT_BYTES: usize = 100 * 1024 * 1024;
+
+/// Reads what the page receives (2026-11-18, the owner's call for another way than the page's markup): WebView2 says
+/// when each response arrives, and a sound, a document or the site's own API answer is read and kept for the reply
+/// (`super::worth_keeping`). Only responses: no request is changed or made, and no cookie or header is kept.
+#[cfg(windows)]
+fn watch_responses<R: Runtime>(
+    window: &WebviewWindow<R>, received: Arc<Mutex<HashMap<String, Vec<super::Received>>>>, id: String,
+    site: &'static str,
+) {
+    let site_host = site.trim_start_matches("https://").trim_end_matches('/').to_string();
+    let _ = window.with_webview(move |webview| unsafe {
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2WebResourceResponseReceivedEventArgs, ICoreWebView2_2,
+        };
+        use windows_core::Interface;
+        let Ok(core) = webview.controller().CoreWebView2() else { return };
+        let Ok(core) = core.cast::<ICoreWebView2_2>() else { return };
+        let handler = webview2_com::WebResourceResponseReceivedEventHandler::create(Box::new(
+            move |_sender, args: Option<ICoreWebView2WebResourceResponseReceivedEventArgs>| {
+                let Some(args) = args else { return Ok(()) };
+                let mut uri = windows_core::PWSTR::null();
+                args.Request()?.Uri(&mut uri)?;
+                let uri = webview2_com::take_pwstr(uri);
+                let host = uri
+                    .split("://")
+                    .nth(1)
+                    .and_then(|r| r.split(['/', '?', '#', ':']).next())
+                    .unwrap_or("")
+                    .to_string();
+                let response = args.Response()?;
+                let mut mime = windows_core::PWSTR::null();
+                let _ = response.Headers()?.GetHeader(windows_core::w!("Content-Type"), &mut mime);
+                let mime = webview2_com::take_pwstr(mime);
+                if !super::worth_keeping(&mime, &host, &site_host) {
+                    return Ok(());
+                }
+                let (received, id) = (received.clone(), id.clone());
+                let done = webview2_com::WebResourceResponseViewGetContentCompletedHandler::create(Box::new(
+                    move |result, stream: Option<windows::Win32::System::Com::IStream>| {
+                        let Some(stream) = stream.filter(|_| result.is_ok()) else { return Ok(()) };
+                        let mut body = Vec::new();
+                        let mut chunk = vec![0u8; 64 * 1024];
+                        loop {
+                            let mut read = 0u32;
+                            let hr = stream.Read(chunk.as_mut_ptr() as *mut _, chunk.len() as u32, Some(&mut read));
+                            if hr.is_err() || read == 0 {
+                                break;
+                            }
+                            body.extend_from_slice(&chunk[..read as usize]);
+                            if body.len() > KEPT_BYTES {
+                                return Ok(());
+                            }
+                        }
+                        let mut all = received.lock().unwrap_or_else(|p| p.into_inner());
+                        let list = all.entry(id.clone()).or_default();
+                        if list.len() >= KEPT {
+                            list.remove(0);
+                        }
+                        list.push(super::Received { mime: mime.clone(), host: host.clone(), body });
+                        Ok(())
+                    },
+                ));
+                let _ = response.GetContent(&done);
+                Ok(())
+            },
+        ));
+        let mut token = Default::default();
+        let _ = core.add_WebResourceResponseReceived(&handler, &mut token);
+    });
 }
 
 impl<R: Runtime> Page for WindowPage<R> {
-    fn downloads(&self) -> Vec<super::Downloaded> {
-        self.downloads.lock().unwrap_or_else(|p| p.into_inner()).remove(&self.provider_id).unwrap_or_default()
+    fn network(&self) -> Vec<super::Received> {
+        self.received.lock().unwrap_or_else(|p| p.into_inner()).remove(&self.provider_id).unwrap_or_default()
     }
 
     fn navigate(&self, url: &str) -> BoxFuture<'_, Result<(), WebError>> {

@@ -3169,7 +3169,9 @@ dependencies = [
  "tokio",
  "toml_edit 0.25.19+spec-1.1.0",
  "uuid",
+ "webview2-com",
  "windows",
+ "windows-core",
  "windows-version",
  "winreg 0.55.0",
 ]
