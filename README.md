@@ -91,7 +91,7 @@ The installer is **not code-signed**, so SmartScreen says "Windows protected you
 npm install -g @pygg/cli@dev
 ```
 
-`0.1.0-dev.5` under the tag `dev`, for **Windows x64**, **macOS** (Apple silicon and Intel) and **Linux x64** (glibc). On Windows the CLI uses the desktop app's store and gateway; on macOS and Linux, where there is no app yet, `pygg gateway serve` runs the gateway in a terminal of its own.
+`0.1.0-dev.6` under the tag `dev`, for **Windows x64**, **macOS** (Apple silicon and Intel) and **Linux x64** (glibc). On Windows the CLI uses the desktop app's store and gateway; on macOS and Linux, where there is no app yet, `pygg gateway serve` runs the gateway in a terminal of its own.
 
 ## Quick start
 

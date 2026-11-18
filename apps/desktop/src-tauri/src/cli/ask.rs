@@ -652,7 +652,8 @@ fn media_links(text: &str) -> Vec<(String, String)> {
             label.split(' ').nth(1).is_some_and(|n| n.parse::<u32>().is_ok()) && label.split(' ').count() == 2;
         if numbered
             && matches!(kind, "image" | "video" | "file")
-            && (url.starts_with("https://") || url.starts_with("data:image/"))
+            // A picture or video copied out of the page comes as a data URL (Muse's videos: `data:video/mp4`).
+            && (url.starts_with("https://") || url.starts_with("data:"))
         {
             out.push((label.to_string(), url.to_string()));
             rest = &after[end + 1..];
@@ -734,7 +735,13 @@ async fn save_one(http: &reqwest::Client, label: &str, url: &str, dir: &Path) ->
             body.as_bytes().to_vec()
         };
         let mime = head.split(';').next();
-        let path = dir.join(format!("{stem}.{}", extension("", mime)));
+        // A video copied from the page may carry no type: it is saved as MP4, a picture as PNG.
+        let ext = match extension("", mime).as_str() {
+            "bin" if label.starts_with("video") => "mp4".to_string(),
+            "bin" if label.starts_with("image") => "png".to_string(),
+            ext => ext.to_string(),
+        };
+        let path = dir.join(format!("{stem}.{ext}"));
         std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
         return Ok(path);
     }
@@ -985,6 +992,9 @@ mod tests {
         let urls: Vec<&str> = links.iter().map(|(_, u)| u.as_str()).collect();
         assert_eq!(urls, ["https://cdn.x/a.jpg?oh=1", "https://cdn.x/v.mp4", "https://cdn.x/r.pdf"]);
         assert_eq!(links[1].0, "video 1");
+        // Muse's video, copied out of the page (2026-11-18: it was taken, then skipped here as not a picture).
+        let muse = media_links("I'll make it.\n\n[video 1](data:video/mp4;base64,AAAAIGZ0eXA=)");
+        assert_eq!(muse, [("video 1".to_string(), "data:video/mp4;base64,AAAAIGZ0eXA=".to_string())]);
         assert_eq!(extension("https://cdn.x/a.jpg?oh=1", None), "jpg");
         assert_eq!(extension("https://cdn.x/render/abc", Some("video/mp4")), "mp4");
         assert_eq!(extension("https://cdn.x/x", None), "bin");
@@ -995,6 +1005,20 @@ mod tests {
         assert_eq!(media_start("Here you go.\n\n![image 1](data:image/png;base64,AAA)"), Some(12));
         assert_eq!(media_start("Here.\n\n[video 1](https://x/v.mp4)\n\n![image 1](https://x/a.jpg)"), Some(5));
         assert_eq!(media_start("plain [link](https://x)"), None);
+    }
+
+    #[test]
+    fn a_data_video_is_saved_as_mp4() {
+        let dir = std::env::temp_dir().join(format!("pygg-media-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let http = reqwest::Client::new();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let typed = rt.block_on(save_one(&http, "video 1", "data:video/mp4;base64,aGVsbG8=", &dir)).unwrap();
+        assert_eq!(typed.extension().unwrap(), "mp4");
+        assert_eq!(std::fs::read(&typed).unwrap(), b"hello");
+        let untyped = rt.block_on(save_one(&http, "video 2", "data:;base64,aGk=", &dir)).unwrap();
+        assert_eq!(untyped.extension().unwrap(), "mp4");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
