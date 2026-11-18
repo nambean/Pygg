@@ -1,5 +1,11 @@
 //! The app's windows for web sessions (ADR-035): one Tauri webview per connection, with its own WebView2 profile folder,
-//! hidden while Pygg drives it and shown when the user opens it to sign in.
+//! parked out of sight while Pygg drives it and brought on screen when the user opens it to sign in.
+//!
+//! **Parked, never hidden (2026-11-18).** A hidden WebView2 marks its page hidden, and a hidden page runs no
+//! `requestAnimationFrame`, which chat sites use to draw a reply as it streams: Pygg sent the prompt and then read
+//! nothing until "No reply appeared in time", on every web session, once the app had restarted and opened its windows
+//! hidden. The browser flags below keep timers running but cannot make a hidden page visible. So a window Pygg drives
+//! is shown, off every screen, without a taskbar button or focus: the page counts as visible and draws its reply.
 //!
 //! The window has no Tauri capability (`capabilities/default.json` names only `main`), and Tauri refuses every
 //! command from a remote page without one, so the site's scripts cannot call Pygg. It may navigate only to the
@@ -16,13 +22,25 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
-/// A hidden window unused this long is closed; the profile (and the sign-in) stays.
+/// Where a parked window goes: off every screen (not -32000, which Windows uses for minimized windows).
+const PARKED_AT: (i32, i32) = (-20000, -20000);
+
+/// Out of sight but visible to the page: shown off screen, without a taskbar button.
+pub fn park<R: Runtime>(window: &tauri::Window<R>) {
+    let _ = window.set_skip_taskbar(true);
+    let _ = window.set_position(tauri::PhysicalPosition::new(PARKED_AT.0, PARKED_AT.1));
+    let _ = window.show();
+}
+
+/// A parked window unused this long is closed; the profile (and the sign-in) stays.
 const IDLE: Duration = Duration::from_secs(600);
 /// How long one script may take before the page counts as not answering.
 const EVAL: Duration = Duration::from_secs(15);
-/// WebView2's defaults in wry, and timers that keep running while the window is hidden, so a reply is read as it
-/// comes. Nothing here changes how the browser presents itself to the site.
-const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+/// WebView2's defaults in wry, no occlusion tracking (a parked window is off screen, never "covered"), and timers that
+/// keep running out of sight, so a reply is read as it comes. Nothing here changes how the browser presents itself to
+/// the site.
+const BROWSER_ARGS: &str =
+    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion \
     --disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows";
 
 pub fn label(provider_id: &str) -> String {
@@ -69,7 +87,8 @@ impl<R: Runtime> AppWindows<R> {
             .collect();
         for id in idle {
             if let Some(window) = self.app.get_webview_window(&label(&id)) {
-                if !window.is_visible().unwrap_or(true) {
+                // Not while the user has it open to sign in.
+                if !self.signing_in.lock().unwrap_or_else(|p| p.into_inner()).contains(&id) {
                     let _ = window.destroy();
                     self.last_used.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
                 }
@@ -77,7 +96,7 @@ impl<R: Runtime> AppWindows<R> {
         }
     }
 
-    /// The connection's window, opened (hidden, on the site) if it is not.
+    /// The connection's window, opened (parked, on the site) if it is not.
     fn ensure(&self, provider: &Provider, recipe: &'static Recipe) -> Result<WebviewWindow<R>, String> {
         self.last_used.lock().unwrap_or_else(|p| p.into_inner()).insert(provider.id.clone(), Instant::now());
         if let Some(window) = self.app.get_webview_window(&label(&provider.id)) {
@@ -102,7 +121,11 @@ impl<R: Runtime> AppWindows<R> {
         let window = WebviewWindowBuilder::new(&self.app, label(&provider.id), WebviewUrl::External(url))
             .title(format!("{} — web session (unofficial), Pygg", provider.label))
             .inner_size(1100.0, 820.0)
-            .visible(false)
+            // Parked from the start (see the module's note): shown off screen, no taskbar button, no focus.
+            .position(PARKED_AT.0 as f64, PARKED_AT.1 as f64)
+            .skip_taskbar(true)
+            .focused(false)
+            .visible(true)
             .data_directory(profile)
             .additional_browser_args(&args)
             // Only the site and its sign-in hosts; a blocked address is not loaded. Its host (only) is kept on the connection.
@@ -169,6 +192,8 @@ impl<R: Runtime> Windows for AppWindows<R> {
     fn show(&self, provider: &Provider, recipe: &'static Recipe) -> Result<(), String> {
         self.signing_in.lock().unwrap_or_else(|p| p.into_inner()).insert(provider.id.clone());
         let window = self.ensure(provider, recipe)?;
+        let _ = window.set_skip_taskbar(false);
+        let _ = window.center();
         window.show().map_err(|e| e.to_string())?;
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -179,7 +204,7 @@ impl<R: Runtime> Windows for AppWindows<R> {
         // Only a window the user opened to sign in: back to the site's hosts only, and out of sight.
         if self.signing_in.lock().unwrap_or_else(|p| p.into_inner()).remove(provider_id) {
             if let Some(window) = self.app.get_webview_window(&label(provider_id)) {
-                let _ = window.hide();
+                park(&window.as_ref().window());
             }
         }
     }

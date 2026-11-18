@@ -166,10 +166,11 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 /// first time, a notification says where Pygg went.
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     let WindowEvent::CloseRequested { api, .. } = event else { return };
-    // A web session's window (ADR-035) only hides: a request may be using it, and it closes itself once unused.
+    // A web session's window (ADR-035) is only parked: a request may be using it, and it closes itself once unused.
+    // Parked, not hidden, so its page keeps drawing replies (websession/window.rs).
     if crate::websession::window::is_web_window(window.label()) {
         api.prevent_close();
-        let _ = window.hide();
+        crate::websession::window::park(window);
         return;
     }
     let app = window.app_handle();
