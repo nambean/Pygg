@@ -43,6 +43,11 @@ struct FakePage {
     /// What the page receives after the prompt (the first call, made before it, finds nothing).
     received: Mutex<Vec<Received>>,
     network_calls: AtomicUsize,
+    /// The Blobs the page holds (`heap_blobs` without reading), and the ones read for the reply once Play was pressed.
+    heap: Mutex<Vec<HeapBlob>>,
+    heap_after_play: Mutex<Vec<HeapBlob>>,
+    played: AtomicUsize,
+    paused: AtomicUsize,
 }
 
 impl FakePage {
@@ -61,6 +66,17 @@ impl FakePage {
 }
 
 impl Page for FakePage {
+    fn heap_blobs(&self, read: bool, _skip: Vec<(String, u64)>) -> BoxFuture<'_, Vec<HeapBlob>> {
+        let out = if !read {
+            self.heap.lock().unwrap().clone()
+        } else if self.played.load(Ordering::SeqCst) > 0 {
+            self.heap_after_play.lock().unwrap().clone()
+        } else {
+            Vec::new()
+        };
+        Box::pin(async move { out })
+    }
+
     fn network(&self) -> Vec<Received> {
         if self.network_calls.fetch_add(1, Ordering::SeqCst) == 0 {
             return Vec::new();
@@ -77,6 +93,17 @@ impl Page for FakePage {
         Box::pin(async move {
             Ok(if script.contains("__pyggOld = true") {
                 json!(true)
+            } else if script.contains("__pyggPlayed.add") {
+                // Only a page with a player in the reply has something to press.
+                if self.heap_after_play.lock().unwrap().is_empty() {
+                    json!(0)
+                } else {
+                    self.played.fetch_add(1, Ordering::SeqCst);
+                    json!(1)
+                }
+            } else if script.contains("^pause$") {
+                self.paused.fetch_add(1, Ordering::SeqCst);
+                json!(1)
             } else if script.contains("hasInput") {
                 FakePage::next(&self.states)
             } else if script.contains("execCommand") {
@@ -285,6 +312,40 @@ fn what_the_page_receives_comes_back_with_the_reply() {
     assert!(
         is_player_time("0:00") && is_player_time("1:05:30") && !is_player_time("Done.") && !is_player_time("10:0a")
     );
+}
+
+/// A sound or document the page holds in memory after the prompt comes back with the reply (2b, 2026-11-18): what was
+/// there before is passed over, pictures and tiny Blobs are not read, and a sound Muse fetches only on Play is played
+/// once (the window is muted) and paused when it is there (3).
+#[test]
+fn what_the_page_holds_after_the_prompt_comes_back_with_the_reply() {
+    let blobs = |l: &[(&str, u64)]| -> Vec<(String, u64)> { l.iter().map(|(m, s)| (m.to_string(), *s)).collect() };
+    let all = blobs(&[
+        ("audio/mpeg", 40_000),
+        ("image/png", 90_000),
+        ("application/pdf", 12_000),
+        ("audio/mpeg", 40_000),
+        ("audio/mpeg", 200),
+        ("", 5_000),
+    ]);
+    assert_eq!(heap_fresh(&all, blobs(&[("audio/mpeg", 40_000)])), [2, 3], "one old sound of that size passed over");
+    assert_eq!(heap_fresh(&all, Vec::new()), [0, 2, 3]);
+    assert!(blob_kept("application/vnd.openxmlformats-officedocument.wordprocessingml.document", 9_000));
+    assert!(!blob_kept("application/pdf", BLOB_LIMIT + 1) && !blob_kept("text/html", 9_000));
+    rt().block_on(async {
+        let page = FakePage::new(
+            vec![ready()],
+            vec![json!({ "count": 0, "text": "" }), json!({ "count": 1, "text": "Here's a gentle stream." })],
+        );
+        *page.heap.lock().unwrap() = vec![HeapBlob { mime: "audio/mpeg".into(), size: 4_000, url: None }];
+        *page.heap_after_play.lock().unwrap() =
+            vec![HeapBlob { mime: "audio/mpeg".into(), size: 9_000, url: Some("data:audio/mpeg;base64,SUQz".into()) }];
+        let reply = converse(page.as_ref(), muse(), "a sound", &fast(), &mut |_: &str| {}).await.unwrap();
+        let got: Vec<(&str, &str)> = reply.media.iter().map(|m| (m.kind.as_str(), m.url.as_str())).collect();
+        assert_eq!(got, [("audio", "data:audio/mpeg;base64,SUQz")]);
+        assert_eq!(page.played.load(Ordering::SeqCst), 1, "Play pressed once");
+        assert_eq!(page.paused.load(Ordering::SeqCst), 1, "and paused");
+    });
 }
 
 /// A reply in several bubbles keeps all its words (2026-11-18: Muse answered "Making your shopping list PDF now…" and
@@ -706,6 +767,8 @@ fn every_page_script_is_valid_javascript() {
             ("send", send_script(r)),
             ("read", read_script(r)),
             ("deny", deny_script(r)),
+            ("play", play_script(r, 2)),
+            ("pause", pause_script(r)),
         ];
         for (name, script) in scripts {
             let file = dir.join(format!("{}-{name}.js", r.preset));
@@ -740,6 +803,8 @@ fn no_script_reads_cookies_storage_or_the_network() {
             deny_script(r),
             media_probe_script(r),
             blob_poll_script(&["blob:https://x/1".to_string()]),
+            play_script(r, 2),
+            pause_script(r),
         ];
         for script in scripts {
             let lower = script.to_lowercase();

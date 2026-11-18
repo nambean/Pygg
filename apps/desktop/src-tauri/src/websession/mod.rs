@@ -150,6 +150,10 @@ pub struct Recipe {
     /// The site's busy sign (`busy`) is trusted to the end: while it shows, the reply is not finished, however long
     /// its words have been still. Off where a busy sign can stick (the reply's time limit still applies either way).
     pub trust_busy: bool,
+    /// A sound the site makes is fetched only when its player's Play is pressed (Muse): Pygg presses it once in the
+    /// reply's own media block, the window muted, and pauses it once the sound is in memory (owner's choice,
+    /// 2026-11-18).
+    pub play_audio: bool,
 }
 
 /// A check the site runs on the browser: a CAPTCHA, Cloudflare's "Just a moment" page or Turnstile, or a bot check.
@@ -229,6 +233,7 @@ pub const RECIPES: &[Recipe] = &[
         // words ("I'll generate…") come first and stay still meanwhile. Its status avatar is a looping video that never
         // goes, so it is no sign of anything.
         trust_busy: true,
+        play_audio: true,
     },
     // ChatGPT chats with visitors too, so "signed in" needs its Log in buttons gone. Sign-in: auth.openai.com (email,
     // phone), Google, Apple, Microsoft. Public page, 2026-11-12: `textarea[name="prompt"]`, a "Send message" button.
@@ -266,6 +271,7 @@ pub const RECIPES: &[Recipe] = &[
         quota_hints: QUOTA_HINTS,
         media_root: None,
         trust_busy: false,
+        play_audio: false,
     },
     // Perplexity answers visitors too. Sign-in: an emailed code on perplexity.ai, Google, Apple. Public page,
     // 2026-11-12: a Lexical `div[contenteditable][role=textbox]`, a "Submit" button. Its "Computer" mode is an agent;
@@ -292,6 +298,7 @@ pub const RECIPES: &[Recipe] = &[
         quota_hints: QUOTA_HINTS,
         media_root: None,
         trust_busy: false,
+        play_audio: false,
     },
     // DeepSeek needs an account: chat.deepseek.com sends a visitor to /sign_in (email or phone with a password,
     // Google, Apple). Its Send control has no label, so Enter sends; it shows no reliable "stop" control either.
@@ -317,6 +324,7 @@ pub const RECIPES: &[Recipe] = &[
         quota_hints: QUOTA_HINTS,
         media_root: None,
         trust_busy: false,
+        play_audio: false,
     },
     // Grok sits behind Cloudflare: on 2026-11-12 even its sign-in page answered with "Just a moment" in a normal
     // browser. That check stops the connection until the user clears it in the window; Pygg never answers it. Sign-in:
@@ -344,6 +352,7 @@ pub const RECIPES: &[Recipe] = &[
         quota_hints: QUOTA_HINTS,
         media_root: None,
         trust_busy: false,
+        play_audio: false,
     },
 ];
 
@@ -881,6 +890,51 @@ fn media_addresses(text: &str) -> Vec<Media> {
     out
 }
 
+/// Presses Play on each audio player in the site's media blocks after the replies from before the prompt (`before`), each
+/// once. Only a player: a block with a slider and a button named Play, no video. Returns how many were pressed.
+pub fn play_script(r: &Recipe, before: u64) -> String {
+    format!(
+        r#"(() => {{
+  const replies = [...document.querySelectorAll({reply})];
+  const anchor = {before} > 0 ? replies[{before} - 1] : null;
+  const fresh = el => !anchor || ((anchor.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) && !anchor.contains(el));
+  const rootSel = {media_root};
+  if (!rootSel) return 0;
+  window.__pyggPlayed = window.__pyggPlayed || new WeakSet();
+  let pressed = 0;
+  for (const b of document.querySelectorAll(rootSel)) {{
+    if (!fresh(b) || window.__pyggPlayed.has(b) || b.querySelector('video') || !b.querySelector('[role="slider"]')) continue;
+    const play = [...b.querySelectorAll('button')].find(x => /^play$/i.test((x.getAttribute('aria-label') || '').trim()));
+    if (!play) continue;
+    window.__pyggPlayed.add(b);
+    play.click();
+    pressed++;
+  }}
+  return pressed;
+}})()"#,
+        reply = q(r.reply),
+        before = before,
+        media_root = json!(r.media_root),
+    )
+}
+
+/// Pauses the players `play_script` started.
+pub fn pause_script(r: &Recipe) -> String {
+    format!(
+        r#"(() => {{
+  const rootSel = {media_root};
+  if (!rootSel) return 0;
+  let paused = 0;
+  for (const b of document.querySelectorAll(rootSel)) {{
+    const pause = [...b.querySelectorAll('button')].find(x => /^pause$/i.test((x.getAttribute('aria-label') || '').trim()));
+    if (pause) {{ pause.click(); paused++; }}
+  }}
+  return paused;
+}})()"#,
+        media_root = json!(r.media_root),
+    )
+}
+
 /// Standard base64.
 fn base64_encode(bytes: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -907,7 +961,7 @@ const PROBE_EVERY: Duration = Duration::from_secs(20);
 #[allow(clippy::too_many_arguments)]
 async fn finish(
     page: &dyn Page, recipe: &Recipe, timing: &Timing, text: String, sent: &str, denied: u64, media: Vec<Media>,
-    on_text: &mut (dyn FnMut(&str) + Send), note: &str, before: u64,
+    on_text: &mut (dyn FnMut(&str) + Send), note: &str, before: u64, heap_base: &[(String, u64)],
 ) -> Reply {
     if text.len() > sent.len() {
         if let Some(more) = text.strip_prefix(sent) {
@@ -928,7 +982,39 @@ async fn finish(
         tokio::time::sleep(timing.poll).await;
         received.extend(page.network());
     }
-    let _ = before;
+    // Sounds and documents the page holds in memory since the prompt (2b); a sound fetched only on Play is played
+    // once, muted, and paused when it is there (3).
+    let mut from_heap = page.heap_blobs(true, heap_base.to_vec()).await;
+    if recipe.play_audio && !from_heap.iter().any(|b| b.mime.starts_with("audio/")) {
+        let pressed = page.eval(play_script(recipe, before)).await.ok().and_then(|v| v.as_u64()).unwrap_or(0);
+        if pressed > 0 {
+            for _ in 0..40 {
+                tokio::time::sleep(timing.poll.max(Duration::from_millis(250))).await;
+                from_heap = page.heap_blobs(true, heap_base.to_vec()).await;
+                if from_heap.iter().filter(|b| b.mime.starts_with("audio/")).count() as u64 >= pressed {
+                    break;
+                }
+            }
+            let _ = page.eval(pause_script(recipe)).await;
+        }
+        crate::applog::info(&format!("web reply on {}: Play pressed on {pressed} sound(s)", recipe.preset));
+    }
+    let heap_note: Vec<String> = from_heap.iter().map(|b| format!("{} {} bytes", b.mime, b.size)).collect();
+    if !heap_note.is_empty() {
+        crate::applog::info(&format!(
+            "web reply on {}: in the page's memory since the prompt: {}",
+            recipe.preset,
+            heap_note.join(", ")
+        ));
+    }
+    for b in from_heap {
+        if let Some(url) = b.url.filter(|u| u.starts_with("data:")) {
+            let kind = if b.mime.starts_with("audio/") { "audio" } else { "file" };
+            if !media.iter().any(|m| m.url == url) {
+                media.push(Media { kind: kind.to_string(), url });
+            }
+        }
+    }
     let seen = page.network_seen();
     if !seen.is_empty() {
         let mut counts: Vec<(String, usize)> = Vec::new();
@@ -1233,6 +1319,44 @@ pub trait Page: Send + Sync {
     fn network_seen(&self) -> Vec<String> {
         Vec::new()
     }
+    /// The Blobs in the page's memory, found through the DevTools protocol on Pygg's own window, without changing the
+    /// page (2b, the owner's choice of 2026-11-18): every one as type and size, and with `read`, those of a kind kept
+    /// (`blob_kept`) beyond the ones in `skip` with their bytes as a data URL.
+    fn heap_blobs(&self, _read: bool, _skip: Vec<(String, u64)>) -> BoxFuture<'_, Vec<HeapBlob>> {
+        Box::pin(async { Vec::new() })
+    }
+}
+
+/// A Blob in the page's memory: its type and size, and its bytes as a data URL when they were read.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HeapBlob {
+    pub mime: String,
+    pub size: u64,
+    pub url: Option<String>,
+}
+
+/// Which of the page's Blobs (type and size, in the order found) are the reply's: one of each type and size in
+/// `skip`, what was there before the prompt, is passed over, and of the rest those `blob_kept` keeps.
+pub fn heap_fresh(blobs: &[(String, u64)], mut skip: Vec<(String, u64)>) -> Vec<usize> {
+    let mut fresh = Vec::new();
+    for (i, (mime, size)) in blobs.iter().enumerate() {
+        if let Some(at) = skip.iter().position(|(m, s)| m == mime && s == size) {
+            skip.remove(at);
+        } else if blob_kept(mime, *size) {
+            fresh.push(i);
+        }
+    }
+    fresh
+}
+
+/// Whether a Blob in the page is read for a reply: a sound or a document. Pictures and videos come from the page.
+pub fn blob_kept(mime: &str, size: u64) -> bool {
+    let mime = mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    (1024..=BLOB_LIMIT).contains(&size)
+        && (mime.starts_with("audio/")
+            || matches!(mime.as_str(), "application/pdf" | "application/zip" | "application/msword" | "text/csv")
+            || mime.starts_with("application/vnd.openxmlformats-officedocument.")
+            || mime.starts_with("application/vnd.ms-"))
 }
 
 /// One response the page received: its content type, the address's host, and its body (a sound or document, or the
@@ -1433,9 +1557,11 @@ pub async fn converse_marked(
     submitted: &AtomicBool,
 ) -> Result<Reply, WebError> {
     open_chat(page, recipe, timing).await?;
-    // What the page received before the prompt is not the reply's.
+    // What the page received or holds before the prompt is not the reply's.
     let _ = page.network();
     let _ = page.network_seen();
+    let heap_base: Vec<(String, u64)> =
+        page.heap_blobs(false, Vec::new()).await.into_iter().map(|b| (b.mime, b.size)).collect();
     let base: ChatState = eval_as(page, read_script(recipe)).await?;
     let filled: Value = page.eval(fill_script(recipe, prompt)).await?;
     if filled["offSite"] == true {
@@ -1474,7 +1600,10 @@ pub async fn converse_marked(
             if last.as_deref().is_some_and(|t| !t.is_empty()) || !media.is_empty() {
                 let text = last.unwrap_or_default();
                 let note = ", ended at the time limit while the page still showed it was busy";
-                return Ok(finish(page, recipe, timing, text, &sent, denied, media, on_text, note, base.count).await);
+                return Ok(finish(
+                    page, recipe, timing, text, &sent, denied, media, on_text, note, base.count, &heap_base,
+                )
+                .await);
             }
             return Err(WebError::Timeout(REPLY_TIMEOUT));
         }
@@ -1549,7 +1678,10 @@ pub async fn converse_marked(
                 if text.len() < 600 && SLOW_DOWN_HINTS.iter().any(|h| lower.contains(h) && !prompt_lower.contains(h)) {
                     return Err(WebError::SlowDown);
                 }
-                return Ok(finish(page, recipe, timing, text, &sent, denied, media, on_text, "", base.count).await);
+                return Ok(finish(
+                    page, recipe, timing, text, &sent, denied, media, on_text, "", base.count, &heap_base,
+                )
+                .await);
             }
         }
     }

@@ -9,6 +9,8 @@
 use super::{host_allowed, Page, Recipe, WebError, Windows, NO_WINDOW};
 use crate::gateway::store::Provider;
 use futures_util::future::BoxFuture;
+#[cfg(windows)]
+use serde_json::json;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -162,6 +164,18 @@ impl<R: Runtime> AppWindows<R> {
             .map_err(|e| format!("Could not open the window: {e}"))?;
         #[cfg(windows)]
         watch_responses(&window, self.received.clone(), self.seen.clone(), provider.id.clone(), recipe.site);
+        // The window makes no sound: a player Pygg starts to have the sound fetched (`Recipe::play_audio`) is heard by
+        // no one.
+        #[cfg(windows)]
+        let _ = window.with_webview(|webview| unsafe {
+            use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_8;
+            use windows_core::Interface;
+            if let Ok(core) = webview.controller().CoreWebView2() {
+                if let Ok(core) = core.cast::<ICoreWebView2_8>() {
+                    let _ = core.SetIsMuted(true);
+                }
+            }
+        });
         // Closing the window (it hides) ends the user's turn: back to the site's hosts only.
         let (signing_in, id) = (self.signing_in.clone(), provider.id.clone());
         window.on_window_event(move |event| {
@@ -306,7 +320,117 @@ fn watch_responses<R: Runtime>(
     });
 }
 
+/// One DevTools protocol call on Pygg's own window (WebView2's `CallDevToolsProtocolMethod`), its result as JSON, or
+/// `None` when it failed. Nothing is attached from outside the app and no port is opened.
+#[cfg(windows)]
+fn devtools<R: Runtime>(
+    window: &WebviewWindow<R>, method: &'static str, params: Value,
+) -> BoxFuture<'static, Option<Value>> {
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<Value>>();
+    let params = params.to_string();
+    let sent = window.with_webview(move |webview| unsafe {
+        let Ok(core) = webview.controller().CoreWebView2() else { return };
+        let tx = Mutex::new(Some(tx));
+        let done = webview2_com::CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
+            move |result: windows_core::Result<()>, json: String| {
+                if let Some(tx) = tx.lock().unwrap_or_else(|p| p.into_inner()).take() {
+                    let _ = tx.send(result.ok().and_then(|_| serde_json::from_str(&json).ok()));
+                }
+                Ok(())
+            },
+        ));
+        let method = windows_core::HSTRING::from(method);
+        let params = windows_core::HSTRING::from(params);
+        let _ = core.CallDevToolsProtocolMethod(&method, &params, &done);
+    });
+    Box::pin(async move {
+        sent.ok()?;
+        tokio::time::timeout(EVAL * 4, rx).await.ok()?.ok()?
+    })
+}
+
+/// Reads the page's Blobs through the DevTools protocol (2b): the objects whose prototype is `Blob.prototype` (Files
+/// too), as type and size, and with `read` the bytes of those `super::blob_kept` keeps beyond `skip`, as data URLs
+/// (FileReader, in the page). The handles are released after; the page is not changed.
+#[cfg(windows)]
+async fn read_heap_blobs<R: Runtime>(
+    window: &WebviewWindow<R>, read: bool, skip: Vec<(String, u64)>,
+) -> Vec<super::HeapBlob> {
+    const GROUP: &str = "pygg-blobs";
+    let list = async {
+        let proto = devtools(
+            window,
+            "Runtime.evaluate",
+            json!({ "expression": "Blob.prototype", "objectGroup": GROUP, "silent": true }),
+        )
+        .await?;
+        let proto = proto.pointer("/result/objectId")?.as_str()?.to_string();
+        let found = devtools(
+            window,
+            "Runtime.queryObjects",
+            json!({ "prototypeObjectId": proto, "objectGroup": GROUP }),
+        )
+        .await?;
+        let array = found.pointer("/objects/objectId")?.as_str()?.to_string();
+        let listed = devtools(
+            window,
+            "Runtime.callFunctionOn",
+            json!({
+                "objectId": array,
+                "functionDeclaration": "function () { return this.map(b => [String(b.type || ''), Number(b.size) || 0]); }",
+                "returnByValue": true,
+                "silent": true,
+            }),
+        )
+        .await?;
+        let blobs: Vec<(String, u64)> = listed
+            .pointer("/result/value")?
+            .as_array()?
+            .iter()
+            .map(|b| (b[0].as_str().unwrap_or("").to_string(), b[1].as_u64().unwrap_or(0)))
+            .collect();
+        let mut out: Vec<super::HeapBlob> =
+            blobs.iter().map(|(mime, size)| super::HeapBlob { mime: mime.clone(), size: *size, url: None }).collect();
+        if !read {
+            return Some(out);
+        }
+        let fresh = super::heap_fresh(&blobs, skip);
+        out = fresh.iter().map(|&i| out[i].clone()).collect();
+        let total: u64 = out.iter().map(|b| b.size).sum();
+        if out.is_empty() || total > super::BLOB_LIMIT {
+            return Some(out);
+        }
+        let urls = devtools(
+            window,
+            "Runtime.callFunctionOn",
+            json!({
+                "objectId": array,
+                "functionDeclaration": "function (pick) { return Promise.all(pick.map(i => new Promise(done => { const r = new FileReader(); r.onload = () => done(String(r.result)); r.onerror = () => done(null); r.readAsDataURL(this[i]); }))); }",
+                "arguments": [{ "value": fresh }],
+                "awaitPromise": true,
+                "returnByValue": true,
+                "silent": true,
+            }),
+        )
+        .await;
+        if let Some(urls) = urls.as_ref().and_then(|u| u.pointer("/result/value")).and_then(|v| v.as_array()) {
+            for (b, url) in out.iter_mut().zip(urls) {
+                b.url = url.as_str().map(str::to_string);
+            }
+        }
+        Some(out)
+    }
+    .await;
+    let _ = devtools(window, "Runtime.releaseObjectGroup", json!({ "objectGroup": GROUP })).await;
+    list.unwrap_or_default()
+}
+
 impl<R: Runtime> Page for WindowPage<R> {
+    #[cfg(windows)]
+    fn heap_blobs(&self, read: bool, skip: Vec<(String, u64)>) -> BoxFuture<'_, Vec<super::HeapBlob>> {
+        Box::pin(read_heap_blobs(&self.window, read, skip))
+    }
+
     fn network(&self) -> Vec<super::Received> {
         self.received.lock().unwrap_or_else(|p| p.into_inner()).remove(&self.provider_id).unwrap_or_default()
     }
