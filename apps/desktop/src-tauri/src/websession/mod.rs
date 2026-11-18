@@ -631,7 +631,19 @@ pub fn read_script(r: &Recipe) -> String {
     if (!/^(https:|blob:)/.test(src) || seen.has(src)) continue;
     seen.add(src); media.push({{ kind: 'video', url: src }});
   }}
-  return {{ count: replies.length, text: last, busy: {busy}, media, pending,
+  // Signs that the site is still making something, near the last reply and in its media blocks. Only an increase
+  // over the page before the prompt holds the reply, so a sign that is always there does not.
+  const lastReply = replies[replies.length - 1];
+  const turn = lastReply ? (lastReply.parentElement && lastReply.parentElement.parentElement) || lastReply : null;
+  const areas = (turn ? [turn] : []).concat(rootSel ? scope : []);
+  const marks = '[aria-busy="true"], [role="progressbar"], progress, .animate-pulse, .animate-bounce, ' +
+    '[class*="skeleton" i], [class*="shimmer" i], [class*="typing" i], [aria-label*="typing" i], ' +
+    '[data-state="loading"], [data-loading="true"], [data-hatch-video-wrapper]:not([data-hatch-video-src])';
+  // Where a site keeps what it made in media blocks, a video outside them is its waiting animation (2026-11-18, the
+  // owner's DevTools: Muse plays its mascot as a blob: video beside the "•••" bubble until the real video is ready).
+  const waitingVideos = rootSel ? [...document.querySelectorAll('video')].filter(v => !scope.some(r => r.contains(v))) : [];
+  const making = new Set(areas.flatMap(a => [...a.querySelectorAll(marks)]).concat(waitingVideos)).size;
+  return {{ count: replies.length, text: last, busy: {busy}, media, pending, making,
            approval: {approval}, challenge: !!document.querySelector({challenge}) || {challenge_hints}.some(h => body.includes(h)),
            restricted: {restricted}.some(h => body.includes(h) && !said.includes(h)) }};
 }})()"#,
@@ -693,7 +705,23 @@ pub fn media_probe_script(r: &Recipe) -> String {
     const b = getComputedStyle(e).backgroundImage || '';
     if (b.startsWith('url(') && wide(e)) backgrounds++;
   }}
-  return {{ replies: replies.length, imgs: imgs.length, kinds, large, loading, widest, videos, pictures,
+  const turn = lastReply ? (lastReply.parentElement && lastReply.parentElement.parentElement) || lastReply : null;
+  const outline = [];
+  if (turn) {{
+    for (const e of [turn, ...turn.querySelectorAll('*')].slice(0, 120)) {{
+      const tag = e.tagName.toLowerCase();
+      if (['path', 'g', 'span', 'p', 'br', 'strong', 'em', 'b', 'i', 'li', 'ul', 'ol', 'code', 'pre'].includes(tag)) continue;
+      const bits = [tag];
+      const id = e.getAttribute('data-testid');
+      if (id) bits.push('#' + id.slice(0, 60));
+      for (const a of ['role', 'aria-busy', 'data-state', 'data-loading']) {{ const v = e.getAttribute(a); if (v) bits.push('[' + a + '=' + v.slice(0, 20) + ']'); }}
+      for (const a of e.getAttributeNames()) {{ if (a.startsWith('data-hatch')) bits.push('[' + a + ']'); }}
+      const c = classes(e)[0];
+      if (c) bits.push('.' + c);
+      outline.push(bits.join(''));
+    }}
+  }}
+  return {{ replies: replies.length, imgs: imgs.length, kinds, large, loading, widest, videos, pictures, outline,
            canvases: [...document.querySelectorAll('canvas')].filter(wide).length,
            svgs: [...document.querySelectorAll('svg')].filter(wide).length,
            pictureTags: document.querySelectorAll('picture').length, backgrounds }};
@@ -838,6 +866,9 @@ pub struct ChatState {
     pub media: Vec<Media>,
     /// Large pictures still loading.
     pub pending: u64,
+    /// Signs near the reply that the site is still making something: `aria-busy`, a progress bar, a skeleton or
+    /// shimmer, a loading state, or a media block whose video has no address yet.
+    pub making: u64,
 }
 
 /// A picture, video or file the site showed with its reply: its address only (an https address, or a picture's data
@@ -1093,37 +1124,6 @@ pub async fn open_chat(page: &dyn Page, recipe: &Recipe, timing: &Timing) -> Res
     }
 }
 
-/// How long a reply waits for a picture or video the prompt asked for, beyond its words.
-pub const MEDIA_WAIT: Duration = Duration::from_secs(180);
-
-/// Whether a prompt asks for a picture or video, in English or Vietnamese.
-pub fn asks_for_media(prompt: &str) -> bool {
-    let p = prompt.to_lowercase();
-    [
-        "image",
-        "picture",
-        "photo",
-        "video",
-        "draw ",
-        "drawing",
-        "paint",
-        "illustrat",
-        "animation",
-        "animated",
-        "clip",
-        "hình ảnh",
-        "bức ảnh",
-        "tấm ảnh",
-        "tạo ảnh",
-        "ảnh của",
-        "vẽ",
-        "phim",
-        "hoạt hình",
-    ]
-    .iter()
-    .any(|w| p.contains(w))
-}
-
 /// A finished reply, and how many of the site's requests for approval were denied on the way.
 #[derive(Debug, PartialEq)]
 pub struct Reply {
@@ -1176,8 +1176,6 @@ pub async fn converse_marked(
     let (first_word, reply_wait) = (timing.first_word_wait(prompt), timing.reply_wait(prompt));
     let (mut sent, mut last, mut stable, mut denied) = (String::new(), None::<String>, 0, 0u64);
     let mut media: Vec<Media> = Vec::new();
-    // A picture or video asked for comes after the words (Muse: "I'll generate…", then the video): held for.
-    let expects_media = asks_for_media(prompt);
     // The page has shown it is answering: its thinking is the first word.
     let mut answering = false;
     // A notice in the prompt itself is the user's text, not the site's.
@@ -1188,8 +1186,7 @@ pub async fn converse_marked(
         if elapsed > reply_wait {
             return Err(WebError::Timeout(REPLY_TIMEOUT));
         }
-        let media_due = expects_media && media.is_empty() && elapsed < MEDIA_WAIT;
-        if sent.is_empty() && media.is_empty() && !answering && elapsed > first_word && !media_due {
+        if sent.is_empty() && media.is_empty() && !answering && elapsed > first_word {
             return Err(WebError::Timeout(NO_REPLY));
         }
         tokio::time::sleep(timing.poll).await;
@@ -1200,7 +1197,10 @@ pub async fn converse_marked(
         if state.challenge {
             return Err(WebError::NeedsYou { state: "needs_you", reason: CHALLENGE });
         }
-        answering |= state.busy;
+        // The site shows it is still making something (a progress bar, a skeleton, a loading state) that was not on
+        // the page before the prompt: the reply is not finished, however long its words have been still.
+        let making = state.making > base.making;
+        answering |= state.busy || making;
         if state.approval {
             // The site's agent wants to act for the user (send mail, buy, publish). Through Pygg it never may.
             denied += page.eval(deny_script(recipe)).await.ok().and_then(|v| v.as_u64()).unwrap_or(0);
@@ -1212,7 +1212,7 @@ pub async fn converse_marked(
             media = fresh;
             stable = 0;
         }
-        let waiting = state.pending > 0;
+        let waiting = state.pending > 0 || making;
         let text = state.text;
         let new = state.count > base.count || (!text.is_empty() && text != base.text);
         // A reply may be a picture alone.
@@ -1233,9 +1233,7 @@ pub async fn converse_marked(
         } else {
             stable += 1;
             let settled = if recipe.busy.is_some() { timing.stable } else { timing.stable_busy };
-            // A short reply to a request for a picture or video waits for it (a long one answered in words).
-            let holding = media_due && last.as_deref().map_or(0, |t| t.chars().count()) < 300;
-            if !waiting && !holding && ((!state.busy && stable >= settled) || stable >= timing.stable_busy) {
+            if !waiting && ((!state.busy && stable >= settled) || stable >= timing.stable_busy) {
                 let text = last.unwrap_or_default();
                 let lower = text.to_lowercase();
                 if recipe.quota_hints.iter().any(|h| lower.contains(h)) && text.len() < 600 {
