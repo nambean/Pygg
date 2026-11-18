@@ -192,6 +192,11 @@ pygg logs               # recent requests
 pygg usage              # requests and cost
 pygg chat --model muse/muse                  # talk to any connected model through Pygg's router
 pygg ask --model auto/cheap "a question"     # one question, the answer printed
+pygg default muse/muse                       # the model chat and ask use without --model
+pygg models info muse/muse                   # one model's price, limits and place in auto
+pygg route                                   # which models auto would try now, and why the rest are left out
+pygg providers add openrouter --key-env OPENROUTER_API_KEY   # connect an API provider from the terminal
+pygg completion powershell >> $PROFILE       # Tab completion
 ```
 
 `pygg chat` and `pygg ask` are AI command-line tools of their own: every connection Pygg serves can answer them, a web session included, with the same routing, fallbacks and ledger. The conversation is kept in memory only.

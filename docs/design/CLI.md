@@ -26,21 +26,40 @@ pygg run [--model M] [--statusline] [--db PATH] claude|codex|opencode [the tool'
 pygg statusline                       the launch's cost in one line, for Claude Code's status line   [--db PATH]
 
 Talk to any connected model through Pygg's router
-pygg chat [--model M] [--db PATH]     a conversation in the terminal; /model M, /new, /cost, /exit; nothing kept
-pygg ask [--model M] [--db PATH] QUESTION…   one question, the answer on stdout (also from a pipe)
+pygg chat [options]                   a conversation in the terminal; /model, /system, /set, /file, /new, /cost, /exit
+pygg ask [options] QUESTION…          one question, the answer on stdout (also from a pipe)   [--json] [-x]
+      options: -m MODEL, -s SYSTEM, -t TEMPERATURE, --max-tokens N, -f FILE…, --no-stream, -r (raw), --no-input
+pygg default [MODEL | --clear]        the model chat and ask use without -m
+
+Providers and models
+pygg providers                        connections: on, last check, health over 24 hours, models enabled/total
+pygg providers presets                the kinds of connection Pygg knows
+pygg providers add PRESET [--key-env VAR] [--label NAME] [--endpoint URL] [--billing TYPE]
+pygg providers refresh | enable | disable CONNECTION
+pygg providers remove CONNECTION --yes
+pygg models [CONNECTION]              models to ask for, billing, price   [--search TEXT] [--all] [--limit N]
+pygg models info CONNECTION/MODEL     price, tier, limits, tools, health over 24 hours, place in auto and auto/cheap
+pygg models test CONNECTION/MODEL     one short question through the gateway
+pygg models enable | disable CONNECTION/MODEL…
+pygg route [auto|auto/cheap]          the models the router would try, best first, and why the rest are left out
+                                      [--key NAME] [--tools] [--images] [--prompt N]
+pygg combos                           combos and their models
+pygg keys [--all]                     API keys: start of the key, last used, spend this month, limit
 
 See what Pygg has and does (read only; --json on each)
 pygg status                           is the gateway answering, on which store, which schema   [--port N]
 pygg doctor                           status, plus coding tools, agents found, providers needing attention
-pygg providers                        connections: on, last check, health over 24 hours, models enabled/total
-pygg models [CONNECTION]              models to ask for, billing, price   [--search TEXT] [--all] [--limit N]
 pygg logs                             recent request attempts, newest first, UTC   [--limit N] [--client NAME] [--failed]
 pygg usage                            requests, known and unknown cost, token mix, by client and model   [--days 1|7|30]
+pygg savings [--days N]               the saving estimate against the model chosen to compare with
+pygg launches [--limit N]             pygg run launches: tool, repository, requests, cost, what changed in Git
 
 Advanced
 pygg gateway <command> …              the gateway without the window (below)
 pygg diagnostics --out PATH           the redacted diagnostics bundle (a zip)   [--port N]
-pygg --version                        the npm package's version, such as 0.1.0-dev.2
+pygg completion powershell|bash|zsh   Tab completion for the shell
+pygg help COMMAND                     the same as pygg COMMAND --help
+pygg --version                        the npm package's version, such as 0.1.0-dev.3
 
 Experimental task integration (on hold)
 pygg mcp setup [claude-code|codex|opencode]   register Pygg's MCP server in the tool   [--dry-run | --remove]
@@ -63,6 +82,13 @@ Every command takes `--db PATH`; `pygg <command> --help` says more.
 - `--model` takes `connection/model`, a combo, `auto` or `auto/cheap` (default `auto`). A chat is one routing session (`chat-<uuid>`), so it stays on the model that first answered; `/model M` starts a new session for the next messages and sends the conversation so far with them. `/new` forgets the conversation.
 - The conversation is held in memory only (ADR-028). A message the gateway refused is taken out of it, so it can be changed and sent again. Every turn sends the whole conversation, so a web session such as Muse refuses a chat once it passes the site's prompt limit.
 - `ask` reads the question from its arguments, or from stdin when there are none and stdin is not a terminal. Exit codes: 0 answered, 1 no answer, 2 wrong usage.
+
+### Changing things from the terminal
+
+- `providers add|refresh|enable|disable|remove`, `models enable|disable` and `default` open the store read-write without migrating it, and only at the schema this program knows (`manage::open_write`). The running app and gateway read the store at each request, so a change applies at once.
+- `providers add` reads the key from an environment variable (`--key-env`), never from the command line, keeps it in the credential store and lists the connection's models (with models.dev's facts), as Connect Provider does. Web-session presets are refused with a pointer to the app, which opens the site's sign-in window. `providers remove` needs `--yes` and deletes the connection's keys from the credential store; its past requests stay in the ledger.
+- `models info` reads only the store: the price, tier, limits, what it takes, its requests over 24 hours, and its place in `auto` and `auto/cheap` for a 1,000-token chat by the first API key's rules (`route` takes another key and other needs). `models test` sends one short question through the running gateway, as `ask` does.
+- Making, limiting and revoking API keys, combos, prices and tiers stay in the app (and in `pygg gateway` for a headless gateway). A key's secret is never printed by `keys`.
 
 ### `gateway` (advanced)
 

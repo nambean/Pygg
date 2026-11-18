@@ -22,6 +22,7 @@
 pub mod agent;
 pub mod ask;
 pub mod gateway;
+pub mod manage;
 pub mod read;
 pub mod run;
 pub mod setup;
@@ -47,20 +48,33 @@ Use coding tools through Pygg
   statusline                  this launch's cost in one line (pygg run --statusline claude sets it up)
 
 Talk to any connected model through Pygg's router
-  chat [--model M]            a conversation in the terminal (pygg chat --model muse/muse); nothing is kept
-  ask [--model M] QUESTION    one question, the answer printed (also from a pipe: echo QUESTION | pygg ask)
+  chat [-m M]                 a conversation in the terminal (pygg chat -m muse/muse); nothing is kept
+  ask [-m M] QUESTION         one question, the answer printed (also from a pipe: git diff | pygg ask QUESTION)
+                              -s system prompt, -t temperature, -f FILE, --json, -x code only (pygg ask --help)
+  default [MODEL]             the model chat and ask use without -m (pygg default muse/muse)
+
+Providers and models
+  providers                   saved connections: on, last check, health, models
+  providers presets | add | refresh | enable | disable | remove     connect or change one without the app
+  models [CONNECTION]         the models to ask for, with billing and price   (--search TEXT, --all)
+  models info | test | enable | disable CONNECTION/MODEL            one model's facts, a test answer, on or off
+  route [auto|auto/cheap]     which models the router would try for a request, and why the rest are left out
+  combos                      lists of models tried in turn, asked for by name
+  keys                        Pygg's API keys: last used, spend this month, limit
 
 See what Pygg has and does (read only; --json on each)
   status                      is the gateway answering, and on which store
   doctor                      status, plus your tools and the providers that need attention
-  providers                   saved connections: on, last check, health, models
-  models [CONNECTION]         the models to ask for, with billing and price   (--search TEXT, --all)
   logs                        recent request attempts   (--limit N, --client NAME, --failed)
   usage                       requests, known and unknown cost, token mix   (--days 1|7|30)
+  savings                     what routing saved against the model you compare with   (--days N)
+  launches                    the tools started with pygg run: cost and what changed in Git
 
 Advanced
   gateway <command> ...       the gateway without the window: serve, add-connection, model, client, combo, auto
   diagnostics --out PATH      save the redacted diagnostics bundle (no keys, tokens or prompts)
+  completion powershell|bash|zsh   Tab completion for your shell
+  help COMMAND                the same as pygg COMMAND --help
   --version                   this program's version
 
 Experimental task integration (on hold)
@@ -75,7 +89,8 @@ Exit codes: 0 done, 1 failed, 2 wrong usage, 3 a check found a problem; `run` re
 /// no app is published yet, the headless gateway (ADR-037).
 #[cfg(windows)]
 pub(crate) const GET_STARTED: &str =
-    "Connect providers in the Pygg desktop app, which also runs the gateway: https://github.com/nambean/Pygg";
+    "Connect providers with pygg providers add (API keys) or in the Pygg desktop app, which also runs the gateway \
+and signs in to web sessions: https://github.com/nambean/Pygg";
 #[cfg(not(windows))]
 pub(crate) const GET_STARTED: &str =
     "The Pygg desktop app is Windows only for now. Here, connect a provider and run the gateway from the terminal:
@@ -391,6 +406,34 @@ async fn doctor(args: &[String]) -> Result<i32, Fail> {
     Ok(if ok { 0 } else { 3 })
 }
 
+const KEYS_HELP: &str = "usage: pygg keys [--all] [--json] [--db PATH]
+
+Pygg's API keys (the clients that may call the gateway): name, the start of the key, when it was last used, its spend
+this month and its monthly limit. Never the key itself. --all shows revoked keys too. Keys are made, limited and
+revoked in the app (Endpoint → API Keys).";
+
+const COMBOS_HELP: &str = "usage: pygg combos [--json] [--db PATH]
+
+Combos: lists of models tried in turn (or the cheapest first), asked for by name like a model: pygg chat -m NAME.
+They are made in the app (Combos).";
+
+const LAUNCHES_HELP: &str = "usage: pygg launches [--limit N] [--json] [--db PATH]
+
+The tools started with pygg run, newest first: the tool, the repository and branch, requests, cost, and what changed
+in Git during the launch (commits, files, lines). Only the repository's folder, branch and commit ids are kept.";
+
+const SAVINGS_HELP: &str = "usage: pygg savings [--days N] [--json] [--db PATH]
+
+What the gateway's answers cost against the model you chose to compare with (Usage → Savings in the app), on the same
+tokens: an estimate. 30 days by default.";
+
+const COMPLETION_HELP: &str = "usage: pygg completion powershell|bash|zsh
+
+Prints a script that completes pygg's commands as you type (Tab).
+  PowerShell:  pygg completion powershell >> $PROFILE    then open a new terminal
+  bash:        pygg completion bash >> ~/.bashrc
+  zsh:         pygg completion zsh >> ~/.zshrc";
+
 const STATUSLINE_HELP: &str = "usage: pygg statusline [--db PATH]
 
 One line for Claude Code's status line: what this launch's requests through Pygg cost so far, how much of the prompt
@@ -486,10 +529,50 @@ pub async fn run(mut args: Vec<String>) -> i32 {
         "status" => read::finish(status(&args).await),
         "doctor" if wants_help(&args) => help(DOCTOR_HELP),
         "doctor" => read::finish(doctor(&args).await),
-        "providers" | "provider" if wants_help(&args) => help(read::PROVIDERS_HELP),
-        "providers" | "provider" => read::finish(read::providers(&args)),
-        "models" | "model" if wants_help(&args) => help(read::MODELS_HELP),
-        "models" | "model" => read::finish(read::models(&args)),
+        "providers" | "provider" if args.first().map(String::as_str) != Some("add") && wants_help(&args) => {
+            help(&format!("{}\n{}", read::PROVIDERS_HELP, manage::PROVIDERS_MORE))
+        }
+        "providers" | "provider" => {
+            let rest = args.get(1..).unwrap_or_default();
+            read::finish(match args.first().map(String::as_str) {
+                Some("presets") => manage::presets(rest),
+                Some("add") if wants_help(rest) => {
+                    println!("{}", manage::PROVIDERS_MORE.trim_start());
+                    Ok(0)
+                }
+                Some("add") => manage::provider_add(rest).await,
+                Some("refresh") => manage::provider_refresh(rest).await,
+                Some("enable") => manage::provider_switch(rest, true),
+                Some("disable") => manage::provider_switch(rest, false),
+                Some("remove") => manage::provider_remove(rest),
+                _ => read::providers(&args),
+            })
+        }
+        "models" | "model" if wants_help(&args) => help(&format!("{}\n{}", read::MODELS_HELP, manage::MODELS_MORE)),
+        "models" | "model" => {
+            let rest = args.get(1..).unwrap_or_default();
+            read::finish(match args.first().map(String::as_str) {
+                Some("info") | Some("show") => manage::model_info(rest),
+                Some("test") => manage::model_test(rest).await,
+                Some("enable") => manage::model_switch(rest, true),
+                Some("disable") => manage::model_switch(rest, false),
+                _ => read::models(&args),
+            })
+        }
+        "default" if wants_help(&args) => help(manage::DEFAULT_HELP),
+        "default" => read::finish(manage::default(&args)),
+        "route" if wants_help(&args) => help(manage::ROUTE_HELP),
+        "route" => read::finish(manage::route(&args)),
+        "keys" | "key" if wants_help(&args) => help(KEYS_HELP),
+        "keys" | "key" => read::finish(manage::keys(&args)),
+        "combos" | "combo" if wants_help(&args) => help(COMBOS_HELP),
+        "combos" | "combo" => read::finish(manage::combos(&args)),
+        "launches" if wants_help(&args) => help(LAUNCHES_HELP),
+        "launches" => read::finish(manage::launches(&args)),
+        "savings" if wants_help(&args) => help(SAVINGS_HELP),
+        "savings" => read::finish(manage::savings(&args)),
+        "completion" if wants_help(&args) => help(COMPLETION_HELP),
+        "completion" => read::finish(manage::completion(&args)),
         "logs" | "log" if wants_help(&args) => help(read::LOGS_HELP),
         "logs" | "log" => read::finish(read::logs(&args)),
         "usage" if wants_help(&args) => help(read::USAGE_HELP),
@@ -529,6 +612,12 @@ pub async fn run(mut args: Vec<String>) -> i32 {
                 1
             }
         },
+        "help" if !args.is_empty() => {
+            // `pygg help COMMAND` is `pygg COMMAND --help`.
+            let mut again = args.clone();
+            again.push("--help".into());
+            Box::pin(run(again)).await
+        }
         "-h" | "--help" | "help" => {
             println!("{HELP}\n\n{GET_STARTED}");
             0

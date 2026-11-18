@@ -167,16 +167,16 @@ pub fn gateway_port(opts: &Opts, conn: Option<&Connection>) -> Result<u16, Fail>
         .unwrap_or(crate::gateway::DEFAULT_PORT))
 }
 
-fn print_json(value: Value) -> i32 {
+pub(crate) fn print_json(value: Value) -> i32 {
     println!("{}", serde_json::to_string_pretty(&value).unwrap_or_default());
     0
 }
 
-fn when(ms: i64) -> String {
+pub(crate) fn when(ms: i64) -> String {
     store::iso_utc(ms)[..19].replace('T', " ")
 }
 
-fn ago(ms: i64) -> String {
+pub(crate) fn ago(ms: i64) -> String {
     let secs = (crate::db::now_ms() - ms).max(0) / 1000;
     match secs {
         0..=59 => "just now".into(),
@@ -192,7 +192,7 @@ fn clean(text: &str) -> String {
     text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect()
 }
 
-fn table(headers: &[&str], rows: &[Vec<String>]) {
+pub(crate) fn table(headers: &[&str], rows: &[Vec<String>]) {
     let widths: Vec<usize> = (0..headers.len())
         .map(|i| rows.iter().map(|r| r[i].chars().count()).chain([headers[i].len()]).max().unwrap_or(0))
         .collect();
@@ -241,7 +241,8 @@ hours and its models (enabled/total). Nothing is sent to any provider.
 
   --json   the same as a JSON document (schemaVersion 1)
 
-Connect, check or change providers in the Pygg desktop app (Providers).";
+Connect or change them with pygg providers presets | add | refresh | enable | disable | remove (pygg providers --help),
+or in the Pygg desktop app (Providers), which also signs in to web sessions.";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -368,7 +369,7 @@ pub fn providers(args: &[String]) -> Result<i32, Fail> {
         .collect();
     table(&["ID", "ON", "BILLING", "LAST CHECK", "HEALTH", "MODELS", "NOW"], &rows);
     println!("\nMODELS is enabled/total. HEALTH is 0-100 over the last 24 hours, not a live test.");
-    println!("Check or change providers in the Pygg desktop app (Providers); `pygg models` lists their models.");
+    println!("pygg models lists their models; pygg providers --help says how to add or change one.");
     Ok(0)
 }
 
@@ -492,7 +493,8 @@ pub fn models(args: &[String]) -> Result<i32, Fail> {
             } else if search.is_some() || !words.is_empty() {
                 "No model matches.".to_string()
             } else {
-                "No enabled models. Enable models in the Pygg desktop app (Providers) or with `pygg gateway model`, or use --all.".to_string()
+                "No enabled models. Turn one on with pygg models enable CONNECTION/MODEL (or in the app), or use --all."
+                    .to_string()
             }
         );
         return Ok(0);

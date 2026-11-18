@@ -1,12 +1,13 @@
 //! `pygg ask` and `pygg chat` (owner's request, 2026-11-18): a question, or a conversation, with any model Pygg's
 //! gateway serves, from the terminal. A web session such as Muse answers like any connection, with the same routing,
-//! fallbacks, guard and ledger as any client.
+//! fallbacks, guard and ledger as any client. The options follow the AI command-line tools people know (`llm`,
+//! `aichat`, `claude -p`): `-m`, `-s`, `-t`, `--max-tokens`, `-f`, `--no-stream`, `-r`, `--json`, `-x`.
 //!
 //! Nothing of a conversation is kept: `chat` holds its messages in memory and forgets them when it ends, and the app
 //! has no conversation store (ADR-028). Each request goes to the ledger like any other. Both commands use a Pygg API
 //! key of their own, "Pygg CLI (ask)", made at first use and kept in the OS credential store like the Claude Code
 //! launcher's. A chat is one routing session, so it stays on the model that first answered (and on its prompt cache)
-//! until `/model` changes it.
+//! until `/model` changes it. With no `--model`, the model set by `pygg default` is used, else `auto`.
 
 use std::io::{BufRead, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
@@ -19,40 +20,68 @@ use serde_json::{json, Value};
 
 use crate::gateway::store;
 
-pub const ASK_HELP: &str = "usage: pygg ask [--model M] [--db PATH] QUESTION…
-       echo QUESTION | pygg ask [--model M]
+const OPTIONS_HELP: &str =
+    "  -m, --model M        connection/model (pygg models lists them), a combo, auto or auto/cheap;
+                       default: the model set with pygg default, else auto
+  -s, --system TEXT    a system prompt (instructions the model reads first)
+  -t, --temperature T  0 to 2: lower is steadier, higher more varied
+  --max-tokens N       the longest answer, in tokens
+  -f, --file PATH      add a text file after the question (repeat for more; up to 200 KB each)
+  --no-stream          print the answer once it is complete
+  --no-input           never read stdin (for scripts whose stdin stays open)
+  -r, --raw            no line about the model and cost after the answer";
+
+pub fn ask_help() -> String {
+    format!(
+        "usage: pygg ask [options] QUESTION…
+       echo QUESTION | pygg ask [options]
 
 One question to a model through Pygg's gateway; the answer is printed. Any connection Pygg serves can answer, a web
 session such as Muse included (its guard still paces it: short questions, a few at a time).
 
-  --model M   connection/model (pygg models lists them), a combo, auto or auto/cheap; default auto
+{OPTIONS_HELP}
+  --json               one JSON document: the answer, the model that answered, the time and the cost
+  -x, --extract        print only the answer's first code block
 
 The request goes to the ledger like any other (pygg logs, pygg usage); the question and answer are not kept. The first
 time, Pygg makes an API key of its own for this command, \"Pygg CLI (ask)\", kept in the system's credential store.
 
 Examples:
-  pygg ask --model muse/muse \"What is a prompt cache, in two sentences?\"
-  pygg ask --model auto/cheap \"Name three uses of git worktree\"";
+  pygg ask -m muse/muse \"What is a prompt cache, in two sentences?\"
+  pygg ask -m auto/cheap -f src/main.rs \"What does this file do?\"
+  git diff | pygg ask -s \"You review code briefly\" \"Anything risky here?\""
+    )
+}
 
-pub const CHAT_HELP: &str = "usage: pygg chat [--model M] [--db PATH]
+pub fn chat_help() -> String {
+    format!(
+        "usage: pygg chat [options]
 
 A conversation with a model through Pygg's gateway, in the terminal. Each answer is printed as it arrives, then a line
 with the model that answered, the time and the cost the ledger knows.
 
-  --model M   connection/model (pygg models lists them), a combo, auto or auto/cheap; default auto
+{OPTIONS_HELP}
 
 In the chat:
-  /model M    change the model for the next messages (the conversation goes on; the new model reads it uncached)
-  /new        start a new conversation
-  /cost       what this chat has cost so far
-  /exit       leave (also Ctrl+C, or Ctrl+Z then Enter on Windows, Ctrl+D elsewhere)
+  /model M                change the model for the next messages (the conversation goes on; the new model reads it
+                          without its cache)
+  /system TEXT            set the system prompt (/system alone removes it)
+  /set temperature T      also: /set max-tokens N
+  /file PATH              add a text file to your next message
+  /new                    start a new conversation
+  /cost                   what this chat has cost so far
+  /help                   these commands
+  /exit                   leave (also Ctrl+C, or Ctrl+Z then Enter on Windows, Ctrl+D elsewhere)
 
 The conversation is held in memory only and forgotten when the chat ends; every request goes to the ledger like any
 other. The whole conversation is sent again with each message, so long chats cost more per message, and a web session
-such as Muse refuses prompts over its size limit.";
+such as Muse refuses prompts over its size limit."
+    )
+}
 
 const SETTING: &str = "cli.ask";
 const CLIENT_NAME: &str = "Pygg CLI (ask)";
+const FILE_LIMIT: u64 = 200 * 1024;
 
 #[derive(Serialize, Deserialize)]
 struct Record {
@@ -60,43 +89,112 @@ struct Record {
     vault_ref: String,
 }
 
-/// Pygg's options before the question: `--model`, `--db`; the rest are words.
-struct Options {
-    model: String,
-    db: Option<PathBuf>,
-    words: Vec<String>,
+/// What a request carries besides the conversation.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Settings {
+    system: Option<String>,
+    temperature: Option<f64>,
+    max_tokens: Option<u64>,
+    stream: bool,
 }
 
-fn parse(command: &str, args: Vec<String>, help: &str) -> Result<Options, i32> {
-    let mut o = Options { model: "auto".into(), db: None, words: Vec::new() };
+/// Pygg's options before the question; the rest are words.
+#[derive(Debug, Default)]
+struct Options {
+    model: Option<String>,
+    db: Option<PathBuf>,
+    words: Vec<String>,
+    settings: Settings,
+    files: Vec<PathBuf>,
+    raw: bool,
+    json: bool,
+    extract: bool,
+    no_input: bool,
+}
+
+/// Parses the options; `Err(code)` when the command should stop with that exit code (help, a usage error).
+fn parse(command: &str, args: Vec<String>, help: &str, ask: bool) -> Result<Options, i32> {
+    let mut o = Options { settings: Settings { stream: true, ..Default::default() }, ..Default::default() };
+    let usage = |message: String| -> i32 {
+        eprintln!("pygg: {message}\nUse: pygg {command} --help");
+        2
+    };
     let mut it = args.into_iter();
     while let Some(a) = it.next() {
+        // Options come before the question; anything after its first word is the question's.
+        if !o.words.is_empty() || !a.starts_with('-') || a == "-" {
+            o.words.push(a);
+            continue;
+        }
+        let mut value = |name: &str| it.next().ok_or_else(|| usage(format!("{name} needs a value.")));
         match a.as_str() {
-            "-h" | "--help" if o.words.is_empty() => {
+            "-h" | "--help" => {
                 println!("{help}");
                 return Err(0);
             }
-            "--model" | "--db" if o.words.is_empty() => {
-                let Some(v) = it.next() else {
-                    eprintln!("pygg: {a} needs a value.\nUse: pygg {command} --help");
-                    return Err(2);
-                };
-                if a == "--model" {
-                    o.model = v;
-                } else {
-                    o.db = Some(PathBuf::from(v));
-                }
-            }
-            _ if a.starts_with("--") && o.words.is_empty() => {
-                eprintln!(
-                    "pygg: unknown option {a} for pygg {command} (its options are --model and --db).\nUse: pygg {command} --help"
+            "-m" | "--model" => o.model = Some(value(&a)?),
+            "--db" => o.db = Some(PathBuf::from(value(&a)?)),
+            "-s" | "--system" => o.settings.system = Some(value(&a)?),
+            "-t" | "--temperature" => {
+                let v = value(&a)?;
+                o.settings.temperature = Some(
+                    v.parse::<f64>()
+                        .ok()
+                        .filter(|t| (0.0..=2.0).contains(t))
+                        .ok_or_else(|| usage(format!("{a} takes a number from 0 to 2, not {v}.")))?,
                 );
-                return Err(2);
             }
-            _ => o.words.push(a),
+            "--max-tokens" => {
+                let v = value(&a)?;
+                o.settings.max_tokens = Some(
+                    v.parse::<u64>()
+                        .ok()
+                        .filter(|n| *n > 0)
+                        .ok_or_else(|| usage(format!("--max-tokens takes a whole number above 0, not {v}.")))?,
+                );
+            }
+            "-f" | "--file" => o.files.push(PathBuf::from(value(&a)?)),
+            "--no-stream" => o.settings.stream = false,
+            "--no-input" => o.no_input = true,
+            "-r" | "--raw" => o.raw = true,
+            "--json" if ask => o.json = true,
+            "-x" | "--extract" if ask => o.extract = true,
+            _ => return Err(usage(format!("unknown option {a} for pygg {command}."))),
         }
     }
     Ok(o)
+}
+
+/// A text file's contents, as it is added to a message.
+fn file_block(path: &Path) -> Result<String, String> {
+    let meta = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if meta.len() > FILE_LIMIT {
+        return Err(format!("{} is {} KB; pygg adds files of up to 200 KB", path.display(), meta.len() / 1024));
+    }
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let text = String::from_utf8(bytes).map_err(|_| format!("{} is not a text file", path.display()))?;
+    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.display().to_string());
+    Ok(format!("<file name=\"{name}\">\n{}\n</file>", text.trim_end()))
+}
+
+/// The user's message: the text, then each file.
+fn with_files(text: &str, files: &[PathBuf]) -> Result<String, String> {
+    let mut message = text.trim().to_string();
+    for f in files {
+        message.push_str("\n\n");
+        message.push_str(&file_block(f)?);
+    }
+    Ok(message)
+}
+
+/// The first fenced code block of an answer, without its fences; `None` when it has none.
+fn first_code_block(text: &str) -> Option<String> {
+    let start = text.find("```")?;
+    let after = &text[start + 3..];
+    let body_start = after.find('\n')? + 1;
+    let body = &after[body_start..];
+    let end = body.find("```")?;
+    Some(body[..end].trim_end_matches(['\n', '\r']).to_string())
 }
 
 /// What both commands need: the store, the key, and a gateway that answers.
@@ -104,6 +202,7 @@ struct Gateway {
     store: PathBuf,
     token: String,
     port: u16,
+    default_model: String,
     http: reqwest::Client,
 }
 
@@ -112,7 +211,7 @@ async fn connect(db: Option<PathBuf>) -> Result<Gateway, String> {
         .or_else(super::default_store)
         .filter(|p| p.is_file())
         .ok_or("Pygg's store was not found: open Pygg once, or pass --db PATH")?;
-    let (token, port) = prepare(&store)?;
+    let (token, port, default_model) = prepare(&store)?;
     super::health(port)
         .await
         .map_err(|e| format!("Pygg's gateway on http://127.0.0.1:{port}: {e}. Next: {}.", super::START_GATEWAY))?;
@@ -121,7 +220,7 @@ async fn connect(db: Option<PathBuf>) -> Result<Gateway, String> {
         .read_timeout(Duration::from_secs(15 * 60))
         .build()
         .map_err(|e| e.to_string())?;
-    Ok(Gateway { store, token, port, http })
+    Ok(Gateway { store, token, port, default_model, http })
 }
 
 /// An answer as it came back.
@@ -131,17 +230,33 @@ struct Answer {
     attempts: Option<u32>,
 }
 
-/// Sends the conversation and streams the answer's text to `out` as it arrives.
+/// The request body: the conversation after the system prompt, and the settings that are set.
+fn body(model: &str, messages: &[Value], settings: &Settings) -> Value {
+    let mut all = Vec::with_capacity(messages.len() + 1);
+    if let Some(system) = settings.system.as_deref().filter(|s| !s.trim().is_empty()) {
+        all.push(json!({ "role": "system", "content": system }));
+    }
+    all.extend(messages.iter().cloned());
+    let mut body = json!({ "model": model, "stream": settings.stream, "messages": all });
+    if let Some(t) = settings.temperature {
+        body["temperature"] = json!(t);
+    }
+    if let Some(n) = settings.max_tokens {
+        body["max_tokens"] = json!(n);
+    }
+    body
+}
+
+/// Sends the conversation and writes the answer's text to `out` as it arrives.
 async fn send(
-    gw: &Gateway, session: &str, model: &str, messages: &[Value], out: &mut dyn Write,
+    gw: &Gateway, session: &str, model: &str, messages: &[Value], settings: &Settings, out: &mut dyn Write,
 ) -> Result<Answer, String> {
-    let body = json!({ "model": model, "stream": true, "messages": messages });
     let response = gw
         .http
         .post(format!("http://127.0.0.1:{}/v1/chat/completions", gw.port))
         .bearer_auth(&gw.token)
         .header(crate::gateway::SESSION_HEADER, session)
-        .json(&body)
+        .json(&body(model, messages, settings))
         .send()
         .await
         .map_err(|e| format!("the gateway did not answer: {e}"))?;
@@ -229,6 +344,8 @@ fn session_cost(store: &Path, sessions: &[String]) -> Option<crate::launches::Se
         total.known_micro_usd += c.known_micro_usd;
         total.unknown_cost += c.unknown_cost;
         total.subscription += c.subscription;
+        total.prompt_tokens += c.prompt_tokens;
+        total.output_tokens += c.output_tokens;
     }
     Some(total)
 }
@@ -257,19 +374,34 @@ fn new_session(kind: &str) -> String {
 
 /// `pygg ask …`
 pub async fn ask(args: Vec<String>) -> i32 {
-    let o = match parse("ask", args, ASK_HELP) {
+    let o = match parse("ask", args, &ask_help(), true) {
         Ok(o) => o,
         Err(code) => return code,
     };
     let mut question = o.words.join(" ");
-    if question.trim().is_empty() && !std::io::stdin().is_terminal() {
+    let piped = !o.no_input && !std::io::stdin().is_terminal();
+    if (question.trim().is_empty() || question.trim() == "-") && piped {
+        question.clear();
         let _ = std::io::stdin().read_to_string(&mut question);
+    } else if piped && o.words.first().is_some_and(|w| w != "-") {
+        // A question and a pipe: the piped text follows the question (git diff | pygg ask "anything risky?").
+        let mut piped = String::new();
+        let _ = std::io::stdin().read_to_string(&mut piped);
+        if !piped.trim().is_empty() {
+            question = format!("{}\n\n{}", question.trim(), piped.trim_end());
+        }
     }
-    let question = question.trim().to_string();
-    if question.is_empty() {
-        eprintln!("pygg: ask a question.\nUse: pygg ask --model muse/muse \"your question\", or pygg chat");
+    if question.trim().is_empty() && o.files.is_empty() {
+        eprintln!("pygg: ask a question.\nUse: pygg ask -m muse/muse \"your question\", or pygg chat");
         return 2;
     }
+    let message = match with_files(&question, &o.files) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("pygg: {e}");
+            return 2;
+        }
+    };
     let gw = match connect(o.db).await {
         Ok(g) => g,
         Err(e) => {
@@ -277,38 +409,77 @@ pub async fn ask(args: Vec<String>) -> i32 {
             return 1;
         }
     };
+    let model = o.model.unwrap_or_else(|| gw.default_model.clone());
     let session = new_session("ask");
     let started = Instant::now();
-    let messages = [json!({ "role": "user", "content": question })];
+    let messages = [json!({ "role": "user", "content": message })];
+    // --json and --extract print once the answer is whole.
+    let quiet = o.json || o.extract;
+    let mut sink = std::io::sink();
     let mut stdout = std::io::stdout();
-    match send(&gw, &session, &o.model, &messages, &mut stdout).await {
-        Ok(answer) => {
-            println!();
-            tokio::time::sleep(Duration::from_millis(300)).await;
-            let cost = session_cost(&gw.store, std::slice::from_ref(&session));
-            let route = answer.route.as_deref().unwrap_or(&o.model);
-            eprintln!("\n{}", footer(route, answer.attempts, started.elapsed(), cost.as_ref()));
-            if answer.text.is_empty() {
-                eprintln!("pygg: the answer was empty.");
-                return 1;
-            }
-            0
-        }
+    let out: &mut dyn Write = if quiet { &mut sink } else { &mut stdout };
+    let result = send(&gw, &session, &model, &messages, &o.settings, out).await;
+    let answer = match result {
+        Ok(a) => a,
         Err(e) => {
-            eprintln!("pygg: {e}");
-            1
+            if o.json {
+                println!(
+                    "{}",
+                    json!({ "schemaVersion": super::read::JSON_SCHEMA, "ok": false, "model": model, "error": e })
+                );
+            } else {
+                eprintln!("pygg: {e}");
+            }
+            return 1;
         }
+    };
+    let took = started.elapsed();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let cost = session_cost(&gw.store, std::slice::from_ref(&session));
+    let route = answer.route.clone().unwrap_or_else(|| model.clone());
+    if o.json {
+        let c = cost.clone().unwrap_or_default();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "schemaVersion": super::read::JSON_SCHEMA, "ok": true, "model": route, "asked": model,
+                "answer": answer.text, "attempts": answer.attempts, "seconds": took.as_secs_f64(),
+                "inputTokens": c.prompt_tokens, "outputTokens": c.output_tokens,
+                "knownMicroUsd": c.known_micro_usd, "costKnown": c.unknown_cost == 0 && c.subscription == 0,
+            }))
+            .unwrap_or_default()
+        );
+        return 0;
     }
+    if o.extract {
+        match first_code_block(&answer.text) {
+            Some(code) => println!("{code}"),
+            None => {
+                eprintln!("pygg: the answer has no code block; here it is whole.");
+                println!("{}", answer.text);
+            }
+        }
+    } else {
+        println!();
+    }
+    if !o.raw {
+        eprintln!("\n{}", footer(&route, answer.attempts, took, cost.as_ref()));
+    }
+    if answer.text.is_empty() {
+        eprintln!("pygg: the answer was empty.");
+        return 1;
+    }
+    0
 }
 
 /// `pygg chat …`
 pub async fn chat(args: Vec<String>) -> i32 {
-    let o = match parse("chat", args, CHAT_HELP) {
+    let o = match parse("chat", args, &chat_help(), false) {
         Ok(o) => o,
         Err(code) => return code,
     };
     if !o.words.is_empty() {
-        eprintln!("pygg chat takes options only; type your messages once it starts.\nUse: pygg chat --model muse/muse");
+        eprintln!("pygg chat takes options only; type your messages once it starts.\nUse: pygg chat -m muse/muse");
         return 2;
     }
     let gw = match connect(o.db).await {
@@ -318,11 +489,13 @@ pub async fn chat(args: Vec<String>) -> i32 {
             return 1;
         }
     };
-    let mut model = o.model;
+    let mut model = o.model.unwrap_or_else(|| gw.default_model.clone());
+    let mut settings = o.settings;
+    let mut files = o.files;
     let mut session = new_session("chat");
     let mut sessions = vec![session.clone()];
     let mut messages: Vec<Value> = Vec::new();
-    eprintln!("Pygg chat with {model}. /model M changes it, /new starts over, /cost, /exit. Nothing is kept.\n");
+    eprintln!("Pygg chat with {model}. /help lists the commands; /exit leaves. Nothing is kept.\n");
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     loop {
@@ -339,6 +512,10 @@ pub async fn chat(args: Vec<String>) -> i32 {
         }
         match command(line) {
             Some(Command::Exit) => break,
+            Some(Command::Help) => {
+                eprintln!("/model M · /system TEXT · /set temperature T · /set max-tokens N · /file PATH · /new · /cost · /exit\n");
+                continue;
+            }
             Some(Command::New) => {
                 messages.clear();
                 session = new_session("chat");
@@ -361,22 +538,55 @@ pub async fn chat(args: Vec<String>) -> i32 {
                 eprintln!("Next messages go to {model}; the conversation so far goes with them.\n");
                 continue;
             }
+            Some(Command::System(s)) => {
+                eprintln!("{}\n", if s.is_some() { "System prompt set." } else { "System prompt removed." });
+                settings.system = s;
+                continue;
+            }
+            Some(Command::Set(name, value)) => {
+                match set(&mut settings, &name, &value) {
+                    Ok(text) => eprintln!("{text}\n"),
+                    Err(e) => eprintln!("{e}\n"),
+                }
+                continue;
+            }
+            Some(Command::File(path)) => {
+                match file_block(Path::new(&path)) {
+                    Ok(_) => {
+                        files.push(PathBuf::from(&path));
+                        eprintln!("{path} goes with your next message.\n");
+                    }
+                    Err(e) => eprintln!("{e}\n"),
+                }
+                continue;
+            }
             Some(Command::Unknown(c)) => {
-                eprintln!("{c} is not a chat command: /model M, /new, /cost or /exit.\n");
+                eprintln!("{c} is not a chat command; /help lists them.\n");
                 continue;
             }
             None => {}
         }
-        messages.push(json!({ "role": "user", "content": line }));
+        let message = match with_files(line, &files) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("{e}\n");
+                continue;
+            }
+        };
+        files.clear();
+        messages.push(json!({ "role": "user", "content": message }));
         let started = Instant::now();
         println!();
-        match send(&gw, &session, &model, &messages, &mut stdout).await {
+        match send(&gw, &session, &model, &messages, &settings, &mut stdout).await {
             Ok(answer) => {
                 println!();
-                tokio::time::sleep(Duration::from_millis(200)).await;
-                let last = last_cost(&gw.store, &session);
-                let route = answer.route.as_deref().unwrap_or(&model);
-                eprintln!("{}\n", footer(route, answer.attempts, started.elapsed(), last.as_ref()));
+                if !o.raw {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    let last = last_cost(&gw.store, &session);
+                    let route = answer.route.as_deref().unwrap_or(&model);
+                    eprintln!("{}", footer(route, answer.attempts, started.elapsed(), last.as_ref()));
+                }
+                eprintln!();
                 messages.push(json!({ "role": "assistant", "content": answer.text }));
             }
             Err(e) => {
@@ -391,6 +601,23 @@ pub async fn chat(args: Vec<String>) -> i32 {
     let answered = cost.as_ref().map_or(0, |c| c.answered);
     eprintln!("\nChat ended: {answered} answers, {}. Nothing of it was kept.", cost_text(cost.as_ref()));
     0
+}
+
+/// `/set NAME VALUE` in a chat.
+fn set(settings: &mut Settings, name: &str, value: &str) -> Result<String, String> {
+    match name {
+        "temperature" => {
+            let t = value.parse::<f64>().ok().filter(|t| (0.0..=2.0).contains(t)).ok_or("temperature takes 0 to 2")?;
+            settings.temperature = Some(t);
+            Ok(format!("Temperature {t}."))
+        }
+        "max-tokens" | "max_tokens" => {
+            let n = value.parse::<u64>().ok().filter(|n| *n > 0).ok_or("max-tokens takes a whole number above 0")?;
+            settings.max_tokens = Some(n);
+            Ok(format!("Answers of at most {n} tokens."))
+        }
+        _ => Err(format!("{name} cannot be set here: /set temperature T or /set max-tokens N")),
+    }
 }
 
 /// The cost of a session's latest answer.
@@ -418,9 +645,13 @@ fn last_cost(store: &Path, session: &str) -> Option<crate::launches::SessionCost
 #[derive(Debug, PartialEq)]
 enum Command {
     Exit,
+    Help,
     New,
     Cost,
     Model(String),
+    System(Option<String>),
+    Set(String, String),
+    File(String),
     Unknown(String),
 }
 
@@ -434,15 +665,25 @@ fn command(line: &str) -> Option<Command> {
     let rest = parts.next().map(str::trim).unwrap_or("");
     Some(match name {
         "/exit" | "/quit" => Command::Exit,
+        "/help" | "/?" => Command::Help,
         "/new" | "/clear" => Command::New,
         "/cost" => Command::Cost,
         "/model" if !rest.is_empty() => Command::Model(rest.to_string()),
+        "/system" => Command::System((!rest.is_empty()).then(|| rest.to_string())),
+        "/set" => {
+            let mut kv = rest.splitn(2, char::is_whitespace);
+            match (kv.next(), kv.next().map(str::trim)) {
+                (Some(k), Some(v)) if !k.is_empty() && !v.is_empty() => Command::Set(k.to_string(), v.to_string()),
+                _ => Command::Unknown("/set".into()),
+            }
+        }
+        "/file" if !rest.is_empty() => Command::File(rest.trim_matches('"').to_string()),
         other => Command::Unknown(other.to_string()),
     })
 }
 
-/// The command's key (made at first use) and the gateway's port.
-fn prepare(path: &Path) -> Result<(String, u16), String> {
+/// The command's key (made at first use), the gateway's port and the default model.
+fn prepare(path: &Path) -> Result<(String, u16, String), String> {
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| e.to_string())?;
     conn.busy_timeout(Duration::from_secs(5)).map_err(|e| e.to_string())?;
     let schema: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(|e| e.to_string())?;
@@ -457,7 +698,7 @@ fn prepare(path: &Path) -> Result<(String, u16), String> {
         .flatten()
         .and_then(|p| p.parse().ok())
         .unwrap_or(crate::gateway::DEFAULT_PORT);
-    Ok((token(&conn)?, port))
+    Ok((token(&conn)?, port, super::manage::default_model(&conn)))
 }
 
 fn token(conn: &Connection) -> Result<String, String> {
@@ -489,6 +730,78 @@ fn token(conn: &Connection) -> Result<String, String> {
 mod tests {
     use super::*;
 
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn options_come_before_the_question() {
+        let o = parse(
+            "ask",
+            args(&[
+                "-m",
+                "muse/muse",
+                "-s",
+                "be brief",
+                "-t",
+                "0.2",
+                "--max-tokens",
+                "100",
+                "-f",
+                "a.rs",
+                "--json",
+                "what",
+                "-x",
+            ]),
+            "",
+            true,
+        )
+        .unwrap();
+        assert_eq!(o.model.as_deref(), Some("muse/muse"));
+        assert_eq!(o.settings.system.as_deref(), Some("be brief"));
+        assert_eq!((o.settings.temperature, o.settings.max_tokens), (Some(0.2), Some(100)));
+        assert_eq!(o.files, vec![PathBuf::from("a.rs")]);
+        assert!(o.json && !o.extract, "-x after the question's first word is part of the question");
+        assert_eq!(o.words, ["what", "-x"]);
+        assert_eq!(parse("ask", args(&["-t", "3"]), "", true).unwrap_err(), 2);
+        assert_eq!(parse("chat", args(&["--json"]), "", false).unwrap_err(), 2, "chat has no --json");
+    }
+
+    #[test]
+    fn the_body_carries_only_what_is_set() {
+        let m = [json!({"role": "user", "content": "hi"})];
+        let b = body("auto", &m, &Settings { stream: true, ..Default::default() });
+        assert_eq!(b["messages"].as_array().unwrap().len(), 1);
+        assert!(b.get("temperature").is_none() && b.get("max_tokens").is_none());
+        let s =
+            Settings { system: Some("be brief".into()), temperature: Some(0.0), max_tokens: Some(9), stream: false };
+        let b = body("auto", &m, &s);
+        assert_eq!(b["messages"][0]["role"], "system");
+        assert_eq!(
+            (b["temperature"].as_f64(), b["max_tokens"].as_u64(), b["stream"].as_bool()),
+            (Some(0.0), Some(9), Some(false))
+        );
+    }
+
+    #[test]
+    fn the_first_code_block_is_found() {
+        assert_eq!(first_code_block("Here:\n```rust\nfn a() {}\n```\nand ```x\ny\n```").as_deref(), Some("fn a() {}"));
+        assert_eq!(first_code_block("no code"), None);
+    }
+
+    #[test]
+    fn files_go_after_the_question() {
+        let dir = std::env::temp_dir().join(format!("pygg-ask-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("note.txt");
+        std::fs::write(&f, "xin chào\n").unwrap();
+        let m = with_files("What is this?", std::slice::from_ref(&f)).unwrap();
+        assert_eq!(m, "What is this?\n\n<file name=\"note.txt\">\nxin chào\n</file>");
+        std::fs::write(&f, [0xff, 0xfe, 0x00]).unwrap();
+        assert!(with_files("x", &[f]).unwrap_err().contains("not a text file"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn the_answer_is_read_from_text_or_parts() {
         assert_eq!(answer_text(&json!({"choices": [{"message": {"content": " 4 "}}]})), "4");
@@ -518,7 +831,15 @@ mod tests {
         assert_eq!(command("/exit"), Some(Command::Exit));
         assert_eq!(command("/model  muse/muse "), Some(Command::Model("muse/muse".into())));
         assert_eq!(command("/model"), Some(Command::Unknown("/model".into())));
-        assert_eq!(command("/new"), Some(Command::New));
+        assert_eq!(command("/system be brief"), Some(Command::System(Some("be brief".into()))));
+        assert_eq!(command("/system"), Some(Command::System(None)));
+        assert_eq!(command("/set temperature 0.3"), Some(Command::Set("temperature".into(), "0.3".into())));
+        assert_eq!(command("/set"), Some(Command::Unknown("/set".into())));
+        assert_eq!(command("/file \"a b.txt\""), Some(Command::File("a b.txt".into())));
+        let mut s = Settings::default();
+        assert!(set(&mut s, "temperature", "0.3").is_ok() && s.temperature == Some(0.3));
+        assert!(set(&mut s, "temperature", "9").is_err());
+        assert!(set(&mut s, "top_p", "1").is_err());
     }
 
     #[test]
