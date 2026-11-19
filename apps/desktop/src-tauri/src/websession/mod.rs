@@ -831,8 +831,13 @@ fn network_media(received: Vec<Received>, recipe: &Recipe) -> (Vec<Media>, Vec<M
         if !worth_keeping(&mime) {
             continue;
         }
+        // A generic type is replaced by what the bytes say; a body that is none of the kept kinds is left.
+        let generic =
+            matches!(mime.as_str(), "" | "application/octet-stream" | "binary/octet-stream" | "application/x-binary");
+        // With no body there are no bytes to say what it is: only a sound or document the site named as such is read
+        // again (2026-11-19, live: ChatGPT's scripts with no type and no body were read again as files).
         if r.body.is_empty() {
-            let own = r.host == site || r.host.ends_with(&format!(".{site}"));
+            let own = !generic && (r.host == site || r.host.ends_with(&format!(".{site}")));
             if own && r.url.starts_with(&format!("https://{}/", r.host)) && !seen.contains(&r.url) {
                 seen.push(r.url.clone());
                 let kind = if mime.starts_with("audio/") { "audio" } else { "file" };
@@ -843,9 +848,6 @@ fn network_media(received: Vec<Received>, recipe: &Recipe) -> (Vec<Media>, Vec<M
         if r.body.len() as u64 > BLOB_LIMIT {
             continue;
         }
-        // A generic type is replaced by what the bytes say; a body that is none of the kept kinds is left.
-        let generic =
-            matches!(mime.as_str(), "" | "application/octet-stream" | "binary/octet-stream" | "application/x-binary");
         let (mime, kind) = match (generic, sniff(&r.body)) {
             (true, Some((m, k))) => (m.to_string(), k),
             (true, None) => continue,

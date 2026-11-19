@@ -329,8 +329,17 @@ fn what_the_page_receives_comes_back_with_the_reply() {
                 url: "https://cdn.example/elsewhere.pdf".into(),
                 body: Vec::new(),
             },
+            Received {
+                mime: String::new(),
+                host: "muse.ai".into(),
+                url: "https://muse.ai/app.js".into(),
+                body: Vec::new(),
+            },
         ];
-        *page.blobs.lock().unwrap() = json!({ "https://muse.ai/content?id=f&sig=s": "data:text/csv;base64,YSxi" });
+        *page.blobs.lock().unwrap() = json!({
+            "https://muse.ai/content?id=f&sig=s": "data:text/csv;base64,YSxi",
+            "https://muse.ai/app.js": "data:text/javascript;base64,dmFy"
+        });
         let reply = converse(page.as_ref(), muse(), "a PDF", &fast(), &mut |_: &str| {}).await.unwrap();
         let got: Vec<(&str, &str)> = reply.media.iter().map(|m| (m.kind.as_str(), m.url.as_str())).collect();
         assert_eq!(

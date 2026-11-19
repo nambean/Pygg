@@ -690,6 +690,13 @@ fn extension(url: &str, content_type: Option<&str>) -> String {
         "application/pdf" => "pdf",
         "application/zip" => "zip",
         "text/plain" => "txt",
+        "text/csv" => "csv",
+        "application/msword" => "doc",
+        "application/vnd.ms-excel" => "xls",
+        "application/vnd.ms-powerpoint" => "ppt",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => "docx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => "xlsx",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation" => "pptx",
         _ => "bin",
     }
     .to_string()
@@ -1008,6 +1015,8 @@ mod tests {
         assert_eq!(extension("https://cdn.x/a.jpg?oh=1", None), "jpg");
         assert_eq!(extension("https://cdn.x/render/abc", Some("video/mp4")), "mp4");
         assert_eq!(extension("https://cdn.x/x", None), "bin");
+        // ChatGPT's CSV, read again by the page (2026-11-19: it was saved as .bin).
+        assert_eq!(extension("data:text/csv;base64,YSxi", Some("text/csv")), "csv");
     }
 
     #[test]
