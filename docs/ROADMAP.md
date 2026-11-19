@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Status:** Authoritative · delivery order and release gates · reviewed 2026-11-16
+> **Status:** Authoritative · delivery order and release gates · reviewed 2026-11-19
 
 What comes next, in order, and what must be true before a public release. What is already built, and how it was verified, is in [Implementation Status](IMPLEMENTATION-STATUS.md). Why, in [DECISIONS](DECISIONS.md). Nothing here is a claim that code exists.
 
@@ -8,7 +8,13 @@ What comes next, in order, and what must be true before a public release. What i
 
 ## Next, in order
 
+**Before the list: a new prerelease of the desktop app.** The only installer published is `v0.1.0-dev.1` (2026-11-14, store schema v31). Everything since (schema v32 to v40: Skills & Prompts and its projects, launch receipts, request kinds, session and day limits, the Anthropic usage-limit hold, pictures and files from web sessions) reaches users only through a build from source, and the npm command line is ahead of the installer it pairs with on Windows. A release is the owner's decision; the npm packages follow it ([PUBLISHING](../packages/npm/PUBLISHING.md)).
+
 1. **Close the live-evidence gaps.** Each needs a key, an account or the owner's time; paid traffic stays inside the benchmark budget (ADR-028).
+   - Session and day limits in the installed app (so far checked live through the headless gateway on a copy of the store).
+   - Launch receipts and Claude Code's request kinds read from a real session; `pygg chat` and `pygg ask` on the owner's own connections.
+   - Skills installed into real agents and used from them, globally and in a project.
+   - Pictures, videos and files from web sessions other than Muse.
    - Successful API requests to OpenAI, Groq, DeepSeek and Mistral; DeepSeek's thinking mode with tools across the Anthropic translation.
    - OpenRouter's `cache_control` on translated requests, measured.
    - An Anthropic-compatible endpoint other than Anthropic's own.
@@ -19,7 +25,7 @@ What comes next, in order, and what must be true before a public release. What i
    - Estimated savings and the token mix read against a real ledger.
 2. **The native window, clicked through.** Every screen in the installed app, not only the browser preview. The D12 checks (ADR-012): scaling, snap layouts above 100%, Narrator and NVDA, contrast themes.
 3. **Install on a clean Windows machine.** NSIS install, first run, gateway, a coding tool set up, uninstall leaving nothing behind.
-4. **Token and cost work, in the order ADR-036 sets.** The token mix, launch sessions, the way home after a fallback, why each answer missed the cache, routing diagnostics, the always-on context of each agent's global files (Skills & Prompts, ADR-039), the cache marker for Anthropic's models through OpenRouter, the session passed on to OpenRouter and OpenAI, the meter for each session's tools and system prompt, session and day limits on a key that refuse the next request (402) without cutting one that runs, and clearing old tool results and a longer cache lifetime measured in shadow exist, proved on the fake provider and, except the way home, OpenAI's key and the clearing shadow, live. Next:
+4. **Token and cost work, in the order ADR-036 sets.** Built: the token mix, launch sessions and their receipts, the way home after a fallback, why each answer missed the cache, routing diagnostics, the always-on context of each agent's global files (Skills & Prompts, ADR-039), the cache marker for Anthropic's models through OpenRouter, the session passed on to OpenRouter and OpenAI, the meter for each session's tools and system prompt, Claude Code's request kinds, session and day limits on a key that refuse the next request (402) without cutting one that runs, and two shadows (clearing old tool results, a longer cache lifetime). All are proved on the fake provider; live checks are listed in [Implementation Status](IMPLEMENTATION-STATUS.md). Next:
    - **The way home after a fallback, live.** The cache marker on OpenRouter, the cache-miss causes and the meter were checked live on 2026-11-16 ([report](../benchmark/reports/2026-11-16-openrouter-cache-live.md)); the way home needs a real failure, and OpenAI's `prompt_cache_key` an OpenAI key.
    - **Read the clearing shadow on real sessions** (Usage → Clearing Old Tool Results). Only if its net stays above zero over long Codex sessions does clearing become an opt-in, and then with a check that answers stay as good; it would be Anthropic's own `context_management` edit, never Pygg rewriting the history, which newer models check.
    - **Read session receipts on real work.** `pygg run` now records each launch with what changed in Git (schema v38), and Claude Code's requests by class with their subagents (schema v39). `pygg launches --by-repo` already sums cost per repository and week, per commit and for launches that changed nothing; after a few weeks of the owner's own use, read it, and by tool and model, as observations; nothing is claimed about productivity.

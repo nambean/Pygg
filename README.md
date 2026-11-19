@@ -31,7 +31,7 @@ https://github.com/user-attachments/assets/85708783-8be3-4292-955c-783cc066bbd1
 Pygg runs on your computer. Connect your providers once (API keys, coding plans, a local Ollama, even an AI website without an API), point Claude Code, Codex, OpenCode, an editor or an SDK at `127.0.0.1:8741`, and choose the model **`auto`**. Each request goes to an eligible model you connected, free and cheap ones first where they qualify, within the limits you set; when a provider says no, the next one answers. Every attempt lands in a ledger with what it cost and where that figure came from.
 
 > [!NOTE]
-> **Developer preview (2026-11-14).** The gateway and the Windows desktop app are built and verified live, from first launch to "my coding tool uses `auto`". The Windows installer is a [prerelease, `v0.1.0-dev.1`](https://github.com/nambean/Pygg/releases/tag/v0.1.0-dev.1), **not code-signed**, so Windows SmartScreen warns before it runs. The `pygg` command line is [on npm](https://www.npmjs.com/package/@pygg/cli) for Windows, macOS and Linux. Spending limits rest on prices and token estimates, and clean-machine installs and long-running behaviour still need validation, so Pygg is **not yet for unattended or financially critical use**. What is built and how each part was verified: [Implementation Status](docs/IMPLEMENTATION-STATUS.md).
+> **Developer preview (2026-11-19).** The gateway and the Windows desktop app are built and verified live, from first launch to "my coding tool uses `auto`". The only Windows installer so far is the [prerelease `v0.1.0-dev.1`](https://github.com/nambean/Pygg/releases/tag/v0.1.0-dev.1) of 2026-11-14, **not code-signed**; what was added since (session and day limits, launch receipts, request kinds, Skills & Prompts projects, pictures and files from web sessions) needs a [build from source](#development) until the next prerelease. The `pygg` command line on [npm](https://www.npmjs.com/package/@pygg/cli) (Windows, macOS, Linux) is newer than that installer. Spending limits rest on prices and token estimates, and clean-machine installs and long-running behaviour still need validation, so Pygg is **not yet for unattended or financially critical use**. What is built and how each part was verified: [Implementation Status](docs/IMPLEMENTATION-STATUS.md).
 
 ## Why Pygg
 
@@ -39,8 +39,10 @@ Pygg runs on your computer. Connect your providers once (API keys, coding plans,
 - **Cost you can trace.** Each attempt is recorded with its cost and that cost's source: **actual** (the provider said), **estimated** (a price you or a catalog set) or **unknown**, never shown as $0. Estimated savings compare the same tokens at a model you choose, and say what they left out.
 - **Fallback that does not double-bill.** A 429, 402 or rejected key moves on to the next key or target, only before the agent got its first byte. A timeout stops instead, since the provider may already have billed it. Each attempt is written to disk **before** it is sent.
 - **The provider's cache keeps working.** Anthropic requests from Claude Code pass through unchanged; for OpenAI-format agents such as Codex, Pygg turns on Anthropic's prompt cache. Measured: 30% less in all, 68% less on input ([below](#measured-not-claimed)).
+- **Limits that stop a session, not only a month.** Each Pygg API key can have a monthly limit and, per routing session and per UTC day, a limit that refuses the next request with 402 once reached. A request already running is never cut, and concurrent requests cannot pass a strict limit together.
+- **A receipt for every launch.** When a tool started by `pygg run` exits, Pygg prints what that launch cost, how much came from the cache, which models answered, and what changed in the Git repository it ran in. `pygg launches --by-repo` sums it per repository and week. For Claude Code, cost is split by kind of request (main, subagent, compaction…).
 - **Several accounts, used in turn.** A key ring holds API keys of separate accounts on one connection (in order, round robin, least used or quota aware); a pool groups connections of one provider. Each key cools down on its own.
-- **AI websites as providers, carefully.** Web sessions (Muse, ChatGPT, Perplexity, DeepSeek, Grok) are opt-in and unofficial, signed in by you in Pygg's own window, and held behind a per-site guard: one request at a time, rests between them, a daily cap, longer rests after the site's own warnings.
+- **AI websites as providers, carefully.** Web sessions (Muse, ChatGPT, Perplexity, DeepSeek, Grok) are opt-in and unofficial, signed in by you in Pygg's own window, and held behind a per-site guard: one request at a time, rests between them, a daily cap, longer rests after the site's own warnings. Pictures, videos and files a site makes come back with the reply.
 - **Local, with your own accounts.** The gateway listens on 127.0.0.1 only and needs a Pygg API key; provider keys stay in the OS credential store. Each tool's setup is backed up first, and Remove puts it back.
 
 ## A look at the app
@@ -91,7 +93,7 @@ The installer is **not code-signed**, so SmartScreen says "Windows protected you
 npm install -g @pygg/cli@dev
 ```
 
-`0.1.0-dev.7` under the tag `dev`, for **Windows x64**, **macOS** (Apple silicon and Intel) and **Linux x64** (glibc). On Windows the CLI uses the desktop app's store and gateway; on macOS and Linux, where there is no app yet, `pygg gateway serve` runs the gateway in a terminal of its own.
+Published under the tag `dev` (the npm badge above shows the version) for **Windows x64**, **macOS** (Apple silicon and Intel) and **Linux x64** (glibc). On Windows the CLI uses the desktop app's store and gateway; on macOS and Linux, where there is no app yet, `pygg gateway serve` runs the gateway in a terminal of its own.
 
 ## Quick start
 
@@ -101,7 +103,8 @@ Open Pygg, then **Providers → Connect Provider** and paste a key (Gemini, Open
 
 ```bash
 pygg setup claude          # a Pygg key of its own, kept in the credential store; no file changes
-pygg run claude            # this launch through Pygg, model auto
+pygg run claude            # this launch through Pygg, model auto; a receipt when it exits
+pygg run --statusline claude   # the same, with the launch's cost in Claude Code's status line
 ```
 
 **Codex CLI** gets a `pygg` provider and profile, after a backup; its default model is not changed.
@@ -127,6 +130,14 @@ pygg ask --model auto/cheap "Explain git worktree in two sentences"
 
 **Editors and SDKs** (Cline, Continue, Roo Code, the OpenAI or Anthropic SDKs): base URL `http://127.0.0.1:8741/v1`, a key from **Endpoint → API Keys**, model `auto`.
 
+**Keep spending in bounds** and see where it went:
+
+```bash
+pygg gateway client --name "Claude Code (launcher)" --session-usd 5 --day-usd 20   # or Endpoint → API Keys → Limits…
+pygg launches --by-repo    # cost, commits and cost per commit, per repository and week
+pygg usage --days 7        # requests, known and unknown cost, by client, model and kind of request
+```
+
 Each `setup` takes `--dry-run` to show what would change and `--remove` to undo it. The same set-up is one click in **CLI Tools**. Step by step, with troubleshooting: [Getting started](docs/GETTING-STARTED.md).
 
 ## Measured, not claimed
@@ -139,6 +150,7 @@ Real agents, real models, checks the agent cannot edit, about $16.7 of a $20 bud
 | Claude Code on the same tasks, Haiku 5.5 instead of Sonnet 5.5 | **79% less per solved task** (95% CI 74–84%); `auto/cheap` with OpenCode: 34/36 at $0.0129 per solved task | [P0](benchmark/reports/2026-11-12-p0-optimization.md) |
 | Claude Code on six tasks from a real production repository | Haiku 5.5: **6/6 for $1.50**, 96% of input read from cache; Sonnet 5.5: 4/5 for $1.19; OpenCode with `auto/cheap`: 2/6 for $0.35 | [CCHT](benchmark/reports/2026-11-13-ccht-real-repository.md) |
 | Codex on Claude Haiku 5.5, Pygg's prompt caching off vs on | 16/16 either way; **30% less in all, 68% less on input** | [Prompt cache](benchmark/reports/2026-11-14-codex-claude-prompt-cache.md) |
+| An OpenAI-format agent on Claude Haiku 5.5 through OpenRouter, with Pygg's cache marker | After each session's first turn, **99.7% of every prompt read from cache**; $0.0066 in all | [OpenRouter cache](benchmark/reports/2026-11-16-openrouter-cache-live.md) |
 | The gateway's own overhead, against a local fake provider | **About 4 ms** per short request, 5 ms per 400 kB prompt; about 230 requests/s with 16 clients | [Overhead](benchmark/reports/2026-11-14-gateway-overhead.md) |
 | Web sessions on five sites, 48 short tasks | **47/48 correct**, about 18 s each, $0 | [Web sessions](benchmark/reports/2026-11-13-web-sessions.md) |
 
