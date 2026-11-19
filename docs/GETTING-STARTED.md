@@ -15,7 +15,7 @@ This page goes from the installer to "my coding tool uses the model `auto`". Whe
 
 ### The desktop app (Windows)
 
-Download `Pygg_0.1.0_x64-setup.exe` (NSIS, per user) or the MSI, with `SHA256SUMS.txt`, from the [`v0.1.0-dev.1` prerelease](https://github.com/nambean/Pygg/releases/tag/v0.1.0-dev.1). Check the download against the checksum before running it:
+Download `Pygg_0.1.0_x64-setup.exe` (NSIS, per user) or the MSI, with `SHA256SUMS.txt`, from the [`v0.1.0-dev.2` prerelease](https://github.com/nambean/Pygg/releases/tag/v0.1.0-dev.2). Check the download against the checksum before running it:
 
 ```powershell
 Get-FileHash .\Pygg_0.1.0_x64-setup.exe -Algorithm SHA256   # compare with the line in SHA256SUMS.txt

@@ -8,9 +8,8 @@ What comes next, in order, and what must be true before a public release. What i
 
 ## Next, in order
 
-**Before the list: a new prerelease of the desktop app.** The only installer published is `v0.1.0-dev.1` (2026-11-14, store schema v31). Everything since (schema v32 to v40: Skills & Prompts and its projects, launch receipts, request kinds, session and day limits, the Anthropic usage-limit hold, pictures and files from web sessions) reaches users only through a build from source, and the npm command line is ahead of the installer it pairs with on Windows. A release is the owner's decision; the npm packages follow it ([PUBLISHING](../packages/npm/PUBLISHING.md)).
-
 1. **Close the live-evidence gaps.** Each needs a key, an account or the owner's time; paid traffic stays inside the benchmark budget (ADR-028).
+   - The `v0.1.0-dev.2` installer (2026-11-19, schema v40) installed over `v0.1.0-dev.1` from Explorer, its store moved from v31, and the app clicked through. Each later prerelease is the owner's decision; the npm packages follow it ([PUBLISHING](../packages/npm/PUBLISHING.md)).
    - Session and day limits in the installed app (so far checked live through the headless gateway on a copy of the store).
    - Launch receipts and Claude Code's request kinds read from a real session; `pygg chat` and `pygg ask` on the owner's own connections.
    - Skills installed into real agents and used from them, globally and in a project.
