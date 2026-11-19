@@ -290,7 +290,7 @@ function ConnectionRow({connection: c, selected, autoCount, onSelect}: {connecti
       <ProviderLogo kind={c.kind} name={c.label} size={17}/>
       <span className="select-row-text">
         <span className="select-row-title"><span className="select-row-label" title={c.label}>{c.label}</span> <span className="mono secondary">{c.id}/…</span></span>
-        <small>{c.presetName} · {billingLabel(c.defaultBilling)} · {plural(c.models, '{n} model', '{n} models')}
+        <small>{c.presetName}{c.webAccount ? ` · ${c.webAccount}` : ''} · {billingLabel(c.defaultBilling)} · {plural(c.models, '{n} model', '{n} models')}
           {autoCount !== undefined && !c.web && c.enabled && c.models > 0 && <> · {t('{n} for auto', {n: autoCount})}</>}</small>
       </span>
       {c.healthStrip && <HealthDots strip={c.healthStrip} compact/>}
@@ -957,7 +957,7 @@ function WebSessionRows({connection: c}: {connection: Connection}) {
   return <>
     <div className="group-row">
       <span className="group-label">{t('Sign-in')}
-        <small>{c.webStateReason ?? t('Not checked yet.')}{c.webStateAt ? ` · ${ago(c.webStateAt)}` : ''}</small></span>
+        <small>{state === 'signed_in' && c.webAccount ? t('Signed in as {account}.', {account: c.webAccount}) : c.webStateReason ?? t('Not checked yet.')}{c.webStateAt ? ` · ${ago(c.webStateAt)}` : ''}</small></span>
       <span className="group-control web-actions">
         <Badge tone={state === 'signed_in' ? 'ok' : state === 'signed_out' ? 'warn' : 'error'}>{webStateLabel(state)}</Badge>
         <button type="button" className="button small" onClick={() => run('open')} disabled={busy !== null}>

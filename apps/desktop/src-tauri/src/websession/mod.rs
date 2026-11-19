@@ -154,6 +154,9 @@ pub struct Recipe {
     /// reply's own media block, the window muted, and pauses it once the sound is in memory (owner's choice,
     /// 2026-11-18).
     pub play_audio: bool,
+    /// A JavaScript expression for the account the page says is signed in (an email or a name), where the site's page
+    /// carries it without a click; `None` where it shows it only in a menu (Muse) or it was not seen live yet.
+    pub account: Option<&'static str>,
 }
 
 /// A check the site runs on the browser: a CAPTCHA, Cloudflare's "Just a moment" page or Turnstile, or a bot check.
@@ -234,6 +237,8 @@ pub const RECIPES: &[Recipe] = &[
         // goes, so it is no sign of anything.
         trust_busy: true,
         play_audio: true,
+        // 2026-11-19, live: the page shows no account outside its Settings menu, which Pygg does not open.
+        account: None,
     },
     // ChatGPT chats with visitors too, so "signed in" needs its Log in buttons gone. Sign-in: auth.openai.com (email,
     // phone), Google, Apple, Microsoft. Public page, 2026-11-12: `textarea[name="prompt"]`, a "Send message" button.
@@ -272,6 +277,10 @@ pub const RECIPES: &[Recipe] = &[
         media_root: None,
         trust_busy: false,
         play_audio: false,
+        // 2026-11-19, live: the page's own start-up data (`script#client-bootstrap`) names the signed-in user.
+        account: Some(
+            "JSON.parse(document.getElementById('client-bootstrap')?.textContent || '{}')?.session?.user?.email",
+        ),
     },
     // Perplexity answers visitors too. Sign-in: an emailed code on perplexity.ai, Google, Apple. Public page,
     // 2026-11-12: a Lexical `div[contenteditable][role=textbox]`, a "Submit" button. Its "Computer" mode is an agent;
@@ -299,6 +308,12 @@ pub const RECIPES: &[Recipe] = &[
         media_root: None,
         trust_busy: false,
         play_audio: false,
+        // 2026-11-19, live: the user's name is the first line beside the sidebar's `img[alt="Profile avatar"]`.
+        account: Some(
+            "(() => { let box = document.querySelector('img[alt=\"Profile avatar\"]'); for (let i = 0; i < 6 && box; i++) \
+             { box = box.parentElement; const t = (box.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean); \
+             if (t.length) return t[0]; } return null; })()",
+        ),
     },
     // DeepSeek needs an account: chat.deepseek.com sends a visitor to /sign_in (email or phone with a password,
     // Google, Apple). Its Send control has no label, so Enter sends; it shows no reliable "stop" control either.
@@ -325,6 +340,7 @@ pub const RECIPES: &[Recipe] = &[
         media_root: None,
         trust_busy: false,
         play_audio: false,
+        account: None,
     },
     // Grok sits behind Cloudflare: on 2026-11-12 even its sign-in page answered with "Just a moment" in a normal
     // browser. That check stops the connection until the user clears it in the window; Pygg never answers it. Sign-in:
@@ -353,6 +369,11 @@ pub const RECIPES: &[Recipe] = &[
         media_root: None,
         trust_busy: false,
         play_audio: false,
+        // 2026-11-19, live: the sidebar's account button is labelled "Account menu for <name>, <email>".
+        account: Some(
+            "document.querySelector('button[aria-label^=\"Account menu for \"]')?.getAttribute('aria-label')\
+             ?.replace(/^Account menu for /, '')",
+        ),
     },
 ];
 
@@ -1715,12 +1736,40 @@ pub async fn converse_marked(
     }
 }
 
-/// Opens a new chat to see whether the session is signed in, for the Connections screen.
-pub async fn check(page: &dyn Page, recipe: &Recipe, timing: &Timing) -> (&'static str, &'static str) {
+/// Opens a new chat to see whether the session is signed in, for the Connections screen, and which account the page
+/// says it is where it says so (`Recipe::account`).
+pub async fn check(page: &dyn Page, recipe: &Recipe, timing: &Timing) -> (&'static str, &'static str, Option<String>) {
     match open_chat(page, recipe, timing).await {
-        Ok(()) => ("signed_in", SIGNED_IN),
-        Err(e) => e.state().unwrap_or(("page_changed", NO_PROMPT_BOX)),
+        Ok(()) => {
+            let account = match account_script(recipe) {
+                Some(script) => page.eval(script).await.ok().and_then(|v| v.as_str().and_then(account_text)),
+                None => None,
+            };
+            ("signed_in", SIGNED_IN, account)
+        }
+        Err(e) => {
+            let (state, reason) = e.state().unwrap_or(("page_changed", NO_PROMPT_BOX));
+            (state, reason, None)
+        }
     }
+}
+
+/// The script that reads the signed-in account (`Recipe::account`): a string, or `null` when the page has none.
+pub fn account_script(r: &Recipe) -> Option<String> {
+    r.account.map(|expr| {
+        format!(
+            r#"(() => {{
+  const __pyggAccount = (() => {{ try {{ return {expr}; }} catch (e) {{ return null; }} }})();
+  return typeof __pyggAccount === 'string' ? __pyggAccount : null;
+}})()"#
+        )
+    })
+}
+
+/// An account as shown: one line of at most 120 characters, without control characters; `None` when empty.
+pub fn account_text(raw: &str) -> Option<String> {
+    let line: String = raw.chars().filter(|c| !c.is_control()).collect::<String>().trim().chars().take(120).collect();
+    (!line.is_empty()).then_some(line)
 }
 
 // ---------- Profile folders ----------
@@ -1857,9 +1906,14 @@ impl Service {
             return Ok(Checked::Skipped(format!("{CHECK_RESTING} ({} s left.)", (next - now + 999) / 1000)));
         }
         let page = self.windows.page(&provider, recipe).map_err(|e| e.message())?;
-        let (state, reason) = check(page.as_ref(), recipe, &self.timing).await;
+        let (state, reason, account) = check(page.as_ref(), recipe, &self.timing).await;
         turn.finished = Some(Instant::now());
         self.record(provider_id, state, reason);
+        // The account is kept while signed in (a site that does not show it leaves it as it was) and dropped on
+        // signing out.
+        if account.is_some() || state == "signed_out" {
+            let _ = self.with_db(|db| store::set_web_account(db, provider_id, account.as_deref()));
+        }
         let ended = crate::db::now_ms();
         let limits = guard::limits(&provider.kind);
         let rest = ended + guard::rest_ms(limits.rest_base(self.timing.gap.as_millis() as i64), 1, 0);

@@ -97,6 +97,8 @@ export type Connection = {
   webState?: WebState | null;
   webStateReason?: string | null;
   webStateAt?: number | null;
+  /** The account the site's page said was signed in at the last check, where it says so. */
+  webAccount?: string | null;
   /** Its key ring (ADR-038), empty until it has a second key; how it orders them; why it cannot have several. */
   keys?: ConnectionKey[]; keyStrategy?: KeyStrategy; keysRefused?: string | null;
 };

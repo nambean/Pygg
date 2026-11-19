@@ -59,12 +59,15 @@ pub struct Provider {
     pub web_state_at: Option<i64>,
     /// Requests a web session may send to its site per UTC day; `None` is Pygg's default (migration 0026).
     pub web_daily_limit: Option<u32>,
+    /// The account the site's page said was signed in at the last sign-in check (migration 0041), so connections to
+    /// one site can be told apart. Shown in the app only.
+    pub web_account: Option<String>,
 }
 
 const PROVIDER_COLUMNS: &str =
     "id, kind, account_label, COALESCE(endpoint, ''), enabled, credential_ref, default_billing, data_use_terms, created_at, \
      wire, COALESCE(quota_group, kind), quota_group IS NOT NULL, quota_confirmed_at, terms_source, terms_checked_at, pool, pool_rank, \
-     web_profile, web_ack_version, web_ack_at, web_state, web_state_reason, web_state_at, web_daily_limit";
+     web_profile, web_ack_version, web_ack_at, web_state, web_state_reason, web_state_at, web_daily_limit, web_account";
 
 fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
     let kind: String = row.get(1)?;
@@ -97,6 +100,7 @@ fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
         web_state_reason: row.get(21)?,
         web_state_at: row.get(22)?,
         web_daily_limit: row.get::<_, Option<i64>>(23)?.map(|n| n.clamp(1, 1000) as u32),
+        web_account: row.get(24)?,
     })
 }
 
@@ -248,6 +252,12 @@ pub fn add_web_provider(conn: &Connection, kind: &str, label: &str, ack_version:
         .collect();
     import_listed(conn, &id, &listed, Some(crate::websession::CAPS_SOURCE))?;
     get_provider(conn, &id)?.ok_or_else(|| "connection was not saved".into())
+}
+
+/// Records the account a web session's page said was signed in, or clears it (`None`) once signed out.
+pub fn set_web_account(conn: &Connection, provider_id: &str, account: Option<&str>) -> Result<()> {
+    conn.execute("UPDATE providers SET web_account = ?2 WHERE id = ?1", params![provider_id, account]).map_err(err)?;
+    Ok(())
 }
 
 /// Records what a web session's window last showed (ADR-035). `reason` is Pygg's own wording, never the page's text.

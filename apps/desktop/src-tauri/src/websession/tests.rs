@@ -48,6 +48,8 @@ struct FakePage {
     heap: Mutex<Vec<HeapBlob>>,
     heap_read: Mutex<Vec<HeapBlob>>,
     audio_after_play: Mutex<Vec<String>>,
+    /// What the page's account script answers.
+    account: Mutex<Value>,
     played: AtomicUsize,
     paused: AtomicUsize,
 }
@@ -97,6 +99,8 @@ impl Page for FakePage {
                     self.played.fetch_add(1, Ordering::SeqCst);
                     json!(1)
                 }
+            } else if script.contains("__pyggAccount") {
+                self.account.lock().unwrap().clone()
             } else if script.contains("^pause$") {
                 self.paused.fetch_add(1, Ordering::SeqCst);
                 json!(1)
@@ -818,6 +822,7 @@ fn every_page_script_is_valid_javascript() {
             ("play", play_script(r, 2)),
             ("pause", pause_script(r)),
             ("audio-sources", audio_sources_script()),
+            ("account", account_script(r).unwrap_or_else(|| "null".into())),
         ];
         for (name, script) in scripts {
             let file = dir.join(format!("{}-{name}.js", r.preset));
@@ -855,6 +860,7 @@ fn no_script_reads_cookies_storage_or_the_network() {
             play_script(r, 2),
             pause_script(r),
             audio_sources_script(),
+            account_script(r).unwrap_or_default(),
         ];
         for script in scripts {
             let lower = script.to_lowercase();
@@ -1450,7 +1456,38 @@ fn a_sign_in_check_keeps_the_guards_pace_and_a_skipped_one_is_not_a_check() {
         store::web_guard_resume(&rig.db.lock().unwrap(), &rig.muse.id).unwrap();
         assert_eq!(rig.service.check(&rig.muse.id).await.unwrap(), Checked::Seen);
         assert_eq!(rig.muse().web_state.as_deref(), Some("signed_in"));
+        assert_eq!(rig.muse().web_account, None, "Muse's page shows no account outside its menu");
     });
+}
+
+/// Which account a connection is signed in to, where the site's page says so without a click (owner's report,
+/// 2026-11-19: three ChatGPT connections could not be told apart). ChatGPT's page names it in its start-up data.
+#[test]
+fn the_account_the_page_names_is_shown_and_dropped_on_signing_out() {
+    let chatgpt = recipe("chatgpt-web").unwrap();
+    assert!(account_script(chatgpt).unwrap().contains("client-bootstrap"));
+    assert!(account_script(recipe("perplexity-web").unwrap()).unwrap().contains("Profile avatar"));
+    assert!(account_script(recipe("grok-web").unwrap()).unwrap().contains("Account menu for"));
+    assert!(account_script(recipe("muse-web").unwrap()).is_none());
+    assert_eq!(account_text("  a@b.example\n"), Some("a@b.example".to_string()));
+    assert_eq!(account_text(" \t "), None);
+    assert_eq!(account_text(&"x".repeat(300)).unwrap().len(), 120);
+    rt().block_on(async {
+        let page = FakePage::new(vec![ready()], vec![]);
+        *page.account.lock().unwrap() = json!("  someone@example.com ");
+        let (state, _, account) = check(page.as_ref(), chatgpt, &fast()).await;
+        assert_eq!((state, account.as_deref()), ("signed_in", Some("someone@example.com")));
+        *page.account.lock().unwrap() = json!({ "not": "text" });
+        assert_eq!(check(page.as_ref(), chatgpt, &fast()).await.2, None);
+    });
+    let (conn, muse) = web_store();
+    store::set_web_account(&conn, &muse.id, Some("someone@example.com")).unwrap();
+    assert_eq!(
+        store::get_provider(&conn, &muse.id).unwrap().unwrap().web_account.as_deref(),
+        Some("someone@example.com")
+    );
+    store::set_web_account(&conn, &muse.id, None).unwrap();
+    assert_eq!(store::get_provider(&conn, &muse.id).unwrap().unwrap().web_account, None);
 }
 
 #[test]

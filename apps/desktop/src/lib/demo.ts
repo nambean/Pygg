@@ -404,7 +404,8 @@ export function demoApi(): GatewayApi {
     connections.push({id: 'deepseek-web-stress', kind: 'deepseek-web', label: 'DeepSeek — personal account, signed in on this computer',
       endpoint: 'https://chat.deepseek.com', enabled: true, credentialRef: null, defaultBilling: 'free', dataUseTerms: 'unknown',
       termsSource: null, termsCheckedAt: null, createdAt: now, key: false, wire: 'openai', separateQuota: false, quotaConfirmedAt: null,
-      web: true, webAckCurrent: true, webActs: false, webAckAt: now, webState: 'signed_in', webStateAt: now, webStateReason: 'Signed in.'});
+      web: true, webAckCurrent: true, webActs: false, webAckAt: now, webState: 'signed_in', webStateAt: now, webStateReason: 'Signed in.',
+      webAccount: 'a.very.long.account.name.for.testing@example-company-mail.com'});
     addModels('deepseek-web-stress', ['deepseek']);
   }
 
