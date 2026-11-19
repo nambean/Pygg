@@ -35,6 +35,14 @@ What comes next, in order, and what must be true before a public release. What i
 7. **Housekeeping.** Demo data that replays recorded snapshots instead of copying the core's rules.
 8. **The Vietnamese translation**, last, once the interface's English text is final.
 
+**A larger benchmark, once the work above is done** (owner, 2026-11-19). The published runs are the maintainer's own, on 12 small Node tasks and six tasks from one private repository: too few to stand behind a headline. The rerun covers:
+- **More and harder cases:** large refactors across modules, database schema changes and migrations, other languages than JavaScript, and tasks cut from real repositories, beside the existing 36 cases.
+- **Every provider and model connected to the owner's store** that can serve a coding agent: API keys, coding plans and local models. Web sessions stay out: the guard refuses benchmark-sized prompts, and a long-prompt run got an account suspended (ADR-035).
+- **Claude Code, Codex and OpenCode**, at least three repeats per case and arm, with `auto`, `auto/cheap` and the role aliases next to pinned models.
+- **Reported per task category:** pass rate on the first attempt and across all repeats, cost per solved task and time, with confidence intervals, and every arm where the cheaper route lost.
+
+Its results replace the README's figures. Its paid traffic needs a budget the owner sets first: about $16.7 of the $20 (ADR-028) is already spent. Runs contributed by others ([CONTRIBUTING](../CONTRIBUTING.md#benchmark-runs)) are added beside it.
+
 Smart tasks' next shape is decided and being built in ADR-041's order (owner, 2026-11-19): the model facts feed (ADR-040, built), the role aliases (built, not yet measured with the harness), then `pygg/brain` proposals as ordinary tasks, the board (ADR-042) with the Brain Storming screen, and the image role. Design: [design/BRAIN.md](design/BRAIN.md).
 
 ## Release gates
