@@ -412,8 +412,9 @@ pub struct Own {
 pub const OWN_MIN_ATTEMPTS: u32 = 10;
 
 /// The user's own evidence per `connection/model` for a role, from the attempts of tasks made from cards
-/// (`tasks.card_role`, migration 0042): an attempt's `model_ref` is the agent's naming, `pygg/<connection/model>`
-/// for an agent pointed at the gateway. A result is counted as kept once per task, on the attempt that made it.
+/// (`tasks.card_role`, migration 0042): an attempt's `model_ref` is `<agent> · <model>`, the model being
+/// `pygg/<connection/model>` for an agent pointed at the gateway. A result is counted as kept once per task, on the
+/// attempt that made it.
 pub fn own_evidence(conn: &Connection, role: &str) -> Result<std::collections::HashMap<String, Own>> {
     let mut stmt = conn
         .prepare(
@@ -434,7 +435,8 @@ pub fn own_evidence(conn: &Connection, role: &str) -> Result<std::collections::H
     let mut out: std::collections::HashMap<String, Own> = std::collections::HashMap::new();
     for row in rows {
         let (model_ref, state, result, number, last) = row.map_err(|e| e.to_string())?;
-        let model = model_ref.strip_prefix("pygg/").unwrap_or(&model_ref).to_string();
+        let model = model_ref.rsplit(" · ").next().unwrap_or(&model_ref);
+        let model = model.strip_prefix("pygg/").unwrap_or(model).to_string();
         let own = out.entry(model).or_default();
         own.attempts += 1;
         if state == "passed" {
@@ -856,7 +858,7 @@ mod tests {
             for (i, state) in states.iter().enumerate() {
                 conn.execute(
                     "INSERT INTO attempts (id, stage_id, number, agent, model_ref, tier, billing, state) VALUES (?1, ?2, ?3, 'opencode', ?4, 1, 'paid', ?5)",
-                    params![format!("a{n}_{i}"), format!("s{n}"), i as i64 + 1, format!("pygg/{model}"), state],
+                    params![format!("a{n}_{i}"), format!("s{n}"), i as i64 + 1, format!("OpenCode · pygg/{model}"), state],
                 )
                 .unwrap();
             }

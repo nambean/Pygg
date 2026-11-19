@@ -124,21 +124,6 @@ pub fn run() {
                 Some(dir) => std::path::PathBuf::from(dir),
                 None => app.path().app_data_dir()?,
             };
-            // The main window is built here, not from the configuration, so an app on another store keeps its
-            // WebView2 profile beside that store: two apps cannot share one profile with different settings.
-            let config = app
-                .config()
-                .app
-                .windows
-                .iter()
-                .find(|w| w.label == "main")
-                .cloned()
-                .expect("the main window in tauri.conf.json");
-            let mut main = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?;
-            if std::env::var_os("PYGG_DATA_DIR").is_some() {
-                main = main.data_directory(dir.join("webview"));
-            }
-            main.build()?;
             std::fs::create_dir_all(&dir)?;
             applog::init(&dir);
             applog::info(&format!("Pygg {} starting", env!("CARGO_PKG_VERSION")));
@@ -286,6 +271,22 @@ pub fn run() {
                 let _ = tauri::async_runtime::block_on(state.start());
             }
             app.manage(state);
+            // The main window is built here, after the state its page asks for is in place, and not from the
+            // configuration, so an app on another store keeps its WebView2 profile beside that store: two apps
+            // cannot share one profile with different settings.
+            let config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|w| w.label == "main")
+                .cloned()
+                .expect("the main window in tauri.conf.json");
+            let mut main = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?;
+            if std::env::var_os("PYGG_DATA_DIR").is_some() {
+                main = main.data_directory(dir.join("webview"));
+            }
+            main.build()?;
             shell::setup_tray(app)?;
             // Spending alerts as notifications, checked every ten minutes while Pygg runs (shell.rs).
             {
