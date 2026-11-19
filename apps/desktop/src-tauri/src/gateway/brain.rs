@@ -384,14 +384,7 @@ pub async fn run_planner(
                     Err(b.error.clone().unwrap_or_default())
                 }
                 Ok(mut proposal) => {
-                    // A question the planner stopped asking was answered in the client.
-                    for old in &b.proposal.questions {
-                        if !proposal.questions.iter().any(|q| q.id == old.id) {
-                            let mut q = old.clone();
-                            q.answered = true;
-                            proposal.questions.push(q);
-                        }
-                    }
+                    merge_questions(&b.proposal.questions, &mut proposal);
                     // What the user set on a card by its id survives a refinement: the model, the runner, dropped.
                     for card in &mut proposal.cards {
                         if let Some(old) = b.proposal.cards.iter().find(|c| c.id == card.id) {
@@ -512,6 +505,49 @@ pub fn pick_models(conn: &Connection, client: &Client, proposal: &mut Proposal) 
         }
     }
     Ok(())
+}
+
+/// Carries the earlier questions into a refined proposal: a question the planner asks again (same text) keeps its
+/// id; one it stopped asking is marked answered in the client; a new question the planner gave an old id (seen live:
+/// Gemini numbered its new question `q1` again) gets a fresh id, and the cards that named it follow.
+fn merge_questions(old: &[Question], proposal: &mut Proposal) {
+    let mut merged: Vec<Question> = Vec::new();
+    let mut renamed: HashMap<String, String> = HashMap::new();
+    let mut next = old.len() + proposal.questions.len() + 1;
+    for mut q in proposal.questions.drain(..) {
+        if let Some(same) = old.iter().find(|o| o.text == q.text) {
+            if same.id != q.id {
+                renamed.insert(q.id.clone(), same.id.clone());
+                q.id = same.id.clone();
+            }
+        } else if old.iter().any(|o| o.id == q.id) {
+            let fresh = loop {
+                let id = format!("q{next}");
+                next += 1;
+                if !old.iter().any(|o| o.id == id) && !merged.iter().any(|m| m.id == id) {
+                    break id;
+                }
+            };
+            renamed.insert(q.id.clone(), fresh.clone());
+            q.id = fresh;
+        }
+        merged.push(q);
+    }
+    for o in old {
+        if !merged.iter().any(|m| m.text == o.text) {
+            merged.push(Question { answered: true, ..o.clone() });
+        }
+    }
+    if !renamed.is_empty() {
+        for card in &mut proposal.cards {
+            for dep in &mut card.depends_on {
+                if let Some(to) = renamed.get(dep) {
+                    *dep = to.clone();
+                }
+            }
+        }
+    }
+    proposal.questions = merged;
 }
 
 // ---------- parsing the planner ----------
@@ -923,6 +959,31 @@ mod tests {
             Some("build a shop")
         );
         assert_eq!(last_user_text(Surface::OpenAi, &json!({"messages": []})), None);
+    }
+
+    #[test]
+    fn a_refinement_keeps_answered_questions_and_renames_a_reused_id() {
+        let old = vec![
+            Question { id: "q1".into(), text: "Which payment providers?".into(), answered: false },
+            Question { id: "q2".into(), text: "Is there an admin area?".into(), answered: false },
+        ];
+        let mut refined = parse_reply(&format!(
+            r#"{{"questions": [{{"id": "q1", "text": "Magic links or passwords?"}}, {{"id": "q9", "text": "Is there an admin area?"}}], "cards": [{}]}}"#,
+            r#"{"id": "c1", "title": "Auth", "role": "code", "done": "sign-in works", "dependsOn": ["q1", "q9"]}"#
+        ))
+        .unwrap();
+        merge_questions(&old, &mut refined);
+        let ids: Vec<(&str, &str, bool)> =
+            refined.questions.iter().map(|q| (q.id.as_str(), q.text.as_str(), q.answered)).collect();
+        assert_eq!(
+            ids,
+            [
+                ("q5", "Magic links or passwords?", false),
+                ("q2", "Is there an admin area?", false),
+                ("q1", "Which payment providers?", true)
+            ]
+        );
+        assert_eq!(refined.cards[0].depends_on, ["q5", "q2"], "the card follows the renamed and the kept ids");
     }
 
     #[test]

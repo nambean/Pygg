@@ -2598,6 +2598,12 @@ fn pygg_brain_proposes_a_board_refines_it_in_the_session_and_ledgers_the_planner
         let stored = rig.shared.with_db(|db| brain::get(db, &id)).unwrap().unwrap();
         assert!(stored.proposal.questions.iter().any(|q| q.id == "q1" && q.answered));
         assert_eq!(rig.ledger().len(), 2);
+        // Each planner reply left its quality signal (ADR-029): both fit the schema.
+        let signals: Vec<(String, i64)> = rig.shared.with_db(|db| {
+            let mut stmt = db.prepare("SELECT target_kind, value_bool FROM feedback WHERE metric_name = 'brain_schema_ok' AND target_id = ?1").unwrap();
+            stmt.query_map([&id], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().collect::<Result<_, _>>().unwrap()
+        });
+        assert_eq!(signals, [("brainstorm".to_string(), 1), ("brainstorm".to_string(), 1)]);
 
         // An Anthropic-format client gets the same brainstorm flow in its own shape, streamed.
         let anthropic = json!({ "model": "pygg/brain", "max_tokens": 100, "stream": true,
