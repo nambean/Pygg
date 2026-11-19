@@ -82,6 +82,7 @@ Recipes, hosts and selectors are in `apps/desktop/src-tauri/src/websession/mod.r
 | Perplexity (`perplexity-web`) | `https://www.perplexity.ai/` | `perplexity` | yes: the benchmark (8 of 8) |
 | DeepSeek (`deepseek-web`) | `https://chat.deepseek.com/` | `deepseek` | yes: the benchmark (8 of 8) |
 | Grok (`grok-web`) | `https://grok.com/` | `grok` | yes: sign-in with Google, Check Sign-In and Test, and the benchmark (8 of 8) |
+| Gemini (`gemini-web`) | `https://gemini.google.com/app` | `gemini` | selectors read from the live page in a browser (2026-11-19); not yet run in Pygg's window |
 
 The benchmark is [web sessions](../benchmark/reports/2026-11-13-web-sessions.md): eight short checked tasks per account through the app's gateway, at Pygg's pace, with no money spent. Each live check was a single run. Not verified yet: use over many days, how close each site's own limits are, and a pool of two accounts used live.
 
@@ -112,6 +113,7 @@ While you have the window open to sign in, it may go to any https address, like 
 | `perplexity-web` | perplexity.ai, google.com, youtube.com, apple.com | perplexity.ai is the site and its emailed-code sign-in; Google and Apple are its other sign-in buttons. From the documented sign-in paths |
 | `deepseek-web` | chat.deepseek.com, deepseek.com, google.com, youtube.com, apple.com | chat.deepseek.com is the site and sends a visitor to `/sign_in` (email or phone with a password); Google and Apple are its other sign-in buttons. From the documented sign-in paths |
 | `grok-web` | grok.com, grokusercontent.com, x.ai, x.com, twitter.com, google.com, youtube.com, apple.com | grok.com is the site. After its OAuth callback Grok sets its cookie on auth.grok.com and then auth.grokusercontent.com; blocking that hop left the window white. accounts.x.ai is its email sign-in; x.com and twitter.com are "Sign in with X"; Google and Apple are its other buttons. The Google path was seen live |
+| `gemini-web` | gemini.google.com, google.com, youtube.com | gemini.google.com is the site; Google is its only sign-in, through accounts.google.com and accounts.youtube.com. No other site's window reaches gemini.google.com, although they allow google.com to sign in with Google |
 
 **Google's country sign-in hosts.** Google's sign-in also sets its cookie on the account's country domain, after accounts.youtube.com: `accounts.google.com.vn` for an account in Viet Nam. Blocking that hop left ChatGPT's Google sign-in spinning. A recipe that lists google.com therefore also allows exactly `accounts.google.` followed by a two-letter country code, `com.` and a code, or `co.` and a code (`accounts.google.de`, `accounts.google.com.vn`, `accounts.google.co.jp`), and nothing else of that shape: `www.google.com.vn` and `accounts.google.com.vn.evil.com` stay blocked (test `the_window_goes_only_to_the_sites_hosts`). Muse has no Google sign-in and does not get them.
 

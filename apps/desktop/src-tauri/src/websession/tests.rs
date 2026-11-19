@@ -686,6 +686,11 @@ fn each_site_reaches_its_own_sign_in_and_nothing_else() {
             ],
             &["https://chatgpt.com/", "http://grok.com/"],
         ),
+        (
+            "gemini-web",
+            &["https://gemini.google.com/app", "https://accounts.google.com/x", "https://accounts.youtube.com/x"],
+            &["https://chatgpt.com/", "https://gemini.google.com.evil.example/"],
+        ),
     ];
     for (preset, allowed, blocked) in cases {
         let r = recipe(preset).unwrap();
@@ -696,6 +701,9 @@ fn each_site_reaches_its_own_sign_in_and_nothing_else() {
             assert!(!host_allowed(r, url), "{preset} must not reach {url}");
         }
     }
+    // ChatGPT signs in with Google, and Gemini sits on google.com: its window still never reaches Gemini.
+    assert!(host_allowed(recipe("chatgpt-web").unwrap(), "https://accounts.google.com/x"));
+    assert!(!host_allowed(recipe("chatgpt-web").unwrap(), "https://gemini.google.com/app"));
     // A site's window never reaches another site, so one profile never signs in to two of them.
     for a in RECIPES {
         for b in RECIPES.iter().filter(|b| b.preset != a.preset) {
@@ -712,6 +720,7 @@ fn every_new_web_preset_starts_off_with_its_one_model_and_no_tools() {
         ("perplexity-web", "perplexity", "perplexity"),
         ("deepseek-web", "deepseek", "deepseek"),
         ("grok-web", "grok", "grok"),
+        ("gemini-web", "gemini", "gemini"),
     ] {
         let p = store::add_web_provider(&conn, preset, "", WARNING_VERSION).unwrap();
         assert_eq!((p.id.as_str(), p.enabled, p.default_billing.as_str()), (id, false, "free"));
@@ -1468,6 +1477,7 @@ fn the_account_the_page_names_is_shown_and_dropped_on_signing_out() {
     assert!(account_script(chatgpt).unwrap().contains("client-bootstrap"));
     assert!(account_script(recipe("perplexity-web").unwrap()).unwrap().contains("Profile avatar"));
     assert!(account_script(recipe("grok-web").unwrap()).unwrap().contains("Account menu for"));
+    assert!(account_script(recipe("gemini-web").unwrap()).unwrap().contains("SignOutOptions"));
     assert!(account_script(recipe("muse-web").unwrap()).is_none());
     assert_eq!(account_text("  a@b.example\n"), Some("a@b.example".to_string()));
     assert_eq!(account_text(" \t "), None);

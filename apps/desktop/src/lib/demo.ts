@@ -61,6 +61,7 @@ const BASE_PRESETS: BasePreset[] = [
     ['perplexity-web', 'Perplexity (perplexity.ai)', 'https://www.perplexity.ai'],
     ['deepseek-web', 'DeepSeek (chat.deepseek.com)', 'https://chat.deepseek.com'],
     ['grok-web', 'Grok (grok.com)', 'https://grok.com'],
+    ['gemini-web', 'Gemini (gemini.google.com)', 'https://gemini.google.com'],
   ] as const).map(([id, name, endpoint]): BasePreset => ({id, name, endpoint, needsKey: false, defaultBilling: 'free', wire: 'openai'})),
 ];
 /** What gateway/presets.rs says about starting with each provider. */
@@ -77,6 +78,7 @@ const OFFERS: Record<string, [Preset['offer'], string]> = {
   'perplexity-web': ['web', 'Answers with web search; its Sonar API is paid'],
   'deepseek-web': ['web', 'DeepSeek\'s models also have an API: DeepSeek'],
   'grok-web': ['web', 'Behind Cloudflare checks; xAI\'s models also have an API: xAI (Grok)'],
+  'gemini-web': ['web', 'Google sign-in only; Google\'s models also have an API: Google Gemini'],
 };
 const PRESETS: Preset[] = BASE_PRESETS.map(p => {
   const offer = OFFERS[p.id];

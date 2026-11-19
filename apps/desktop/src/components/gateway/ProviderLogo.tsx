@@ -17,7 +17,7 @@ const ICONS: Record<string, Icon> = {
   minimax: siMinimax, 'minimax-anthropic': siMinimax, ollama: siOllama, lmstudio: siLmstudio,
   'docker-model-runner': siDocker, vllm: siVllm,
   // Web sessions (ADR-035) of the same providers.
-  'deepseek-web': siDeepseek, 'grok-web': siX, 'perplexity-web': siPerplexity,
+  'deepseek-web': siDeepseek, 'grok-web': siX, 'perplexity-web': siPerplexity, 'gemini-web': siGooglegemini,
 };
 
 export function ProviderLogo({kind, name, size = 16}: {kind: string; name: string; size?: number}) {

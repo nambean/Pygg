@@ -375,6 +375,43 @@ pub const RECIPES: &[Recipe] = &[
              ?.replace(/^Account menu for /, '')",
         ),
     },
+    // Gemini (2026-11-19, live in the owner's Chrome with its Vietnamese interface, so nothing here reads the page's
+    // words): a Quill editor in `rich-textarea`, the send button in `[data-test-id=send-button-container]` (labelled
+    // in the page's language: "Send message", "Gửi tin nhắn"; Enter also sends), each answer a `model-response` whose
+    // words are in `message-content`, and the send button carries the class `stop` while it answers. Sign-in is
+    // Google's only, which may refuse an embedded window. Gemini also chats with visitors.
+    Recipe {
+        preset: "gemini-web",
+        site: "https://gemini.google.com",
+        new_chat_url: "https://gemini.google.com/app",
+        hosts: &["gemini.google.com", GOOGLE[0], GOOGLE[1]],
+        models: &["gemini"],
+        input: "rich-textarea div.ql-editor[contenteditable=\"true\"]",
+        send_pattern: "send|gửi",
+        enter_sends: true,
+        reply: "model-response message-content",
+        busy: Some("gem-icon-button.send-button.stop"),
+        approval: None,
+        deny_pattern: "^(deny|decline|cancel)$",
+        ready_attr: None,
+        sign_in_hints: &["sign in", "đăng nhập"],
+        signed_out_buttons: &["sign in", "đăng nhập"],
+        acts: false,
+        challenge_selectors: CHALLENGE_SELECTORS,
+        challenge_hints: CHALLENGE_HINTS,
+        quota_hints: QUOTA_HINTS,
+        // Pictures Gemini makes are part of its answer; the page's own icons are outside it.
+        media_root: Some("model-response"),
+        // The stop class showed for the whole answer, thinking included, and went with it (2026-11-19).
+        trust_busy: true,
+        play_audio: false,
+        // 2026-11-19, live: the Google account link is labelled "Google Account: <name> (<email>)" in the page's
+        // language; the email in brackets is read.
+        account: Some(
+            "document.querySelector('a[href^=\"https://accounts.google.com/SignOutOptions\"]')?.getAttribute('aria-label')\
+             ?.match(/\\(([^()]*@[^()]*)\\)/)?.[1]",
+        ),
+    },
 ];
 
 pub fn recipe(preset: &str) -> Option<&'static Recipe> {
@@ -392,6 +429,12 @@ pub fn host_allowed(recipe: &Recipe, url: &str) -> bool {
     }
     let host = authority.strip_suffix(":443").unwrap_or(authority).to_ascii_lowercase();
     if host.contains(':') {
+        return false;
+    }
+    // Another site's own page is never reached, even under a host this recipe allows for signing in (Gemini sits on
+    // google.com, where the others sign in with Google): one profile never signs in to two sites.
+    let own = site_host(recipe);
+    if RECIPES.iter().map(site_host).any(|h| h != own && (host == h || host.ends_with(&format!(".{h}")))) {
         return false;
     }
     recipe.hosts.iter().any(|h| host == *h || host.ends_with(&format!(".{h}")))

@@ -327,6 +327,12 @@ pub const PRESETS: &[Preset] = &[
         "https://grok.com",
         "Behind Cloudflare checks; xAI's models also have an API: xAI (Grok)",
     ),
+    web(
+        "gemini-web",
+        "Gemini (gemini.google.com)",
+        "https://gemini.google.com",
+        "Google sign-in only; Google's models also have an API: Google Gemini",
+    ),
 ];
 
 pub fn find(id: &str) -> Option<&'static Preset> {
