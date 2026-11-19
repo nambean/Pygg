@@ -340,7 +340,15 @@ pub const RECIPES: &[Recipe] = &[
         media_root: None,
         trust_busy: false,
         play_audio: false,
-        account: None,
+        // 2026-11-19, live: the user's name is the first line beside the sidebar's avatar, the one picture from
+        // static.deepseek.com/user-avatar (its class names are generated, so none is used). A folded sidebar shows
+        // none, and the account is then left as it was.
+        account: Some(
+            "(() => { let box = document.querySelector('img[src^=\"https://static.deepseek.com/user-avatar\"]'); \
+             for (let i = 0; i < 4 && box; i++) { box = box.parentElement; \
+             const t = (box.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean); \
+             if (t.length) return t[0]; } return null; })()",
+        ),
     },
     // Grok sits behind Cloudflare: on 2026-11-12 even its sign-in page answered with "Just a moment" in a normal
     // browser. That check stops the connection until the user clears it in the window; Pygg never answers it. Sign-in:

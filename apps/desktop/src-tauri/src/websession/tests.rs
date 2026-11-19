@@ -1480,6 +1480,7 @@ fn the_account_the_page_names_is_shown_and_dropped_on_signing_out() {
     assert!(account_script(recipe("perplexity-web").unwrap()).unwrap().contains("Profile avatar"));
     assert!(account_script(recipe("grok-web").unwrap()).unwrap().contains("Account menu for"));
     assert!(account_script(recipe("gemini-web").unwrap()).unwrap().contains("SignOutOptions"));
+    assert!(account_script(recipe("deepseek-web").unwrap()).unwrap().contains("static.deepseek.com/user-avatar"));
     assert!(account_script(recipe("muse-web").unwrap()).is_none());
     assert_eq!(account_text("  a@b.example\n"), Some("a@b.example".to_string()));
     assert_eq!(account_text(" \t "), None);
