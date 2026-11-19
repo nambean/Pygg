@@ -53,9 +53,18 @@ CI runs all of these on Windows, and the layout check below. A separate workflow
 ## Live tests and money
 
 - **Never commit a key or token.** Keys come from environment variables; test keys put in the OS credential store are removed afterwards.
-- **A live run against a paid provider** needs the maintainer's approval and fits the benchmark budget ($20 in total, ADR-028). Record what it verified, the model, the date and what it cost in IMPLEMENTATION-STATUS.
+- **A live run on the project's budget** needs the maintainer's approval and fits the benchmark budget ($20 in total, ADR-028). Record what it verified, the model, the date and what it cost in IMPLEMENTATION-STATUS.
 - **Web sessions** are real accounts on sites that may ban them. Live checks are short questions only, with the guard on; never point a benchmark of long prompts at a web session.
 - **Say what was not verified.** "Built" names its code; "verified" says how (unit test, fake provider, live run).
+
+## Benchmark runs
+
+Every published number so far is the maintainer's own run, on a few dozen tasks. Runs from other people, on their own keys and their own work, are the contribution the benchmark needs most.
+
+- **Run the [harness](benchmark/README.md)** on the cases in `benchmark/cases`, on new cases, or on your own repository. Cases the published runs lack are the most useful: large refactors, database migrations, other languages, larger real repositories.
+- **A private repository is fine.** Publish the result lines, not the code, as the [CCHT report](benchmark/reports/2026-11-13-ccht-real-repository.md) does.
+- **Open a pull request** with the report in `benchmark/reports/` and its raw results in `benchmark/results/`, scanned for keys, tokens and local paths. Say the agent and its version, the models, the prices used, the repeats, what counts as solved, and what the run cannot claim, as the existing reports do.
+- **A run where the cheaper model loses is as welcome as one where it wins.** The README's figures change when the evidence does.
 
 ## Writing
 

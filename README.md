@@ -7,7 +7,7 @@
 
 <h3 align="center">Run your coding agents on cheaper models without losing the answers.</h3>
 
-<p align="center">Pygg is a local gateway that routes each request to a model you connected, and measures what it saved:<br><b><a href="#measured-not-claimed">88% less per solved task</a></b> on 12 small coding tasks (36 of 36 runs solved in one attempt),<br>and about 40% less on a real repository, where the cheaper model took more turns.</p>
+<p align="center">Pygg is a local gateway that routes each request to a model you connected, and measures what it saved.<br>Our own first runs: <b><a href="#measured-not-claimed">88% less per solved task</a></b> on 12 small coding tasks, about 40% on a real repository.<br>A small sample: <a href="#benchmark-it-on-your-work">help benchmark it on your work</a>.</p>
 
 <p align="center">
 <a href="https://github.com/nambean/Pygg/actions/workflows/ci.yml"><img src="https://github.com/nambean/Pygg/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -142,7 +142,7 @@ Each `setup` takes `--dry-run` to show what would change and `--remove` to undo 
 
 ## Measured, not claimed
 
-Real agents, real models, checks the agent cannot edit, about $16.7 of a $20 budget in all. Each report gives its method, raw results and what it does not show; read it before quoting a number. Summary: [BENCHMARKS.md](docs/BENCHMARKS.md).
+Every run below is the maintainer's own check: real agents, real models, checks the agent cannot edit, about $16.7 of a $20 budget in all. Each report gives its method, raw results and what it does not show; read it before quoting a number. Summary: [BENCHMARKS.md](docs/BENCHMARKS.md).
 
 | What was measured | Result | Report |
 | --- | --- | --- |
@@ -166,6 +166,10 @@ Not claimed: a quality ranking of models (a handful of tasks each), a provider's
 | sits behind a key ring of several accounts | sessions stay on one key: 60 / 60 | 0 / 60 by default, 60 / 60 with affinity on |
 
 Where Pygg is worse: about 230 requests/s on one PC (LiteLLM publishes 1,170 on four instances), no timeout fallback for a hung provider, and a 5xx or dropped connection reaches your agent as an error by default. Reports: [resilience](benchmark/reports/2026-11-14-resilience.md), [tokens and cost](benchmark/reports/2026-11-14-token-savings.md), [web guard](benchmark/reports/2026-11-14-web-guard.md).
+
+### Benchmark it on your work
+
+One person's runs on a few dozen tasks are a start, not proof. The benchmark needs the community: run the [harness](benchmark/README.md) on the cases here or on your own repositories (they can stay private; only the result lines are published, as in [CCHT](benchmark/reports/2026-11-13-ccht-real-repository.md)), add cases the runs above lack, such as large refactors, database migrations and other languages, and open a pull request with the report and its raw results ([how](CONTRIBUTING.md#benchmark-runs)). A run where the cheaper model loses is as welcome as one where it wins.
 
 ## What's inside
 
