@@ -1,6 +1,6 @@
 # Pygg — The brain, the facts feed and the board
 
-> **Status:** Design · the model facts feed (ADR-040) and the role aliases are built; `pygg/brain` (ADR-041) and the board (ADR-042) are decided, not built · reviewed 2026-11-19
+> **Status:** Design · the model facts feed (ADR-040), the role aliases and `pygg/brain` (ADR-041) are built; the board and the Brain Storming screen (ADR-042) are decided, not built · reviewed 2026-11-19
 
 How a requirement typed into the user's own coding agent becomes a board of cards, each on a model picked by rule from measured facts, run one at a time under the user's approval. Nothing in this document claims that code exists; [Implementation Status](../IMPLEMENTATION-STATUS.md) says what does.
 
@@ -113,6 +113,15 @@ A second call in the same session, with answers in the conversation, refines tha
 5. **Store the brainstorm** and answer the client. The app shows it under Tasks.
 
 Every call the brain makes is a ledger entry under the client's request id and session with `route_kind` `brain`, so session and day limits hold (ADR-025). The planner's reply is stored on the brainstorm, shown to the user, and never sent with any other request (ADR-030).
+
+**As built** (`gateway/brain.rs`, migration 0042: `brainstorms`, `brain_picks`, and `brainstorm_id`, `card_id`, `card_role` on `tasks`):
+
+- The planner gets Pygg's prompt and the requirement alone: no list of the user's connections or models, since the prompt forbids naming a model and a planner has no use for the list.
+- The brainstorm's session is the client's `x-pygg-session`; a call without one is a brainstorm of its own. A call in a session whose brainstorm is proposed, waiting, thinking or failed refines it; one whose brainstorm was approved or declined starts a new one.
+- **A card has a model and fallbacks** (owner, 2026-11-19). The rule takes the role's route as `auto/<role>` would try it (at most two models of one connection while others are eligible): the first is the card's model, the next two its suggested fallbacks, each with the reason the rule gave (the fact or the tier). The user removes or adds fallbacks from the role's ranking (every line with its source and date), at most five, so the card's task stays within the engine's six steps. On approval every model is a step of the card's task, the card's model first: an attempt that fails (a connection error, a spent quota, a failed check) moves the task to the next model, as the engine already does.
+- A card's runner and class, its own fallbacks (`your pick`), and whether it was dropped, survive a refinement by the card's id; the model and the suggested fallbacks are picked again by rule.
+- Approval (the app) makes one task per kept card in wave order, with one step on the card's model, run by the agent the user chose; the task keeps the brainstorm's and the card's ids and the role. Only OpenCode through its Pygg provider runs on the picked model (`pygg/<connection/model>`); Claude Code, Codex and Gemini CLI run with their own sign-in and are told the pick in the prompt. A paid step still waits for approval (ADR-010). Dependencies order the tasks; the engine runs them as it runs tasks today, and WIP limits come with the board.
+- The candidates and the per-role rankings come from `auto::plan_with` with the role strategy, so the planner pick and every card follow exactly the filters a request to `auto/<role>` would.
 
 ### The board schema
 

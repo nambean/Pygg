@@ -7,7 +7,7 @@ import brandMark from './assets/brand-mark.svg';
 import { applyLanguage, LanguageContext, loadLanguage, resolve, t, type Language, type LanguageChoice } from './lib/i18n';
 import { runningInDesktop, savedLanguage, saveLanguage } from './lib/native';
 import { isMac, MOD } from './lib/platform';
-import { FILTERS, matchesFilter, needsAttention, type TaskFilter, type TaskSummary } from './lib/tasks';
+import { FILTERS, matchesFilter, needsAttention, type TaskFilter, type TaskSummary, brainstormNeedsAttention } from './lib/tasks';
 import type { GatewayStatus as Status } from './lib/api';
 import { useGateway } from './hooks/useGateway';
 import { gatewayChanged } from './lib/api';
@@ -19,6 +19,7 @@ import { Guide } from './components/Guide';
 import { NewTaskView } from './components/NewTaskView';
 import { SettingsView } from './components/SettingsView';
 import { TaskDetail } from './components/TaskDetail';
+import { BrainstormDetail } from './components/BrainstormDetail';
 import { TaskList } from './components/TaskList';
 import { needsChecks, WorkspacesView } from './components/WorkspacesView';
 import { WindowControls } from './components/WindowControls';
@@ -37,6 +38,7 @@ type View =
   | {kind: GatewayDestination}
   | {kind: 'tasks'; filter: TaskFilter}
   | {kind: 'task'; id: string; from: TaskFilter}
+  | {kind: 'brainstorm'; id: string; from: TaskFilter}
   | {kind: 'new'}
   | {kind: 'policies'}
   | {kind: 'skills'}
@@ -76,6 +78,10 @@ function startView(): View {
   const screen = new URLSearchParams(location.search).get('screen') ?? '';
   if (isGateway(screen as View['kind'])) return {kind: screen as GatewayDestination};
   if (screen === 'guide' || screen === 'settings' || screen === 'agents' || screen === 'policies' || screen === 'skills') return {kind: screen};
+  // The demo's brainstorms (lib/demo.ts), for the layout check and screenshots of the pygg/brain screens.
+  if (screen === 'brainstorm') return {kind: 'brainstorm', id: 'bs-proposed', from: 'all'};
+  if (screen === 'brainstorm-pick') return {kind: 'brainstorm', id: 'bs-pick', from: 'all'};
+  if (screen === 'brainstorm-failed') return {kind: 'brainstorm', id: 'bs-failed', from: 'all'};
   return {kind: 'overview'};
 }
 
@@ -96,12 +102,15 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
   // A task's runner stopped (one from an IDE included): every screen reloads at once, not at the next poll.
   useEffect(() => onTasksChanged(gatewayChanged), []);
   const workspaceList = useGateway(api => api.workspaces());
+  // Brainstorms from pygg/brain (ADR-041): rows beside the tasks, live while one thinks or waits.
+  const brainList = useGateway(api => api.brainstorms(), [], 3_000);
+  const brainstorms = useMemo(() => brainList.data ?? [], [brainList.data]);
   const budget = useGateway(api => api.taskBudget(), [], 10_000);
   const allTasks = useMemo(() => taskList.data ?? [], [taskList.data]);
   const workspaces = workspaceList.data ?? [];
   const counts = useMemo(() => Object.fromEntries(FILTERS.map(f => [f, allTasks.filter(task => matchesFilter(task, f)).length])) as
     Record<TaskFilter, number>, [allTasks]);
-  const attention = allTasks.filter(needsAttention).length;
+  const attention = allTasks.filter(needsAttention).length + brainstorms.filter(brainstormNeedsAttention).length;
 
   const go = useCallback((kind: GatewayDestination, next?: Intent) => { setView({kind}); setIntent(next); }, []);
   const intentDone = useCallback(() => setIntent(undefined), []);
@@ -179,6 +188,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
   const title = isGateway(view.kind) ? t(GATEWAY.find(g => g.kind === view.kind)!.title)
     : view.kind === 'tasks' ? t('Tasks')
     : view.kind === 'task' ? openedTask?.title ?? t('Task')
+    : view.kind === 'brainstorm' ? t('Brainstorm')
     : view.kind === 'new' ? t('New Task')
     : view.kind === 'policies' ? t('Policies')
     : view.kind === 'skills' ? t('Skills & Prompts')
@@ -186,14 +196,14 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
     : view.kind === 'agents' ? t('Agents')
     : view.kind === 'guide' ? t('Guide')
     : t('Settings');
-  const isTaskScreen = view.kind === 'tasks' || view.kind === 'task' || view.kind === 'new' || view.kind === 'workspaces';
+  const isTaskScreen = view.kind === 'tasks' || view.kind === 'task' || view.kind === 'brainstorm' || view.kind === 'new' || view.kind === 'workspaces';
   const primary = isGateway(view.kind) ? PRIMARY[view.kind] : undefined;
   useRowHints();
   // After moving to another page, focus goes to its heading so a screen reader says where it is and Tab starts at the
   // top of the page, unless the page already put focus in itself (a search field, a sheet). Not on start.
   const heading = useRef<HTMLHeadingElement>(null);
   const content = useRef<HTMLDivElement>(null);
-  const page = view.kind === 'task' ? `task:${view.id}` : view.kind;
+  const page = view.kind === 'task' || view.kind === 'brainstorm' ? `${view.kind}:${view.id}` : view.kind;
   const firstPage = useRef(true);
   useEffect(() => {
     if (firstPage.current) { firstPage.current = false; return; }
@@ -300,10 +310,12 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
                 <button type="button" className="link-button" onClick={taskList.reload} disabled={taskList.loading}>
                   {taskList.loading ? t('Trying again…') : t('Try Again')}</button></ErrorNote></div>
             : <div className="page"><Spinner label={t('Loading tasks…')}/></div>)
-          : <TaskList tasks={allTasks} filter={view.filter} workspaces={workspaces} scoped={false} query={query} onQuery={setQuery}
-            searchRef={searchRef} onOpen={openTask} onNewTask={newTask} onWorkspaceSettings={null}/>}
+          : <TaskList tasks={allTasks} brainstorms={brainstorms} filter={view.filter} workspaces={workspaces} scoped={false} query={query} onQuery={setQuery}
+            searchRef={searchRef} onOpen={openTask} onOpenBrainstorm={b => setView({kind: 'brainstorm', id: b.id, from: view.filter})} onNewTask={newTask} onWorkspaceSettings={null}/>}
         </>}
         {view.kind === 'task' && <TaskDetail id={view.id} onBack={() => { taskList.reload(); setView({kind: 'tasks', filter: view.from}); }}/>}
+        {view.kind === 'brainstorm' && <BrainstormDetail id={view.id} onBack={() => { brainList.reload(); taskList.reload(); setView({kind: 'tasks', filter: view.from}); }}
+          onOpenTask={id => { taskList.reload(); setView({kind: 'task', id, from: 'all'}); }}/>}
         {view.kind === 'new' && <NewTaskView onCreated={created}/>}
         {view.kind === 'workspaces' && <WorkspacesView/>}
         {view.kind === 'policies' && <Policies go={go} onSettings={() => setView({kind: 'settings'})}

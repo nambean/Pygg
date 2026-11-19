@@ -284,6 +284,7 @@ The task list (`TaskList.tsx`).
 - **Search** filters by title (`Ctrl+F`).
 - **Needs Attention.** On All, these tasks are pinned on top and not repeated below: waiting for approval, interrupted, plan needs revalidation, and needs review. Their button reads **Review**; other rows read **Open**.
 - **Row.** A state icon, the title, the workspace and the client that started the task, a status line (phase, attempt, time), the attempt sequence, and the cost so far (§3.3).
+- **Brainstorm rows** (§5.2.2) sit beside the tasks on All, and under Needs Approval while they wait on the user; **Review** opens one.
 - **States:**
   - Loading.
   - A load error with **Try Again**. A failed load is never shown as an empty list.
@@ -311,6 +312,16 @@ What the task is waiting on, its result, and every attempt (`TaskDetail.tsx`). I
   Below the rows: the cost so far, and why a cost is unknown.
 - **Task.** The steps, the approved checks, and the commit and folder the task started from.
 - **Actions:** **Stop Task** while it runs, and **Retry** for an interrupted task.
+
+#### 5.2.2 Brainstorm
+
+A brainstorm from `pygg/brain` (`BrainstormDetail.tsx`, ADR-041, [BRAIN.md](BRAIN.md) §4.4). It is a row under Tasks (a lightbulb, the requirement's first line, the session, the planner, open questions and cards), pinned under Needs Attention while it waits for a pick, is proposed, or failed; it reloads every two seconds while it waits or thinks.
+
+- **Waits for your pick.** Inline, like a paid step: the plan role's ranking under the client's policy as radio rows (`connection/model`, tier, billing, the reason), the rule's pick first, **Remember this planner for every project** on by default, **Decline** and **Use <model>**. With nothing eligible, the reasons and only **Decline**.
+- **Questions.** Read-only: each open or answered. The caption says answers come from the coding agent.
+- **Cards**, grouped by wave, a role chip each: the title, `connection/model` (selectable, wraps), the reason the rule gave, and a disclosure with the done criterion, the dependencies, the runner (Pygg engine, or My IDE agent) and the class. **Change…** opens a select of the role's ranking (each line with its source and date, or its tier) and asks whether to apply the choice to every card of the role; **Drop** strikes a card through and offers **Restore**. Under the model, the card's **fallbacks** ("then …", each with its reason): the two the rule suggested from the role's route, **Remove** on each, and **Add a fallback…**, a select of the same ranking, up to five. On approval each model is a step of the card's task, tried in order when an attempt fails.
+- **Approve.** The count of kept cards, a workspace, an agent (installed ones; OpenCode first, since only OpenCode through Pygg runs a card on the model Pygg picked), **Decline brainstorm**, and **Approve <n> cards…**, which confirms and then lists the tasks made. The button waits while a card has no eligible model.
+- **Planner failed:** the reason, what the planner answered behind a disclosure, and the pick to choose another planner and run again.
 
 #### 5.2.1 New Task
 

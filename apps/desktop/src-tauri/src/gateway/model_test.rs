@@ -71,6 +71,7 @@ pub async fn run_requested(shared: &Shared, requested: &str) -> Result<TestResul
         requested: &requested,
         session: None,
         stream: false,
+        route_kind: None,
     };
     let started = std::time::Instant::now();
     let forwarded = match forward(shared, &client, &incoming).await {

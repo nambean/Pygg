@@ -1,13 +1,16 @@
-import { Ban, CircleAlert, CircleCheck, CircleX, Eye, Hourglass, LoaderCircle, RefreshCw, Search, TriangleAlert,
+import { Ban, CircleAlert, CircleCheck, CircleX, Eye, Hourglass, Lightbulb, LoaderCircle, RefreshCw, Search, TriangleAlert,
   UserCheck } from 'lucide-react';
 import type { RefObject } from 'react';
 import { ago, elapsed, taskCost } from '../lib/format';
 import { t } from '../lib/i18n';
-import { matchesFilter, needsAttention, type TaskFilter, type TaskState, type TaskSummary, type Workspace } from '../lib/tasks';
+import { brainstormNeedsAttention, matchesFilter, needsAttention, type Brainstorm, type TaskFilter, type TaskState, type TaskSummary,
+  type Workspace } from '../lib/tasks';
 import { AttemptSequence } from './AttemptSequence';
 
 type Props = {
   tasks: TaskSummary[];
+  /** Brainstorms from pygg/brain (ADR-041): rows beside the tasks, pinned while they wait on the user. */
+  brainstorms: Brainstorm[];
   filter: TaskFilter;
   workspaces: Workspace[];
   /** Set when one workspace is selected: rows then leave out the workspace name. */
@@ -16,12 +19,13 @@ type Props = {
   onQuery: (query: string) => void;
   searchRef: RefObject<HTMLInputElement | null>;
   onOpen: (task: TaskSummary) => void;
+  onOpenBrainstorm: (brainstorm: Brainstorm) => void;
   onNewTask: () => void;
   onWorkspaceSettings: (() => void) | null;
 };
 
 /** Home screen (SCREENS.md §5.1): items that wait on the user pinned on top, then the filtered list. */
-export function TaskList({tasks, filter, workspaces, scoped, query, onQuery, searchRef, onOpen, onNewTask,
+export function TaskList({tasks, brainstorms, filter, workspaces, scoped, query, onQuery, searchRef, onOpen, onOpenBrainstorm, onNewTask,
   onWorkspaceSettings}: Props) {
   const needle = query.trim().toLowerCase();
   const visible = tasks.filter(task => matchesFilter(task, filter)
@@ -29,6 +33,11 @@ export function TaskList({tasks, filter, workspaces, scoped, query, onQuery, sea
   // Only All Tasks pins attention items; the other filters are plain views of their own subset.
   const pinned = filter === 'all' ? visible.filter(needsAttention) : [];
   const rest = filter === 'all' ? visible.filter(task => !needsAttention(task)) : visible;
+  // Brainstorms show on All (and under Needs Approval while they wait on the user), never under the task-state filters.
+  const brains = brainstorms.filter(b => (filter === 'all' || (filter === 'approval' && brainstormNeedsAttention(b)))
+    && (!needle || b.requirement.toLowerCase().includes(needle)));
+  const pinnedBrains = brains.filter(brainstormNeedsAttention);
+  const restBrains = brains.filter(b => !brainstormNeedsAttention(b));
   const workspaceName = (id: string) => workspaces.find(w => w.id === id)?.name ?? '';
 
   return <div className="task-view">
@@ -43,18 +52,20 @@ export function TaskList({tasks, filter, workspaces, scoped, query, onQuery, sea
         {t('Workspace Settings…')}</button>}
     </div>
 
-    {visible.length === 0 ? <EmptyState filter={filter} query={query} hasTasks={tasks.length > 0}
+    {visible.length === 0 && brains.length === 0 ? <EmptyState filter={filter} query={query} hasTasks={tasks.length > 0}
       onClear={() => onQuery('')} onNewTask={onNewTask}/> : <>
-      {pinned.length > 0 && <section className="task-section" aria-labelledby="attention-heading">
+      {(pinned.length > 0 || pinnedBrains.length > 0) && <section className="task-section" aria-labelledby="attention-heading">
         <h2 id="attention-heading">{t('Needs Attention')}</h2>
         <ul className="task-list">
+          {pinnedBrains.map(b => <BrainstormRow key={b.id} brainstorm={b} attention onOpen={onOpenBrainstorm}/>)}
           {pinned.map(task => <TaskRow key={task.id} task={task} attention
             workspace={scoped ? null : workspaceName(task.workspaceId)} onOpen={onOpen}/>)}
         </ul>
       </section>}
-      {rest.length > 0 && <section className="task-section" aria-labelledby="tasks-heading">
-        {pinned.length > 0 && <h2 id="tasks-heading">{t('Tasks')}</h2>}
-        <ul className="task-list" aria-labelledby={pinned.length > 0 ? 'tasks-heading' : undefined}>
+      {(rest.length > 0 || restBrains.length > 0) && <section className="task-section" aria-labelledby="tasks-heading">
+        {(pinned.length > 0 || pinnedBrains.length > 0) && <h2 id="tasks-heading">{t('Tasks')}</h2>}
+        <ul className="task-list" aria-labelledby={pinned.length > 0 || pinnedBrains.length > 0 ? 'tasks-heading' : undefined}>
+          {restBrains.map(b => <BrainstormRow key={b.id} brainstorm={b} attention={false} onOpen={onOpenBrainstorm}/>)}
           {rest.map(task => <TaskRow key={task.id} task={task} attention={false}
             workspace={scoped ? null : workspaceName(task.workspaceId)} onOpen={onOpen}/>)}
         </ul>
@@ -82,6 +93,33 @@ function TaskRow({task, attention, workspace, onOpen}: {
     </div>
     <div className="row-actions">
       <button type="button" className={attention ? 'button prominent' : 'button'} onClick={() => onOpen(task)}>
+        {attention ? t('Review') : t('Open')}
+      </button>
+    </div>
+  </li>;
+}
+
+/** A brainstorm's row (BRAIN.md 4.3): the requirement, who asked, the planner, questions and cards. */
+function BrainstormRow({brainstorm: b, attention, onOpen}: {brainstorm: Brainstorm; attention: boolean; onOpen: (b: Brainstorm) => void}) {
+  const open = b.proposal.questions.filter(q => !q.answered).length;
+  const cards = b.proposal.cards.filter(c => !c.dropped).length;
+  const state = ({waiting_pick: t('waits for your pick'), thinking: t('thinking'), proposed: t('proposed · revision {n}', {n: b.revision}),
+    approved: t('approved · its cards are tasks'), declined: t('declined'), failed: t('planner failed')} as Record<Brainstorm['state'], string>)[b.state];
+  return <li className={`task-row${attention ? ' attention' : ''}`}>
+    <span className={`state-icon ${b.state === 'failed' ? 'check_failed' : b.state === 'approved' ? 'checks_passed' : 'waiting_approval'}`}>
+      <Lightbulb size={18} strokeWidth={1.9} aria-hidden/></span>
+    <div className="row-body">
+      <div className="row-title">
+        <span className="name">{b.requirement.split('\n')[0]}</span>
+        <span className="host">{t('brainstorm · session {session}', {session: b.session})}</span>
+      </div>
+      <div className="row-status">{state} · {b.planner ?? t('no planner yet')}</div>
+      <div className="row-meta">
+        <span className="row-cost">{t('{q} questions open · {c} cards', {q: open, c: cards})}{b.error ? ` · ${b.error}` : ''}</span>
+      </div>
+    </div>
+    <div className="row-actions">
+      <button type="button" className={attention ? 'button prominent' : 'button'} onClick={() => onOpen(b)}>
         {attention ? t('Review') : t('Open')}
       </button>
     </div>

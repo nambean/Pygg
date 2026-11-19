@@ -79,7 +79,7 @@ A site with no API, used through a window the user signs in to, and served to th
 
 `tasks.rs`, `agents.rs`, `isolation.rs`, `checks.rs`, `handoff.rs`, the task API (`gateway/task_api.rs`) and the MCP server (`mcp.rs`). A task is a ladder of agent steps fixed at creation, run in a fresh Git worktree of the base commit, judged by the workspace's approved checks (ADR-007, ADR-008). A paid step waits for the user's approval in the app; there is no API to approve (ADR-010, ADR-027). Each agent runs its own CLI with its own sign-in (ADR-026). Details: [AGENTS.md](AGENTS.md).
 
-Decided, not built: a model facts feed with per-role scores (ADR-040), the virtual model `pygg/brain` that turns a requirement into a proposed board with a model per role picked by rule (ADR-041), and a Kanban board with WIP limits on the task engine (ADR-042). Design: [design/BRAIN.md](design/BRAIN.md).
+Built: the model facts feed with per-role scores (`gateway/facts.rs`, ADR-040), the role aliases `auto/plan|code|test|review` ranked by it (`gateway/auto.rs`), and the virtual model `pygg/brain` (`gateway/brain.rs`, ADR-041) that turns a requirement into a proposed board with a model per card picked by rule, approved in the app into tasks. Decided, not built: the Kanban board with WIP limits on the task engine and the Brain Storming screen (ADR-042). Design: [design/BRAIN.md](design/BRAIN.md).
 
 ## Boundaries
 

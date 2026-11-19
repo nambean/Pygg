@@ -1,6 +1,6 @@
 # Store schema
 
-> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v41
+> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v42
 
 The local SQLite store (`db.rs`): every table after all migrations, in order. Credentials are never here: a
 connection holds only a reference to its key in the OS credential store (ADR-002). Client tokens are stored as
@@ -69,6 +69,44 @@ References: `stage_id` → `task_stages.id` (on delete cascade).
 | `entity` | TEXT | no |  |  | 0001_init |
 | `metadata_json` | TEXT | no | `'{}'` |  | 0001_init |
 | `created_at` | INTEGER | no |  |  | 0001_init |
+
+## `brain_picks`
+
+| Column | Type | Null | Default | Key | Added in |
+| --- | --- | --- | --- | --- | --- |
+| `scope` | TEXT | no |  | primary | 0042_brainstorms |
+| `role` | TEXT | no |  | primary | 0042_brainstorms |
+| `provider_id` | TEXT | no |  |  | 0042_brainstorms |
+| `model_id` | TEXT | no |  |  | 0042_brainstorms |
+| `saved_at` | INTEGER | no |  |  | 0042_brainstorms |
+
+1 CHECK constraint (see the migrations).
+
+## `brainstorms`
+
+| Column | Type | Null | Default | Key | Added in |
+| --- | --- | --- | --- | --- | --- |
+| `id` | TEXT | yes |  | primary | 0042_brainstorms |
+| `client_id` | TEXT | yes |  |  | 0042_brainstorms |
+| `session` | TEXT | no |  |  | 0042_brainstorms |
+| `workspace_id` | TEXT | yes |  |  | 0042_brainstorms |
+| `state` | TEXT | no |  |  | 0042_brainstorms |
+| `requirement` | TEXT | no |  |  | 0042_brainstorms |
+| `planner` | TEXT | yes |  |  | 0042_brainstorms |
+| `prompt_version` | TEXT | no | `'brain-v1'` |  | 0042_brainstorms |
+| `revision` | INTEGER | no | `0` |  | 0042_brainstorms |
+| `proposal_json` | TEXT | no | `'{}'` |  | 0042_brainstorms |
+| `raw_reply` | TEXT | yes |  |  | 0042_brainstorms |
+| `note` | TEXT | yes |  |  | 0042_brainstorms |
+| `error` | TEXT | yes |  |  | 0042_brainstorms |
+| `created_at` | INTEGER | no |  |  | 0042_brainstorms |
+| `updated_at` | INTEGER | no |  |  | 0042_brainstorms |
+
+References: `workspace_id` → `workspaces.id` (on delete set null).
+
+Indexes: `brainstorms_by_session`.
+
+1 CHECK constraint (see the migrations).
 
 ## `budget_reservations`
 
@@ -434,6 +472,9 @@ References: `task_id` → `tasks.id` (on delete cascade).
 | `result` | TEXT | yes |  |  | 0008_task_engine |
 | `result_branch` | TEXT | yes |  |  | 0008_task_engine |
 | `client_id` | TEXT | yes |  |  | 0009_tasks_from_clients |
+| `brainstorm_id` | TEXT | yes |  |  | 0042_brainstorms |
+| `card_id` | TEXT | yes |  |  | 0042_brainstorms |
+| `card_role` | TEXT | yes |  |  | 0042_brainstorms |
 
 References: `workspace_id` → `workspaces.id`.
 

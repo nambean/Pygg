@@ -166,3 +166,44 @@ export type DayBudget = {
   /** Calls whose cost is not known make the remaining budget uncertain. */
   unknownCalls: number;
 };
+
+// ---------- pygg/brain (gateway/brain.rs, ADR-041) ----------
+
+export type BrainRole = 'plan' | 'code' | 'test' | 'review';
+export type BrainQuestion = { id: string; text: string; answered: boolean };
+export type BrainCard = {
+  id: string; title: string; role: BrainRole; done: string; dependsOn: string[];
+  /** `connection/model`, picked by rule for the role; null when nothing was eligible. */
+  model: string | null; reason: string | null;
+  /** Tried after `model` when an attempt on it fails: the rule's suggestions, or the user's own picks (`your pick`). */
+  fallbacks: {model: string; reason: string}[];
+  runner: 'engine' | 'ide'; class: 'standard' | 'expedite'; dropped: boolean; wave: number;
+};
+export type BrainstormState = 'waiting_pick' | 'thinking' | 'proposed' | 'approved' | 'declined' | 'failed';
+export type Brainstorm = {
+  id: string; clientId: string | null; session: string; workspaceId: string | null; state: BrainstormState; requirement: string;
+  planner: string | null; promptVersion: string; revision: number;
+  proposal: { questions: BrainQuestion[]; cards: BrainCard[]; droppedCards: number };
+  rawReply: string | null; note: string | null; error: string | null; createdAt: number; updatedAt: number;
+};
+/** A brainstorm the user must look at: it waits for a pick, a decision, or failed. */
+export function brainstormNeedsAttention(b: Brainstorm): boolean {
+  return b.state === 'waiting_pick' || b.state === 'proposed' || b.state === 'failed';
+}
+
+/** One fact behind a model's rank for a role, as the feed records it (gateway/facts.rs, ADR-040). */
+export type FactView = {
+  source: string; sourceName: string; licence: string; url: string | null; name: string; place: number; of: number; rank: number;
+  score: number; unit: string; ci: number | null; date: string | null; derived: boolean; agent: string | null; effort: string | null;
+  votes: number | null; ranks: boolean; measures: string;
+};
+export type RoleLine = {
+  model: string; providerId: string; modelId: string; billing: Billing; tier: string | null; tierSource: string | null;
+  layer: 'feed' | 'tier' | 'none'; fact: FactView | null; others: FactView[]; outputMicroPerMtok: number | null;
+};
+/** The fact in one line: source, place, score, date, and `derived` where the source measures something near the role. */
+export function factLine(f: FactView): string {
+  const ci = f.ci != null ? ` ±${f.ci}` : '';
+  const unit = f.unit.startsWith('%') ? '%' : ` ${f.unit}`;
+  return `${f.sourceName} #${f.place} of ${f.of} · ${f.score}${unit}${ci} · ${f.date ?? '—'}${f.derived ? ' · derived' : ''}`;
+}

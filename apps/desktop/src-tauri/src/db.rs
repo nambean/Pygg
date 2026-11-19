@@ -47,6 +47,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0039_request_class.sql"),
     include_str!("../migrations/0040_session_day_limits.sql"),
     include_str!("../migrations/0041_web_account.sql"),
+    include_str!("../migrations/0042_brainstorms.sql"),
 ];
 
 pub const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;

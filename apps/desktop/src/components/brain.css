@@ -1,0 +1,52 @@
+/* pygg/brain screens (docs/design/BRAIN.md §4): the planner pick, the proposal's questions and cards. Tokens from
+   styles.css; the role chip follows the attempt chip. */
+.role-chip { display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 600; flex-shrink: 0; }
+.role-chip.plan { color: var(--accent-text); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.role-chip.code { color: #2F5AC0; background: color-mix(in srgb, #2F5AC0 12%, transparent); }
+.role-chip.test { color: var(--orange); background: color-mix(in srgb, var(--orange) 12%, transparent); }
+.role-chip.review { color: #7A3E9D; background: color-mix(in srgb, #7A3E9D 12%, transparent); }
+@media (prefers-color-scheme: dark) {
+  .role-chip.code { color: #8FB0FF; }
+  .role-chip.review { color: #D0A3F0; }
+}
+.brain-id { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+.brain-evidence { font-size: 11px; color: var(--secondary); margin-top: 2px; overflow-wrap: anywhere; }
+.brain-evidence .wins { color: var(--accent-text); font-weight: 600; }
+.brain-pick { list-style: none; margin: 8px 0 0; padding: 0; }
+.brain-pick li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; padding: 8px 10px; border-radius: 8px; align-items: start; }
+.brain-pick li.selected { background: var(--selection); }
+.brain-pick input { margin: 3px 0 0; }
+.brain-head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; min-width: 0; }
+.brain-meta { font-size: 11px; color: var(--secondary); font-variant-numeric: tabular-nums; }
+.brain-questions .q-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 8px 12px; font-size: 12px; }
+.brain-questions .q-row + .q-row { border-top: 1px solid var(--separator); }
+.brain-questions .n { color: var(--secondary); font-variant-numeric: tabular-nums; }
+.brain-cards .wave-head { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 11px; font-weight: 600; color: var(--secondary); background: color-mix(in srgb, var(--label) 3%, transparent); border-top: 1px solid var(--separator); }
+.brain-cards .wave-head:first-child { border-top: 0; border-radius: 10px 10px 0 0; }
+.card-row { display: flex; gap: 12px; padding: 10px 12px; align-items: flex-start; }
+.card-row + .card-row { border-top: 1px solid var(--separator); }
+.card-row.dropped .row-title .name { text-decoration: line-through; color: var(--secondary); }
+.card-main { flex: 1; min-width: 0; }
+.card-line { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-top: 4px; font-size: 12px; }
+.card-actions { display: flex; flex-wrap: wrap; gap: 6px; flex-shrink: 0; justify-content: flex-end; max-width: 40%; }
+.brain-fallbacks { list-style: none; margin: 4px 0 0; padding: 0; font-size: 12px; }
+.brain-fallbacks li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; margin-top: 2px; }
+.brain-fallbacks .brain-evidence { margin-top: 0; }
+.card-row details { margin-top: 6px; font-size: 12px; }
+.card-row summary { color: var(--accent-text); font-weight: 500; cursor: default; }
+.card-row dl { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 4px 12px; margin: 6px 0 0; }
+.card-row dt { color: var(--secondary); }
+.card-row dd { margin: 0; overflow-wrap: anywhere; }
+/* A select whose options are long model lines must not widen the row: its box is the card's, its text clipped. */
+.card-row select { min-width: 0; max-width: 100%; width: 100%; text-overflow: ellipsis; }
+.card-line select { flex: 1 1 100%; }
+.approve-bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-top: 16px; padding: 12px; background: var(--surface); border-radius: 10px; box-shadow: var(--shadow); font-size: 12px; }
+.approve-bar .spacer { flex: 1; }
+.approve-bar select { max-width: 100%; }
+/* Narrow (a 1024 px window at Windows text scaling): the actions go under the card, and the card's column takes the
+   whole width so its nowrap title and long ids are clipped and wrapped inside it rather than widening the page. */
+@media (max-width: 760px) {
+  .card-row { flex-direction: column; align-items: stretch; }
+  .card-main { width: 100%; }
+  .card-actions { max-width: none; justify-content: flex-start; }
+}

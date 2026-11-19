@@ -23,6 +23,7 @@
 
 pub mod anthropic;
 pub mod auto;
+pub mod brain;
 pub mod catalog;
 pub mod checker;
 pub mod facts;
@@ -712,6 +713,9 @@ pub struct Incoming<'a> {
     pub requested: &'a str,
     pub session: Option<&'a str>,
     pub stream: bool,
+    /// The ledger's route kind when the request is not the client's own: `brain` for the calls `pygg/brain` makes
+    /// on a client's behalf (brain.rs, ADR-041). `None`: derived from the requested name.
+    pub route_kind: Option<&'static str>,
 }
 
 /// An upstream response that started successfully, with what is needed to account for it.
@@ -957,7 +961,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
 
     // One id for the client's request, shared by its attempts, and how its route was chosen (migration 0030).
     let request_id = uuid::Uuid::new_v4().simple().to_string();
-    let route_kind = route_kind(shared, requested);
+    let route_kind = incoming.route_kind.map(String::from).unwrap_or_else(|| route_kind(shared, requested));
     let mut journaled = 0u32;
 
     let count = keyed.len();
@@ -1877,7 +1881,15 @@ async fn chat_completions(State(shared): State<Shared>, headers: HeaderMap, body
         requested: &requested,
         session: session.as_deref(),
         stream,
+        route_kind: None,
     };
+    // `pygg/brain` is answered by the gateway itself (brain.rs, ADR-041); nothing is forwarded as the client sent it.
+    if brain::is_brain(&requested) {
+        return match brain::answer(&shared, &client, &incoming).await {
+            Ok(reply) => brain::respond(&incoming, &reply),
+            Err(refusal) => refusal.openai(),
+        };
+    }
     let forwarded = match forward(&shared, &client, &incoming).await {
         Ok(forwarded) => forwarded,
         Err(refusal) => return refusal.openai(),

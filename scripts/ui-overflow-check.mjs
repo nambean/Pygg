@@ -51,6 +51,13 @@ const states = [
   {screen: 'skills', name: 'a project’s skills sheet', steps: `click('Install Skills…', 0); await wait(600);`, expect: '.project-skills'},
   {screen: 'skills', name: 'Add Project sheet', steps: `click('Add Project'); await wait(500);`, expect: '#skill-project-path'},
   {screen: 'endpoint', name: 'keys shown', steps: `for (let i = 0; i < 4; i++) click('Show the key', i); await wait(800);`, expect: '.token-full'},
+  // pygg/brain (BRAIN.md §4.4): a proposal with every card's details open, a card's model being changed, the approve
+  // sheet, the planner pick, and a failed planner.
+  {screen: 'brainstorm', name: 'a proposed brainstorm, details open', steps: `document.querySelectorAll('.card-row details').forEach(d => d.open = true); await wait(200);`, expect: '.brain-cards'},
+  {screen: 'brainstorm', name: 'a card’s model being changed', steps: `click('Change…', 0); await wait(800);`, expect: '.card-row select'},
+  {screen: 'brainstorm', name: 'Approve sheet', steps: `click('Approve', -1); await wait(600);`, expect: '[role=dialog]'},
+  {screen: 'brainstorm-pick', name: 'the planner pick', steps: '', expect: '.brain-pick'},
+  {screen: 'brainstorm-failed', name: 'the planner failed', steps: `document.querySelectorAll('.form-disclosure').forEach(d => d.open = true); await wait(200);`, expect: '.error-note'},
   // First run: nothing connected, no keys, no requests.
   ...['overview', 'connections', 'endpoint', 'tools', 'combos', 'usage', 'skills'].map(screen => ({screen, query: 'empty', name: 'first run', steps: ''})),
   {screen: 'connections', query: 'empty', name: 'first run, Connect sheet', steps: `click('Connect Provider'); await wait(800);`, expect: '[role=dialog]'},

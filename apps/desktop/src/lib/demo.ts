@@ -10,7 +10,7 @@ import type { AgentInfo, Integration, Launcher, ClientDefaults, ConnectionCheck,
 import { TIERS, WEB_WARNING_VERSION, type AutoAlias, type AutoRole, type ConnectionKey, type KeyStrategy } from './api';
 import { SAMPLE_WORKSPACES, sampleTasks } from './sample';
 import { demoSkills } from './demoSkills';
-import type { AttemptView, NewTask, TaskDetail, TaskSummary, WorkspaceView } from './tasks';
+import type { AttemptView, NewTask, TaskDetail, TaskSummary, WorkspaceView, Brainstorm, BrainCard, BrainQuestion, BrainRole, RoleLine } from './tasks';
 
 type BasePreset = Omit<Preset, 'offer' | 'offerNote' | 'freeModels'>;
 const BASE_PRESETS: BasePreset[] = [
@@ -909,6 +909,12 @@ export function demoApi(): GatewayApi {
       await sleep(80);
     },
     autoSimulate: async (clientId, alias, needs) => touch(simulate(clientId, alias, needs)),
+    brainstormCandidates: async () => touch(simulate(null, 'auto/plan', {surfaceAnthropic: false, tools: false, vision: false, inputTokens: 3000, maxTokens: 6000, thinking: null, effort: null})),
+    modelFactsRole: async role => touch(models.filter(m => m.enabled).slice(0, 40).map((m, i): RoleLine => ({
+      model: `${m.providerId}/${m.modelId}`, providerId: m.providerId, modelId: m.modelId, billing: m.billing, tier: m.capabilities.tier, tierSource: m.capabilities.tierSource ?? null,
+      layer: i % 3 === 0 ? 'feed' : m.capabilities.tier ? 'tier' : 'none', others: [], outputMicroPerMtok: m.price?.outputMicroPerMtok ?? null,
+      fact: i % 3 === 0 ? {source: 'terminal-bench', sourceName: 'Terminal-Bench 4.x', licence: 'Apache-2.0', url: null, name: m.modelId, place: 3 + i, of: 71, rank: 0.9, score: 64.85, unit: '% resolved',
+        ci: 3.11, date: '2026-09-22', derived: role !== 'code', agent: 'claude-code', effort: 'max', votes: null, ranks: true, measures: 'tasks solved in a terminal by an agent with the model'} : null}))),
     removeModel: async (providerId, modelId) => {
       const i = models.findIndex(x => x.providerId === providerId && x.modelId === modelId);
       if (i >= 0) models.splice(i, 1);
@@ -1206,7 +1212,7 @@ export function demoApi(): GatewayApi {
 const DEMO_DIFF = 'diff --git a/src/timeout.ts b/src/timeout.ts\n--- a/src/timeout.ts\n+++ b/src/timeout.ts\n@@ -3,3 +3,3 @@\n-  return setTimeout(fn, ms * 100);\n+  return setTimeout(fn, ms);\n';
 
 /** Tasks for the browser preview: the sample tasks, and new ones that "run" for a few seconds. Nothing runs. */
-function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'workspaces' | 'addWorkspace' | 'removeWorkspace' | 'taskBudget' | 'setTaskBudget' | 'setWorkspaceBudget' | 'setWorkspacePrivacy' | 'pickFolder' | 'exportPatch'
+function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'brainstorms' | 'brainstorm' | 'brainstormPickPlanner' | 'brainstormRetry' | 'brainstormSetModel' | 'brainstormSetCard' | 'brainstormDecline' | 'brainstormApprove' | 'workspaces' | 'addWorkspace' | 'removeWorkspace' | 'taskBudget' | 'setTaskBudget' | 'setWorkspaceBudget' | 'setWorkspacePrivacy' | 'pickFolder' | 'exportPatch'
   | 'detectChecks' | 'workspaceCheck' | 'tasks' | 'task' | 'createTask' | 'cancelTask' | 'decideTask' | 'retryTask' | 'taskDiff'
   | 'finishTask'> {
   let dailyLimit: number | null = 2;
@@ -1215,6 +1221,46 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'worksp
        {command: 'pnpm typecheck', source: 'package.json', approved: true}, {command: 'pnpm test', source: 'package.json', approved: true},
        {command: 'cargo test', source: 'Cargo.toml', approved: false}]
     : [{command: 'npm ci', source: 'package.json', approved: false}, {command: 'npm run build', source: 'package.json', approved: false}]}));
+  // pygg/brain (ADR-041): a brainstorm waiting for a planner pick, one proposed (with `?stress`: 40 cards, 12 questions
+  // and long ids), and one whose planner failed. Models and reasons are shaped like the gateway's.
+  const stress = new URLSearchParams(location.search).has('stress');
+  const card = (id: string, title: string, role: BrainRole, done: string, dependsOn: string[], model: string | null, reason: string | null, wave: number, dropped = false): BrainCard =>
+    ({id, title, role, done, dependsOn, model, reason, fallbacks: model && role !== 'plan' ? [{model: 'google-gemini/gemini-3.1-flash', reason: "no fact for code; tier T2 from Pygg's table; paid; about $0.0090 at the provider's list price"}, {model: 'siliconflow/zai-org/GLM-5', reason: 'SWE-bench Verified #16 of 110 (72.8%) dated 2026-02-17, run with mini-SWE-agent at high for code; free; free (as set)'}] : [], runner: 'engine', class: 'standard', dropped, wave});
+  const sonnet = 'openrouter/anthropic/claude-sonnet-5';
+  const codeReason = "Terminal-Bench 4.x #3 of 71 (64.85% +/-3.11) dated 2026-09-22, run with claude-code at max for code; paid; about $0.0460 at the provider's list price";
+  const proposedCards = (): BrainCard[] => {
+    const cards = [
+      card('c1', 'Information architecture and data model', 'plan', 'A written model (entities, relations, pages) that the code cards cite', [], 'gemini/gemini-3.1-pro-preview', "LMArena hard prompts #9 of 405 (1525.3 Arena rating) dated 2026-11-18 at high, derived for plan; paid; about $0.0120 at the provider's list price", 1),
+      card('c2', 'Product catalogue: model, migration, list and detail pages', 'code', '`pnpm test` passes and /products renders the seed data', ['c1'], sonnet, codeReason, 2),
+      card('c3', 'Seed data and fixtures', 'code', '`pnpm seed` runs clean twice', ['c1'], 'ollama/qwen3:8b', "no fact for code; tier T0 from Pygg's table; local; free (as set)", 2),
+      card('c4', 'Cart: add, remove, totals', 'code', '`pnpm test` passes; cart totals match the fixture table', ['c2'], sonnet, codeReason, 3),
+      card('c5', 'Checkout with Stripe and cash on delivery', 'code', 'Test-mode Stripe charge succeeds; a COD order lands in the orders table', ['c4', 'q3', 'q4'], sonnet, codeReason, 4),
+      card('c6', 'End-to-end: browse, add to cart, pay', 'test', 'Playwright run green on CI', ['c5'], 'gemini/gemini-3.1-flash', "Terminal-Bench 4.x #12 of 71 (56.36% +/-2.97) dated 2026-11-12, run with antigravity-cli at high for test, derived; paid; about $0.0090 at the provider's list price", 5),
+      card('c7', 'Product variants (size, colour)', 'code', 'Variants selectable on the product page; the cart keeps the variant', ['q4', 'c2'], sonnet, codeReason, 3, true),
+      card('c8', 'Security review of checkout and admin', 'review', 'A findings list; every High fixed or accepted by you', ['c5'], 'anthropic/claude-opus-5-5', 'LMArena hard prompts #4 of 405 (1530.8 Arena rating) dated 2026-11-18 at high, derived for review; paid; price unknown', 5),
+    ];
+    if (stress) for (let i = 9; i <= 40; i++) cards.push(card(`c${i}`, `Card ${i}: ${'a long title that wraps across the row and keeps going '.repeat(3)}`, (['code', 'test', 'review', 'plan'] as BrainRole[])[i % 4],
+      `Done criterion ${i}: ${'a command that passes and a page that renders with the seed data, '.repeat(4)}`, [`c${i - 1}`], 'openrouter/qwen/qwen3-coder-480b-a35b-instruct-2507-with-a-very-long-variant-name:free', codeReason, 2 + (i % 4)));
+    return cards;
+  };
+  const brainQuestions = (n: number): BrainQuestion[] => [
+    {id: 'q1', text: 'Which payment providers?', answered: true}, {id: 'q2', text: 'Is there an admin area?', answered: true},
+    {id: 'q3', text: 'Which language for the storefront?', answered: false}, {id: 'q4', text: 'Do products have variants (size, colour)?', answered: false},
+    ...Array.from({length: Math.max(0, n - 4)}, (_, i) => ({id: `q${i + 5}`, text: `Question ${i + 5}: ${'a long clarifying question the planner asked about the requirement, '.repeat(3)}`, answered: i % 2 === 0}))];
+  const brainstorms: Brainstorm[] = [
+    {id: 'bs-pick', clientId: 'k-1', session: '3f2a', workspaceId: null, state: 'waiting_pick', requirement: 'Build a shop website', planner: null, promptVersion: 'brain-v1', revision: 0,
+      proposal: {questions: [], cards: [], droppedCards: 0}, rawReply: null, note: 'the rule would pick openrouter/anthropic/claude-sonnet-5, which costs money; pick a planner in Pygg', error: null,
+      createdAt: Date.now() - 120_000, updatedAt: Date.now() - 120_000},
+    {id: 'bs-proposed', clientId: 'k-1', session: '9b1c', workspaceId: workspaces[0]?.id ?? null, state: 'proposed', requirement: 'Add CSV export to the orders report', planner: sonnet, promptVersion: 'brain-v1', revision: 2,
+      proposal: {questions: brainQuestions(stress ? 12 : 4), cards: proposedCards(), droppedCards: stress ? 2 : 0}, rawReply: null,
+      note: stress ? '2 card(s) the planner wrote did not fit the schema and were left out' : null, error: null, createdAt: Date.now() - 600_000, updatedAt: Date.now() - 60_000},
+    {id: 'bs-failed', clientId: 'k-1', session: '77aa', workspaceId: null, state: 'failed', requirement: 'Migrate the reports to the new schema', planner: 'ollama/qwen3:8b', promptVersion: 'brain-v1', revision: 0,
+      proposal: {questions: [], cards: [], droppedCards: 0}, rawReply: 'Sure! Here is my plan:\n1. Look at the schema\n2. Write the migration', note: null,
+      error: 'the planner did not answer in the board schema: no JSON object in the reply', createdAt: Date.now() - 3_600_000, updatedAt: Date.now() - 3_500_000},
+  ];
+  const brainstorm = (id: string): Brainstorm => { const b = brainstorms.find(x => x.id === id); if (!b) throw 'Brainstorm not found'; return b; };
+  const planned = async (b: Brainstorm) => { b.state = 'thinking'; b.note = null; b.error = null; await sleep(600);
+    b.state = 'proposed'; b.revision += 1; b.proposal = {questions: brainQuestions(4), cards: proposedCards(), droppedCards: 0}; return clone(b); };
   const details = new Map<string, TaskDetail>();
   for (const s of sampleTasks()) details.set(s.id, detailOf(s));
 
@@ -1287,6 +1333,31 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'worksp
       else if (action === 'remove') w.checks = w.checks.filter(x => x.command !== command);
       else if (c) c.approved = action === 'approve';
       return touch(w);
+    },
+    brainstorms: () => touch(brainstorms),
+    brainstorm: async id => touch(brainstorm(id)),
+    brainstormPickPlanner: async (id, model) => { const b = brainstorm(id); b.planner = model; return planned(b); },
+    brainstormRetry: async id => planned(brainstorm(id)),
+    brainstormSetModel: async (id, cardId, model, allOfRole) => {
+      const b = brainstorm(id);
+      const role = b.proposal.cards.find(c => c.id === cardId)?.role;
+      for (const c of b.proposal.cards) if (c.id === cardId || (allOfRole && c.role === role)) { c.model = model; c.reason = 'your pick'; }
+      return touch(b);
+    },
+    brainstormSetCard: async (id, cardId, change) => {
+      const b = brainstorm(id);
+      const c = b.proposal.cards.find(x => x.id === cardId);
+      if (!c) throw 'Card not found';
+      if (change.dropped != null) c.dropped = change.dropped;
+      if (change.runner) c.runner = change.runner;
+      if (change.class) c.class = change.class;
+      if (change.fallbacks) c.fallbacks = change.fallbacks.filter(m => m !== c.model).map(m => ({model: m, reason: c.fallbacks.find(f => f.model === m)?.reason ?? 'your pick'}));
+      return touch(b);
+    },
+    brainstormDecline: async id => { const b = brainstorm(id); b.state = 'declined'; return touch(b); },
+    brainstormApprove: async (id, workspaceId) => {
+      const b = brainstorm(id); b.state = 'approved'; b.workspaceId = workspaceId; await sleep(300);
+      return [...details.keys()].slice(0, b.proposal.cards.filter(c => !c.dropped).length);
     },
     tasks: () => touch([...details.values()].map(summary).sort((a, b) => b.updatedAt - a.updatedAt)),
     task: async id => touch(get(id)),

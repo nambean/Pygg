@@ -37,6 +37,68 @@ pub fn routes() -> Router<Shared> {
         .route("/pygg/v1/tasks/{id}/stop", post(stop))
         .route("/pygg/v1/tasks/{id}/keep", post(keep))
         .route("/pygg/v1/tasks/{id}/discard", post(discard))
+        // pygg/brain (ADR-041): a client reads its own brainstorms; nothing here approves one.
+        .route("/pygg/v1/brainstorms", get(brainstorms))
+        .route("/pygg/v1/brainstorms/{id}", get(brainstorm))
+        .route("/pygg/v1/facts", get(facts))
+}
+
+/// One value of the request's query string, un-escaped only as far as `+` and `%2F` go (ids and roles are plain).
+fn query_value(uri: &Uri, name: &str) -> Option<String> {
+    uri.query()?
+        .split('&')
+        .find_map(|pair| {
+            pair.split_once('=').filter(|(k, _)| *k == name).map(|(_, v)| v.replace('+', " ").replace("%2F", "/"))
+        })
+        .filter(|v| !v.is_empty())
+}
+
+/// A client's brainstorms, newest first, or the one of `?session=`.
+async fn brainstorms(State(shared): State<Shared>, headers: HeaderMap, uri: Uri) -> Response {
+    let client = match authenticate(&shared, &headers) {
+        Ok(client) => client,
+        Err(refusal) => return refusal.openai(),
+    };
+    let session = query_value(&uri, "session");
+    let result = blocking(&shared, move |db| match session {
+        Some(s) => Ok(super::brain::by_session(db, &client.id, &s)?.into_iter().collect::<Vec<_>>()),
+        None => super::brain::list(db, Some(&client.id)),
+    })
+    .await;
+    match result {
+        Ok(list) => Json(json!({ "brainstorms": list })).into_response(),
+        Err(r) => r,
+    }
+}
+
+async fn brainstorm(State(shared): State<Shared>, headers: HeaderMap, Path(id): Path<String>) -> Response {
+    let client = match authenticate(&shared, &headers) {
+        Ok(client) => client,
+        Err(refusal) => return refusal.openai(),
+    };
+    match blocking(&shared, move |db| super::brain::get(db, &id)).await {
+        Ok(Some(b)) if b.client_id.as_deref() == Some(client.id.as_str()) => Json(b).into_response(),
+        Ok(_) => error(StatusCode::NOT_FOUND, "No such brainstorm of this client"),
+        Err(r) => r,
+    }
+}
+
+/// The connected models ranked for a role from the model facts feed (ADR-040), each with its source and date.
+async fn facts(State(shared): State<Shared>, headers: HeaderMap, uri: Uri) -> Response {
+    if let Err(refusal) = authenticate(&shared, &headers) {
+        return refusal.openai();
+    }
+    let role = query_value(&uri, "role").unwrap_or_else(|| "code".into());
+    let result = blocking(&shared, move |db| {
+        let feed = super::facts::for_conn(db);
+        let lines = super::facts::rank_role(db, feed.as_deref(), &role)?;
+        Ok(json!({ "role": role, "built": feed.map(|f| f.built.clone()), "models": lines }))
+    })
+    .await;
+    match result {
+        Ok(v) => Json(v).into_response(),
+        Err(r) => r,
+    }
 }
 
 const MAX_WAIT_SECS: u64 = 600;

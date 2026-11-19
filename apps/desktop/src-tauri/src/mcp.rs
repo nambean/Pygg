@@ -92,6 +92,14 @@ fn tools() -> Value {
          "inputSchema": {"type": "object", "properties": {}}},
         {"name": "pygg_agents", "description": "The agents installed on this computer that tasks can use.",
          "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "pygg_brainstorm",
+         "description": "A brainstorm pygg/brain made for you (ask for the model pygg/brain with a requirement to start one): its state, planner, open questions and cards with the model Pygg picked for each. Approval happens in the Pygg app, never here.",
+         "inputSchema": {"type": "object", "properties": {
+            "brainstorm_id": {"type": "string", "description": "The id in the brain's reply (b_…). Default: your newest brainstorm."}}}},
+        {"name": "pygg_model_facts",
+         "description": "The user's connected models ranked for a role (plan, code, test, review) from Pygg's model facts feed: each with the public benchmark it ranks by, its place and date, or its tier when no fact applies.",
+         "inputSchema": {"type": "object", "properties": {
+            "role": {"type": "string", "enum": ["plan", "code", "test", "review"], "description": "Default code."}}}},
     ])
 }
 
@@ -241,6 +249,74 @@ async fn call_tool(gateway: &Gateway, name: &str, args: &Value) -> Result<String
                 })
                 .collect::<Vec<_>>()
                 .join("\n"))
+        }
+        "pygg_brainstorm" => {
+            let b = match args["brainstorm_id"].as_str().filter(|s| !s.is_empty()) {
+                Some(id) => gateway.call(Method::GET, &format!("/pygg/v1/brainstorms/{id}"), None).await?,
+                None => {
+                    let list = gateway.call(Method::GET, "/pygg/v1/brainstorms", None).await?;
+                    list["brainstorms"]
+                        .as_array()
+                        .and_then(|l| l.first().cloned())
+                        .ok_or("You have no brainstorm yet: ask for the model pygg/brain with a requirement.")?
+                }
+            };
+            let s = |v: &Value| v.as_str().unwrap_or("").to_string();
+            let mut out = format!(
+                "Brainstorm {} · {} · revision {} · planner {}\nRequirement: {}\n",
+                s(&b["id"]),
+                s(&b["state"]),
+                b["revision"].as_u64().unwrap_or(0),
+                b["planner"].as_str().unwrap_or("none yet"),
+                s(&b["requirement"])
+            );
+            if let Some(note) = b["note"].as_str().or_else(|| b["error"].as_str()) {
+                out.push_str(&format!("Note: {note}\n"));
+            }
+            for q in b["proposal"]["questions"].as_array().into_iter().flatten().filter(|q| q["answered"] != true) {
+                out.push_str(&format!("Question {}: {}\n", s(&q["id"]), s(&q["text"])));
+            }
+            for c in b["proposal"]["cards"].as_array().into_iter().flatten().filter(|c| c["dropped"] != true) {
+                out.push_str(&format!(
+                    "Card {} [{}] wave {}: {} -> {} · done when: {}\n",
+                    s(&c["id"]),
+                    s(&c["role"]),
+                    c["wave"].as_u64().unwrap_or(0),
+                    s(&c["title"]),
+                    c["model"].as_str().unwrap_or("nothing eligible"),
+                    s(&c["done"])
+                ));
+            }
+            out.push_str("Approve or change it in the Pygg app; this tool cannot.");
+            Ok(out)
+        }
+        "pygg_model_facts" => {
+            let role = args["role"].as_str().unwrap_or("code");
+            let facts = gateway.call(Method::GET, &format!("/pygg/v1/facts?role={role}"), None).await?;
+            let mut out = format!(
+                "Models for {role} (feed built {}):\n",
+                facts["built"].as_str().unwrap_or("none kept; by tier")
+            );
+            for m in facts["models"].as_array().into_iter().flatten().take(30) {
+                let line = match m["fact"].as_object() {
+                    Some(f) => format!(
+                        "{} #{} of {} · {} · {}{}",
+                        f["sourceName"].as_str().unwrap_or(""),
+                        f["place"].as_u64().unwrap_or(0),
+                        f["of"].as_u64().unwrap_or(0),
+                        f["score"],
+                        f["date"].as_str().unwrap_or("undated"),
+                        if f["derived"] == true { " · derived" } else { "" }
+                    ),
+                    None => format!("no fact for {role}; tier {}", m["tier"].as_str().unwrap_or("none")),
+                };
+                out.push_str(&format!(
+                    "{} ({}): {line}\n",
+                    m["model"].as_str().unwrap_or(""),
+                    m["billing"].as_str().unwrap_or("")
+                ));
+            }
+            Ok(out)
         }
         other => Err(format!("Unknown tool {other}")),
     }

@@ -6,7 +6,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { engineText } from './engineText';
 import { runningInDesktop } from './native';
-import type { DayBudget, NewTask, TaskDetail, TaskSummary, WorkspaceView } from './tasks';
+import type { DayBudget, NewTask, TaskDetail, TaskSummary, WorkspaceView, Brainstorm, BrainRole, RoleLine } from './tasks';
 
 export type Billing = 'free' | 'local' | 'subscription' | 'paid' | 'unknown';
 export const BILLINGS: Billing[] = ['free', 'local', 'subscription', 'paid', 'unknown'];
@@ -589,6 +589,21 @@ export interface GatewayApi {
   taskDiff(id: string): Promise<string>;
   /** Keeps the result as a branch (returned) or discards it. */
   finishTask(id: string, keep: boolean, title: string | null): Promise<string | null>;
+  /** pygg/brain (ADR-041): brainstorms started from a coding agent, picked, edited and approved here. */
+  brainstorms(): Promise<Brainstorm[]>;
+  brainstorm(id: string): Promise<Brainstorm>;
+  /** The models eligible as the planner, ranked for the plan role, with the reasons for the rest. */
+  brainstormCandidates(id: string): Promise<AutoPlan>;
+  /** The user's planner pick (`connection/model`); remembered for every project when asked. The planner then runs. */
+  brainstormPickPlanner(id: string, model: string, remember: boolean): Promise<Brainstorm>;
+  brainstormRetry(id: string): Promise<Brainstorm>;
+  brainstormSetModel(id: string, card: string, model: string, allOfRole: boolean): Promise<Brainstorm>;
+  brainstormSetCard(id: string, card: string, change: {dropped?: boolean; runner?: 'engine' | 'ide'; class?: 'standard' | 'expedite'; fallbacks?: string[]}): Promise<Brainstorm>;
+  brainstormDecline(id: string): Promise<Brainstorm>;
+  /** Every card that is not dropped becomes a task of the workspace run by the agent; returns the task ids. */
+  brainstormApprove(id: string, workspaceId: string, agent: string): Promise<string[]>;
+  /** The enabled models ranked for a role from the model facts feed (ADR-040). */
+  modelFactsRole(role: BrainRole): Promise<RoleLine[]>;
   /** Where pygg-mcp is, for the IDE setup instructions. */
   mcpSetup(): Promise<McpSetup>;
   /** The agents Pygg can register its MCP server with, and whether it is. */
@@ -707,6 +722,16 @@ const native: GatewayApi = {
   tasks: () => invoke('tasks_list'),
   task: id => invoke('task_get', {id}),
   createTask: task => invoke('task_create', {task}),
+  brainstorms: () => invoke('brainstorms_list'),
+  brainstorm: id => invoke('brainstorm_get', {id}),
+  brainstormCandidates: id => invoke('brainstorm_candidates', {id}),
+  brainstormPickPlanner: (id, model, remember) => invoke('brainstorm_pick_planner', {id, model, remember}),
+  brainstormRetry: id => invoke('brainstorm_retry', {id}),
+  brainstormSetModel: (id, card, model, allOfRole) => invoke('brainstorm_set_model', {id, card, model, allOfRole}),
+  brainstormSetCard: (id, card, change) => invoke('brainstorm_set_card', {id, card, dropped: change.dropped ?? null, runner: change.runner ?? null, class: change.class ?? null, fallbacks: change.fallbacks ?? null}),
+  brainstormDecline: id => invoke('brainstorm_decline', {id}),
+  brainstormApprove: (id, workspaceId, agent) => invoke('brainstorm_approve', {id, workspaceId, agent}),
+  modelFactsRole: role => invoke('model_facts_role', {role}),
   cancelTask: id => invoke('task_cancel', {id}),
   decideTask: (id, approve, capUsd) => invoke('task_decide', {id, approve, capUsd}),
   retryTask: id => invoke('task_retry', {id}),

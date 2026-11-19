@@ -176,6 +176,24 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
         )
             .into_response();
     }
+    // The planner behind pygg/brain (brain.rs): a request carrying Pygg's brain prompt gets a board, and a refinement
+    // (the previous proposal is in the request) gets a board with the question answered.
+    if body["messages"][0]["content"].as_str().is_some_and(|c| c.contains("planner behind pygg/brain")) {
+        let refined = body["messages"][1]["content"].as_str().is_some_and(|c| c.contains("previous proposal"));
+        let board = if refined {
+            json!({"questions": [], "cards": [
+                {"id": "c1", "title": "Data model", "role": "plan", "done": "a written model"},
+                {"id": "c2", "title": "Catalogue pages", "role": "code", "done": "pnpm test passes", "dependsOn": ["c1"]},
+                {"id": "c3", "title": "Checkout with Stripe", "role": "code", "done": "a test charge", "dependsOn": ["c2"]}]})
+        } else {
+            json!({"questions": [{"id": "q1", "text": "Which payment providers?"}], "cards": [
+                {"id": "c1", "title": "Data model", "role": "plan", "done": "a written model"},
+                {"id": "c2", "title": "Catalogue pages", "role": "code", "done": "pnpm test passes", "dependsOn": ["c1", "q1"]}]})
+        };
+        return Json(json!({ "choices": [{ "index": 0, "finish_reason": "stop", "message": { "role": "assistant",
+            "content": format!("```json\n{board}\n```") } }], "usage": usage }))
+        .into_response();
+    }
     if body["stream"] == true {
         assert_eq!(body["stream_options"]["include_usage"], true, "the gateway asks for usage");
         let mut sse = String::new();
@@ -2536,6 +2554,89 @@ fn set_caps(rig: &Rig, provider: &str, model: &str, tier: &str, tools: Option<bo
             )
         })
         .unwrap();
+}
+
+#[test]
+fn pygg_brain_proposes_a_board_refines_it_in_the_session_and_ledgers_the_planner_call() {
+    rt().block_on(async {
+        let rig = rig().await;
+        // A free T3 model: the rule's planner, and the model for every code card; main/fast is paid.
+        set_caps(&rig, "main", "fast", "T2", Some(true));
+        set_caps(&rig, "backup", "steady", "T3", Some(true));
+        let body = json!({ "model": "pygg/brain", "messages": [{ "role": "user", "content": "Build a shop website" }] });
+        let response = rig.post_session("/v1/chat/completions", "brain-1", body).await;
+        assert_eq!(response.status(), 200);
+        let id = response.headers()["x-pygg-brainstorm"].to_str().unwrap().to_string();
+        assert!(id.starts_with("b_"), "{id}");
+        let answer: Value = response.json().await.unwrap();
+        let text = answer["choices"][0]["message"]["content"].as_str().unwrap().to_string();
+        assert!(text.starts_with(&format!("Brainstorm {id} · revision 1 · open it in Pygg: pygg://brainstorm/{id}\nPlanner: backup/steady (brain-v1)\n")), "{text}");
+        assert!(text.contains("1. Which payment providers?"), "{text}");
+        assert!(text.contains("- c2 [code] Catalogue pages — auto/code -> backup/steady, then main/fast (after c1, q1)"), "{text}");
+        assert!(text.ends_with("Approve in Pygg; this client cannot approve. Paid cards still wait for approval one by one when they start.\n"), "{text}");
+        // The planner call is the client's, under the session, with the brain's route kind; the brain's own
+        // answer is not an upstream request, so it is the only ledger entry.
+        let ledger = rig.ledger();
+        assert_eq!(ledger.len(), 1, "{ledger:?}");
+        assert_eq!((ledger[0].route_kind.as_deref(), ledger[0].model.as_str()), (Some("brain"), "steady"));
+        let stored = rig.shared.with_db(|db| brain::get(db, &id)).unwrap().unwrap();
+        assert_eq!((stored.state.as_str(), stored.revision, stored.planner.as_deref()), ("proposed", 1, Some("backup/steady")));
+        assert_eq!(stored.proposal.cards.iter().map(|c| (c.id.as_str(), c.wave, c.model.as_deref())).collect::<Vec<_>>(),
+            [("c1", 1, Some("backup/steady")), ("c2", 2, Some("backup/steady"))]);
+        assert!(stored.proposal.cards[1].reason.as_deref().unwrap().starts_with("no fact for code; tier T3"), "{:?}", stored.proposal.cards[1].reason);
+        // The next of the role's route is suggested as a fallback, and the reply names it.
+        assert_eq!(stored.proposal.cards[1].fallbacks.iter().map(|f| f.model.as_str()).collect::<Vec<_>>(), ["main/fast"]);
+
+        // The same session answers the question: the brainstorm is refined, not started again.
+        let again = json!({ "model": "pygg/brain", "messages": [
+            { "role": "user", "content": "Build a shop website" }, { "role": "assistant", "content": text },
+            { "role": "user", "content": "Stripe and cash on delivery" }] });
+        let refined = rig.post_session("/v1/chat/completions", "brain-1", again).await;
+        assert_eq!(refined.headers()["x-pygg-brainstorm"].to_str().unwrap(), id);
+        let text2 = refined.json::<Value>().await.unwrap()["choices"][0]["message"]["content"].as_str().unwrap().to_string();
+        assert!(text2.contains("revision 2") && text2.contains("No open questions") && text2.contains("c3 [code] Checkout with Stripe"), "{text2}");
+        let stored = rig.shared.with_db(|db| brain::get(db, &id)).unwrap().unwrap();
+        assert!(stored.proposal.questions.iter().any(|q| q.id == "q1" && q.answered));
+        assert_eq!(rig.ledger().len(), 2);
+
+        // An Anthropic-format client gets the same brainstorm flow in its own shape, streamed.
+        let anthropic = json!({ "model": "pygg/brain", "max_tokens": 100, "stream": true,
+            "messages": [{ "role": "user", "content": "Build a blog" }] });
+        let streamed = rig.post_session("/v1/messages", "brain-2", anthropic).await;
+        assert_eq!(streamed.status(), 200);
+        assert!(streamed.headers()["content-type"].to_str().unwrap().starts_with("text/event-stream"));
+        let events = streamed.text().await.unwrap();
+        assert!(events.contains("event: message_start") && events.contains("Brainstorm b_") && events.contains("event: message_stop"), "{events}");
+    });
+}
+
+#[test]
+fn pygg_brain_waits_for_the_users_pick_when_the_planner_would_cost_money() {
+    rt().block_on(async {
+        let rig = rig().await;
+        set_caps(&rig, "main", "fast", "T2", Some(true));
+        let body =
+            json!({ "model": "pygg/brain", "messages": [{ "role": "user", "content": "Build a shop website" }] });
+        let response = rig.post_session("/v1/chat/completions", "brain-3", body).await;
+        assert_eq!(response.status(), 200);
+        let id = response.headers()["x-pygg-brainstorm"].to_str().unwrap().to_string();
+        let text =
+            response.json::<Value>().await.unwrap()["choices"][0]["message"]["content"].as_str().unwrap().to_string();
+        assert!(text.starts_with(&format!("Brainstorm {id} waits for your pick in Pygg")), "{text}");
+        assert!(text.contains("the rule would pick main/fast, which costs money"), "{text}");
+        assert!(rig.ledger().is_empty(), "nothing was sent to a provider");
+        let stored = rig.shared.with_db(|db| brain::get(db, &id)).unwrap().unwrap();
+        assert_eq!((stored.state.as_str(), stored.planner.as_deref()), ("waiting_pick", None));
+        // Saving a pick makes the next brainstorm run at once, even on a paid planner.
+        rig.shared.with_db(|db| brain::save_pick(db, brain::GLOBAL, "plan", "main", "fast")).unwrap();
+        let body =
+            json!({ "model": "pygg/brain", "messages": [{ "role": "user", "content": "Build a shop website" }] });
+        let response = rig.post_session("/v1/chat/completions", "brain-4", body).await;
+        let text =
+            response.json::<Value>().await.unwrap()["choices"][0]["message"]["content"].as_str().unwrap().to_string();
+        assert!(text.contains("Planner: main/fast (brain-v1)"), "{text}");
+        assert_eq!(rig.ledger().len(), 1);
+    });
 }
 
 #[test]

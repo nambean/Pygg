@@ -166,7 +166,7 @@ Verified: live with Codex CLI 0.163.0 (ChatGPT plan) and OpenCode 1.18.4 (a free
 
 Tasks are started where people already work, by their coding agent (ADR-027). The app runs them, and is where they are watched, paid steps approved, and history kept.
 
-- **The MCP server** (`mcp.rs`) runs over stdio. The app's own program serves it as `<app> mcp`; `pygg mcp` (and `pygg-mcp`) is the same server. Tools: `pygg_run_task`, `pygg_task_status`, `pygg_task_diff`, `pygg_keep_result`, `pygg_discard_result`, `pygg_stop_task`, `pygg_list_tasks`, `pygg_agents`. The workspace is the folder the server runs in. Configuration: `PYGG_TOKEN`, and optionally `PYGG_URL` (default `http://127.0.0.1:8741`).
+- **The MCP server** (`mcp.rs`) runs over stdio. The app's own program serves it as `<app> mcp`; `pygg mcp` (and `pygg-mcp`) is the same server. Tools: `pygg_run_task`, `pygg_task_status`, `pygg_task_diff`, `pygg_keep_result`, `pygg_discard_result`, `pygg_stop_task`, `pygg_list_tasks`, `pygg_agents`, and for `pygg/brain` (ADR-041) `pygg_brainstorm` (a brainstorm's state, questions and cards) and `pygg_model_facts` (the connected models ranked for a role). The workspace is the folder the server runs in. Configuration: `PYGG_TOKEN`, and optionally `PYGG_URL` (default `http://127.0.0.1:8741`).
 
   ```text
   claude mcp add pygg -e PYGG_TOKEN=<key> -- "C:\path\to\Pygg.exe" mcp
@@ -174,7 +174,8 @@ Tasks are started where people already work, by their coding agent (ADR-027). Th
 
 - **One-click registration**: **Agents → Let Your Agent Delegate Tasks**, or `pygg mcp setup claude-code|codex|opencode`. Claude Code and Codex edit their own files through their own commands (`claude mcp add --scope user`, `codex mcp add`; removal `… mcp remove`). OpenCode's `opencode.json` is edited by Pygg. The entry is user-wide, never a project file, which would be committed with the token in it. The token may start tasks and reaches no model connection. An entry named `pygg` that Pygg did not make is left alone. **Set It Up by Hand** shows snippets for Cursor and other JSON-configured clients.
 - **Waiting.** A tool call waits at most 50 s by default, under the 60 s many MCP clients allow; the agent then calls `pygg_task_status` again. Codex needs `tool_timeout_sec` raised to wait longer, and `default_tools_approval_mode = "approve"` for `codex exec`, which cannot ask before a tool call.
-- **The task API** (`gateway/task_api.rs`): `GET /pygg/v1/agents`, `GET|POST /pygg/v1/tasks`, `GET /pygg/v1/tasks/{id}?wait=S`, `GET …/diff`, `POST …/stop|keep|discard`. The MCP server holds no state; it forwards to this API.
+- **The task API** (`gateway/task_api.rs`): `GET /pygg/v1/agents`, `GET|POST /pygg/v1/tasks`, `GET /pygg/v1/tasks/{id}?wait=S`, `GET …/diff`, `POST …/stop|keep|discard`, and read-only `GET /pygg/v1/brainstorms[?session=S]`, `GET /pygg/v1/brainstorms/{id}` (a client's own) and `GET /pygg/v1/facts?role=R`. The MCP server holds no state; it forwards to this API.
+- **A brainstorm starts as a request**, not a tool call: the agent asks for the model `pygg/brain` with the requirement (`gateway/brain.rs`, ADR-041). The reply names the brainstorm; the app is where it is picked, changed and approved into tasks, and nothing in the API or the MCP server approves one.
 - **Permission.** A key may start tasks only after the user turns on **May start tasks** (Endpoint → API Keys → Limits…; `pygg gateway client --name N --tasks yes`). A client sees and acts on only its own tasks. **There is no API to approve a paid step.**
 - **Where tasks run:** in the app. `pygg gateway serve` answers the task API with 503 unless started with `--tasks yes`, for a computer where the app is not open on that store.
 

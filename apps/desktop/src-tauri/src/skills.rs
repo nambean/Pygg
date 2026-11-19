@@ -104,6 +104,29 @@ struct Starter {
 /// `/name`), so none adds to an agent's context until it is used.
 const STARTERS: &[Starter] = &[
     Starter {
+        id: "brain-v1",
+        description: "What pygg/brain asks the planner (ADR-041): clarifying questions and a board of small cards, one \
+                      role and one done criterion each, as JSON. Pygg sends it for you; run it by hand to see or test it.",
+        manual: true,
+        body: "You are the planner behind pygg/brain. Turn the requirement into a board of small cards for a Kanban \
+               run one card at a time, each card done by one coding-agent attempt and judged by the repository's \
+               checks.\n\n\
+               Reply with JSON only, no prose and no code fence, in exactly this shape:\n\
+               {\"questions\": [{\"id\": \"q1\", \"text\": \"...\"}],\n\
+               \x20\"cards\": [{\"id\": \"c1\", \"title\": \"...\", \"role\": \"plan|code|test|review\", \
+               \"done\": \"...\", \"dependsOn\": [\"q1\", \"c1\"]}]}\n\n\
+               Rules:\n\
+               - Questions: only those whose answer would change the cards, at most seven. None is fine.\n\
+               - Cards: small enough for one attempt and one set of checks; at most forty. Each has one role and one \
+               done criterion a check can test (a command that passes, a page that renders, a file that exists).\n\
+               - dependsOn names the questions a card needs answered and the cards it needs finished. No cycles.\n\
+               - Roles: plan (a written design the other cards cite), code, test, review. Never name a model, a \
+               price, a time or a story point: Pygg picks the model for each role by its own rules.\n\
+               - Say nothing about files you have not seen; the requirement is all you have.\n\
+               - When you are given your previous proposal and the user's answers, return the whole updated board, \
+               and leave out every question the user has answered.\n",
+    },
+    Starter {
         id: "brief-answers",
         description: "Answer with as few output tokens as the task allows for the rest of the session: no restating, \
                       no recap, changed code as diffs.",
@@ -512,6 +535,11 @@ fn skill(
 
 fn starter(id: &str) -> Option<&'static Starter> {
     STARTERS.iter().find(|s| s.id == id)
+}
+
+/// A starter's instructions, for the gateway to send as its own prompt (`brain-v1`, ADR-041).
+pub fn starter_body(id: &str) -> Option<&'static str> {
+    starter(id).map(|s| s.body)
 }
 
 fn mine(conn: &Connection, id: &str) -> Result<Option<(String, String, bool, i64)>> {

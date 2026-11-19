@@ -1606,3 +1606,294 @@ pub fn model_facts_role(state: State<'_, AppState>, role: String) -> Res<Vec<gat
         gateway::facts::rank_role(db, feed.as_ref(), &role)
     })
 }
+
+// ---------- pygg/brain: brainstorms, picks and approval (gateway/brain.rs, ADR-041) ----------
+
+use crate::gateway::brain;
+
+fn brainstorm_of(state: &AppState, id: &str) -> Res<brain::Brainstorm> {
+    state.shared.with_db(|db| brain::get(db, id))?.ok_or_else(|| "Brainstorm not found".to_string())
+}
+
+fn client_of(state: &AppState, b: &brain::Brainstorm) -> Res<Client> {
+    let id = b.client_id.clone().ok_or("This brainstorm has no client")?;
+    state
+        .shared
+        .with_db(store::list_clients)?
+        .into_iter()
+        .find(|c| c.id == id)
+        .ok_or_else(|| "The client that started this brainstorm is gone".into())
+}
+
+/// Every brainstorm, newest first, for the Tasks list.
+#[tauri::command]
+pub fn brainstorms_list(state: State<'_, AppState>) -> Res<Vec<brain::Brainstorm>> {
+    state.shared.with_db(|db| brain::list(db, None))
+}
+
+#[tauri::command]
+pub fn brainstorm_get(state: State<'_, AppState>, id: String) -> Res<brain::Brainstorm> {
+    brainstorm_of(&state, &id)
+}
+
+/// The models eligible as this brainstorm's planner, ranked for the plan role under its client's policy, with the
+/// reasons for the rest (the inline pick, BRAIN.md 4.4).
+#[tauri::command]
+pub fn brainstorm_candidates(state: State<'_, AppState>, id: String) -> Res<gateway::auto::Plan> {
+    let b = brainstorm_of(&state, &id)?;
+    let client = client_of(&state, &b)?;
+    state.shared.with_db(|db| brain::candidates(db, &client))
+}
+
+/// The user's pick of a planner (`connection/model`), saved for every project when asked; the planner then runs.
+#[tauri::command]
+pub async fn brainstorm_pick_planner(
+    state: State<'_, AppState>, id: String, model: String, remember: bool,
+) -> Res<brain::Brainstorm> {
+    let mut b = brainstorm_of(&state, &id)?;
+    let client = client_of(&state, &b)?;
+    let (provider, model_id) = model.split_once('/').ok_or("Name the planner as connection/model")?;
+    let eligible = state.shared.with_db(|db| brain::candidates(db, &client))?;
+    if !eligible.ranked.iter().any(|r| r.provider_id == provider && r.model_id == model_id) {
+        return Err(format!("{model} is not eligible as a planner under this client's policy"));
+    }
+    if remember {
+        state.shared.with_db(|db| brain::save_pick(db, brain::GLOBAL, "plan", provider, model_id))?;
+    }
+    b.planner = Some(model.clone());
+    b.note = None;
+    let _ = brain::run_planner(&state.shared, &client, &mut b, None).await;
+    brainstorm_of(&state, &id)
+}
+
+/// Runs the planner again (after a failure, or with another planner picked).
+#[tauri::command]
+pub async fn brainstorm_retry(state: State<'_, AppState>, id: String) -> Res<brain::Brainstorm> {
+    let mut b = brainstorm_of(&state, &id)?;
+    let client = client_of(&state, &b)?;
+    if b.planner.is_none() {
+        return Err("Pick a planner first".into());
+    }
+    let _ = brain::run_planner(&state.shared, &client, &mut b, None).await;
+    brainstorm_of(&state, &id)
+}
+
+/// A card's model, chosen by the user from the role's ranking; `all_of_role` applies it to every card of that role.
+#[tauri::command]
+pub fn brainstorm_set_model(
+    state: State<'_, AppState>, id: String, card: String, model: String, all_of_role: bool,
+) -> Res<brain::Brainstorm> {
+    let mut b = brainstorm_of(&state, &id)?;
+    if b.state != "proposed" {
+        return Err("Only a proposed brainstorm can be changed".into());
+    }
+    let role = b.proposal.cards.iter().find(|c| c.id == card).map(|c| c.role.clone()).ok_or("Card not found")?;
+    for c in &mut b.proposal.cards {
+        if c.id == card || (all_of_role && c.role == role) {
+            c.model = Some(model.clone());
+            c.reason = Some("your pick".into());
+        }
+    }
+    state.shared.with_db(|db| brain::save(db, &b))?;
+    Ok(b)
+}
+
+/// Drops or restores a card, or sets who runs it (`engine` or `ide`) and its class (`standard` or `expedite`).
+#[tauri::command]
+pub fn brainstorm_set_card(
+    state: State<'_, AppState>, id: String, card: String, dropped: Option<bool>, runner: Option<String>,
+    class: Option<String>, fallbacks: Option<Vec<String>>,
+) -> Res<brain::Brainstorm> {
+    let mut b = brainstorm_of(&state, &id)?;
+    if b.state != "proposed" {
+        return Err("Only a proposed brainstorm can be changed".into());
+    }
+    let c = b.proposal.cards.iter_mut().find(|c| c.id == card).ok_or("Card not found")?;
+    if let Some(d) = dropped {
+        c.dropped = d;
+    }
+    if let Some(r) = runner {
+        if r != "engine" && r != "ide" {
+            return Err("A runner is engine or ide".into());
+        }
+        c.runner = r;
+    }
+    if let Some(k) = class {
+        if k != "standard" && k != "expedite" {
+            return Err("A class is standard or expedite".into());
+        }
+        c.class = k;
+    }
+    // The user's fallback list, in order: each `connection/model`, none twice, never the card's own model, at most
+    // five so the card's task stays within the engine's six steps.
+    if let Some(list) = fallbacks {
+        let mut kept: Vec<brain::Fallback> = Vec::new();
+        for model in list {
+            if model.split_once('/').is_none() {
+                return Err(format!("{model} is not connection/model"));
+            }
+            if Some(model.as_str()) == c.model.as_deref() || kept.iter().any(|f| f.model == model) {
+                continue;
+            }
+            let reason = c
+                .fallbacks
+                .iter()
+                .find(|f| f.model == model)
+                .map(|f| f.reason.clone())
+                .unwrap_or_else(|| "your pick".into());
+            kept.push(brain::Fallback { model, reason });
+        }
+        if kept.len() > tasks::MAX_STEPS - 1 {
+            return Err(format!(
+                "At most {} fallbacks: a card's task has at most {} steps",
+                tasks::MAX_STEPS - 1,
+                tasks::MAX_STEPS
+            ));
+        }
+        c.fallbacks = kept;
+    }
+    state.shared.with_db(|db| brain::save(db, &b))?;
+    Ok(b)
+}
+
+#[tauri::command]
+pub fn brainstorm_decline(state: State<'_, AppState>, id: String) -> Res<brain::Brainstorm> {
+    let mut b = brainstorm_of(&state, &id)?;
+    b.state = "declined".into();
+    state.shared.with_db(|db| brain::save(db, &b))?;
+    Ok(b)
+}
+
+/// Approves a proposal: every card that is not dropped becomes a task of the workspace, in wave order, with one
+/// step on the card's model run by `agent`. A paid step still waits for approval when it starts (ADR-010).
+#[tauri::command]
+pub async fn brainstorm_approve(
+    state: State<'_, AppState>, id: String, workspace_id: String, agent: String,
+) -> Res<Vec<String>> {
+    let mut b = brainstorm_of(&state, &id)?;
+    if b.state != "proposed" {
+        return Err("Only a proposed brainstorm can be approved".into());
+    }
+    crate::agents::find(&agent).ok_or_else(|| format!("{agent} is not an agent Pygg knows"))?;
+    let mut cards: Vec<&brain::Card> = b.proposal.cards.iter().filter(|c| !c.dropped).collect();
+    if cards.is_empty() {
+        return Err("Every card was dropped; nothing to approve".into());
+    }
+    if cards.iter().any(|c| c.model.is_none()) {
+        return Err("A card has no eligible model; pick one for it first".into());
+    }
+    cards.sort_by_key(|c| c.wave);
+    let models = state.shared.with_db(|db| store::list_models(db, None))?;
+    let mut ids = Vec::new();
+    for card in cards {
+        // The card's model first, then its fallbacks: one step each, so a failed attempt (a connection error, a spent
+        // quota, a failed check) moves the task to the next model (AGENTS.md, the task engine).
+        let ladder: Vec<String> = std::iter::once(card.model.clone().unwrap_or_default())
+            .chain(card.fallbacks.iter().map(|f| f.model.clone()))
+            .take(tasks::MAX_STEPS)
+            .collect();
+        let mut steps = Vec::new();
+        for model in &ladder {
+            let row =
+                model.split_once('/').and_then(|(p, m)| models.iter().find(|x| x.provider_id == p && x.model_id == m));
+            let tier = row
+                .and_then(|m| m.capabilities.tier.as_deref())
+                .and_then(|t| t.strip_prefix('T'))
+                .and_then(|t| t.parse().ok())
+                .unwrap_or(0);
+            // Only an agent pointed at the gateway runs the card on the model Pygg picked: OpenCode through its Pygg
+            // provider (`pygg/<connection/model>`). The others run with their own sign-in and the pick is told to them.
+            let (step_model, billing) = if agent == "opencode" {
+                (Some(format!("pygg/{model}")), row.map(|m| m.billing.clone()).unwrap_or_else(|| "unknown".into()))
+            } else {
+                (None, "unknown".to_string())
+            };
+            steps.push(tasks::Step { agent: agent.clone(), model: step_model, tier, billing });
+        }
+        if agent != "opencode" {
+            steps.truncate(1);
+        }
+        let note = if agent == "opencode" {
+            String::new()
+        } else {
+            format!(
+                "\n\nPygg picked {} for this card; this agent runs with its own sign-in and model.",
+                ladder.join(", then ")
+            )
+        };
+        let prompt = format!(
+            "{}\n\nThis card: {} (role: {}).\nDone when: {}{}\n\nThe whole requirement, for context:\n{}",
+            card.title, card.title, card.role, card.done, note, b.requirement
+        );
+        let new = tasks::NewTask {
+            workspace_id: workspace_id.clone(),
+            title: Some(card.title.clone()),
+            prompt,
+            strategy: "balanced".into(),
+            steps,
+            allow_shell: false,
+            timeout_secs: None,
+            handoff: None,
+        };
+        let card_id = card.id.clone();
+        let card_role = card.role.clone();
+        let brainstorm_id = b.id.clone();
+        let task_id = state.shared.with_db(|db| {
+            let task_id = tasks::create_task(db, &new)?;
+            db.execute(
+                "UPDATE tasks SET brainstorm_id = ?2, card_id = ?3, card_role = ?4 WHERE id = ?1",
+                rusqlite::params![task_id, brainstorm_id, card_id, card_role],
+            )
+            .map_err(|e| e.to_string())?;
+            Ok::<String, String>(task_id)
+        })?;
+        state.tasks.start(&task_id);
+        ids.push(task_id);
+    }
+    b.workspace_id = Some(workspace_id);
+    b.state = "approved".into();
+    state.shared.with_db(|db| brain::save(db, &b))?;
+    Ok(ids)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrainPick {
+    pub scope: String,
+    pub role: String,
+    pub model: String,
+}
+
+/// The saved picks by role, for every project (`global`) and per workspace (BRAIN.md 4.7b).
+#[tauri::command]
+pub fn brain_picks(state: State<'_, AppState>) -> Res<Vec<BrainPick>> {
+    state.shared.with_db(|db| {
+        let mut stmt = db
+            .prepare("SELECT scope, role, provider_id, model_id FROM brain_picks ORDER BY scope, role")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(BrainPick {
+                    scope: r.get(0)?,
+                    role: r.get(1)?,
+                    model: format!("{}/{}", r.get::<_, String>(2)?, r.get::<_, String>(3)?),
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())
+    })
+}
+
+#[tauri::command]
+pub fn brain_pick_set(
+    state: State<'_, AppState>, scope: String, role: String, model: Option<String>,
+) -> Res<Vec<BrainPick>> {
+    state.shared.with_db(|db| match model {
+        Some(m) => {
+            let (p, id) = m.split_once('/').ok_or("Name the model as connection/model")?;
+            brain::save_pick(db, &scope, &role, p, id)
+        }
+        None => brain::clear_pick(db, &scope, &role),
+    })?;
+    brain_picks(state)
+}

@@ -621,7 +621,14 @@ pub async fn messages(State(shared): State<Shared>, headers: HeaderMap, body: By
         requested: &requested,
         session: session.as_deref(),
         stream,
+        route_kind: None,
     };
+    if super::brain::is_brain(&requested) {
+        return match super::brain::answer(&shared, &client, &incoming).await {
+            Ok(reply) => super::brain::respond(&incoming, &reply),
+            Err(refusal) => refusal_response(refusal),
+        };
+    }
     let forwarded = match forward(&shared, &client, &incoming).await {
         Ok(forwarded) => forwarded,
         Err(refusal) => return refusal_response(refusal),
