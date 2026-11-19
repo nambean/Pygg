@@ -1812,14 +1812,12 @@ pub async fn brainstorm_approve(
 }
 
 /// Runs the board's tick now and starts the tasks it made (the app also ticks every few seconds).
+/// Settles the lanes before a command answers. The pull stays with the app's tick loop (lib.rs): a card's task is
+/// started with `tokio::spawn`, which a synchronous command, run outside the runtime, cannot do (the first live
+/// run of the board with a stopped gateway aborted the app that way).
 fn board_tick(state: &AppState) {
-    match state.shared.with_db(crate::board::tick) {
-        Ok(ids) => {
-            for id in ids {
-                state.tasks.start(&id);
-            }
-        }
-        Err(e) => crate::applog::warn(&format!("board: {e}")),
+    if let Err(e) = state.shared.with_db(crate::board::settle) {
+        crate::applog::warn(&format!("board: {e}"));
     }
 }
 
