@@ -163,7 +163,7 @@ impl<R: Runtime> AppWindows<R> {
             .build()
             .map_err(|e| format!("Could not open the window: {e}"))?;
         #[cfg(windows)]
-        watch_responses(&window, self.received.clone(), self.seen.clone(), provider.id.clone(), recipe.site);
+        watch_responses(&window, self.received.clone(), self.seen.clone(), provider.id.clone());
         // The window makes no sound: a player Pygg starts to have the sound fetched (`Recipe::play_audio`) is heard by
         // no one.
         #[cfg(windows)]
@@ -243,14 +243,12 @@ const KEPT: usize = 24;
 const KEPT_BYTES: usize = 100 * 1024 * 1024;
 
 /// Reads what the page receives (2026-11-18, the owner's call for another way than the page's markup): WebView2 says
-/// when each response arrives, and a sound, a document or the site's own API answer is read and kept for the reply
-/// (`super::worth_keeping`). Only responses: no request is changed or made, and no cookie or header is kept.
+/// when each response arrives, and a sound or a document is read and kept for the reply (`super::worth_keeping`). Only responses: no request is changed or made, and no cookie or header is kept.
 #[cfg(windows)]
 fn watch_responses<R: Runtime>(
     window: &WebviewWindow<R>, received: Arc<Mutex<HashMap<String, Vec<super::Received>>>>,
-    seen: Arc<Mutex<HashMap<String, Vec<String>>>>, id: String, site: &'static str,
+    seen: Arc<Mutex<HashMap<String, Vec<String>>>>, id: String,
 ) {
-    let site_host = site.trim_start_matches("https://").trim_end_matches('/').to_string();
     let _ = window.with_webview(move |webview| unsafe {
         use webview2_com::Microsoft::Web::WebView2::Win32::{
             ICoreWebView2WebResourceResponseReceivedEventArgs, ICoreWebView2_2,
@@ -282,7 +280,7 @@ fn watch_responses<R: Runtime>(
                         list.push(format!("{} from {host}", if kind.is_empty() { "(no type)" } else { kind }));
                     }
                 }
-                if !super::worth_keeping(&mime, &host, &site_host) {
+                if !super::worth_keeping(&mime) {
                     return Ok(());
                 }
                 let (received, id) = (received.clone(), id.clone());

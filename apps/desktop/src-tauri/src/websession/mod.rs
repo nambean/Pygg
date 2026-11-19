@@ -813,8 +813,9 @@ fn reply_text(state: &ChatState, before: u64) -> String {
 }
 
 /// The media a reply's page received from the network after the prompt: a sound or document as a data URL of its
-/// kind, and the addresses of sounds and files named in the site's API answers (a player that loads its sound only on
-/// Play still has it named there). What was taken and what was seen goes to the app log, by kind and host only.
+/// kind. Addresses named in the site's API answers are not taken: on 2026-11-19 ChatGPT's page received JSON naming
+/// its own tool downloads (zips of programs), which are not the reply's. What was taken and what was seen goes to the
+/// app log, by kind and host only.
 fn network_media(received: Vec<Received>, preset: &str) -> Vec<Media> {
     let mut out: Vec<Media> = Vec::new();
     let mut seen: Vec<String> = Vec::new();
@@ -822,16 +823,7 @@ fn network_media(received: Vec<Received>, preset: &str) -> Vec<Media> {
     for r in received {
         let mime = r.mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
         summary.push(format!("{mime} from {} ({} bytes)", r.host, r.body.len()));
-        if mime.contains("json") {
-            for url in media_addresses(&String::from_utf8_lossy(&r.body)) {
-                if !seen.contains(&url.url) {
-                    seen.push(url.url.clone());
-                    out.push(url);
-                }
-            }
-            continue;
-        }
-        if r.body.is_empty() || r.body.len() as u64 > BLOB_LIMIT {
+        if r.body.is_empty() || r.body.len() as u64 > BLOB_LIMIT || !worth_keeping(&mime) {
             continue;
         }
         // A generic type is replaced by what the bytes say; a body that is none of the kept kinds is left.
@@ -857,35 +849,6 @@ fn network_media(received: Vec<Received>, preset: &str) -> Vec<Media> {
             summary.join(", "),
             out.len()
         ));
-    }
-    out
-}
-
-/// https addresses of sounds and documents in a text (an API answer), by their extension; `\u002F` and `\/` escapes
-/// undone.
-fn media_addresses(text: &str) -> Vec<Media> {
-    let text = text.replace("\\u002F", "/").replace("\\/", "/").replace("\\u0026", "&");
-    let mut out = Vec::new();
-    let mut rest = text.as_str();
-    while let Some(i) = rest.find("https://") {
-        let tail = &rest[i..];
-        let end = tail
-            .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '\\' | ')'))
-            .unwrap_or(tail.len());
-        let url = &tail[..end];
-        rest = &tail[end..];
-        let path = url.split(['?', '#']).next().unwrap_or("").to_ascii_lowercase();
-        let kind = if [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".weba", ".flac"]
-            .iter()
-            .any(|e| path.ends_with(e))
-        {
-            "audio"
-        } else if [".pdf", ".docx", ".xlsx", ".pptx", ".csv", ".zip", ".txt", ".md"].iter().any(|e| path.ends_with(e)) {
-            "file"
-        } else {
-            continue;
-        };
-        out.push(Media { kind: kind.to_string(), url: url.to_string() });
     }
     out
 }
@@ -1398,9 +1361,8 @@ pub struct Received {
     pub body: Vec<u8>,
 }
 
-/// Whether a response is kept for the reply: a sound, a document, or the site's own API answer in JSON (searched for
-/// the addresses of what it made). Pictures and videos come from the page itself.
-pub fn worth_keeping(mime: &str, host: &str, site_host: &str) -> bool {
+/// Whether a response is kept for the reply: a sound or a document. Pictures and videos come from the page itself.
+pub fn worth_keeping(mime: &str) -> bool {
     let mime = mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
     mime.starts_with("audio/")
         || matches!(
@@ -1415,7 +1377,6 @@ pub fn worth_keeping(mime: &str, host: &str, site_host: &str) -> bool {
         || mime.starts_with("application/vnd.openxmlformats-officedocument.")
         // A file sent with no type of its own is kept to be recognised by its first bytes (`sniff`).
         || matches!(mime.as_str(), "" | "application/octet-stream" | "binary/octet-stream" | "application/x-binary")
-        || (mime.contains("json") && (host == site_host || host.ends_with(&format!(".{site_host}"))))
 }
 
 /// What a body is by its first bytes, whatever type it was sent with: a PDF, a sound, or a zip (Office documents are

@@ -268,16 +268,16 @@ fn muses_stop_button_holds_the_reply_until_the_video_is_made() {
 }
 
 /// What the page receives after the prompt is read for the reply (2026-11-18, the owner's call for another way than the
-/// page's markup): a document or sound the page loaded comes back as a data URL of its kind, a sound named in the
-/// site's API answer by its address, and pictures or the site's other traffic are not kept at all.
+/// page's markup): a document or sound the page loaded comes back as a data URL of its kind, and pictures, the site's
+/// API answers and its other traffic are not kept at all. An address named in an API answer is not taken (2026-11-19:
+/// ChatGPT's page received JSON naming zips of its own tools, which Pygg took as files of the reply).
 #[test]
 fn what_the_page_receives_comes_back_with_the_reply() {
-    assert!(worth_keeping("application/pdf", "scontent.fbcdn.net", "muse.ai"));
-    assert!(worth_keeping("audio/mpeg", "video.fbcdn.net", "muse.ai"));
-    assert!(worth_keeping("application/json; charset=utf-8", "graph.muse.ai", "muse.ai"));
-    assert!(!worth_keeping("application/json", "ads.example.com", "muse.ai"), "another site's JSON");
-    assert!(!worth_keeping("image/jpeg", "scontent.fbcdn.net", "muse.ai"), "pictures come from the page");
-    assert!(worth_keeping("application/octet-stream", "scontent.fbcdn.net", "muse.ai"), "recognised by its bytes");
+    assert!(worth_keeping("application/pdf"));
+    assert!(worth_keeping("audio/mpeg"));
+    assert!(!worth_keeping("application/json; charset=utf-8"), "API answers are not kept");
+    assert!(!worth_keeping("image/jpeg"), "pictures come from the page");
+    assert!(worth_keeping("application/octet-stream"), "recognised by its bytes");
     assert_eq!(sniff(b"%PDF-1.7"), Some(("application/pdf", "file")));
     assert_eq!(sniff(b"ID3\x04\x00"), Some(("audio/mpeg", "audio")));
     assert_eq!(sniff(b"RIFF\x24\x00\x00\x00WAVEfmt "), Some(("audio/wav", "audio")));
@@ -289,14 +289,14 @@ fn what_the_page_receives_comes_back_with_the_reply() {
             vec![json!({ "count": 0, "text": "" }), json!({ "count": 1, "text": "Done. It's a one-page PDF." })],
         );
         let api =
-            r#"{"data":{"audio":"https:\/\/video.fbcdn.net\/v\/rain.mp3?oh=1&oe=2","x":"https://muse.ai/app.js"}}"#;
+            r#"{"plugins":[{"url":"https://updates.example.net/tools/ty.zip"},{"u":"https://x.example/rain.mp3"}]}"#;
         *page.received.lock().unwrap() = vec![
             Received {
                 mime: "application/pdf".into(),
                 host: "scontent.fbcdn.net".into(),
                 body: b"%PDF-1.7 hi".to_vec(),
             },
-            Received { mime: "application/json".into(), host: "muse.ai".into(), body: api.as_bytes().to_vec() },
+            Received { mime: "application/json".into(), host: "chatgpt.com".into(), body: api.as_bytes().to_vec() },
             Received { mime: "application/octet-stream".into(), host: "cdn.example".into(), body: b"<html>".to_vec() },
             Received { mime: "binary/octet-stream".into(), host: "cdn.example".into(), body: b"OggS\x00\x02".to_vec() },
         ];
@@ -304,11 +304,7 @@ fn what_the_page_receives_comes_back_with_the_reply() {
         let got: Vec<(&str, &str)> = reply.media.iter().map(|m| (m.kind.as_str(), m.url.as_str())).collect();
         assert_eq!(
             got,
-            [
-                ("file", "data:application/pdf;base64,JVBERi0xLjcgaGk="),
-                ("audio", "https://video.fbcdn.net/v/rain.mp3?oh=1&oe=2"),
-                ("audio", "data:audio/ogg;base64,T2dnUwAC")
-            ]
+            [("file", "data:application/pdf;base64,JVBERi0xLjcgaGk="), ("audio", "data:audio/ogg;base64,T2dnUwAC")]
         );
     });
     assert!(
