@@ -21,7 +21,11 @@ Each part is useful on its own: the feed improves `auto` and the Providers scree
 | `match` | A model line, as `gateway/tiers.rs` matches it (every part appears in the id), or `{exact: "<provider id>"}` |
 | `role` | `plan`, `code`, `test`, `review`, `image` |
 | `score` | The number the source published, unchanged, with its unit |
-| `rank` | The score's place within that source, 0 to 1, 1 the best. Comparable across sources; `score` is not |
+| `place`, `of` | The row's place in its source (1 is best; rows with the same score share a place: `place` is one more than the number of rows with a strictly better score) and the source's row count |
+| `rank` | `(of − place) / (of − 1)`, so 1 is the best and 0 the worst within that source (1 when `of` is 1). Comparable across sources; `score` is not |
+| `agent` | For Terminal-Bench and SWE-bench, the agent the row was run with (`claude-code`, `codex`, `mini-swe-agent`, …); absent elsewhere |
+| `effort` | The reasoning effort the row was run with, when the source states it (`high`, `max`, …) |
+| `licence` | The source's licence for this row (`Apache-2.0`, `CC-BY-4.0`, `CC-BY-NC-4.0`) |
 | `derived` | `true` when the role is not what the source measured (every `plan` and `review` fact; `test` until a source measures it) |
 | `source` | The source's short name, from the feed's source list |
 | `url` | Where the number was read |
@@ -61,20 +65,27 @@ model-facts/
     facts.json.sig    its signature (ed25519)
 ```
 
-- `names` maps each source's model name to a `match` or an exact provider id. It is kept by hand in the repository and reviewed in a pull request, because leaderboard names (`claude-sonnet-4.5`, `Claude Sonnet 4.5 (thinking)`) are not provider ids.
-- Built by a scheduled workflow in this repository, weekly, from the sources' published data; a build whose sources are unreachable keeps the last facts and marks them.
-- Signed with a key held in the workflow's secrets; the public key is compiled into the app. A feed that does not verify is refused and the last good one kept.
-- Published as a release asset of this repository and fetched over HTTPS. The app checks daily; the user can refresh and can turn fetching off, in which case the tier table alone is used.
+- **The names map**, `model-facts/names.json`, is kept by hand and reviewed in a pull request, because leaderboard names (`Claude 4.5 Opus (high)`, `Claude Opus 5.5 (High)`) are not provider ids. One entry per source and name: `{"<source>": {"<name as the source writes it>": {"match": ["claude", "opus-4-5"], "effort": "high"}}}`. `match` is the line as `gateway/tiers.rs` matches it: every part must appear in the connected model's id, lower-cased, after a router's vendor prefix (`openrouter/anthropic/claude-opus-4-5` matches). Terminal-Bench and Aider rows already carry a `provider/model` id, which the builder turns into `match` parts itself; the map is consulted only for the names it lists. A name the map does not know is written to the build log and left out, never guessed.
+- **Built by `scripts/model-facts.py`** in a scheduled workflow, weekly (and on demand), from the sources' published data. A source that is unreachable or no longer parses keeps its facts from the last published feed, with `observed` unchanged and the source marked `stale` in the source list; the build fails only when every source fails. The 4 MB SWE-bench file is read by the job, never by the app.
+- **Signed** with an ed25519 key: the 32-byte seed is the repository secret `MODEL_FACTS_SIGNING_KEY`, held only in GitHub Actions; the public key is a constant in the app (`gateway/facts.rs`). The signature is over the exact bytes of `facts.json` and is published beside it as `facts.json.sig` (base64). A feed that does not verify, or whose `built` is older than the one already kept, is refused and the kept one stays.
+- **Published** as the assets of one fixed pre-release tag of this repository, `model-facts-v1`, replaced on every build; the app fetches `https://github.com/nambean/Pygg/releases/download/model-facts-v1/facts.json` and its `.sig`. A `v2` of the format gets a new tag and a new app constant; `v1` stays for older apps.
+- **Kept next to the store**, like the models.dev catalog (`reference/model-facts.json`, ADR-031's pattern in `gateway/reference.rs`), with the fetch time in `settings` (`model_facts.fetched_at`), the switch in `settings` (`model_facts.enabled`, on by default), and the public GET carrying nothing about the user. The app checks once a day when the gateway starts or a screen that ranks asks; **Refresh** fetches now. **Off** removes the feed layer only: the user's own evidence and the tier still rank, and the kept file stays for when it is turned on again. Offline, the kept feed is used and its `built` date shown; the screens tell offline ("could not refresh"), stale (a `built` older than the weekly cadence) and refused (signature) apart.
+- **Keys.** The `.sig` file names its key id; the app holds the public keys it trusts by id. Rotation: a release adds the new public key, then the secret changes; the old key is dropped in a later release. A compromised key is dropped in a release and every feed signed by it is refused from then on; a feed never grants trust to a key.
+- **Attribution.** The source list carries each source's licence and the attribution line its licence asks for; the app shows the source's name and link wherever a fact is shown (SCREENS §3.2), and THIRD_PARTY_NOTICES.md lists the sources with their licences.
 
 ### Ranking in the app
 
 For a role, each connected model's line is built from three layers, each shown with its source:
 
-1. **The user's own evidence**, from the ledger: `checks_passed` and `result_kept` for that model on cards of that role (ADR-029), once ten attempts exist. This layer wins.
-2. **The feed**, the best `rank` among the role's sources, with its `derived` label.
+1. **The user's own evidence**, from the ledger: `checks_passed` and `result_kept` for that model on cards of that role (ADR-029), once ten attempts exist; the line is ordered by kept results over attempts, then checks passed over attempts. This layer wins. Until the board exists (phase 4) no attempt carries a role, so this layer is empty and the screens say "your runs: none yet".
+2. **The feed**, the best `rank` among the role's sources that are not older than twelve months, with its `derived` label. Where a source has several rows for one model (agents, efforts), the row whose agent Pygg would run and whose effort the connection sends comes first, else the best row, and the line says which row it is.
 3. **The tier** (`curated:v1` or `price-band:v1`, ADR-006, ADR-031), when nothing else is known.
 
 The interface says which layer a line comes from. A `derived` fact reads "ranked by reasoning (LMArena, 2026-11-12)", never "best for planning". A choice the user saved is kept when the feed changes; the screen shows that a newer fact exists.
+
+**Order within a list** (the role sheet, the planner pick, a role's row): first by the layer that won (own evidence, then feed, then tier); within own evidence by kept rate, then checks-passed rate; within the feed by `rank`; within the tier by tier; then by estimated cost, then by `connection/model`. No tie is asserted; equal numbers stay in that order and both are shown.
+
+**Phases and the store.** Phase 1 (the feed) adds no migration: the feed is a file next to the store, its settings two keys. Saved picks and workspace overrides (the Brain Storming screen) come with `pygg/brain` as one migration (`brain_picks`: scope `global` or a workspace id, role, `connection/model`, saved at). A role on an attempt comes with the board (`attempts.role`, nullable, never inferred for older attempts), and only then does the own-evidence layer fill.
 
 ## 2. `pygg/brain`
 
@@ -87,7 +98,7 @@ The reply is one assistant message holding:
 - the brainstorm's id and the app's link to it;
 - the clarifying questions, numbered;
 - the proposed cards, each with its role, its done criterion and the model picked;
-- what the proposal would cost at most, from the role models' prices and the last ten runs; Unknown where a price is unknown.
+- the known estimate: the sum of each card's cost range from the last ten runs of its agent and model, with the count of cards that have no price (section 4.1: never called a ceiling).
 
 A second call in the same session, with answers in the conversation, refines that brainstorm: the questions it answers close, cards change. It never starts another brainstorm; a new session does.
 
@@ -234,7 +245,7 @@ The app is read-mostly: pick, edit, approve, raise a limit, expedite, approve a 
 - **Remember this planner** (on by default; saves it as the plan role on the Brain Storming screen, 4.7b). Buttons **Decline** and **Use <connection/model>**.
 - After the pick the planner call starts; the proposal reaches the client on its next call or `wait`, and the app's row turns **Thinking**.
 - With no eligible candidate: the reasons grouped by connection, as `auto`'s 422 gives them, and nothing to click but **Decline**.
-- A free or local candidate at the top skips this state.
+- A free or local candidate at the top skips this state. So does a **saved planner**, paid or not: the pick is asked only when nothing is saved and the rule's pick is paid. A saved planner that is no longer eligible brings the state back, with the reason.
 
 **Questions:** a read-only list, each **open** or **answered** with the answer, who answered (the client) and when. The caption says answers come from the coding agent. A card that depends on an open question shows a lock.
 
@@ -256,7 +267,7 @@ Used by the planner pick, a card's **Change…**, and a model's facts on Provide
 - Header: `Models for code · facts as of 2026-11-18 · Refresh`, search, and **Eligible under my policy** / **All connections**.
 - One row per model: `connection/model · tier · billing · ≈$ range`, then **one evidence line**, the layer that won: `your runs 8/10 kept · 9/10 checks passed`, or `Terminal-Bench 4.0 #3 of 73 · 61.2% ±3.1 · 2026-06-30`, or `LMArena hard prompts #5 · derived · 2026-11-18`, or `tier only`. A source's name links to its URL.
 - **Why this model?** on a row opens a disclosure: the chain `your saved pick › your runs (10+ attempts) › facts feed › tier`, with the layer that won marked; every other source line with its date, CI or sample, and a one-line statement of what it measures and does not ("Terminal-Bench: tasks solved in a terminal with an agent, not your repository"); a fact older than twelve months, shown and marked as not ranking.
-- Sorted by the winning layer, then cost. Uncertainty is shown as the source publishes it; the sheet asserts no tie and changes no rule.
+- Sorted as section 1 says: the winning layer, then that layer's measure, then cost, then the id. Uncertainty is shown as the source publishes it; the sheet asserts no tie and changes no rule.
 - Below a rule, **Not eligible** with each model's reason, as `auto` gives them.
 - States: no feed yet or fetching off ("ranked by tier; facts off" with **Turn on**); a stale cached feed (its date, and "could not refresh" when a refresh failed); no match for the search; no eligible model; a saved pick whose model is no longer eligible (kept, marked, a new pick needed).
 - Stress: 40 rows with 90-character ids and long localised labels; ids wrap, actions stack under the row at 683 px.
@@ -266,10 +277,10 @@ Used by the planner pick, a card's **Change…**, and a model's facts on Provide
 One board per workspace, a workspace switcher when there are several. Reached from the Tasks list or a brainstorm's **Open Board**.
 
 - **Header:** workspace; `Running 1/1 · Blocked 2 · Ready 6 · Done 3`; **Measures** as a disclosure (cycle time median, cards done today, time blocked today, known money per kept result, each with its source), shown only once five cards are done; the engine's state and **Start** beside the controls when it is stopped, in place, not a banner (SCREENS §1).
-- **Columns:** the seven of ADR-042, each header `name · count/limit` with **Limit…**; defaults Running 1, Checking 1, the others none. A limit can be raised or set, never removed from Running.
+- **Columns:** the seven of ADR-042. Running and Checking show `count/limit` with **Limit…**, default 1, raised but never removed; the queue columns show their count. A card that depends on an unanswered question sits in **Discovery** (ADR-042), never in Ready.
 - **Card:** title, role chip, `connection/model` (wraps; the full id and everything else in the card's detail), the attempt sequence chips, elapsed time or cost so far, ▲ for expedite; in Review and Done, `+42 −18 · 6 files`. Blocked cards carry the reason word (Waiting for approval, Over cap, Over budget, Interrupted, Needs an answer, Waiting for your agent) and `blocked 2 h 10 min`. One button per card, from its state: **Review** in Blocked and Review, **Open** elsewhere.
 - **Moves by button, not drag:** **Expedite**, **Send back to Discovery**, **Drop** (confirmed). Running, Checking, Review and Done are the engine's. Buttons name exactly what is allowed; a drag target the engine refuses would teach the wrong model.
-- **Opening a card** opens task detail (SCREENS §5.2) with `‹ Board`.
+- **Opening a card** opens task detail (SCREENS §5.2) with `‹ Board`; a cost on a card is the task's cost line, and its source (ledger, the agent's estimate, unknown) is in that detail, as today.
 - **Dependencies:** a card whose prerequisite was dropped shows **Needs an answer** in Blocked with the missing card named; a cycle the planner produced is refused at parse time, so the board never holds one.
 - **Width:** when seven readable columns do not fit the content area (the sidebar takes 224 px; at a 1024 px window that leaves about 114 px per column), the board becomes one list grouped by column, Blocked first, with every action a button. The switch is by available width, not window width, so it holds with the sidebar open and at Windows text scaling (819 and 683 px).
 - **States:** no board yet ("Brainstorms start from your coding agent: ask it to use pygg/brain"); load error with **Try Again**; the engine stopped; a workspace removed (the board is kept read-only, with the reason).
@@ -290,6 +301,21 @@ A screen of its own in the Smart Tasks group (owner, 2026-11-19), so the picks a
 - **Projects that differ:** the workspaces with an override (which roles and limits), **Edit…** and **Use defaults**; other workspaces offer **Override…**. An override holds only what differs.
 - **How it starts:** the reminder that a brainstorm starts from the coding agent with the model `pygg/brain`, with the one-line command per agent. No text box.
 - **States:** no connected model for a role ("nothing eligible for code: connect a provider or loosen the policy"); a saved model no longer eligible (kept, marked, with the reason); facts off (every role row reads "by tier"); stress at 683 px with 90-character ids wrapping under the role chip.
+
+### 4.7c How Tasks, Workspaces, Agents and Brain Storming link
+
+The four screens of the Smart Tasks group share one set of rows; nothing is stored twice.
+
+| From | To | The link |
+| --- | --- | --- |
+| Brain Storming → Tasks | A brainstorm is a row under Tasks (4.3); approving it turns each card into a task row (`tasks.brainstorm_id`, `tasks.card_role`) and the workspace's board (4.6) is those tasks grouped by state | The screen never lists brainstorms itself; **How it starts** points at Tasks |
+| Brain Storming → Workspaces | **Projects that differ** lists workspaces by their `workspaces` row; **Override…** writes `brain_picks` rows scoped to that workspace and nothing else; **Use defaults** deletes them | A workspace row on Workspaces shows "Brain: uses defaults" or "Brain: overrides code, Running 2" with **Edit…** opening the same sheet |
+| Workspaces → the board | A board exists per workspace that has at least one card; the workspace's **approved checks** are every card's definition of Done (ADR-007), its **paid steps per day** and **privacy** apply to every card, and removing the workspace freezes its board read-only | The Workspaces badge counts, as today, workspaces whose checks wait for review; a board with no approved checks sends every card to Review unverified, and the workspace row says so |
+| Tasks → Workspaces | A task row names its workspace; a brainstorm from an IDE carries the repository, which Workspaces adds by itself (SCREENS §5.3) | The **Board** entry in the Tasks filter opens the board of the task list's workspace, or a switcher when there are several |
+| Agents → a card's runner | A card run by the engine runs one of the installed agent CLIs (ADR-026) with the card's model when that agent is pointed at the gateway; the agent for a role is the Brain Storming default (one per role, from the agents Agents lists as installed) | A role whose agent is not installed shows "no agent for code: install one on Agents" on the Brain Storming row, and approval refuses such cards |
+| Settings → budgets | The daily task budget and per-workspace budget stay where they are (Settings, Workspaces); the Brain Storming screen only reads them in the approval line | — |
+
+Precedence for anything that exists at two levels (picks, WIP limits, runner): the workspace's override, then the Brain Storming default, then the rules. A screen always says which level a value came from.
 
 ### 4.8 What the IDE agent reads
 
