@@ -1535,6 +1535,8 @@ fn route_kind(shared: &Shared, requested: &str) -> String {
     match auto::strategy(requested) {
         Some(Ok(auto::Strategy::Tier)) => return "auto".into(),
         Some(Ok(auto::Strategy::Cheap)) => return "auto/cheap".into(),
+        // A role alias is recorded as itself (`auto/code`), so the ledger says which role the request routed by.
+        Some(Ok(auto::Strategy::Role(role))) => return format!("auto/{}", role.as_str()),
         _ => {}
     }
     if let Ok(Some(strategy)) = shared.with_db(|db| store::combo_strategy(db, requested)) {

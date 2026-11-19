@@ -20,7 +20,7 @@
 //!                             [--strict yes|no] [--monthly-usd N] [--session-usd N] [--day-usd N]
 //!       (0 removes a limit; a session is the `x-pygg-session` a request names, a day is a UTC day)
 //!   gateway [--db PATH] terms --id CONNECTION --terms no_training|may_train|unknown [--source WHERE]
-//!   gateway [--db PATH] auto --alias auto|auto/cheap [--client NAME] [--anthropic yes] [--tools yes] [--prompt N] [--max-tokens N]
+//!   gateway [--db PATH] auto --alias auto|auto/cheap|auto/plan|auto/code|auto/test|auto/review [--client NAME] [--anthropic yes] [--tools yes] [--prompt N] [--max-tokens N]
 //!                             [--thinking adaptive|enabled] [--effort low|medium|high|xhigh|max]
 //!   gateway [--db PATH] test-model --model CONNECTION/MODEL
 //!   gateway [--db PATH] list
@@ -68,7 +68,7 @@ const HELP: &str = "usage: gateway [--db PATH] <command> [--flag value …]
         [--price-in USD] [--price-out USD] [--price-cached USD] [--price-cache-write USD] [--price-source WHERE]
         [--billing TYPE]
   terms --id CONNECTION --terms no_training|may_train|unknown [--source WHERE]
-  auto --alias auto|auto/cheap [--client NAME] [--anthropic yes] [--tools yes] [--prompt N] [--max-tokens N]
+  auto --alias auto|auto/cheap|auto/ROLE [--client NAME] [--anthropic yes] [--tools yes] [--prompt N] [--max-tokens N]
        [--thinking adaptive|enabled] [--effort low|medium|high|xhigh|max]
   list
   usage

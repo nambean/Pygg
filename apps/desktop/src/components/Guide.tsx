@@ -98,6 +98,7 @@ const SECTIONS: Section[] = [
     <ul className="guide-list">
       <li><span className="mono">auto</span>: {t('an eligible model at or above the key’s minimum tier (T2 unless changed), local, free and subscription before paid, then the lowest estimated cost. It chooses within your rules; it does not judge how hard a prompt is.')}</li>
       <li><span className="mono">auto/cheap</span>: {t('the lowest estimated cost among the models that can take the request.')}</li>
+      <li><span className="mono">auto/plan, auto/code, auto/test, auto/review</span>: {t('the best public benchmark fact for that role first (the response names the benchmark and its date), then the rest by tier.')}</li>
       <li><span className="mono">coding</span>: {t('a combo’s name: your own ordered list; the next model answers when one is out of quota or unavailable.')}{' '}
         <button type="button" className="link-button" onClick={() => go('combos')}>{t('Open Combos')}</button></li>
       <li><span className="mono">gemini/gemini-2.5-flash</span>: {t('one model of one connection, by name.')}</li>

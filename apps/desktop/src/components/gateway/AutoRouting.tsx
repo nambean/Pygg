@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, Wand2 } from 'lucide-react';
-import type { AutoAlias } from '../../lib/api';
+import { AUTO_ALIASES, type AutoAlias } from '../../lib/api';
 import { plural, t } from '../../lib/i18n';
 import { billingLabel, microUsd } from '../../lib/money';
 import { useGateway } from '../../hooks/useGateway';
@@ -44,13 +44,14 @@ export function AutoRouting() {
         <ul className="auto-rules">
           <li><span className="mono">auto</span>{t(' — the lowest tier at or above the client’s minimum (T2 unless you change it in Endpoint → API Keys → Limits…), then local, free, subscription and paid in that order, then the lower estimated cost. This is the lowest eligible tier under your policy, not a promise of the cheapest answer.')}</li>
           <li><span className="mono">auto/cheap</span>{t(' — the lowest estimated cost of this request among the models that can take it. No tier needed.')}</li>
+          <li><span className="mono">auto/plan, auto/code, auto/test, auto/review</span>{t(' — the best fact for that role from the model facts feed first (a public benchmark, named with its date in the response), then the models with no fact by tier. A fact older than a year does not rank. Facts off, or none kept: by tier alone.')}</li>
           <li>{t('An Anthropic request that asks for thinking or an effort level goes only to Anthropic-API models known to take it; their model list says so (Providers → Check & Refresh Models). Claude Code asks for adaptive thinking.')}</li>
           <li>{t('A model takes part only for what it is known to support: set tiers, context sizes and the rest under Providers → Auto… (OpenRouter’s list fills most of it in). Unknown counts as missing. A session stays on the model that first answered it.')}</li>
         </ul>
       </div>
       <div className="group-row stacked auto-controls">
         <Segmented<AutoAlias> label={t('Alias')} value={alias} onChange={setAlias}
-          options={[{value: 'auto', label: 'auto'}, {value: 'auto/cheap', label: 'auto/cheap'}]}/>
+          options={AUTO_ALIASES.map(a => ({value: a, label: a}))}/>
         <select className="popup-button" value={clientId} onChange={e => setClientId(e.target.value)} aria-label={t('Client')}>
           <option value="">{t('A new client (defaults)')}</option>
           {active.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}

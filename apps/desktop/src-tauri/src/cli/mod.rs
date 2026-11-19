@@ -58,7 +58,7 @@ Providers and models
   providers presets | add | refresh | enable | disable | remove     connect or change one without the app
   models [CONNECTION]         the models to ask for, with billing and price   (--search TEXT, --all)
   models info | test | enable | disable CONNECTION/MODEL            one model's facts, a test answer, on or off
-  route [auto|auto/cheap]     which models the router would try for a request, and why the rest are left out
+  route [auto|auto/ROLE]      which models the router would try for a request, and why the rest are left out
   combos                      lists of models tried in turn, asked for by name
   keys                        Pygg's API keys: last used, spend this month, limit
 

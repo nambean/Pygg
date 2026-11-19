@@ -7,7 +7,7 @@
 import type { AgentInfo, Integration, Launcher, ClientDefaults, ConnectionCheck, HealthStrip, IntegrationPlan, AutoExcluded, AutoPlan, AutoRanked, RoutingSummary, TokenMix, TokenMixGroup, TokenParts, PrefixSession, Billing, Capabilities, Client, Combo, Connection, GatewayApi, GatewayStatus, SavingsPart, SavingsPeriod,
   Health, Model, Preset, Target, Tier, UsageEvent, UsageBucket, UsageGroup, UsageSummary, Account, Wire,
   LocalUsage, SubscriptionUsage, Retention } from './api';
-import { TIERS, WEB_WARNING_VERSION, type ConnectionKey, type KeyStrategy } from './api';
+import { TIERS, WEB_WARNING_VERSION, type AutoAlias, type AutoRole, type ConnectionKey, type KeyStrategy } from './api';
 import { SAMPLE_WORKSPACES, sampleTasks } from './sample';
 import { demoSkills } from './demoSkills';
 import type { AttemptView, NewTask, TaskDetail, TaskSummary, WorkspaceView } from './tasks';
@@ -540,9 +540,12 @@ export function demoApi(): GatewayApi {
   const touch = async <T>(value: T): Promise<T> => { await sleep(120); return clone(value); };
 
   /** A short port of gateway/auto.rs for the preview: the same filters and order, on the demo models. */
-  function simulate(clientId: string | null, alias: 'auto' | 'auto/cheap', needs: Parameters<GatewayApi['autoSimulate']>[2]): AutoPlan {
+  function simulate(clientId: string | null, alias: AutoAlias, needs: Parameters<GatewayApi['autoSimulate']>[2]): AutoPlan {
     const client = clients.find(c => c.id === clientId);
     const cheap = alias === 'auto/cheap';
+    // A role alias (auto/code, …) ranks by the model facts feed in the app; the demo keeps no feed, so every model
+    // ranks by its tier, the higher first, and says so, as auto.rs does with no feed.
+    const role: AutoRole | null = alias === 'auto' || cheap ? null : alias.slice('auto/'.length) as AutoRole;
     const minTier: Tier | null = cheap ? null : client?.autoMinTier ?? 'T2';
     const rank = (t: Tier) => TIERS.indexOf(t);
     const billingRank = (b: Billing) => ({local: 0, free: 1, subscription: 2} as Record<string, number>)[b] ?? 3;
@@ -560,7 +563,7 @@ export function demoApi(): GatewayApi {
       const h = health.find(x => x.providerId === conn.id && (x.modelId === '' || x.modelId === m.modelId) && (x.untilMs ?? Infinity) > Date.now());
       if (h) { no('unavailable', `${h.state.replace('_', ' ')} (${h.reason})`); continue; }
       if (minTier) {
-        if (!caps.tier) { no('facts', 'no tier set'); continue; }
+        if (!caps.tier) { no('facts', role ? `no fact for ${role} and no tier set` : 'no tier set'); continue; }
         if (rank(caps.tier) < rank(minTier)) { no('policy', `tier ${caps.tier} is below this client's minimum ${minTier}`); continue; }
       }
       if (needs.tools && caps.supportsTools !== true) { caps.supportsTools === false ? no('policy', 'does not take tools') : no('facts', 'tool support unknown'); continue; }
@@ -590,11 +593,13 @@ export function demoApi(): GatewayApi {
         cost = `about $${(estimate / 1e6).toFixed(4)} at ${m.price.source === 'user' ? 'your price' : "the provider's list price"}`;
       }
       const reason = cheap ? `${billing}; ${cost}`
+        : role ? `no fact for ${role}; tier ${caps.tier}; ${billing}; ${cost}`
         : `tier ${caps.tier} (minimum ${minTier}); ${billing}; ${cost}`;
       ranked.push({providerId: m.providerId, modelId: m.modelId, tier: caps.tier, billing, estimateMicroUsd: estimate, reason});
     }
     ranked.sort((a, b) => cheap
       ? a.estimateMicroUsd - b.estimateMicroUsd || billingRank(a.billing) - billingRank(b.billing) || rank(b.tier ?? 'T0') - rank(a.tier ?? 'T0')
+      : role ? rank(b.tier!) - rank(a.tier!) || billingRank(a.billing) - billingRank(b.billing) || a.estimateMicroUsd - b.estimateMicroUsd
       : rank(a.tier!) - rank(b.tier!) || billingRank(a.billing) - billingRank(b.billing) || a.estimateMicroUsd - b.estimateMicroUsd);
     // As auto::route: at most two from a connection while others are eligible, the free slots filled in rank order.
     const chosen: number[] = [], per = new Map<string, number>();
@@ -603,7 +608,7 @@ export function demoApi(): GatewayApi {
     });
     ranked.forEach((_, i) => { if (chosen.length < 5 && !chosen.includes(i)) chosen.push(i); });
     const route = chosen.sort((a, b) => a - b).map(i => ranked[i]);
-    return {alias, strategy: cheap ? 'cheap' : 'tier', minTier, ranked, route, excluded};
+    return {alias, strategy: cheap ? 'cheap' : role ? {role} : 'tier', minTier, ranked, route, excluded};
   }
 
   return {

@@ -111,6 +111,8 @@ fn recorded_route(kind: &str) -> &'static str {
     match kind {
         "auto" => "auto",
         "auto/cheap" => "auto/cheap",
+        // A role alias (`auto/code`, ADR-041) is Pygg's choice too; the estimate groups it with `auto`.
+        "auto/plan" | "auto/code" | "auto/test" | "auto/review" => "auto",
         "named" => "named",
         _ => "combo",
     }

@@ -1,6 +1,6 @@
 # Pygg — The brain, the facts feed and the board
 
-> **Status:** Design · the model facts feed (ADR-040) is built; `pygg/brain` (ADR-041) and the board (ADR-042) are decided, not built · reviewed 2026-11-19
+> **Status:** Design · the model facts feed (ADR-040) and the role aliases are built; `pygg/brain` (ADR-041) and the board (ADR-042) are decided, not built · reviewed 2026-11-19
 
 How a requirement typed into the user's own coding agent becomes a board of cards, each on a model picked by rule from measured facts, run one at a time under the user's approval. Nothing in this document claims that code exists; [Implementation Status](../IMPLEMENTATION-STATUS.md) says what does.
 
@@ -133,7 +133,13 @@ Approving a brainstorm needs a workspace (a Git repository, ADR-008). Each card 
 
 ### Role aliases
 
-`auto/plan`, `auto/code`, `auto/test`, `auto/review` are `auto` with one change: after the hard filters, rank by the role's facts instead of the lowest eligible tier. `x-pygg-auto` and the ledger carry the fact's source, rank and date. A model with no fact for the role keeps its tier rank. The aliases are measured with the benchmark harness on the C3 cases before any claim is made about them (ADR-013).
+`auto/plan`, `auto/code`, `auto/test`, `auto/review` (built; `auto.rs`, `Strategy::Role`) are `auto` with one change: after the hard filters, the ranking is the role's facts instead of the lowest eligible tier.
+
+- **Filters:** `auto`'s. The client's minimum tier applies to a model whose tier is set; a model with no tier may still rank by a fact; a model with neither is out with "no fact for code and no tier set".
+- **Order:** the models with a fact that ranks (not older than twelve months), best `rank` first; then the models with no fact by tier, the higher first; within each, local, free, subscription, paid, then the estimated cost, then the name. The first five form the route as for `auto`.
+- **The reason** (in `x-pygg-auto` and the ledger's route reason) names the fact: `Terminal-Bench 4.x #3 of 71 (64.85% +/-3.1) dated 2026-09-22, run with claude-code at max for code; paid; about $0.0052 at the provider's list price`, or `no fact for code; tier T3 from Pygg's table; …`. The ledger's route kind is the alias (`auto/code`).
+- **The feed** is the one kept beside the store, read once per file version (`facts::cached`); facts off, or none kept, means every model ranks by its tier and the reason says `no fact`.
+- **Not measured.** No benchmark run has compared a role alias with `auto` or a named model on the C3 cases, so nothing is claimed about them (ADR-013); the run is the owner's call, since it spends from the benchmark budget.
 
 ### The brain prompt
 

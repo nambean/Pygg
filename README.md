@@ -70,7 +70,7 @@ Pygg runs on your computer. Connect your providers once (API keys, coding plans,
 </p>
 
 1. **Gateway.** The agent calls `127.0.0.1:8741` with its own Pygg API key, in OpenAI Chat Completions, OpenAI Responses (Codex) or Anthropic Messages, streamed, with tool calls.
-2. **Route.** The model name is `auto` or `auto/cheap`, a **combo** (a name for an ordered list, or cheapest first per request), a pool, or `<connection>/<model>`.
+2. **Route.** The model name is `auto` or `auto/cheap`, a role alias (`auto/plan`, `auto/code`, `auto/test`, `auto/review`, ranked by public benchmark facts), a **combo** (a name for an ordered list, or cheapest first per request), a pool, or `<connection>/<model>`.
 3. **Policy and budget.** The key's allowed connections, health and cooldowns, quota-group holds; a key with a monthly limit holds the attempt's estimated cost first, so concurrent requests cannot pass the limit together.
 4. **Journal.** The attempt is written to disk before it is sent, and settled with its ledger entry in one transaction.
 5. **Send and fall back.** Same format passes through untouched; other pairs are translated and say what they dropped. A 429 or 402 cools that key or model down for as long as the provider says, a rejected key (401) waits until you replace it, and the next key or target is tried.
@@ -114,7 +114,7 @@ pygg setup codex
 pygg run codex             # or: codex --profile pygg -m auto/cheap
 ```
 
-**OpenCode** gets a Pygg provider listing `auto`, `auto/cheap` and your enabled models, kept current.
+**OpenCode** gets a Pygg provider listing the auto aliases and your enabled models, kept current.
 
 ```bash
 pygg setup opencode

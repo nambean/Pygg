@@ -21,7 +21,7 @@ use serde_json::{json, Value};
 use crate::gateway::store;
 
 const OPTIONS_HELP: &str =
-    "  -m, --model M        connection/model (pygg models lists them), a combo, auto or auto/cheap;
+    "  -m, --model M        connection/model (pygg models lists them), a combo, auto, auto/cheap or a role alias (auto/code, ...);
                        default: the model set with pygg default, else auto
   -s, --system TEXT    a system prompt (instructions the model reads first)
   -t, --temperature T  0 to 2: lower is steadier, higher more varied

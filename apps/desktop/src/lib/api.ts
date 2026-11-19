@@ -180,7 +180,9 @@ export type Model = {
   enabledSource: string | null;
 };
 
-export type AutoAlias = 'auto' | 'auto/cheap';
+export type AutoRole = 'plan' | 'code' | 'test' | 'review';
+export type AutoAlias = 'auto' | 'auto/cheap' | `auto/${AutoRole}`;
+export const AUTO_ALIASES: AutoAlias[] = ['auto', 'auto/cheap', 'auto/plan', 'auto/code', 'auto/test', 'auto/review'];
 export type AutoNeeds = { surfaceAnthropic: boolean; tools: boolean; vision: boolean; inputTokens: number; maxTokens: number | null;
   /** An Anthropic request's thinking.type and output_config.effort. */
   thinking: 'adaptive' | 'enabled' | 'disabled' | null; effort: string | null };
@@ -197,7 +199,7 @@ export type AutoExclusionKind = 'facts' | 'unavailable' | 'policy' | 'web';
 export type AutoExcluded = { providerId: string; modelId: string; reason: string; kind: AutoExclusionKind };
 /** route: what a request tries, in order: the ranked models, at most two from a connection while others are eligible
  *  (auto::route). */
-export type AutoPlan = { alias: AutoAlias; strategy: 'tier' | 'cheap'; minTier: Tier | null; ranked: AutoRanked[]; route: AutoRanked[];
+export type AutoPlan = { alias: AutoAlias; strategy: 'tier' | 'cheap' | {role: AutoRole}; minTier: Tier | null; ranked: AutoRanked[]; route: AutoRanked[];
   excluded: AutoExcluded[] };
 
 export type Target = { providerId: string; modelId: string };

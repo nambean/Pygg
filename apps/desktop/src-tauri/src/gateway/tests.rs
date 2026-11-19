@@ -2539,6 +2539,31 @@ fn set_caps(rig: &Rig, provider: &str, model: &str, tier: &str, tools: Option<bo
 }
 
 #[test]
+fn a_role_alias_routes_and_the_ledger_names_the_role() {
+    rt().block_on(async {
+        let rig = rig().await;
+        set_caps(&rig, "main", "fast", "T2", Some(true));
+        set_caps(&rig, "backup", "steady", "T3", None);
+        // No feed is kept beside this store, so every model ranks by its tier: the higher first, then free.
+        let response = rig.post("/v1/chat/completions", chat("auto/code")).await;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.headers()["x-pygg-route"], "backup/steady");
+        let why = response.headers()["x-pygg-auto"].to_str().unwrap().to_string();
+        assert!(
+            why.starts_with(
+                "auto/code; backup/steady ranked 1 of 2 (best fact for code first): no fact for code; tier T3"
+            ),
+            "{why}"
+        );
+        let entry = rig.ledger().pop().unwrap();
+        assert_eq!(entry.route_kind.as_deref(), Some("auto/code"));
+        assert!(entry.route_reason.unwrap().starts_with("no fact for code; tier T3"));
+        let unknown = rig.post("/v1/chat/completions", chat("auto/image")).await;
+        assert_eq!(unknown.status(), 404);
+    });
+}
+
+#[test]
 fn auto_routes_to_the_lowest_eligible_tier_and_says_why() {
     rt().block_on(async {
         let rig = rig().await;

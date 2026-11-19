@@ -400,7 +400,7 @@ enabled models of enabled connections, unless --all. Nothing is sent: a listed m
   --limit N       at most N rows (50 by default, 0 for all); --json lists all unless --limit is given
   --json          the same as a JSON document (schemaVersion 1)
 
-Coding tools can also ask for auto or auto/cheap, and Pygg picks an eligible model for each request.";
+Coding tools can also ask for auto, auto/cheap or a role alias (auto/plan, auto/code, auto/test, auto/review), and Pygg picks an eligible model for each request.";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -525,7 +525,7 @@ pub fn models(args: &[String]) -> Result<i32, Fail> {
     if limit > 0 && total > limit {
         println!("\n{limit} of {total} shown: narrow with --search TEXT or a CONNECTION, or show all with --limit 0.");
     }
-    println!("\nAsk for a ROUTE by name, or for auto or auto/cheap to let Pygg choose. Listed models were not tested by this command.");
+    println!("\nAsk for a ROUTE by name, or for auto, auto/cheap or auto/code to let Pygg choose. Listed models were not tested by this command.");
     Ok(0)
 }
 

@@ -497,7 +497,7 @@ pub fn provider_remove(args: &[String]) -> Result<i32, Fail> {
 
 pub const DEFAULT_HELP: &str = "usage: pygg default [MODEL | --clear] [--db PATH]
 
-The model pygg chat and pygg ask use when no --model is given: CONNECTION/MODEL, a combo, auto or auto/cheap.
+The model pygg chat and pygg ask use when no --model is given: CONNECTION/MODEL, a combo, auto, auto/cheap or a role alias (auto/plan, auto/code, auto/test, auto/review).
 Without MODEL it says which one is set. --clear goes back to auto.
 
   pygg default muse/muse";
@@ -542,7 +542,7 @@ pub fn default(args: &[String]) -> Result<i32, Fail> {
 // ---------- route ----------
 
 pub const ROUTE_HELP: &str =
-    "usage: pygg route [auto|auto/cheap] [--key NAME] [--tools] [--images] [--prompt N] [--json] [--db PATH]
+    "usage: pygg route [auto|auto/cheap|auto/plan|auto/code|auto/test|auto/review] [--key NAME] [--tools] [--images] [--prompt N] [--json] [--db PATH]
 
 Which models the router would try for a request, best first, and why the others are left out. Nothing is sent.
 
@@ -556,7 +556,11 @@ pub fn route(args: &[String]) -> Result<i32, Fail> {
     let opts = Opts::parse("route", args, &["tools", "images", "json"], &["db", "key", "prompt"])?;
     let alias = opts.words.first().map(String::as_str).unwrap_or("auto");
     let strategy = gateway::auto::strategy(alias)
-        .ok_or_else(|| Fail::usage(format!("{alias} is not a router alias: use auto or auto/cheap.")))?
+        .ok_or_else(|| {
+            Fail::usage(format!(
+                "{alias} is not a router alias: use auto, auto/cheap, auto/plan, auto/code, auto/test or auto/review."
+            ))
+        })?
         .map_err(Fail::usage)?;
     let conn = open_read(&opts)?;
     let clients = store::list_clients(&conn).map_err(op)?;

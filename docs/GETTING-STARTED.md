@@ -113,7 +113,7 @@ Verified live: Codex through the Responses API, and the one-click set-up in CLI 
 
 ### OpenCode
 
-Pygg adds a provider named Pygg to `opencode.json`, after a backup. It lists `auto`, `auto/cheap` and your enabled models, and Pygg keeps the list current when models change.
+Pygg adds a provider named Pygg to `opencode.json`, after a backup. It lists the auto aliases (`auto`, `auto/cheap`, `auto/plan`, `auto/code`, `auto/test`, `auto/review`) and your enabled models, and Pygg keeps the list current when models change.
 
 ```powershell
 pygg setup opencode
@@ -163,6 +163,7 @@ The model names you can use:
 
 - `auto`: an eligible model at or above the key's minimum tier (T2 unless changed); local, free and subscription models before paid ones, then the lowest estimated cost. It chooses within your rules; it does not judge how hard a prompt is.
 - `auto/cheap`: the lowest estimated cost among the models that can take the request.
+- `auto/plan`, `auto/code`, `auto/test`, `auto/review`: the model with the best public benchmark fact for that role first (the response names the benchmark and its date), then the rest by tier. The facts come from a feed Pygg publishes and the app fetches daily; with none kept, or facts turned off, the alias ranks by tier alone. Not measured yet against `auto` or a named model: no claim is made about it.
 - `coding`, or any combo's name: your own ordered list, from **Combos**. The next model answers when one is out of quota or unavailable. Templates build a combo from rules (Free first, Use my plans first, Local only, and others); they never fill a gap with a paid model by themselves.
 - `gemini/gemini-2.5-flash`, or any `connection/model`: one model by name.
 

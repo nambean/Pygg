@@ -26,8 +26,9 @@ use serde::Serialize;
 use serde_json::Value;
 use std::time::Duration;
 
-/// The aliases a client may ask for.
-pub const ALIASES: [&str; 2] = ["auto", "auto/cheap"];
+/// The aliases a client may ask for: `auto`, `auto/cheap`, and one per role (`auto/plan`, `auto/code`, `auto/test`,
+/// `auto/review`, ADR-041), ranked by the model facts feed (facts.rs).
+pub const ALIASES: [&str; 6] = ["auto", "auto/cheap", "auto/plan", "auto/code", "auto/test", "auto/review"];
 /// At most this many ranked models make up the route.
 pub const ROUTE_LENGTH: usize = 5;
 /// At most this many of them from one connection, while others are eligible: a failure of the whole account (no
@@ -69,6 +70,30 @@ pub enum Strategy {
     Tier,
     /// Lowest estimated cost.
     Cheap,
+    /// The best fact for a role from the model facts feed first (ADR-040, ADR-041); a model with no fact keeps its
+    /// tier, after every model with one. The client's minimum tier still applies to a model whose tier is set.
+    Role(Role),
+}
+
+/// A role a client may route by (`auto/<role>`).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    Plan,
+    Code,
+    Test,
+    Review,
+}
+
+impl Role {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Role::Plan => "plan",
+            Role::Code => "code",
+            Role::Test => "test",
+            Role::Review => "review",
+        }
+    }
 }
 
 /// Whether `requested` is an auto alias, and which.
@@ -79,7 +104,11 @@ pub fn strategy(requested: &str) -> Option<Result<Strategy, String>> {
     Some(match requested {
         "auto" => Ok(Strategy::Tier),
         "auto/cheap" => Ok(Strategy::Cheap),
-        other => Err(format!("\"{other}\" is not an automatic route. Use {}.", ALIASES.join(" or "))),
+        "auto/plan" => Ok(Strategy::Role(Role::Plan)),
+        "auto/code" => Ok(Strategy::Role(Role::Code)),
+        "auto/test" => Ok(Strategy::Role(Role::Test)),
+        "auto/review" => Ok(Strategy::Role(Role::Review)),
+        other => Err(format!("\"{other}\" is not an automatic route. Use {}.", ALIASES.join(", "))),
     })
 }
 
@@ -197,8 +226,9 @@ impl Plan {
             .map(|i| i + 1)
             .unwrap_or(0);
         let order = match self.strategy {
-            Strategy::Tier => "lowest eligible tier first",
-            Strategy::Cheap => "lowest estimated cost first",
+            Strategy::Tier => "lowest eligible tier first".to_string(),
+            Strategy::Cheap => "lowest estimated cost first".to_string(),
+            Strategy::Role(role) => format!("best fact for {} first", role.as_str()),
         };
         let held: Vec<String> = self
             .excluded
@@ -334,11 +364,23 @@ fn money(micro: u64) -> String {
     }
 }
 
-/// Builds the plan for a request. Nothing is sent; the same function serves the simulator in the app.
+/// Builds the plan for a request. Nothing is sent; the same function serves the simulator in the app. A role alias
+/// reads the model facts feed kept beside the store (facts.rs); `plan_with` takes the feed by hand.
 pub fn plan(conn: &Connection, client: &Client, alias: &str, strategy: Strategy, needs: &Needs) -> store::Result<Plan> {
+    let feed = match strategy {
+        Strategy::Role(_) => super::facts::for_conn(conn),
+        _ => None,
+    };
+    plan_with(conn, client, alias, strategy, needs, feed.as_deref())
+}
+
+pub fn plan_with(
+    conn: &Connection, client: &Client, alias: &str, strategy: Strategy, needs: &Needs,
+    feed: Option<&super::facts::Feed>,
+) -> store::Result<Plan> {
     let providers = store::list_providers(conn)?;
-    let min_tier = (strategy == Strategy::Tier).then(|| client.auto_min_tier.clone());
-    let mut ranked: Vec<(Ranked, (u64, u8, u8, u8))> = Vec::new();
+    let min_tier = (strategy != Strategy::Cheap).then(|| client.auto_min_tier.clone());
+    let mut ranked: Vec<(Ranked, (u64, u64, u64))> = Vec::new();
     let mut excluded = Vec::new();
     for model in store::list_models(conn, None)? {
         let Some(provider) = providers.iter().find(|p| p.id == model.provider_id) else { continue };
@@ -348,28 +390,61 @@ pub fn plan(conn: &Connection, client: &Client, alias: &str, strategy: Strategy,
         match judge(conn, client, provider, &model, strategy, min_tier.as_deref(), needs)? {
             Ok((estimate, reason_cost)) => {
                 let tier = model.capabilities.tier.clone();
-                let t = tier.as_deref().map(tier_rank).unwrap_or(0);
-                let b = billing_rank(&model.billing);
+                let t = tier.as_deref().map(tier_rank).unwrap_or(0) as u64;
+                let b = billing_rank(&model.billing) as u64;
+                let tier_from = match model.capabilities.tier_source.as_deref() {
+                    Some(store::CURATED) => " from Pygg's table",
+                    Some(super::reference::TIER_SOURCE) => " from its list price",
+                    _ => "",
+                };
+                // The best fact for the role, when the alias is one (facts.rs): the feed layer ranks before the tier.
+                let fact = match (strategy, feed) {
+                    (Strategy::Role(role), Some(feed)) => {
+                        super::facts::best_for(feed, &model.model_id, role.as_str()).0
+                    }
+                    _ => None,
+                };
+                if let Strategy::Role(role) = strategy {
+                    if fact.is_none() && tier.is_none() {
+                        excluded.push(Excluded {
+                            provider_id: model.provider_id.clone(),
+                            model_id: model.model_id.clone(),
+                            reason: format!("no fact for {} and no tier set", role.as_str()),
+                            kind: FACTS,
+                        });
+                        continue;
+                    }
+                }
                 // The facts it was ranked on; its place in the order is in the header.
-                let reason = match strategy {
-                    Strategy::Tier => format!(
-                        "tier {}{} (minimum {}); {}; {reason_cost}",
+                let reason = match (strategy, &fact) {
+                    (Strategy::Tier, _) => format!(
+                        "tier {}{tier_from} (minimum {}); {}; {reason_cost}",
                         tier.as_deref().unwrap_or("?"),
-                        match model.capabilities.tier_source.as_deref() {
-                            Some(store::CURATED) => " from Pygg's table",
-                            Some(super::reference::TIER_SOURCE) => " from its list price",
-                            _ => "",
-                        },
                         min_tier.as_deref().unwrap_or("?"),
                         model.billing
                     ),
-                    Strategy::Cheap => format!("{}; {reason_cost}", model.billing),
+                    (Strategy::Cheap, _) => format!("{}; {reason_cost}", model.billing),
+                    (Strategy::Role(role), Some(f)) => {
+                        format!("{} for {}; {}; {reason_cost}", f.describe(), role.as_str(), model.billing)
+                    }
+                    (Strategy::Role(role), None) => format!(
+                        "no fact for {}; tier {}{tier_from}; {}; {reason_cost}",
+                        role.as_str(),
+                        tier.as_deref().unwrap_or("?"),
+                        model.billing
+                    ),
                 };
                 // Tier: lowest tier, then billing (local, free, subscription, paid), then estimated cost.
                 // Cheap: estimated cost, then billing, then the higher tier.
+                // Role: the feed's rank (best first), then the higher tier for models with no fact, then billing,
+                // then estimated cost (BRAIN.md section 1).
                 let key = match strategy {
-                    Strategy::Tier => (estimate, t, b, 0),
-                    Strategy::Cheap => (estimate, 0, b, 4 - t),
+                    Strategy::Tier => (t, b, estimate),
+                    Strategy::Cheap => (estimate, b, 4 - t),
+                    Strategy::Role(_) => match &fact {
+                        Some(f) => (((1.0 - f.rank) * 10_000.0) as u64, b, estimate),
+                        None => (100_000 + (4 - t) * 1_000, b, estimate),
+                    },
                 };
                 ranked.push((
                     Ranked {
@@ -392,11 +467,7 @@ pub fn plan(conn: &Connection, client: &Client, alias: &str, strategy: Strategy,
         }
     }
     ranked.sort_by(|(a, ka), (b, kb)| {
-        let order = match strategy {
-            Strategy::Tier => (ka.1, ka.2, ka.0).cmp(&(kb.1, kb.2, kb.0)),
-            Strategy::Cheap => (ka.0, ka.2, ka.3).cmp(&(kb.0, kb.2, kb.3)),
-        };
-        order.then_with(|| (&a.provider_id, &a.model_id).cmp(&(&b.provider_id, &b.model_id)))
+        ka.cmp(kb).then_with(|| (&a.provider_id, &a.model_id).cmp(&(&b.provider_id, &b.model_id)))
     });
     let ranked: Vec<Ranked> = ranked.into_iter().map(|(r, _)| r).collect();
     Ok(Plan { alias: alias.to_string(), strategy, min_tier, route: route(&ranked), ranked, excluded })
@@ -438,12 +509,25 @@ fn judge(
     if let Some(why) = super::quota::exhausted(conn, provider, model, now)? {
         return no(UNAVAILABLE, why);
     }
-    if strategy == Strategy::Tier {
-        let Some(tier) = caps.tier.as_deref() else { return no(FACTS, "no tier set".into()) };
-        let floor = min_tier.unwrap_or("T0");
-        if tier_rank(tier) < tier_rank(floor) {
-            return no(POLICY, format!("tier {tier} is below this client's minimum {floor}"));
+    match strategy {
+        Strategy::Tier => {
+            let Some(tier) = caps.tier.as_deref() else { return no(FACTS, "no tier set".into()) };
+            let floor = min_tier.unwrap_or("T0");
+            if tier_rank(tier) < tier_rank(floor) {
+                return no(POLICY, format!("tier {tier} is below this client's minimum {floor}"));
+            }
         }
+        // A role alias ranks by the feed; a model with no tier may still have a fact (plan_with decides), and one
+        // with a tier below the client's minimum is out as it is for auto.
+        Strategy::Role(_) => {
+            if let Some(tier) = caps.tier.as_deref() {
+                let floor = min_tier.unwrap_or("T0");
+                if tier_rank(tier) < tier_rank(floor) {
+                    return no(POLICY, format!("tier {tier} is below this client's minimum {floor}"));
+                }
+            }
+        }
+        Strategy::Cheap => {}
     }
     if needs.tools {
         match caps.supports_tools {
@@ -1232,10 +1316,64 @@ mod tests {
         assert_eq!(reason(&plan, "gift"), "this client may not use Free");
     }
 
+    /// A feed with one fact per listed (model, role, rank, date), for `plan_with`.
+    fn feed(rows: &[(&str, &str, f64, &str)]) -> super::super::facts::Feed {
+        let facts: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|(id, role, rank, date)| {
+                serde_json::json!({"ids": [id], "name": id, "role": role, "score": 50.0, "unit": "% resolved", "ci": 2.5,
+                    "place": 2, "of": 10, "rank": rank, "derived": *role == "plan", "source": "tb", "date": date,
+                    "agent": "claude-code", "effort": "max", "licence": "Apache-2.0"})
+            })
+            .collect();
+        serde_json::from_value(serde_json::json!({"version": 1, "built": "2026-11-19T00:00:00Z", "sources": [
+            {"id": "tb", "name": "Terminal-Bench 4.x", "url": "https://x.test", "licence": "Apache-2.0", "attribution": "x",
+             "measures": "terminal tasks", "roles": ["code", "plan"], "status": "ok"}], "facts": facts}))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_role_alias_ranks_by_the_feed_then_the_tier_and_says_which_fact() {
+        let w = world();
+        let needs = Needs { input_tokens: 1000, ..Needs::default() };
+        let the_feed = feed(&[
+            ("mid", "code", 0.9, "2026-06-30"),
+            ("big", "code", 0.6, "2026-07-01"),
+            ("untiered", "code", 0.3, "2026-07-01"),
+            ("small", "code", 1.0, "2026-07-01"),
+            ("gift", "code", 0.95, "2024-01-01"),
+        ]);
+        let plan =
+            plan_with(&w.conn, &w.client, "auto/code", Strategy::Role(Role::Code), &needs, Some(&the_feed)).unwrap();
+        // Facts first, best rank first (small is below the client's minimum tier, so its rank 1.0 does not count);
+        // then models with no ranking fact by tier, free before paid: gift's fact is from 2024 and only shows.
+        assert_eq!(names(&plan), ["paid/mid", "paid/big", "paid/untiered", "free/gift", "paid/notools"]);
+        assert_eq!(reason(&plan, "unpriced"), "price unknown");
+        assert_eq!(reason(&plan, "small"), "tier T1 is below this client's minimum T2");
+        let mid = &plan.ranked[0];
+        assert_eq!(
+            mid.reason,
+            "Terminal-Bench 4.x #2 of 10 (50% +/-2.5) dated 2026-06-30, run with claude-code at max for code; paid; \
+             about $0.0052 at your price"
+        );
+        assert!(plan.ranked[3].reason.starts_with("no fact for code; tier T2"), "{}", plan.ranked[3].reason);
+        assert!(plan.header(mid).contains("(best fact for code first)"), "{}", plan.header(mid));
+        // A model with neither a fact nor a tier is out, and says so.
+        let none = plan_with(&w.conn, &w.client, "auto/code", Strategy::Role(Role::Code), &needs, None).unwrap();
+        assert_eq!(reason(&none, "untiered"), "no fact for code and no tier set");
+        assert!(none.ranked.iter().all(|r| r.reason.starts_with("no fact for code; tier")));
+        // Another role reads its own facts: nothing here is for plan.
+        let plan2 =
+            plan_with(&w.conn, &w.client, "auto/plan", Strategy::Role(Role::Plan), &needs, Some(&the_feed)).unwrap();
+        assert!(plan2.ranked.iter().all(|r| r.reason.starts_with("no fact for plan")));
+    }
+
     #[test]
     fn aliases_are_recognized_and_unknown_ones_refused() {
         assert_eq!(strategy("auto"), Some(Ok(Strategy::Tier)));
         assert_eq!(strategy("auto/cheap"), Some(Ok(Strategy::Cheap)));
+        assert_eq!(strategy("auto/code"), Some(Ok(Strategy::Role(Role::Code))));
+        assert_eq!(strategy("auto/review"), Some(Ok(Strategy::Role(Role::Review))));
         assert!(matches!(strategy("auto/fast"), Some(Err(_))));
         assert_eq!(strategy("main/auto"), None);
         assert_eq!(strategy("automatic"), None);

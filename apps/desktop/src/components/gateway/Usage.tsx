@@ -407,7 +407,10 @@ function GroupTable({title, column, groups, mono, onPick}: {title: string; colum
 /** How a route was chosen (schema v30's `route_kind`), in words. */
 function routeKindText(kind: string): string {
   const [base, session] = kind.split('+');
-  const text = ({auto: t('auto (Pygg’s choice by tier)'), 'auto/cheap': t('auto/cheap (Pygg’s choice by cost)'), combo: t('a combo, in its order'),
+  const text = ({auto: t('auto (Pygg’s choice by tier)'), 'auto/cheap': t('auto/cheap (Pygg’s choice by cost)'),
+    'auto/plan': t('auto/plan (Pygg’s choice by the facts for plan)'), 'auto/code': t('auto/code (Pygg’s choice by the facts for code)'),
+    'auto/test': t('auto/test (Pygg’s choice by the facts for test)'), 'auto/review': t('auto/review (Pygg’s choice by the facts for review)'),
+    combo: t('a combo, in its order'),
     'combo:cheapest': t('a combo, cheapest first'), pool: t('a pool of accounts'), named: t('a model by name')} as Record<string, string>)[base] ?? base;
   if (session === 'pinned') return t('{route}; the routing session’s model, kept', {route: text});
   if (session === 'home') return t('{route}; the session back on its first model after a fallback', {route: text});

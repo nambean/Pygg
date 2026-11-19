@@ -27,6 +27,8 @@ pub const SETTING_ENABLED: &str = "model_facts.enabled";
 pub const SETTING_FETCHED_AT: &str = "model_facts.fetched_at";
 pub const SETTING_LAST_ERROR: &str = "model_facts.last_error";
 pub const ROLES: &[&str] = &["plan", "code", "test", "review", "image"];
+/// The roles a client may route by (`auto/<role>`, ADR-041); `image` waits for an images path in the gateway.
+pub const ROUTED_ROLES: &[&str] = &["plan", "code", "test", "review"];
 /// Written as a fact's source into anything that records where a rank came from.
 pub const SOURCE: &str = "model-facts:v1";
 const MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
@@ -217,6 +219,35 @@ pub fn load(path: &Path, keys: &[(&str, &str)]) -> Option<Feed> {
     let sig = std::fs::read_to_string(sig_path(path)).ok()?;
     verify_bytes(&bytes, &sig, keys).ok()?;
     parse(&bytes).ok()
+}
+
+/// The kept feed for routing, parsed once per file version: a request to `auto/<role>` must not read and verify
+/// 400 KB each time. The cache is keyed by the file's path and modification time, so a new feed is picked up at
+/// once and a removed one is dropped.
+pub fn cached(path: &Path) -> Option<std::sync::Arc<Feed>> {
+    use std::sync::{Arc, Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<Option<(PathBuf, std::time::SystemTime, Arc<Feed>)>>> = OnceLock::new();
+    let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok()?;
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    let mut slot = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((p, t, feed)) = slot.as_ref() {
+        if p == path && *t == modified {
+            return Some(feed.clone());
+        }
+    }
+    let feed = Arc::new(load(path, KEYS)?);
+    *slot = Some((path.to_path_buf(), modified, feed.clone()));
+    Some(feed)
+}
+
+/// The feed the store's routing reads: on, and kept beside the store this connection opened (none for a store in
+/// memory, as in tests, which pass a feed by hand).
+pub fn for_conn(conn: &Connection) -> Option<std::sync::Arc<Feed>> {
+    if !enabled(conn) {
+        return None;
+    }
+    let store = conn.path().filter(|p| !p.is_empty())?;
+    cached(&cache_path(Path::new(store)))
 }
 
 /// Fetches the feed and its signature, verifies, refuses a `built` not later than the kept one, and writes both
@@ -449,17 +480,53 @@ fn rank_role_on(conn: &Connection, feed: Option<&Feed>, role: &str, today: i64) 
     Ok(lines)
 }
 
-fn line_for(m: &Model, feed: Option<&Feed>, role: &str, today: i64) -> Line {
-    let id = canonical(&m.model_id);
+impl FactView {
+    /// The fact in one ASCII line, for a routing reason and the ledger: the source, place, score, date, the agent
+    /// and effort the row was run with, and `derived` where the source measures something near the role.
+    pub fn describe(&self) -> String {
+        let mut s =
+            format!("{} #{} of {} ({}{}", self.source_name, self.place, self.of, self.score, unit_suffix(&self.unit));
+        if let Some(ci) = self.ci {
+            s.push_str(&format!(" +/-{ci}"));
+        }
+        s.push(')');
+        if let Some(date) = &self.date {
+            s.push_str(&format!(" dated {date}"));
+        }
+        match (&self.agent, &self.effort) {
+            (Some(a), Some(e)) => s.push_str(&format!(", run with {a} at {e}")),
+            (Some(a), None) => s.push_str(&format!(", run with {a}")),
+            (None, Some(e)) => s.push_str(&format!(" at {e}")),
+            (None, None) => {}
+        }
+        if self.derived {
+            s.push_str(", derived");
+        }
+        s
+    }
+}
+
+fn unit_suffix(unit: &str) -> String {
+    if unit.starts_with('%') {
+        "%".into()
+    } else {
+        format!(" {unit}")
+    }
+}
+
+/// The best fact that ranks for a model and role, and every other fact behind it (BRAIN.md section 1).
+pub fn best_for(feed: &Feed, model_id: &str, role: &str) -> (Option<FactView>, Vec<FactView>) {
+    best_for_on(feed, model_id, role, today_days())
+}
+
+fn best_for_on(feed: &Feed, model_id: &str, role: &str, today: i64) -> (Option<FactView>, Vec<FactView>) {
+    let id = canonical(model_id);
     let mut views: Vec<FactView> = feed
-        .map(|f| {
-            f.facts
-                .iter()
-                .filter(|fact| fact.role == role && fact.ids.contains(&id))
-                .map(|fact| view(fact, &f.sources, today))
-                .collect()
-        })
-        .unwrap_or_default();
+        .facts
+        .iter()
+        .filter(|fact| fact.role == role && fact.ids.contains(&id))
+        .map(|fact| view(fact, &feed.sources, today))
+        .collect();
     // The best ranking row first: rank, then an agent Pygg runs, then the newest.
     views.sort_by(|a, b| {
         b.ranks
@@ -473,6 +540,11 @@ fn line_for(m: &Model, feed: Option<&Feed>, role: &str, today: i64) -> Line {
     });
     let fact = views.first().filter(|v| v.ranks).cloned();
     let others = if fact.is_some() { views[1..].to_vec() } else { views };
+    (fact, others)
+}
+
+fn line_for(m: &Model, feed: Option<&Feed>, role: &str, today: i64) -> Line {
+    let (fact, others) = feed.map(|f| best_for_on(f, &m.model_id, role, today)).unwrap_or((None, Vec::new()));
     let layer = if fact.is_some() {
         "feed"
     } else if m.capabilities.tier.is_some() {

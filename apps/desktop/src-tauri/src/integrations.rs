@@ -929,7 +929,8 @@ pub async fn apply(
         }
         _ => Edit::Command,
     };
-    if kind_of(id) == "gateway" && server.models.len() <= crate::gateway::auto::ALIASES.len() {
+    if kind_of(id) == "gateway" && server.models.iter().all(|m| crate::gateway::auto::ALIASES.contains(&m.id.as_str()))
+    {
         return Err(
             "No model is enabled in Connections yet, so auto would have nothing to route to. Add a connection \
             first."
@@ -1033,6 +1034,11 @@ pub async fn remove(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The auto aliases every gateway list starts with, as strings.
+    fn aliases() -> Vec<String> {
+        crate::gateway::auto::ALIASES.iter().map(|a| a.to_string()).collect()
+    }
 
     fn server(url: Option<&str>) -> Server {
         Server {
@@ -1243,7 +1249,7 @@ mod tests {
         }
         store::update_model(&conn, &p.id, "d", Some(false), None, None).unwrap();
         let ids: Vec<String> = gateway_models(&conn).into_iter().map(|m| m.id).collect();
-        assert_eq!(ids, ["auto".to_string(), "auto/cheap".into(), format!("{}/a", p.id), format!("{}/c", p.id)]);
+        assert_eq!(ids, [aliases(), vec![format!("{}/a", p.id), format!("{}/c", p.id)]].concat());
     }
 
     #[tokio::test]
@@ -1333,12 +1339,12 @@ mod tests {
             let v: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
             v["models"].as_array().unwrap().iter().map(|m| m["slug"].as_str().unwrap().to_string()).collect()
         };
-        assert_eq!(slugs(&catalog), ["auto".to_string(), "auto/cheap".into(), format!("{}/a", p.id)]);
+        assert_eq!(slugs(&catalog), [aliases(), vec![format!("{}/a", p.id)]].concat());
         assert_eq!(sync_codex_catalog(&db, &homes), Ok(false), "nothing changed: no write");
 
         db.with(|c| store::add_model(c, &p.id, "b")).unwrap();
         assert_eq!(sync_codex_catalog(&db, &homes), Ok(true));
-        assert_eq!(slugs(&catalog).len(), 4);
+        assert_eq!(slugs(&catalog).len(), aliases().len() + 2);
 
         // The user pointed the profile at another provider: it is theirs now.
         std::fs::write(&profile, "model_provider = \"openai\"\n").unwrap();
@@ -1395,7 +1401,7 @@ mod tests {
         assert_eq!(sync_opencode_models(&db, &homes), Ok(true));
         let config = read_opencode(&homes.opencode).unwrap().unwrap();
         let ids: Vec<String> = config["provider"]["pygg"]["models"].as_object().unwrap().keys().cloned().collect();
-        assert_eq!(ids, ["auto".to_string(), "auto/cheap".into(), format!("{}/a", p.id), format!("{}/b", p.id)]);
+        assert_eq!(ids, [aliases(), vec![format!("{}/a", p.id), format!("{}/b", p.id)]].concat());
         assert_eq!(
             config["provider"]["pygg"]["options"], old["provider"]["pygg"]["options"],
             "the token and address stay"
