@@ -1139,7 +1139,20 @@ pub fn blob_start_script(urls: &[String]) -> String {
       reader.onload = () => {{ store[u] = String(reader.result); }};
       reader.onerror = () => {{ store[u] = 'error'; }};
       reader.readAsDataURL(b);
-    }}).catch(() => {{ store[u] = 'error'; }});
+    }}).catch(() => {{
+      // A page may refuse its own blob: addresses to fetch (Gemini, 2026-11-19: "Failed to fetch" for the picture it
+      // shows, its address not revoked). A picture already shown is then drawn as it is, at its full size.
+      const img = [...document.images].find(i => (i.currentSrc || i.src) === u && i.complete && i.naturalWidth > 0);
+      if (!img) {{ store[u] = 'error'; return; }}
+      try {{
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        canvas.getContext('2d').drawImage(img, 0, 0);
+        const data = canvas.toDataURL('image/png');
+        store[u] = data.length > {limit} * 4 / 3 ? 'too-large' : data;
+      }} catch (e) {{ store[u] = 'error'; }}
+    }});
   }}
   return true;
 }})()"#,

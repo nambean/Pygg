@@ -891,6 +891,8 @@ fn no_script_reads_cookies_storage_or_the_network() {
     // The one script that calls fetch reads the page's own blob: addresses, or an address on the page's own origin
     // (a download WebView2 gave no body of), never another site.
     let copy = blob_start_script(&["blob:https://x/1".to_string()]).to_lowercase();
+    // When the page refuses that fetch (Gemini), a picture it already shows at that address is drawn instead.
+    assert!(copy.find("fetch(").unwrap() < copy.find("drawimage(img, 0, 0)").unwrap());
     assert_eq!(copy.matches("fetch(").count(), 1);
     assert!(
         copy.find("if (!(u.startswith('blob:') || u.startswith(location.origin + '/'))").unwrap()
