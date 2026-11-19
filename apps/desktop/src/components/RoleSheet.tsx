@@ -65,7 +65,7 @@ export function RoleSheet({role, brainstormId, current, exclude = [], savedPick,
                   <span className="brain-meta">{l.tier ?? t('no tier')} · {l.billing}{r ? ` · ≈${usd(r.estimateMicroUsd / 1e6)} ${t('per run')}` : l.outputMicroPerMtok != null ? ` · ${usd(l.outputMicroPerMtok / 1e6)}/Mtok ${t('out')}` : ` · ${t('price unknown')}`}</span>
                   {l.model === current && <Badge tone="info">{t('current')}</Badge>}
                   {savedPick === l.model && <Badge tone="ok">{t('your saved pick')}</Badge>}</div>
-                <div className="brain-evidence">{l.layer === 'own' && <span className="wins">{t('your runs')} · </span>}{evidenceLine(l)}{l.fact?.url && <> · <a href={l.fact.url} target="_blank" rel="noreferrer">{l.fact.sourceName}</a></>}</div>
+                <div className="brain-evidence">{evidenceLine(l)}{l.layer === 'feed' && l.fact?.url && <> · <a href={l.fact.url} target="_blank" rel="noreferrer">{l.fact.sourceName}</a></>}</div>
                 {x && <div className="warn-text" style={{fontSize: 11}}>{t('Not eligible: {reason}', {reason: x.reason})}</div>}
                 {out && !x && <div className="warn-text" style={{fontSize: 11}}>{t('Not in this client’s route')}</div>}
                 <button type="button" className="link-button" aria-expanded={why === l.model} aria-label={t('Why {model}?', {model: l.model})} onClick={() => setWhy(why === l.model ? null : l.model)}>{t('Why this model?')}</button>

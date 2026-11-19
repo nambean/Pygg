@@ -382,6 +382,12 @@ pub fn plan_with(
     let min_tier = (strategy != Strategy::Cheap).then(|| client.auto_min_tier.clone());
     let mut ranked: Vec<(Ranked, (u64, u64, u64))> = Vec::new();
     let mut excluded = Vec::new();
+    // The user's own evidence for the role (BRAIN.md §1, the first layer): from ten finished attempts on cards of
+    // the role, a model ranks by its kept results, above every fact of the feed.
+    let own = match strategy {
+        Strategy::Role(role) => super::facts::own_evidence(conn, role.as_str())?,
+        _ => Default::default(),
+    };
     for model in store::list_models(conn, None)? {
         let Some(provider) = providers.iter().find(|p| p.id == model.provider_id) else { continue };
         if !provider.enabled || !model.enabled {
@@ -404,8 +410,10 @@ pub fn plan_with(
                     }
                     _ => None,
                 };
+                let own_line =
+                    own.get(&format!("{}/{}", model.provider_id, model.model_id)).filter(|o| o.ranks).cloned();
                 if let Strategy::Role(role) = strategy {
-                    if fact.is_none() && tier.is_none() {
+                    if fact.is_none() && tier.is_none() && own_line.is_none() {
                         excluded.push(Excluded {
                             provider_id: model.provider_id.clone(),
                             model_id: model.model_id.clone(),
@@ -424,6 +432,18 @@ pub fn plan_with(
                         model.billing
                     ),
                     (Strategy::Cheap, _) => format!("{}; {reason_cost}", model.billing),
+                    (Strategy::Role(role), _) if own_line.is_some() => {
+                        let o = own_line.as_ref().expect("checked");
+                        format!(
+                            "your runs {}/{} kept, {}/{} checks passed for {}; {}; {reason_cost}",
+                            o.kept,
+                            o.attempts,
+                            o.checks_passed,
+                            o.attempts,
+                            role.as_str(),
+                            model.billing
+                        )
+                    }
                     (Strategy::Role(role), Some(f)) => {
                         format!("{} for {}; {}; {reason_cost}", f.describe(), role.as_str(), model.billing)
                     }
@@ -436,14 +456,20 @@ pub fn plan_with(
                 };
                 // Tier: lowest tier, then billing (local, free, subscription, paid), then estimated cost.
                 // Cheap: estimated cost, then billing, then the higher tier.
-                // Role: the feed's rank (best first), then the higher tier for models with no fact, then billing,
-                // then estimated cost (BRAIN.md section 1).
+                // Role: the user's own evidence (kept rate, then checks passed) first, then the feed's rank (best
+                // first), then the higher tier for models with no fact, then billing, then estimated cost (BRAIN.md
+                // section 1).
                 let key = match strategy {
                     Strategy::Tier => (t, b, estimate),
                     Strategy::Cheap => (estimate, b, 4 - t),
-                    Strategy::Role(_) => match &fact {
-                        Some(f) => (((1.0 - f.rank) * 10_000.0) as u64, b, estimate),
-                        None => (100_000 + (4 - t) * 1_000, b, estimate),
+                    Strategy::Role(_) => match (&own_line, &fact) {
+                        (Some(o), _) => {
+                            let kept = 1.0 - o.kept as f64 / o.attempts as f64;
+                            let checks = 1.0 - o.checks_passed as f64 / o.attempts as f64;
+                            ((kept * 1_000.0) as u64 * 1_000 + (checks * 1_000.0) as u64, b, estimate)
+                        }
+                        (None, Some(f)) => (10_000_000 + ((1.0 - f.rank) * 10_000.0) as u64, b, estimate),
+                        (None, None) => (100_000_000 + (4 - t) * 1_000, b, estimate),
                     },
                 };
                 ranked.push((
@@ -1366,6 +1392,50 @@ mod tests {
         let plan2 =
             plan_with(&w.conn, &w.client, "auto/plan", Strategy::Role(Role::Plan), &needs, Some(&the_feed)).unwrap();
         assert!(plan2.ranked.iter().all(|r| r.reason.starts_with("no fact for plan")));
+    }
+
+    #[test]
+    fn a_role_alias_ranks_the_users_own_kept_runs_above_the_feed() {
+        let w = world();
+        let needs = Needs { input_tokens: 1000, ..Needs::default() };
+        let the_feed = feed(&[("mid", "code", 0.9, "2026-06-30"), ("big", "code", 0.6, "2026-07-01")]);
+        w.conn
+            .execute("INSERT INTO workspaces (id, name, path, created_at) VALUES ('w1', 'repo', 'C:/src/shop', 1)", [])
+            .unwrap();
+        for n in 0..10 {
+            w.conn
+                .execute(
+                    "INSERT INTO tasks (id, workspace_id, title, prompt, strategy, state, result, card_role, created_at, updated_at) \
+                     VALUES (?1, 'w1', 'x', 'x', 'free_first', 'checks_passed', 'kept', 'code', 1, 1)",
+                    [format!("t{n}")],
+                )
+                .unwrap();
+            w.conn
+                .execute(
+                    "INSERT INTO task_stages (id, task_id, position, name, state) VALUES (?1, ?2, 0, 'change', 'done')",
+                    [format!("s{n}"), format!("t{n}")],
+                )
+                .unwrap();
+            w.conn
+                .execute(
+                    "INSERT INTO attempts (id, stage_id, number, agent, model_ref, tier, billing, state) \
+                     VALUES (?1, ?2, 1, 'opencode', 'OpenCode · pygg/paid/big', 2, 'paid', ?3)",
+                    [format!("a{n}"), format!("s{n}"), (if n < 9 { "passed" } else { "failed" }).to_string()],
+                )
+                .unwrap();
+        }
+        let plan =
+            plan_with(&w.conn, &w.client, "auto/code", Strategy::Role(Role::Code), &needs, Some(&the_feed)).unwrap();
+        assert_eq!(names(&plan)[..2], ["paid/big", "paid/mid"], "big's own runs beat mid's better fact");
+        assert!(
+            plan.ranked[0].reason.starts_with("your runs 10/10 kept, 9/10 checks passed for code; paid;"),
+            "{}",
+            plan.ranked[0].reason
+        );
+        // The runs were on code cards: for plan, big has no fact and ranks by its tier as before.
+        let plan2 =
+            plan_with(&w.conn, &w.client, "auto/plan", Strategy::Role(Role::Plan), &needs, Some(&the_feed)).unwrap();
+        assert!(plan2.ranked.iter().find(|r| r.model_id == "big").unwrap().reason.starts_with("no fact for plan"));
     }
 
     #[test]
