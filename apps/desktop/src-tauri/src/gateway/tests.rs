@@ -103,6 +103,15 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
             )
                 .into_response()
         }
+        // Anthropic's answer on an account at its own spend limit (seen live 2026-11-19), with a date far ahead.
+        "spendlimit" => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "type": "error", "error": { "type": "invalid_request_error",
+            "message": "You have reached your specified API usage limits. You will regain access on 2099-01-01 at 00:00 UTC." } })),
+            )
+                .into_response()
+        }
         "daylong" => {
             return (
                 [(header::RETRY_AFTER, "86400")],
@@ -1422,6 +1431,23 @@ fn an_account_out_of_credit_cools_the_whole_connection_down() {
         assert_eq!(rig.post("/v1/chat/completions", chat("main/fast")).await.status(), 429);
         assert_eq!(rig.post("/v1/chat/completions", chat("sibling/fast")).await.status(), 429);
         assert_eq!(rig.fake.count("fast"), 0);
+    });
+}
+
+#[test]
+fn an_account_at_its_spend_limit_is_held_for_weeks_not_sent_again() {
+    rt().block_on(async {
+        let rig = rig().await;
+        assert_eq!(rig.post("/v1/chat/completions", chat("main/spendlimit")).await.status(), 400);
+        let health = rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap();
+        assert_eq!((health[0].model_id.as_str(), health[0].state.as_str()), ("", "payment_required"));
+        let left = health[0].until_ms.unwrap() - crate::db::now_ms();
+        let day = 86_400_000;
+        assert!(left > 8 * day && left <= 45 * day, "held past the 7-day cap, up to the spend-limit bound: {left}");
+        // The connection, and its siblings, are not sent anything again.
+        assert_ne!(rig.post("/v1/chat/completions", chat("main/spendlimit")).await.status(), 200);
+        assert_ne!(rig.post("/v1/chat/completions", chat("sibling/fast")).await.status(), 200);
+        assert_eq!((rig.fake.count("spendlimit"), rig.fake.count("fast")), (1, 0));
     });
 }
 

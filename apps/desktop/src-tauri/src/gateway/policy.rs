@@ -45,8 +45,17 @@ impl ProviderError {
         let error = root.map(|v| &v["error"]);
         let code =
             error.and_then(|e| ["code", "type", "status"].iter().find_map(|k| e[*k].as_str().map(str::to_string)));
-        let retry_after = retry_after(headers, SystemTime::now()).or_else(|| error.and_then(gemini_retry_delay));
-        let message = error.and_then(|e| e["message"].as_str()).map(|m| m.chars().take(300).collect());
+        let message: Option<String> = error.and_then(|e| e["message"].as_str()).map(|m| m.chars().take(300).collect());
+        let now = SystemTime::now();
+        // A date in the message is measured against the response's own `Date`, as `retry_after` does.
+        let reference = headers
+            .get("date")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|d| httpdate::parse_http_date(d.trim()).ok())
+            .unwrap_or(now);
+        let retry_after = retry_after(headers, now)
+            .or_else(|| error.and_then(gemini_retry_delay))
+            .or_else(|| message.as_deref().and_then(|m| regain_access_in(m, reference)));
         ProviderError { status, code, retry_after, message }
     }
 
@@ -65,6 +74,17 @@ impl ProviderError {
     fn is_out_of_credit(&self) -> bool {
         self.status == 400
             && self.message.as_deref().is_some_and(|m| m.to_ascii_lowercase().contains("credit balance is too low"))
+    }
+
+    /// Anthropic answers an account that reached the spend limit set on it with HTTP 400 ("You have reached your
+    /// specified API usage limits. You will regain access on 2026-12-01 at 00:00 UTC."), seen live on 2026-11-19. Like
+    /// no credit, it is the whole account, and it lasts until the date the message gives (`regain_access_in`).
+    fn is_usage_limit_reached(&self) -> bool {
+        self.status == 400
+            && self
+                .message
+                .as_deref()
+                .is_some_and(|m| m.to_ascii_lowercase().contains("reached your specified api usage limit"))
     }
 
     /// Anthropic answers HTTP 400 "This model does not support assistant message prefill. The conversation must end
@@ -122,6 +142,9 @@ const RATE_LIMIT_DEFAULT: Duration = Duration::from_secs(30);
 /// A provider-stated reset is honoured as given, up to this sanity bound against a malformed value. The
 /// cooldown only decides when the target is used again; it can be cleared in Connections at any time.
 pub const COOLDOWN_CAP: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+/// The bound on an account spend limit's stated end. Such limits are monthly, so the date is at most about a month
+/// away; anything further is taken as malformed.
+pub const SPEND_LIMIT_CAP: Duration = Duration::from_secs(45 * 24 * 60 * 60);
 
 pub fn decide(failure: &Failure) -> Decision {
     let mark = |model_scope, state, cooldown: Option<Duration>| Some(Mark { model_scope, state, cooldown });
@@ -143,6 +166,12 @@ pub fn decide(failure: &Failure) -> Decision {
                 }
                 402 => {
                     decision(Next::OtherGroups, mark(false, "payment_required", wait(Duration::from_secs(600))), false)
+                }
+                // An account's own spend limit: until the date it gives, which may be weeks away, so it is bound by
+                // `SPEND_LIMIT_CAP` rather than `COOLDOWN_CAP`. Without a date, as no credit.
+                400 if e.is_usage_limit_reached() => {
+                    let until = e.retry_after.unwrap_or(Duration::from_secs(600)).min(SPEND_LIMIT_CAP);
+                    decision(Next::OtherGroups, mark(false, "payment_required", Some(until)), false)
                 }
                 // A model that takes no assistant-message prefill: the next target may, and nothing was run. No mark:
                 // the model is well; it is this request's last turn it refuses.
@@ -204,6 +233,47 @@ fn gemini_retry_delay(error: &Value) -> Option<Duration> {
         .map(|s| Duration::from_millis((s.min(COOLDOWN_CAP.as_secs() as f64) * 1000.0) as u64))
 }
 
+/// How long from `now` until the date in Anthropic's "You will regain access on 2026-12-01 at 00:00 UTC.", read as
+/// UTC. `None` when the message has no such date; zero when it is past.
+fn regain_access_in(message: &str, now: SystemTime) -> Option<Duration> {
+    const LEAD: &str = "regain access on ";
+    let lower = message.to_ascii_lowercase();
+    let rest = &lower[lower.find(LEAD)? + LEAD.len()..];
+    let number = |text: &str, from: usize, to: usize| -> Option<i64> {
+        let digits = text.get(from..to)?;
+        digits.bytes().all(|b| b.is_ascii_digit()).then(|| digits.parse().ok())?
+    };
+    let (year, month, day) = (number(rest, 0, 4)?, number(rest, 5, 7)?, number(rest, 8, 10)?);
+    if rest.get(4..5) != Some("-")
+        || rest.get(7..8) != Some("-")
+        || !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+    {
+        return None;
+    }
+    // "at HH:MM" is optional; a date alone means its start.
+    let (hour, minute) = match rest[10..].strip_prefix(" at ") {
+        Some(time) if time.get(2..3) == Some(":") => (number(time, 0, 2)?, number(time, 3, 5)?),
+        _ => (0, 0),
+    };
+    if hour > 23 || minute > 59 {
+        return None;
+    }
+    let at = days_from_civil(year, month, day) * 86_400 + hour * 3600 + minute * 60;
+    let now = now.duration_since(SystemTime::UNIX_EPOCH).ok()?.as_secs() as i64;
+    Some(Duration::from_secs((at - now).max(0) as u64))
+}
+
+/// Days from 1970-01-01 to a date of the proleptic Gregorian calendar (Howard Hinnant's `days_from_civil`).
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let year_of_era = year - era * 400;
+    let day_of_year = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,6 +325,55 @@ mod tests {
         // A plain 429 stays on the one model.
         let plain = decide(&http(429)).mark.unwrap();
         assert_eq!((plain.model_scope, plain.cooldown), (true, Some(RATE_LIMIT_DEFAULT)));
+    }
+
+    #[test]
+    fn an_account_at_its_own_spend_limit_waits_until_the_date_it_gives() {
+        // Seen live on the owner's `anthropic` connection, 2026-11-19.
+        let body = br#"{"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified API usage limits. You will regain access on 2026-12-01 at 00:00 UTC."}}"#;
+        let mut headers = HeaderMap::new();
+        headers.insert("date", "Thu, 19 Nov 2026 12:00:00 GMT".parse().unwrap());
+        let e = ProviderError::from_response(400, &headers, body);
+        // Eleven and a half days from the response's own Date, not cut to `COOLDOWN_CAP`.
+        let until = Duration::from_secs(11 * 86_400 + 12 * 3600);
+        assert_eq!(e.retry_after, Some(until));
+        let decision = decide(&Failure::Http(e));
+        assert_eq!((decision.next, decision.maybe_billed), (Next::OtherGroups, false), "another provider may answer");
+        assert_eq!(decision.mark, Some(Mark { model_scope: false, state: "payment_required", cooldown: Some(until) }));
+        // Without a date it waits as no credit does; a date years away is bound.
+        let undated = ProviderError {
+            message: Some("You have reached your specified API usage limits.".into()),
+            ..ProviderError::new(400)
+        };
+        assert_eq!(decide(&Failure::Http(undated)).mark.unwrap().cooldown, Some(Duration::from_secs(600)));
+        let far = ProviderError {
+            message: Some("You have reached your specified API usage limits.".into()),
+            retry_after: Some(Duration::from_secs(5 * 365 * 86_400)),
+            ..ProviderError::new(400)
+        };
+        assert_eq!(decide(&Failure::Http(far)).mark.unwrap().cooldown, Some(SPEND_LIMIT_CAP));
+    }
+
+    #[test]
+    fn reads_the_date_access_comes_back() {
+        let now = httpdate::parse_http_date("Thu, 19 Nov 2026 12:00:00 GMT").unwrap();
+        let read = |m: &str| regain_access_in(m, now);
+        assert_eq!(read("You will regain access on 2026-11-20 at 13:30 UTC."), Some(Duration::from_secs(91_800)));
+        assert_eq!(read("You will regain access on 2026-11-20."), Some(Duration::from_secs(43_200)));
+        // Across a year end and a leap day.
+        assert_eq!(read("regain access on 2028-03-01 at 00:00 UTC"), Some(Duration::from_secs(468 * 86_400 - 43_200)));
+        assert_eq!(read("You will regain access on 2026-11-01 at 00:00 UTC."), Some(Duration::ZERO));
+        for malformed in [
+            "no date here",
+            "regain access on 2026-13-01",
+            "regain access on 2026/12/01",
+            "regain access on 2026-12-01 at 25:00",
+            "regain access on 20",
+        ] {
+            assert_eq!(read(malformed), None, "{malformed}");
+        }
+        assert_eq!(days_from_civil(1970, 1, 1), 0);
+        assert_eq!(days_from_civil(2000, 3, 1), 11_017);
     }
 
     #[test]
