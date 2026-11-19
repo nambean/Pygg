@@ -813,17 +813,34 @@ fn reply_text(state: &ChatState, before: u64) -> String {
 }
 
 /// The media a reply's page received from the network after the prompt: a sound or document as a data URL of its
-/// kind. Addresses named in the site's API answers are not taken: on 2026-11-19 ChatGPT's page received JSON naming
+/// kind, and (second) a sound or document on the site's own host whose body WebView2 did not give, to be read again by
+/// the page from the same address (2026-11-19, live: ChatGPT sends the file it made as a download, a signed
+/// `chatgpt.com/backend-api/estuary/content` address, and WebView2 gives no body for a download). Addresses named in
+/// the site's API answers are not taken: on 2026-11-19 ChatGPT's page received JSON naming
 /// its own tool downloads (zips of programs), which are not the reply's. What was taken and what was seen goes to the
 /// app log, by kind and host only.
-fn network_media(received: Vec<Received>, preset: &str) -> Vec<Media> {
+fn network_media(received: Vec<Received>, recipe: &Recipe) -> (Vec<Media>, Vec<Media>) {
     let mut out: Vec<Media> = Vec::new();
+    let mut again: Vec<Media> = Vec::new();
     let mut seen: Vec<String> = Vec::new();
     let mut summary: Vec<String> = Vec::new();
+    let site = site_host(recipe);
     for r in received {
         let mime = r.mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
         summary.push(format!("{mime} from {} ({} bytes)", r.host, r.body.len()));
-        if r.body.is_empty() || r.body.len() as u64 > BLOB_LIMIT || !worth_keeping(&mime) {
+        if !worth_keeping(&mime) {
+            continue;
+        }
+        if r.body.is_empty() {
+            let own = r.host == site || r.host.ends_with(&format!(".{site}"));
+            if own && r.url.starts_with(&format!("https://{}/", r.host)) && !seen.contains(&r.url) {
+                seen.push(r.url.clone());
+                let kind = if mime.starts_with("audio/") { "audio" } else { "file" };
+                again.push(Media { kind: kind.to_string(), url: r.url });
+            }
+            continue;
+        }
+        if r.body.len() as u64 > BLOB_LIMIT {
             continue;
         }
         // A generic type is replaced by what the bytes say; a body that is none of the kept kinds is left.
@@ -845,12 +862,14 @@ fn network_media(received: Vec<Received>, preset: &str) -> Vec<Media> {
     }
     if !summary.is_empty() {
         crate::applog::info(&format!(
-            "web reply on {preset}: the page received {}; {} sound(s) or file(s) taken from it",
+            "web reply on {}: the page received {}; {} sound(s) or file(s) taken from it, {} to read again in the page",
+            recipe.preset,
             summary.join(", "),
-            out.len()
+            out.len(),
+            again.len()
         ));
     }
-    out
+    (out, again)
 }
 
 /// Presses Play on each audio player in the site's media blocks after the replies from before the prompt (`before`), each
@@ -1024,7 +1043,13 @@ async fn finish(
             list.join(", ")
         ));
     }
-    media.extend(network_media(received, recipe.preset));
+    let (taken, again) = network_media(received, recipe);
+    media.extend(taken);
+    for m in copy_in_page(page, again, timing.poll, true).await {
+        if !media.iter().any(|x| x.url == m.url) {
+            media.push(m);
+        }
+    }
     Reply { text, denied, media }
 }
 
@@ -1040,7 +1065,7 @@ pub fn blob_start_script(urls: &[String]) -> String {
         r#"(() => {{
   const store = window.__pyggMedia = window.__pyggMedia || {{}};
   for (const u of {urls}) {{
-    if (!u.startsWith('blob:') || store[u]) continue;
+    if (!(u.startsWith('blob:') || u.startsWith(location.origin + '/')) || store[u]) continue;
     store[u] = 'pending';
     fetch(u).then(r => r.blob()).then(b => {{
       if (b.size > {limit}) {{ store[u] = 'too-large'; return; }}
@@ -1077,7 +1102,14 @@ pub fn blob_poll_script(urls: &[String]) -> String {
 /// The reply's `blob:` pictures and videos as data URLs, waiting up to a minute for the copies; one that cannot be
 /// copied is left out and said in the app log.
 async fn with_blob_media(page: &dyn Page, media: Vec<Media>, poll: Duration) -> Vec<Media> {
-    let blobs: Vec<String> = media.iter().filter(|m| m.url.starts_with("blob:")).map(|m| m.url.clone()).collect();
+    copy_in_page(page, media, poll, false).await
+}
+
+/// `with_blob_media`, and with `all` every address given is read by the page (one on its own origin; the page
+/// refuses any other), for a response WebView2 gave no body of.
+async fn copy_in_page(page: &dyn Page, media: Vec<Media>, poll: Duration, all: bool) -> Vec<Media> {
+    let copied = |u: &str| all || u.starts_with("blob:");
+    let blobs: Vec<String> = media.iter().filter(|m| copied(&m.url)).map(|m| m.url.clone()).collect();
     if blobs.is_empty() {
         return media;
     }
@@ -1100,7 +1132,7 @@ async fn with_blob_media(page: &dyn Page, media: Vec<Media>, poll: Duration) -> 
     media
         .into_iter()
         .filter_map(|m| {
-            if !m.url.starts_with("blob:") {
+            if !copied(&m.url) {
                 return Some(m);
             }
             match copies.get(&m.url) {
@@ -1358,6 +1390,9 @@ pub fn blob_kept(mime: &str, size: u64) -> bool {
 pub struct Received {
     pub mime: String,
     pub host: String,
+    /// The response's address, kept in memory for the reply only and never logged (it may carry a signature).
+    pub url: String,
+    /// Empty when WebView2 gives no body: a download (`Content-Disposition: attachment`, as ChatGPT's files are).
     pub body: Vec<u8>,
 }
 

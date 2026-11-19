@@ -283,21 +283,24 @@ fn watch_responses<R: Runtime>(
                 if !super::worth_keeping(&mime) {
                     return Ok(());
                 }
-                let (received, id) = (received.clone(), id.clone());
+                let (received, id, url) = (received.clone(), id.clone(), uri.clone());
                 let done = webview2_com::WebResourceResponseViewGetContentCompletedHandler::create(Box::new(
                     move |result, stream: Option<windows::Win32::System::Com::IStream>| {
-                        let Some(stream) = stream.filter(|_| result.is_ok()) else { return Ok(()) };
+                        // A download (`Content-Disposition: attachment`, as ChatGPT's files are) has no body here; it
+                        // is kept by its address for the page to read again (`super::network_media`).
                         let mut body = Vec::new();
-                        let mut chunk = vec![0u8; 64 * 1024];
-                        loop {
-                            let mut read = 0u32;
-                            let hr = stream.Read(chunk.as_mut_ptr() as *mut _, chunk.len() as u32, Some(&mut read));
-                            if hr.is_err() || read == 0 {
-                                break;
-                            }
-                            body.extend_from_slice(&chunk[..read as usize]);
-                            if body.len() > KEPT_BYTES {
-                                return Ok(());
+                        if let Some(stream) = stream.filter(|_| result.is_ok()) {
+                            let mut chunk = vec![0u8; 64 * 1024];
+                            loop {
+                                let mut read = 0u32;
+                                let hr = stream.Read(chunk.as_mut_ptr() as *mut _, chunk.len() as u32, Some(&mut read));
+                                if hr.is_err() || read == 0 {
+                                    break;
+                                }
+                                body.extend_from_slice(&chunk[..read as usize]);
+                                if body.len() > KEPT_BYTES {
+                                    return Ok(());
+                                }
                             }
                         }
                         let mut all = received.lock().unwrap_or_else(|p| p.into_inner());
@@ -305,7 +308,7 @@ fn watch_responses<R: Runtime>(
                         if list.len() >= KEPT {
                             list.remove(0);
                         }
-                        list.push(super::Received { mime: mime.clone(), host: host.clone(), body });
+                        list.push(super::Received { mime: mime.clone(), host: host.clone(), url: url.clone(), body });
                         Ok(())
                     },
                 ));

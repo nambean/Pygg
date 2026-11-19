@@ -270,7 +270,9 @@ fn muses_stop_button_holds_the_reply_until_the_video_is_made() {
 /// What the page receives after the prompt is read for the reply (2026-11-18, the owner's call for another way than the
 /// page's markup): a document or sound the page loaded comes back as a data URL of its kind, and pictures, the site's
 /// API answers and its other traffic are not kept at all. An address named in an API answer is not taken (2026-11-19:
-/// ChatGPT's page received JSON naming zips of its own tools, which Pygg took as files of the reply).
+/// ChatGPT's page received JSON naming zips of its own tools, which Pygg took as files of the reply). A document on
+/// the site's own host that WebView2 gave no body of (a download: ChatGPT's files, 2026-11-19) is read again by the
+/// page from its address; one elsewhere is not.
 #[test]
 fn what_the_page_receives_comes_back_with_the_reply() {
     assert!(worth_keeping("application/pdf"));
@@ -294,17 +296,50 @@ fn what_the_page_receives_comes_back_with_the_reply() {
             Received {
                 mime: "application/pdf".into(),
                 host: "scontent.fbcdn.net".into(),
+                url: "https://scontent.fbcdn.net/plan.pdf".into(),
                 body: b"%PDF-1.7 hi".to_vec(),
             },
-            Received { mime: "application/json".into(), host: "chatgpt.com".into(), body: api.as_bytes().to_vec() },
-            Received { mime: "application/octet-stream".into(), host: "cdn.example".into(), body: b"<html>".to_vec() },
-            Received { mime: "binary/octet-stream".into(), host: "cdn.example".into(), body: b"OggS\x00\x02".to_vec() },
+            Received {
+                mime: "application/json".into(),
+                host: "muse.ai".into(),
+                url: "https://muse.ai/api".into(),
+                body: api.as_bytes().to_vec(),
+            },
+            Received {
+                mime: "application/octet-stream".into(),
+                host: "cdn.example".into(),
+                url: "https://cdn.example/a".into(),
+                body: b"<html>".to_vec(),
+            },
+            Received {
+                mime: "binary/octet-stream".into(),
+                host: "cdn.example".into(),
+                url: "https://cdn.example/b".into(),
+                body: b"OggS\x00\x02".to_vec(),
+            },
+            Received {
+                mime: "text/csv".into(),
+                host: "muse.ai".into(),
+                url: "https://muse.ai/content?id=f&sig=s".into(),
+                body: Vec::new(),
+            },
+            Received {
+                mime: "application/pdf".into(),
+                host: "cdn.example".into(),
+                url: "https://cdn.example/elsewhere.pdf".into(),
+                body: Vec::new(),
+            },
         ];
+        *page.blobs.lock().unwrap() = json!({ "https://muse.ai/content?id=f&sig=s": "data:text/csv;base64,YSxi" });
         let reply = converse(page.as_ref(), muse(), "a PDF", &fast(), &mut |_: &str| {}).await.unwrap();
         let got: Vec<(&str, &str)> = reply.media.iter().map(|m| (m.kind.as_str(), m.url.as_str())).collect();
         assert_eq!(
             got,
-            [("file", "data:application/pdf;base64,JVBERi0xLjcgaGk="), ("audio", "data:audio/ogg;base64,T2dnUwAC")]
+            [
+                ("file", "data:application/pdf;base64,JVBERi0xLjcgaGk="),
+                ("audio", "data:audio/ogg;base64,T2dnUwAC"),
+                ("file", "data:text/csv;base64,YSxi")
+            ]
         );
     });
     assert!(
@@ -829,10 +864,14 @@ fn no_script_reads_cookies_storage_or_the_network() {
             }
         }
     }
-    // The one script that calls fetch reads the page's own blob: addresses, never the network.
+    // The one script that calls fetch reads the page's own blob: addresses, or an address on the page's own origin
+    // (a download WebView2 gave no body of), never another site.
     let copy = blob_start_script(&["blob:https://x/1".to_string()]).to_lowercase();
     assert_eq!(copy.matches("fetch(").count(), 1);
-    assert!(copy.find("if (!u.startswith('blob:')").unwrap() < copy.find("fetch(").unwrap());
+    assert!(
+        copy.find("if (!(u.startswith('blob:') || u.startswith(location.origin + '/'))").unwrap()
+            < copy.find("fetch(").unwrap()
+    );
     for forbidden in
         ["cookie", "localstorage", "sessionstorage", "indexeddb", "xmlhttprequest", "websocket", "credentials"]
     {
