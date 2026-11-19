@@ -33,12 +33,13 @@ When documents disagree: **IMPLEMENTATION-STATUS** says what is built and how it
 | --- | --- |
 | [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) | **Authoritative.** Every built part and how it is verified; what is not verified yet |
 | [ROADMAP.md](ROADMAP.md) | **Authoritative.** What comes next, in order, and the release gates |
-| [DECISIONS.md](DECISIONS.md) | Architecture decision records, ADR-001 to ADR-039 |
+| [DECISIONS.md](DECISIONS.md) | Architecture decision records, ADR-001 to ADR-042 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the parts fit: a gateway request, a web session, the store, the CLI, where to change what |
 | [SCHEMA.md](SCHEMA.md) | The store's tables, generated from the migrations (`scripts/schema-reference.py`); edit the migrations, not this file |
 | [AGENTS.md](AGENTS.md) | Coding tools through Pygg, agent CLIs with their own sign-in, the MCP server and the task engine (on hold) |
 | [design/SCREENS.md](design/SCREENS.md) | The app's screens as built |
 | [design/CLI.md](design/CLI.md) | The `pygg` command line: commands, output, exit codes, the npm launcher |
+| [design/BRAIN.md](design/BRAIN.md) | The decided, not built, next shape of smart tasks: the model facts feed, `pygg/brain` and the Kanban board (ADR-040 to ADR-042) |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | How to change Pygg: order, tests, schema, money, writing, commits |
 | [../benchmark/README.md](../benchmark/README.md) | The benchmark harness, its cases and how to run it through the gateway |
 | [../benchmark/reports/](../benchmark/reports) | Measured results, one report per run, with method, cost and raw results |

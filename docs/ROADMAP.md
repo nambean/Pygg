@@ -35,7 +35,7 @@ What comes next, in order, and what must be true before a public release. What i
 7. **Housekeeping.** Demo data that replays recorded snapshots instead of copying the core's rules.
 8. **The Vietnamese translation**, last, once the interface's English text is final.
 
-Smart tasks are **on hold** until they are re-evaluated. No new work on tasks, workspaces or agents runs until then.
+Smart tasks are **on hold** for building. Their next shape is decided: the model facts feed (ADR-040), `pygg/brain` (ADR-041) and the Kanban board (ADR-042), designed in [design/BRAIN.md](design/BRAIN.md). The owner says when work starts; it then runs in ADR-041's order: the feed, the role aliases, brain proposals as ordinary tasks, the board, the image role.
 
 ## Release gates
 
@@ -62,7 +62,7 @@ Unordered. Each moves up only when data or a user request justifies it.
 - Running the benchmark from the app.
 - Client verification beyond Claude Code, Codex and OpenCode (Aider, Cursor).
 - A signed updater.
-- More `auto` aliases (`auto/fast`, `auto/coding`, `auto/local`, `auto/quality`): not planned until the benchmark shows `auto` and `auto/cheap` are not enough.
+- `auto/fast`, `auto/local` and `auto/quality`: not planned until the benchmark shows `auto` and `auto/cheap` are not enough. The role aliases `auto/plan`, `auto/code`, `auto/test` and `auto/review` are decided (ADR-041) and ranked by the facts feed, not by hand; they are measured with the harness before any claim.
 - Semantic caching and advanced compaction: only if a test beats a simpler baseline.
 - Skills from a catalog or GitHub, each pinned to a reviewed commit with its files checked and scripts held back (ADR-039).
 

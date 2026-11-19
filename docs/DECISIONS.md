@@ -1,6 +1,6 @@
 # Decisions
 
-> **Status:** Current · architecture decision records (ADR-001 to ADR-039) · reviewed 2026-11-15
+> **Status:** Current · architecture decision records (ADR-001 to ADR-042) · reviewed 2026-11-19
 
 Each record says what Pygg decided, why, and what it costs. Numbers never change, because code and other documents cite them; a record that was superseded or withdrawn keeps one line that points to what replaced it. Delivery order is in [ROADMAP](ROADMAP.md), what is built in [Implementation Status](IMPLEMENTATION-STATUS.md), and the screens in [design/SCREENS.md](design/SCREENS.md).
 
@@ -48,6 +48,8 @@ Each record says what Pygg decided, why, and what it costs. Numbers never change
 **Why:** There is no measured quality data to start from, and invented quality scores would mislead.
 
 **Consequence:** The UI says "lowest eligible tier under your policy", never "cheapest".
+
+**Amended by ADR-041:** `pygg/brain` lets a model classify the work into cards and roles; the model for each card is still picked by rule, from the per-role facts of ADR-040, and the user approves before money is spent.
 
 ## ADR-007 — Deterministic checks gate the cascade
 
@@ -176,7 +178,7 @@ Built as ADR-034 (pools of connections) and ADR-038 (key rings). Its safety rule
 - explicit session affinity (`x-pygg-session`), never derived from prompt content;
 - explainable, rule-based `auto`.
 
-External clients own their prompts, history and compaction. The gateway never inserts memory or rewrites a client's prompt; the one addition is ADR-036's cache marker on translated turns.
+External clients own their prompts, history and compaction. The gateway never inserts memory or rewrites a client's prompt; the one addition is ADR-036's cache marker on translated turns. **Amended by ADR-041:** a request that names the virtual model `pygg/brain` asks for Pygg's own prompt and for calls to more than one model; that is the only such request, it is ledgered under the client's request id, and nothing it learns reaches any other request.
 
 The first users are developers with metered API workloads, because their savings can be measured. The long-term aim includes everyday users. No cash saving is claimed for fixed-price subscription plans.
 
@@ -196,7 +198,7 @@ The first users are developers with metered API workloads, because their savings
 
 **Why:** Most people will not treat a router app as an IDE.
 
-This replaces the parts of [design/SCREENS.md](design/SCREENS.md) that assume tasks are composed and planned in the app first. See [AGENTS.md](AGENTS.md#the-mcp-server-and-the-task-api-experimental-on-hold).
+This replaces the parts of [design/SCREENS.md](design/SCREENS.md) that assume tasks are composed and planned in the app first. See [AGENTS.md](AGENTS.md#the-mcp-server-and-the-task-api-experimental-on-hold). ADR-041 keeps this: a brainstorm starts when the IDE agent calls `pygg/brain`, and the app is where it is approved.
 
 ## ADR-028 — MIT licence, a $20 benchmark budget, and no Auto Chat
 
@@ -208,6 +210,8 @@ This replaces the parts of [design/SCREENS.md](design/SCREENS.md) that assume ta
 **Why:** Open source fits a local tool that holds keys and code. A fixed budget keeps the benchmark honest about what it can claim. Auto Chat would make the app a chat client.
 
 **Chat from the command line (owner's decision, 2026-11-18).** `pygg chat` and `pygg ask` talk to any connected model through the gateway from a terminal, like other AI command-line tools, with Pygg's routing, fallbacks, web-session guard and ledger. They are clients of the gateway with an API key of their own ("Pygg CLI (ask)"). A conversation lives in the command's memory and is forgotten when it ends: there is still no conversation store, memory screen or chat in the app.
+
+**`pygg/brain` is not chat (ADR-041).** Its questions go back to the client that asked and are answered there; the app shows the proposal, the approval and the board, and has no reply box.
 
 ## ADR-029 — Quality signals in Pygg's own ledger, in TensorZero's shape
 
@@ -388,6 +392,62 @@ Each `pygg run` launch is kept with what changed in Git (`launches`, schema v38)
 **Why:** The three agents now share one format and two folders, and each keeps only a skill's name and description in context until the skill is used. A library written once and installed into those folders saves retyping without a format of Pygg's own. The always-on context is the part of every request a user can shrink themselves, and only the files on their machine say how large it is.
 
 **Cost:** Pygg follows the agents' folder conventions; when an agent moves its folder, the target changes with it.
+
+## ADR-040 — Model facts: per-role scores with their sources, published by the project
+
+**Decision:** Pygg publishes a **model facts feed**: a signed JSON file built by a scheduled job in this repository from named public sources, fetched by the app over HTTPS and cached in the store. The app never reads a leaderboard itself.
+- **A fact** is one model line (matched as `gateway/tiers.rs` matches, or an exact id), one role, the score as the source published it, that score's rank within the source (0 to 1), the source's name and URL, the date it was read, and the feed's version. A fact with no source has no row (ADR-011, ADR-029).
+- **Roles and their sources.** `code`: SWE-bench Verified, Aider polyglot, Terminal-Bench. `plan` and `review`: general reasoning (LMArena text, LiveBench, Artificial Analysis), and every such fact is labelled **derived**, because no public source measures software planning. `test`: derived from `code` until a source measures it. `image`: LMArena text-to-image; stored, not routable until the gateway has an images path.
+- **Terms first.** Each source's terms of use are read and recorded in the feed's source list before the job reads it; a source whose terms do not allow the use is left out. Leaderboard names are mapped to provider ids by a table kept in the repository, by hand.
+- **Ranking a role in the app**, each line with its source shown: the user's own evidence from the ledger (`checks_passed` and `result_kept` per model and role, ADR-029) above a minimum sample of ten attempts; then the feed; then the tier table. The feed changes suggestions, never a choice the user saved.
+- **Signed.** The job signs the feed with a key held in the repository's CI; the public key ships in the app. A feed that does not verify is refused. Offline, the last cached feed is used and its date shown; with none, the tier table alone.
+- **Cadence.** The job runs weekly; the app checks daily.
+
+**Why:** The tier table is a judgement by vendor naming (ADR-006). Public benchmarks are the only measurement of quality that exists before the user's own, and they change monthly. Reading them in the app would break with every page change and would bind the app to each source's terms; one job in the repository, reviewed, does it once for everyone. The feed moves money, so it is signed.
+
+**Cost:** The mapping from leaderboard names to provider ids is manual work that lags new models; `plan` has no direct measure and the interface must say so (ADR-013); a feed is only as fresh as its job.
+
+**Status:** Decided, not built. Design: [design/BRAIN.md](design/BRAIN.md).
+
+## ADR-041 — `pygg/brain`: the router is the brain
+
+**Decision:** The gateway serves a virtual model, **`pygg/brain`**, on Chat Completions, Messages and Responses. A client sends a requirement, as plain as "build a shop website", and gets back a **proposal**: clarifying questions and a set of cards, each with a role and a done criterion, with a model per role picked by rule. Any client that can name a model can use it, so tasks still start from the user's IDE (ADR-027) and the app stays the place to approve (ADR-010).
+
+- **Steps.**
+  1. The **planner** is picked by rule from the user's connected models for the role `plan` (ADR-040). A pick the user saved wins. The first use of a paid planner waits for the user's pick in the app; a free or local planner runs at once. No LLM runs before this pick.
+  2. The gateway sends the requirement with **Pygg's brain prompt**, a versioned prompt in the Skills & Prompts library (ADR-039) the user can read, and the user's connected models with their role ranks.
+  3. The reply must fit the **board schema**; a card that does not is dropped, never guessed. Whether the planner fit the schema is a metric, `brain_schema_ok`, per planner model (ADR-029).
+  4. **Rules pick the model for each card**: the card's role, the role's ranking, then `auto`'s own filters under the client's policy.
+  5. The proposal is stored as a **brainstorm** with an id and shown in the app, where the user changes models, drops cards and approves. The client receives a summary with the brainstorm's id and the questions. A later call in the same session refines that brainstorm; it never starts another.
+- **What keeps ADR-025.** Only a request that names `pygg/brain` runs Pygg's own prompt or fans out; a real model or `auto` never does. Every call the brain makes is a ledger entry under the client's request id, key and session, with `route_kind` `brain`, so budgets and limits apply. Nothing from a brainstorm is kept as memory or sent with any later request (ADR-030).
+- **Role aliases.** `auto/plan`, `auto/code`, `auto/test` and `auto/review`: `auto`'s filters, then the role's ranking; `x-pygg-auto` names the fact's source and date. They exist because the brain needs them, and they are measured with the benchmark harness before any claim.
+- **The LLM classifies the work; rules pick the model; the user approves before money.** This amends ADR-006 by exactly that much.
+- **Who runs a card.** Either Pygg's task engine (an agent CLI with its own sign-in, ADR-026, on the card's model when the agent is pointed at the gateway) or the user's own IDE agent, calling the role alias. Chosen per card.
+- **No chat in the app** (ADR-028). The questions go back to the client and are answered there; the app shows proposals, approvals and the board, never a reply box.
+
+**Why:** The router alone knows, at once, the connected models, their prices and context, the user's ledger and the budgets left. A skill in the IDE would have to ask for all of it over MCP and be installed per agent; a brain in the app would be a chat.
+
+**Cost:** The planner call is the first request Pygg starts on its own, which is why it waits for the pick. The brain prompt is part of the product and needs its own benchmark. Parsing a model's structured reply is work that fails on some models, and the metric says which.
+
+**Status:** Decided, not built. Order: the feed (ADR-040), the role aliases, `pygg/brain` proposals run as ordinary tasks, then the board (ADR-042), then the `image` role once the gateway has an images path. Design: [design/BRAIN.md](design/BRAIN.md).
+
+## ADR-042 — Smart tasks run as a Kanban board
+
+**Decision:** An approved brainstorm becomes the **board** of a workspace (a Git repository, ADR-008). Kanban is applied strictly, because every card costs money.
+- **Columns, fixed:** Discovery, Ready, Running, Checking, Blocked, Review, Done. A card is a task: a ladder of steps on the card's role model (AGENTS.md).
+- **Pull, never push.** A card enters Running only when Running has room. Each column has a **WIP limit**; Running's default is 1. The user may raise a limit, never remove it. The limit is the spending control the user can see: at most that many paid steps are in flight.
+- **Leaving a column is defined**, not judged: Running to Checking when the agent ends; Checking to Review when the approved checks pass (ADR-007), to Blocked when the ladder's last step fails; Review to Done on Keep as Branch (ADR-009). Without approved checks a card leaves Checking only for Review, marked unverified.
+- **Blocked is a column**, pinned: waiting for approval, over the cap or the budget, interrupted, or depending on a question nobody answered.
+- **Discovery holds the questions** as cards; a card that depends on an unanswered question cannot enter Ready. Answers come from the client through `pygg/brain` (ADR-041), never typed into the app.
+- **Two classes of service:** standard, and expedite, one at a time, which goes to the front of Ready and still obeys the WIP limit.
+- **Measured from what is recorded already:** cycle time (Ready to Done), lead time, throughput per day, time blocked, and known money per kept result (ADR-029). No story points, no sprints; a card's only size is the cost range of the last ten runs, as today.
+- **MCP:** tools to read the board and to move a card between Discovery and Ready. No tool approves a paid step (ADR-010).
+
+**Why:** The engine is already a ladder judged by checks; Kanban makes its states columns and its budget a limit. A strict WIP limit is what stops five agents from spending in parallel where the user cannot see it.
+
+**Cost:** One card at a time is slow; a user who wants more raises the limit and pays for it.
+
+**Status:** Decided, not built. Design: [design/BRAIN.md](design/BRAIN.md).
 
 ## Open decisions
 

@@ -185,5 +185,5 @@ Built and kept, with no new work until they are re-evaluated. Details: [AGENTS](
 
 - The Setup Assistant ([SCREENS](design/SCREENS.md)).
 - Quota tracking for subscriptions: their providers state nothing Pygg can read.
-- Smart task routing beyond the task engine (task analysis, proposed plans, task policies). On hold.
+- Smart task routing beyond the task engine: the model facts feed, `pygg/brain` and the Kanban board (ADR-040 to ADR-042, [design/BRAIN.md](design/BRAIN.md)). Decided; building is on hold until the owner starts it.
 - The Vietnamese translation of strings added since the first pass. Done last.
