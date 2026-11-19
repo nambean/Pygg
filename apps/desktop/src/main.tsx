@@ -39,7 +39,7 @@ import { Skills } from './components/gateway/Skills';
 type View =
   | {kind: GatewayDestination}
   | {kind: 'tasks'; filter: TaskFilter}
-  | {kind: 'task'; id: string; from: TaskFilter}
+  | {kind: 'task'; id: string; from: TaskFilter | 'board'}
   | {kind: 'brainstorm'; id: string; from: TaskFilter}
   | {kind: 'board'; workspaceId: string | null}
   | {kind: 'brain'}
@@ -324,7 +324,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         {view.kind === 'board' && (boardWorkspaces.length === 0
           ? <div className="page"><p className="group-footnote">{t('No workspace yet. The board shows the cards of a workspace’s approved brainstorms; a brainstorm from your coding agent adds its repository by itself.')}</p></div>
           : <Board workspaceId={view.workspaceId ?? boardWorkspaces[0].workspaceId} workspaces={boardWorkspaces}
-              onWorkspace={id => setView({kind: 'board', workspaceId: id})} onOpenTask={id => { taskList.reload(); setView({kind: 'task', id, from: 'all'}); }}/>)}
+              onWorkspace={id => setView({kind: 'board', workspaceId: id})} onOpenTask={id => { taskList.reload(); setView({kind: 'task', id, from: 'board'}); }}/>)}
         {view.kind === 'brain' && <BrainStorming onSkills={() => setView({kind: 'skills'})} onWorkspaces={() => setView({kind: 'workspaces'})}/>}
         {view.kind === 'tasks' && <>
           {/* Until the list has loaded once, an empty list would read as "no tasks yet". */}
@@ -336,7 +336,8 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
           : <TaskList tasks={allTasks} brainstorms={brainstorms} filter={view.filter} workspaces={workspaces} scoped={false} query={query} onQuery={setQuery}
             searchRef={searchRef} onOpen={openTask} onOpenBrainstorm={b => setView({kind: 'brainstorm', id: b.id, from: view.filter})} onNewTask={newTask} onWorkspaceSettings={null}/>}
         </>}
-        {view.kind === 'task' && <TaskDetail id={view.id} onBack={() => { taskList.reload(); setView({kind: 'tasks', filter: view.from}); }}/>}
+        {view.kind === 'task' && <TaskDetail id={view.id} backTo={view.from === 'board' ? t('Board') : t('Tasks')}
+          onBack={() => { taskList.reload(); setView(view.from === 'board' ? {kind: 'board', workspaceId: null} : {kind: 'tasks', filter: view.from}); }}/>}
         {view.kind === 'brainstorm' && <BrainstormDetail id={view.id} onBack={() => { brainList.reload(); taskList.reload(); setView({kind: 'tasks', filter: view.from}); }}
           onOpenTask={id => { taskList.reload(); setView({kind: 'task', id, from: 'all'}); }}/>}
         {view.kind === 'new' && <NewTaskView onCreated={created}/>}

@@ -16,13 +16,13 @@ import { Badge, ConfirmSheet, CopyButton, ErrorNote, FormRow, Spinner } from './
  * Task detail (SCREENS.md §5.2): what the task is waiting on, its result, and every attempt with its checks.
  * Reloads every two seconds while the task runs.
  */
-export function TaskDetail({id, onBack}: {id: string; onBack: () => void}) {
+export function TaskDetail({id, onBack, backTo}: {id: string; onBack: () => void; backTo?: string}) {
   const [live, setLive] = useState(true);
   const loaded = useGateway(api => api.task(id).then(d => { setLive(d.state === 'running'); return d; }), [id], live ? 2_000 : undefined);
   const task = loaded.data;
   return <div className="detail">
     <button type="button" className="back-button" onClick={onBack}>
-      <ChevronLeft size={15} strokeWidth={2} aria-hidden/>{t('Tasks')}
+      <ChevronLeft size={15} strokeWidth={2} aria-hidden/>{backTo ?? t('Tasks')}
     </button>
     {loaded.error && <ErrorNote>{loaded.error}</ErrorNote>}
     {!task ? <Spinner/> : <>

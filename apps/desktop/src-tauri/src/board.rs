@@ -308,10 +308,21 @@ fn set_lane(conn: &Connection, card: &Card, lane: &str, reason: Option<&str>) ->
 /// provider runs on the picked models; another agent gets one step and is told the picks.
 fn task_for(conn: &Connection, card: &Card) -> Result<NewTask> {
     let models = store::list_models(conn, None)?;
+    let providers = store::list_providers(conn)?;
     let mut steps = Vec::new();
+    let mut off = Vec::new();
     for model in &card.ladder {
         let row =
             model.split_once('/').and_then(|(p, m)| models.iter().find(|x| x.provider_id == p && x.model_id == m));
+        // Frozen at approval, the ladder may name a model since turned off (a catalog rule, a connection removed):
+        // the gateway would refuse it and the agent would fail with nothing to say, so the step is left out here.
+        if let Some(m) = row {
+            let on = m.enabled && providers.iter().any(|p| p.id == m.provider_id && p.enabled);
+            if !on && card.agent == "opencode" {
+                off.push(model.clone());
+                continue;
+            }
+        }
         let tier = row
             .and_then(|m| m.capabilities.tier.as_deref())
             .and_then(|t| t.strip_prefix('T'))
@@ -333,7 +344,11 @@ fn task_for(conn: &Connection, card: &Card) -> Result<NewTask> {
         ));
     }
     if steps.is_empty() {
-        return Err(format!("card {} has no model", card.card_id));
+        return Err(if off.is_empty() {
+            format!("card {} has no model", card.card_id)
+        } else {
+            format!("No enabled model: {}", off.join(", "))
+        });
     }
     Ok(NewTask {
         workspace_id: card.workspace_id.clone(),
@@ -408,7 +423,13 @@ fn tick_workspace(conn: &Connection, workspace_id: &str) -> Result<Vec<String>> 
     let room = limits.wip_running.saturating_sub(running) as usize;
     let mut started = Vec::new();
     for card in current.iter().filter(|c| c.lane == "ready" && c.runner == "engine").take(room) {
-        let new = task_for(conn, card)?;
+        let new = match task_for(conn, card) {
+            Ok(new) => new,
+            Err(reason) => {
+                set_lane(conn, card, "blocked", Some(&reason))?;
+                continue;
+            }
+        };
         let task_id = tasks::create_task(conn, &new)?;
         conn.execute(
             "UPDATE tasks SET brainstorm_id = ?2, card_id = ?3, card_role = ?4 WHERE id = ?1",
@@ -649,6 +670,50 @@ mod tests {
     fn lane(conn: &Connection, ws: &str, card_id: &str) -> (String, Option<String>) {
         let c = cards_of(conn, ws).unwrap().into_iter().find(|c| c.card_id == card_id).unwrap();
         (c.lane, c.blocked_reason)
+    }
+
+    #[test]
+    fn a_model_turned_off_since_approval_is_left_out_of_the_ladder_and_a_ladder_of_none_blocks() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let ws = workspace(&conn);
+        let p = crate::gateway::store::add_provider(
+            &conn,
+            &crate::gateway::store::NewProvider {
+                kind: "openrouter",
+                label: "openrouter",
+                endpoint: "https://openrouter.ai/api/v1",
+                credential_ref: None,
+                default_billing: "paid",
+                wire: "openai",
+            },
+        )
+        .unwrap();
+        for m in ["google/gemini-4-neon", "google/gemini-4-carbon"] {
+            crate::gateway::store::add_model(&conn, &p.id, m).unwrap();
+        }
+        conn.execute("UPDATE models SET enabled = 0 WHERE model_id = 'google/gemini-4-neon'", []).unwrap();
+        let mut c1 = bcard("c1", &[], 1, "engine");
+        c1.model = Some(format!("{}/google/gemini-4-neon", p.id));
+        c1.fallbacks = vec![Fallback { model: format!("{}/google/gemini-4-carbon", p.id), reason: "feed".into() }];
+        let mut c2 = bcard("c2", &[], 1, "engine");
+        c2.model = Some(format!("{}/google/gemini-4-neon", p.id));
+        c2.fallbacks = vec![];
+        let b = brainstorm(vec![c1, c2], vec![]);
+        insert_brainstorm(&conn, &b);
+        add_cards(&conn, &b, &ws, "opencode").unwrap();
+        set_limits(&conn, &ws, Some((2, 1))).unwrap();
+        let started = tick(&conn).unwrap();
+        assert_eq!(started.len(), 1, "c1 runs on what is left of its ladder; c2 has nothing to run on");
+        let task = tasks::task_detail(&conn, &started[0]).unwrap();
+        assert_eq!(
+            task.policy.steps.iter().map(|s| s.model.clone()).collect::<Vec<_>>(),
+            [Some(format!("pygg/{}/google/gemini-4-carbon", p.id))]
+        );
+        assert_eq!(lane(&conn, &ws, "c1").0, "running");
+        assert_eq!(
+            lane(&conn, &ws, "c2"),
+            ("blocked".into(), Some(format!("No enabled model: {}/google/gemini-4-neon", p.id)))
+        );
     }
 
     #[test]

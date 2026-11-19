@@ -64,7 +64,7 @@ Model:              auto
 
 Home shows three steps: connect a provider, set up your coding tool, work with `auto`. Nothing is sent to any provider until you connect one and a request comes through.
 
-Pygg keeps its data in `%APPDATA%\app.smarttaskrouter.desktop`: the store, the request ledger and each web session's profile. Provider keys are not in that folder; they are in the Windows Credential Manager. Set `PYGG_DATA_DIR` to point the app at another folder, for example to try it without touching your own store.
+Pygg keeps its data in `%APPDATA%\app.smarttaskrouter.desktop`: the store, the request ledger and each web session's profile. Provider keys are not in that folder; they are in the Windows Credential Manager. Set `PYGG_DATA_DIR` to point the app at another folder, for example to try it without touching your own store; that app runs beside the installed one and needs a gateway port of its own (Endpoint → Configure…).
 
 ## Connect a provider
 

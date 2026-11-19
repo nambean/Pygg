@@ -228,7 +228,7 @@ cd apps/desktop/src-tauri; cargo test --lib --tests   # core, gateway, web-sessi
 node scripts/readme-diagrams.mjs                      # regenerate the README's animated diagrams
 ```
 
-`PYGG_DATA_DIR` points the app at another store, for trying it without touching your own.
+`PYGG_DATA_DIR` points the app at another store, for trying it without touching your own; that app runs beside the installed one, with its own window profile, and needs a gateway port of its own (Endpoint → Configure…).
 
 ## Licence
 
