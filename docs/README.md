@@ -39,7 +39,7 @@ When documents disagree: **IMPLEMENTATION-STATUS** says what is built and how it
 | [AGENTS.md](AGENTS.md) | Coding tools through Pygg, agent CLIs with their own sign-in, the MCP server and the task engine (on hold) |
 | [design/SCREENS.md](design/SCREENS.md) | The app's screens as built |
 | [design/CLI.md](design/CLI.md) | The `pygg` command line: commands, output, exit codes, the npm launcher |
-| [design/BRAIN.md](design/BRAIN.md) | The decided, not built, next shape of smart tasks: the model facts feed, `pygg/brain` and the Kanban board (ADR-040 to ADR-042) |
+| [design/BRAIN.md](design/BRAIN.md) | The brain, as designed and built: the model facts feed, the role aliases, `pygg/brain`, the Kanban board and the Brain Storming screen (ADR-040 to ADR-042), with what each has been seen doing live |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | How to change Pygg: order, tests, schema, money, writing, commits |
 | [../benchmark/README.md](../benchmark/README.md) | The benchmark harness, its cases and how to run it through the gateway |
 | [../benchmark/reports/](../benchmark/reports) | Measured results, one report per run, with method, cost and raw results |
