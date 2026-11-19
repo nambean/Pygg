@@ -43,7 +43,7 @@ What comes next, in order, and what must be true before a public release. What i
 
 Its results replace the README's figures. Its paid traffic is capped at **$50** (owner, 2026-11-19, ADR-028), apart from the $20 the earlier runs used. Anthropic's Claude models are left out while the owner's Anthropic usage limit is reached, and join within the same $50 later; Claude Code still runs, through Pygg on other models. Runs contributed by others ([CONTRIBUTING](../CONTRIBUTING.md#benchmark-runs)) are added beside it.
 
-Smart tasks' next shape is decided and being built in ADR-041's order (owner, 2026-11-19): the model facts feed (ADR-040, built), the role aliases (built, not yet measured with the harness), `pygg/brain` proposals approved into ordinary tasks (built, not yet run with a real planner), then the board (ADR-042) with the Brain Storming screen, and the image role. Design: [design/BRAIN.md](design/BRAIN.md).
+Smart tasks' next shape is decided and built in ADR-041's order (owner, 2026-11-19): the model facts feed (ADR-040), the role aliases (not yet measured with the harness), `pygg/brain` proposals (run live with a real planner), and the board (ADR-042) with the Brain Storming screen (not yet run in the installed app). Still to come: the image role, Checking's limit held by the runner, money per kept result per role on the board. Design: [design/BRAIN.md](design/BRAIN.md).
 
 ## Release gates
 

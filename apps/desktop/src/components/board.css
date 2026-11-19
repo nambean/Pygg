@@ -1,0 +1,38 @@
+/* The board (docs/design/BRAIN.md §4.6): seven fixed columns; a single list grouped by column where seven readable
+   columns do not fit the content area (by the board's own width, so it holds with the sidebar open and at Windows
+   text scaling). Tokens from styles.css; the card follows the task row. */
+.board-page { padding: 16px 20px 40px; }
+.board-head { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-bottom: 12px; font-size: 12px; }
+.board-head .counts { color: var(--secondary); font-variant-numeric: tabular-nums; }
+.board-head details { font-size: 12px; }
+.board-head summary { color: var(--accent-text); font-weight: 500; cursor: default; display: inline; }
+.board { container-type: inline-size; }
+.board-columns { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; align-items: start; }
+.board-column { background: color-mix(in srgb, var(--label) 4%, transparent); border-radius: 10px; padding: 8px; min-height: 120px; min-width: 0; }
+.board-column-head { display: flex; align-items: center; gap: 6px; padding: 2px 4px 8px; font-size: 11px; font-weight: 600; min-width: 0; }
+.board-column-head .lim { color: var(--secondary); font-weight: 500; font-variant-numeric: tabular-nums; margin-inline-start: auto; }
+.board-column-head .link-button { font-size: 11px; padding: 0 4px; }
+.board-column.blocked .board-column-head { color: var(--orange); }
+.board-card { background: var(--surface); border-radius: 8px; box-shadow: var(--shadow); padding: 8px 9px; font-size: 12px; min-width: 0; }
+.board-card + .board-card { margin-top: 8px; }
+.board-card .title { font-weight: 500; overflow-wrap: anywhere; }
+.board-card .brain-id { font-size: 11px; color: var(--secondary); margin-top: 3px; display: block; }
+.board-card .foot { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; margin-top: 6px; font-size: 11px; color: var(--secondary); }
+.board-card .reason { color: var(--orange); font-weight: 600; font-size: 11px; margin-top: 4px; overflow-wrap: anywhere; }
+.board-card .actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.board-card .actions .button { min-height: 24px; height: auto; padding: 2px 9px; font-size: 12px; max-width: 100%; white-space: normal; text-align: center; }
+.board-card.locked { opacity: .75; }
+.board-list { display: none; }
+@container (max-width: 980px) {
+  .board-columns { display: none; }
+  .board-list { display: block; }
+}
+.board-group { margin-top: 14px; }
+.board-group h3 { font-size: 13px; font-weight: 600; margin: 0 0 6px 4px; display: flex; gap: 8px; align-items: center; }
+.board-group h3 .lim { color: var(--secondary); font-weight: 500; font-size: 11px; }
+.board-group.blocked h3 { color: var(--orange); }
+.board-list .board-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: start; }
+.board-list .board-card .actions { grid-column: 2; grid-row: 1 / span 4; margin: 0; align-self: center; }
+.board-empty { font-size: 11px; color: var(--secondary); padding: 4px; }
+.limit-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.limit-field input { width: 52px; text-align: center; }

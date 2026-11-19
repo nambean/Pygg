@@ -11,6 +11,7 @@ pub mod agents;
 pub mod applog;
 pub mod backup;
 pub mod bench;
+pub mod board;
 pub mod checks;
 pub mod cli;
 pub mod codex_catalog;
@@ -221,6 +222,25 @@ pub fn run() {
                     }
                 });
             }
+            // The board's tick (board.rs, ADR-042): every few seconds the cards' lanes follow their tasks and Ready cards
+            // are pulled into Running under each workspace's WIP limit; the tasks it makes start here.
+            {
+                let shared = state.shared.clone();
+                let runner = state.tasks.clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        match shared.with_db(board::tick) {
+                            Ok(ids) => {
+                                for id in ids {
+                                    runner.start(&id);
+                                }
+                            }
+                            Err(e) => applog::warn(&format!("board: {e}")),
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    }
+                });
+            }
             // Usage history older than the user keeps (Settings → Data) goes at start-up and once a day; forever by default.
             // The store's daily copy (backup.rs) is made on the same round.
             {
@@ -303,6 +323,12 @@ pub fn run() {
             commands::brainstorm_approve,
             commands::brain_picks,
             commands::brain_pick_set,
+            commands::boards_list,
+            commands::board_get,
+            commands::board_act,
+            commands::board_set_limits,
+            commands::brain_settings,
+            commands::brain_settings_set,
             commands::model_set_capabilities,
             commands::auto_simulate,
             commands::agents_detect,

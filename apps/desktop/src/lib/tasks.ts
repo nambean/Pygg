@@ -197,10 +197,40 @@ export type FactView = {
   score: number; unit: string; ci: number | null; date: string | null; derived: boolean; agent: string | null; effort: string | null;
   votes: number | null; ranks: boolean; measures: string;
 };
+/** The user's own runs on cards of a role with this model (ADR-029); ranks from ten attempts on. */
+export type OwnEvidence = { attempts: number; checksPassed: number; kept: number; ranks: boolean };
 export type RoleLine = {
   model: string; providerId: string; modelId: string; billing: Billing; tier: string | null; tierSource: string | null;
-  layer: 'feed' | 'tier' | 'none'; fact: FactView | null; others: FactView[]; outputMicroPerMtok: number | null;
+  layer: 'own' | 'feed' | 'tier' | 'none'; own: OwnEvidence | null; fact: FactView | null; others: FactView[]; outputMicroPerMtok: number | null;
 };
+/** The layer that won, in one line with its source and date (BRAIN.md 4.5). */
+export function evidenceLine(l: RoleLine): string {
+  if (l.own?.ranks) return `your runs ${l.own.kept}/${l.own.attempts} kept · ${l.own.checksPassed}/${l.own.attempts} checks passed`;
+  if (l.fact) return factLine(l.fact);
+  return l.tier ? `tier ${l.tier} only` : 'no tier';
+}
+
+// ---------- the board (board.rs, ADR-042) ----------
+
+export type BoardLane = 'discovery' | 'ready' | 'running' | 'checking' | 'blocked' | 'review' | 'done' | 'discarded';
+export const BOARD_LANES: BoardLane[] = ['discovery', 'ready', 'running', 'checking', 'blocked', 'review', 'done'];
+export type BoardCard = {
+  id: string; workspaceId: string; brainstormId: string | null; cardId: string; title: string; role: BrainRole; done: string; prompt: string;
+  dependsOn: string[]; ladder: string[]; agent: string; runner: 'engine' | 'ide'; class: 'standard' | 'expedite'; lane: BoardLane; held: boolean;
+  taskId: string | null; blockedReason: string | null; blockedSince: number | null; blockedMs: number; readyAt: number | null;
+  startedAt: number | null; doneAt: number | null; position: number; createdAt: number; updatedAt: number; task: TaskSummary | null;
+};
+export type BoardLimits = { wipRunning: number; wipChecking: number; own: boolean };
+export type BoardMeasures = { measured: boolean; done: number; doneToday: number; cycleTimeMedianMs: number | null; leadTimeMedianMs: number | null; blockedTodayMs: number };
+export type Board = { workspaceId: string; workspaceName: string; workspacePath: string; limits: BoardLimits; cards: BoardCard[]; measures: BoardMeasures };
+export type BoardSummary = { workspaceId: string; workspaceName: string; cards: number; attention: number };
+export type BoardAction = 'expedite' | 'standard' | 'hold' | 'release' | 'drop' | 'engine';
+/** The Brain Storming defaults (BRAIN.md 4.7b). */
+export type BrainSettings = { wipRunning: number; wipChecking: number; runner: 'engine' | 'ide'; rememberPlanner: boolean; changeScope: 'ask' | 'card' | 'role' };
+export type BrainPick = { scope: string; role: BrainRole; model: string };
+/** The model facts feed's state (gateway/facts.rs). */
+export type FactsSource = { id: string; name: string; url: string; licence: string; attribution: string; measures: string; roles: string[]; status: string; observed: string | null; rows: number | null; termsRead: string | null; error: string | null };
+export type FactsStatus = { enabled: boolean; fetchedAt: number | null; built: string | null; facts: number; sources: FactsSource[]; lastError: string | null; stale: boolean };
 /** The fact in one line: source, place, score, date, and `derived` where the source measures something near the role. */
 export function factLine(f: FactView): string {
   const ci = f.ci != null ? ` ±${f.ci}` : '';

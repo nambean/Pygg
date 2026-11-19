@@ -40,7 +40,7 @@ The navigation:
 | Group | Screens | Shortcut |
 | --- | --- | --- |
 | **Gateway** | Home, Providers, Endpoint, CLI Tools, Combos, Usage, Policies | `Ctrl+1` … `Ctrl+6` for Home to Usage |
-| **Smart Tasks · Experimental** | Tasks, Workspaces, Agents | `Ctrl+7` Tasks, `Ctrl+8` Agents |
+| **Smart Tasks · Experimental** | Tasks, Workspaces, Agents, Brain Storming | `Ctrl+7` Tasks, `Ctrl+8` Agents |
 | **App** | Guide, Settings | `Ctrl+/` Guide, `Ctrl+,` Settings |
 
 - Rows are 28px high, with an accent-coloured icon and a quiet selected background.
@@ -127,6 +127,16 @@ The official agent CLIs on this computer (`Agents.tsx`), each with its own sign-
 - **Agents on This Computer:** each agent's version and sign-in, or **How to Install**.
 - **Run a Task:** a one-off run in a worktree of a chosen repository.
 - **Let Your Agent Delegate Tasks:** one-click MCP set-up for Claude Code, Codex CLI and OpenCode, and **Set It Up by Hand** for Cursor and other JSON-configured clients.
+
+#### Brain Storming
+
+The one-time set-up for `pygg/brain` applied to every project (`BrainStorming.tsx`, ADR-042, [BRAIN.md](BRAIN.md) §4.7b). Settings only: nothing on it sends anything to a model.
+
+- **Models by role:** plan, code, test and review, each with the saved pick (`connection/model`, tier, billing, the evidence that ranks it: your runs, a fact with its source and date, or the tier), **Change…** (the role's ranking in a select) and **Clear**; a cleared role reads "By the rules (no saved pick)".
+- **Defaults for a new brainstorm:** the runner, the WIP limits for Running and Checking, whether a planner picked inside a brainstorm is saved as the plan role, and what **Change…** on a card offers first.
+- **Facts and prompt:** the model facts switch, its build date, when it was fetched, **Refresh**, the sources with their licences, row counts and dates, and the brain prompt `brain-v1` with **Open** into Skills & Prompts.
+- **Projects that differ:** every workspace, with its own picks when it has any, **Use defaults**, and **Workspaces**.
+- **How it starts:** the command per agent that starts a brainstorm; there is no text box.
 
 #### Guide
 
@@ -285,12 +295,24 @@ The task list (`TaskList.tsx`).
 - **Needs Attention.** On All, these tasks are pinned on top and not repeated below: waiting for approval, interrupted, plan needs revalidation, and needs review. Their button reads **Review**; other rows read **Open**.
 - **Row.** A state icon, the title, the workspace and the client that started the task, a status line (phase, attempt, time), the attempt sequence, and the cost so far (§3.3).
 - **Brainstorm rows** (§5.2.2) sit beside the tasks on All, and under Needs Approval while they wait on the user; **Review** opens one.
+- **Board** (§5.1.1), the last entry of the segmented control, with the count of cards waiting on the user.
 - **States:**
   - Loading.
   - A load error with **Try Again**. A failed load is never shown as an empty list.
   - Ready for Your First Task, with **New Task**.
   - No Tasks Match "…", with **Clear Search**.
   - An empty state for each filter.
+
+#### 5.1.1 Board
+
+The cards of a workspace's approved brainstorms as Kanban columns (`Board.tsx`, ADR-042, [BRAIN.md](BRAIN.md) §4.6). It reloads every three seconds; the app's tick pulls cards into Running under the limit.
+
+- **Header:** the workspace, or a switcher when several have cards; `Running 1/1 · Blocked 2 · Ready 6 · Review 1 · Done 3`; **Measures** as a disclosure (cycle time median, cards done today, time blocked today) once five cards are done, before that how many are; **Use the default limits** when the workspace has its own.
+- **Columns:** Discovery, Ready, Running, Checking, Blocked, Review, Done. Running and Checking show `count / limit` and **Limit…**, which edits the number in place (never below 1). Blocked is named in orange. An empty column says **Nothing here**.
+- **Card:** the title (▲ when expedited), the role chip, the task's attempt chips, the first model of the ladder and how many follow, the Blocked reason and `blocked 2 h 10 min`, the phase and time while it runs, "held by you" or what it waits for in Discovery, "next in line" in Ready, "checks passed" or "finished" in Review and Done.
+- **Buttons:** **Review** (Blocked, Review) or **Open** (elsewhere) opens the task detail; in Ready, **Expedite** / **Standard** and **Back to Discovery**; in Discovery on a held card, **Move to Ready**; **Drop** (confirmed) on a card without a task; **Hand to the engine** on a card waiting for the IDE agent. Running, Checking, Review and Done are the engine's; there is no drag.
+- **Width:** a single list grouped by column, Blocked first, when the board is narrower than 980 px.
+- **States:** loading; a load error with **Try Again**; no cards yet, with how a brainstorm starts; no workspace yet.
 
 ### 5.2 Task detail
 

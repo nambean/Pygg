@@ -396,7 +396,59 @@ pub struct FactView {
     pub measures: String,
 }
 
-/// One connected model's line for a role: which layer won and the facts behind it.
+/// What the user's own runs say about a model for a role (ADR-029): attempts on cards of that role whose step
+/// ran this model, how many passed their checks, and how many results were kept.
+#[derive(Clone, Debug, Serialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Own {
+    pub attempts: u32,
+    pub checks_passed: u32,
+    pub kept: u32,
+    /// True from `OWN_MIN_ATTEMPTS` attempts on: then this layer wins over the feed.
+    pub ranks: bool,
+}
+
+/// Own evidence ranks from this many attempts (BRAIN.md §1).
+pub const OWN_MIN_ATTEMPTS: u32 = 10;
+
+/// The user's own evidence per `connection/model` for a role, from the attempts of tasks made from cards
+/// (`tasks.card_role`, migration 0042): an attempt's `model_ref` is the agent's naming, `pygg/<connection/model>`
+/// for an agent pointed at the gateway. A result is counted as kept once per task, on the attempt that made it.
+pub fn own_evidence(conn: &Connection, role: &str) -> Result<std::collections::HashMap<String, Own>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT a.model_ref, a.state, t.result, a.number, (SELECT MAX(number) FROM attempts x JOIN task_stages y ON x.stage_id = y.id WHERE y.task_id = t.id)              FROM attempts a JOIN task_stages s ON a.stage_id = s.id JOIN tasks t ON s.task_id = t.id              WHERE t.card_role = ?1 AND a.state IN ('passed', 'failed', 'done')",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([role], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, Option<i64>>(4)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    let mut out: std::collections::HashMap<String, Own> = std::collections::HashMap::new();
+    for row in rows {
+        let (model_ref, state, result, number, last) = row.map_err(|e| e.to_string())?;
+        let model = model_ref.strip_prefix("pygg/").unwrap_or(&model_ref).to_string();
+        let own = out.entry(model).or_default();
+        own.attempts += 1;
+        if state == "passed" {
+            own.checks_passed += 1;
+        }
+        if result.as_deref() == Some("kept") && Some(number) == last {
+            own.kept += 1;
+        }
+    }
+    for own in out.values_mut() {
+        own.ranks = own.attempts >= OWN_MIN_ATTEMPTS;
+    }
+    Ok(out)
+}
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Line {
@@ -407,8 +459,10 @@ pub struct Line {
     pub billing: String,
     pub tier: Option<String>,
     pub tier_source: Option<String>,
-    /// `feed`, `tier`, or `none` (the own-evidence layer fills once attempts carry a role, BRAIN.md §1).
+    /// `own` (the user's own attempts on cards of this role, from ten on), `feed`, `tier`, or `none`.
     pub layer: String,
+    /// The user's own evidence for this model and role, when any attempt exists (ranks from `OWN_MIN_ATTEMPTS`).
+    pub own: Option<Own>,
     /// The fact the rule used, when the feed layer won.
     pub fact: Option<FactView>,
     /// Every other fact for this model and role, the ones too old to rank included.
@@ -454,21 +508,37 @@ fn rank_role_on(conn: &Connection, feed: Option<&Feed>, role: &str, today: i64) 
         return Err(format!("{role} is not a role; the roles are {}", ROLES.join(", ")));
     }
     let providers: Vec<Provider> = store::list_providers(conn)?.into_iter().filter(|p| p.enabled).collect();
+    let own = own_evidence(conn, role)?;
     let mut lines = Vec::new();
     for m in store::list_models(conn, None)?.into_iter().filter(|m| m.enabled) {
         if !providers.iter().any(|p| p.id == m.provider_id) {
             continue;
         }
-        lines.push(line_for(&m, feed, role, today));
+        let mut line = line_for(&m, feed, role, today);
+        line.own = own.get(&format!("{}/{}", m.provider_id, m.model_id)).cloned();
+        if line.own.as_ref().is_some_and(|o| o.ranks) {
+            line.layer = "own".into();
+        }
+        lines.push(line);
     }
     lines.sort_by(|a, b| {
         let layer = |l: &Line| match l.layer.as_str() {
-            "feed" => 0,
-            "tier" => 1,
-            _ => 2,
+            "own" => 0,
+            "feed" => 1,
+            "tier" => 2,
+            _ => 3,
+        };
+        // Within own evidence: the kept rate, then the checks-passed rate (BRAIN.md §1).
+        let rate = |l: &Line| {
+            l.own
+                .as_ref()
+                .filter(|o| o.ranks)
+                .map(|o| (o.kept as f64 / o.attempts as f64, o.checks_passed as f64 / o.attempts as f64))
+                .unwrap_or((0.0, 0.0))
         };
         layer(a)
             .cmp(&layer(b))
+            .then_with(|| rate(b).partial_cmp(&rate(a)).unwrap_or(std::cmp::Ordering::Equal))
             .then_with(|| {
                 let rank = |l: &Line| l.fact.as_ref().map(|f| f.rank).unwrap_or(0.0);
                 rank(b).partial_cmp(&rank(a)).unwrap_or(std::cmp::Ordering::Equal)
@@ -560,6 +630,7 @@ fn line_for(m: &Model, feed: Option<&Feed>, role: &str, today: i64) -> Line {
         tier: m.capabilities.tier.clone(),
         tier_source: m.capabilities.tier_source.clone(),
         layer: layer.to_string(),
+        own: None,
         fact,
         others,
         output_micro_per_mtok: m.price.as_ref().map(|p| p.output_micro_per_mtok),
@@ -597,6 +668,7 @@ mod tests {
     use super::*;
     use crate::gateway::store::NewProvider;
     use ed25519_dalek::{Signer, SigningKey};
+    use rusqlite::params;
 
     const SEED: [u8; 32] = [7; 32];
 
@@ -741,6 +813,87 @@ mod tests {
         assert!(plan[0].fact.as_ref().unwrap().derived);
         assert!(rank_role_on(&conn, None, "code", today).unwrap().iter().all(|l| l.layer != "feed"));
         assert!(rank_role_on(&conn, None, "coding", today).is_err());
+    }
+
+    #[test]
+    fn the_users_own_runs_rank_a_model_above_the_feed_from_ten_attempts_on() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let p = store::add_provider(
+            &conn,
+            &NewProvider {
+                kind: "openrouter",
+                label: "openrouter",
+                endpoint: "https://openrouter.ai/api/v1",
+                credential_ref: None,
+                default_billing: "paid",
+                wire: "openai",
+            },
+        )
+        .unwrap();
+        for m in ["anthropic/claude-opus-4.5", "google/gemini-3-pro", "z-ai/glm-4.7-flash:free"] {
+            store::add_model(&conn, &p.id, m).unwrap();
+        }
+        conn.execute("INSERT INTO workspaces (id, name, path, created_at) VALUES ('w1', 'repo', 'C:/src/shop', 1)", [])
+            .unwrap();
+        // Tasks made from cards carry the card's role; their attempts are the evidence. Gemini: 10 attempts on code
+        // cards, 7 passed their checks, 6 results kept (one task's kept result counts once, on its last attempt).
+        // GLM: 3 attempts, below the threshold, so it shows but does not rank. Opus: an attempt on a review card only.
+        let mut n = 0;
+        let mut task = |role: &str, model: &str, states: &[&str], result: Option<&str>| {
+            n += 1;
+            let id = format!("t{n}");
+            conn.execute(
+                "INSERT INTO tasks (id, workspace_id, title, prompt, strategy, state, result, card_role, created_at, updated_at) \
+                 VALUES (?1, 'w1', 'x', 'x', 'free_first', 'checks_passed', ?2, ?3, 1, 1)",
+                params![id, result, role],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO task_stages (id, task_id, position, name, state) VALUES (?1, ?2, 0, 'change', 'done')",
+                params![format!("s{n}"), id],
+            )
+            .unwrap();
+            for (i, state) in states.iter().enumerate() {
+                conn.execute(
+                    "INSERT INTO attempts (id, stage_id, number, agent, model_ref, tier, billing, state) VALUES (?1, ?2, ?3, 'opencode', ?4, 1, 'paid', ?5)",
+                    params![format!("a{n}_{i}"), format!("s{n}"), i as i64 + 1, format!("pygg/{model}"), state],
+                )
+                .unwrap();
+            }
+        };
+        let gemini = "openrouter/google/gemini-3-pro";
+        for _ in 0..6 {
+            task("code", gemini, &["passed"], Some("kept"));
+        }
+        task("code", gemini, &["failed", "passed"], Some("discarded"));
+        task("code", gemini, &["failed", "failed"], None);
+        task("code", "openrouter/z-ai/glm-4.7-flash:free", &["passed", "passed", "passed"], Some("kept"));
+        task("review", "openrouter/anthropic/claude-opus-4.5", &["passed"], Some("kept"));
+        let today = days("2026-11-19").unwrap();
+        let the_feed: Feed = serde_json::from_value(feed(
+            "2026-11-19T00:00:00Z",
+            vec![fact(&["claude-opus-4-5"], "code", 1, 10, "2026-10-30", Some("claude-code"), false)],
+        ))
+        .unwrap();
+        let lines = rank_role_on(&conn, Some(&the_feed), "code", today).unwrap();
+        let names: Vec<&str> = lines.iter().map(|l| l.model.as_str()).collect();
+        assert_eq!(names, [gemini, "openrouter/anthropic/claude-opus-4.5", "openrouter/z-ai/glm-4.7-flash:free"]);
+        let own = lines[0].own.as_ref().unwrap();
+        assert_eq!(
+            (lines[0].layer.as_str(), own.attempts, own.checks_passed, own.kept, own.ranks),
+            ("own", 10, 7, 6, true)
+        );
+        assert_eq!(
+            (lines[1].layer.as_str(), lines[1].own.is_none()),
+            ("feed", true),
+            "a review attempt is not code evidence"
+        );
+        let glm = lines[2].own.as_ref().unwrap();
+        assert_eq!(
+            (lines[2].layer.as_str(), glm.attempts, glm.kept, glm.ranks),
+            ("none", 3, 1, false),
+            "under ten attempts: shown, not ranked"
+        );
     }
 
     #[test]

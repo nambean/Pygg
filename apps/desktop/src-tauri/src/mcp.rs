@@ -96,6 +96,14 @@ fn tools() -> Value {
          "description": "A brainstorm pygg/brain made for you (ask for the model pygg/brain with a requirement to start one): its state, planner, open questions and cards with the model Pygg picked for each. Approval happens in the Pygg app, never here.",
          "inputSchema": {"type": "object", "properties": {
             "brainstorm_id": {"type": "string", "description": "The id in the brain's reply (b_…). Default: your newest brainstorm."}}}},
+        {"name": "pygg_board",
+         "description": "The Kanban board of a workspace: your brainstorms' cards by column (discovery, ready, running, checking, blocked, review, done), each with its task's state. Paid steps are approved in the Pygg app, never here.",
+         "inputSchema": {"type": "object", "required": ["workspace_id"], "properties": {
+            "workspace_id": {"type": "string", "description": "The workspace's id (pygg_brainstorm shows it once a brainstorm was approved)."}}}},
+        {"name": "pygg_board_move",
+         "description": "Move one of your cards between Discovery and Ready: to ready releases a held card, to discovery holds it. Nothing else moves by hand; the engine moves the rest.",
+         "inputSchema": {"type": "object", "required": ["card_id", "to"], "properties": {
+            "card_id": {"type": "string", "description": "The board card id (bc_…)."}, "to": {"type": "string", "enum": ["ready", "discovery"]}}}},
         {"name": "pygg_model_facts",
          "description": "The user's connected models ranked for a role (plan, code, test, review) from Pygg's model facts feed: each with the public benchmark it ranks by, its place and date, or its tier when no fact applies.",
          "inputSchema": {"type": "object", "properties": {
@@ -289,6 +297,44 @@ async fn call_tool(gateway: &Gateway, name: &str, args: &Value) -> Result<String
             }
             out.push_str("Approve or change it in the Pygg app; this tool cannot.");
             Ok(out)
+        }
+        "pygg_board" => {
+            let ws = args["workspace_id"].as_str().unwrap_or("");
+            let board = gateway.call(Method::GET, &format!("/pygg/v1/board?workspace={ws}"), None).await?;
+            let s = |v: &Value| v.as_str().unwrap_or("").to_string();
+            let mut out = format!(
+                "Board of {} · Running {}/{}\n",
+                s(&board["workspaceName"]),
+                board["cards"].as_array().map(|c| c.iter().filter(|x| x["lane"] == "running").count()).unwrap_or(0),
+                board["limits"]["wipRunning"].as_u64().unwrap_or(1)
+            );
+            for lane in ["blocked", "review", "running", "checking", "ready", "discovery", "done"] {
+                for c in board["cards"].as_array().into_iter().flatten().filter(|c| c["lane"] == lane) {
+                    out.push_str(&format!(
+                        "[{lane}] {} {} ({}) {}{}\n",
+                        s(&c["id"]),
+                        s(&c["title"]),
+                        s(&c["role"]),
+                        c["task"]["state"]
+                            .as_str()
+                            .map(|st| format!("task {st}"))
+                            .unwrap_or_else(|| "no task yet".into()),
+                        c["blockedReason"].as_str().map(|r| format!(" · {r}")).unwrap_or_default()
+                    ));
+                }
+            }
+            Ok(out)
+        }
+        "pygg_board_move" => {
+            let card = args["card_id"].as_str().unwrap_or("");
+            let to = args["to"].as_str().unwrap_or("ready");
+            let c = gateway.call(Method::POST, &format!("/pygg/v1/board/{card}/move"), Some(json!({"to": to}))).await?;
+            Ok(format!(
+                "Card {} is in {} now{}",
+                c["id"].as_str().unwrap_or(card),
+                c["lane"].as_str().unwrap_or("?"),
+                if c["held"] == true { " (held)" } else { "" }
+            ))
         }
         "pygg_model_facts" => {
             let role = args["role"].as_str().unwrap_or("code");

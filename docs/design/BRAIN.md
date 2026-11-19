@@ -1,6 +1,6 @@
 # Pygg — The brain, the facts feed and the board
 
-> **Status:** Design · the model facts feed (ADR-040), the role aliases and `pygg/brain` (ADR-041) are built; the board and the Brain Storming screen (ADR-042) are decided, not built · reviewed 2026-11-19
+> **Status:** Design, built · the model facts feed (ADR-040), the role aliases, `pygg/brain` (ADR-041), the board and the Brain Storming screen (ADR-042) are built; what each part has and has not been seen doing is in [Implementation Status](../IMPLEMENTATION-STATUS.md) · reviewed 2026-11-19
 
 How a requirement typed into the user's own coding agent becomes a board of cards, each on a model picked by rule from measured facts, run one at a time under the user's approval. Nothing in this document claims that code exists; [Implementation Status](../IMPLEMENTATION-STATUS.md) says what does.
 
@@ -79,7 +79,7 @@ model-facts/
 
 For a role, each connected model's line is built from three layers, each shown with its source:
 
-1. **The user's own evidence**, from the ledger: `checks_passed` and `result_kept` for that model on cards of that role (ADR-029), once ten attempts exist; the line is ordered by kept results over attempts, then checks passed over attempts. This layer wins. Until the board exists (phase 4) no attempt carries a role, so this layer is empty and the screens say "your runs: none yet".
+1. **The user's own evidence**, from the ledger: `checks_passed` and `result_kept` for that model on cards of that role (ADR-029), once ten attempts exist; the line is ordered by kept results over attempts, then checks passed over attempts. This layer wins. As built: the role is on the task (`tasks.card_role`, set when the board makes a task from a card), the evidence is every finished attempt of such tasks whose `model_ref` names the model (`pygg/<connection/model>` stripped of its prefix), a kept result counts once per task, and a model with fewer than ten attempts shows its numbers but ranks by the next layer.
 2. **The feed**, the best `rank` among the role's sources that are not older than twelve months, with its `derived` label. Where a source has several rows for one model (agents, efforts), the row whose agent Pygg would run and whose effort the connection sends comes first, else the best row, and the line says which row it is.
 3. **The tier** (`curated:v1` or `price-band:v1`, ADR-006, ADR-031), when nothing else is known.
 
@@ -87,7 +87,7 @@ The interface says which layer a line comes from. A `derived` fact reads "ranked
 
 **Order within a list** (the role sheet, the planner pick, a role's row): first by the layer that won (own evidence, then feed, then tier); within own evidence by kept rate, then checks-passed rate; within the feed by `rank`; within the tier by tier; then by estimated cost, then by `connection/model`. No tie is asserted; equal numbers stay in that order and both are shown.
 
-**Phases and the store.** Phase 1 (the feed) adds no migration: the feed is a file next to the store, its settings two keys. Saved picks and workspace overrides (the Brain Storming screen) come with `pygg/brain` as one migration (`brain_picks`: scope `global` or a workspace id, role, `connection/model`, saved at). A role on an attempt comes with the board (`attempts.role`, nullable, never inferred for older attempts), and only then does the own-evidence layer fill.
+**Phases and the store.** Phase 1 (the feed) adds no migration: the feed is a file next to the store, its settings two keys. Saved picks and workspace overrides (the Brain Storming screen) come with `pygg/brain` as one migration (`brain_picks`: scope `global` or a workspace id, role, `connection/model`, saved at). The role comes with `pygg/brain` on the task (`tasks.card_role`, nullable, never inferred for older tasks) and the board fills it, so the own-evidence layer fills from the board's first tasks on.
 
 ## 2. `pygg/brain`
 
@@ -210,6 +210,16 @@ For the IDE agent (`<app> mcp`), under the client's **May start tasks** permissi
 
 None approves a paid step or a brainstorm (ADR-010).
 
+### As built (phase 4, `board.rs`, migration 0044)
+
+- **Cards are rows** (`board_cards`), made on approval from the brainstorm's kept cards in wave order, each with its lane, the ladder (the card's model, then its fallbacks), the runner, the class, the dependencies, the prompt and the times. The board is those rows joined to their tasks; the measures come from the rows' times and the tasks, nothing else is stored.
+- **A tick every three seconds** (the app, while the engine runs) settles every lane from the task's state (`running`, `checking` once a check runs, `blocked` with the reason a paid step waits, over the cap or budget, interrupted, or a failed ladder; `review` on checks passed, needs review or accepted; `done` on kept; `discarded` on discarded), moves a Discovery card to Ready once every question and card it depends on is answered or done, puts a card whose dependency was dropped before approval in Blocked naming it, and holds an IDE-run card in Blocked as **Waiting for your agent** until **Hand to the engine**. Then it pulls Ready cards, expedite first, then by position, while Running has room under its limit, making one task per card (`tasks::create_task`) with one step per model of the ladder, run by the agent chosen at approval. No approval is given by the tick: a paid step waits as it always did (ADR-010).
+- **Checking's limit** is kept and shown; the engine does not yet hold a run before its checks, so it is display-only until the runner learns to wait (noted on the Brain Storming screen).
+- **Limits** are the Brain Storming defaults (`brain.wip_running`, `brain.wip_checking`, 1 each) unless a workspace's `board_settings` row differs; **Use the default limits** deletes the row.
+- **Measures** from five done cards on: cycle time (Ready to Done) and lead time (created to Done) medians, cards done today, time blocked today. Known money per kept result is not shown yet: `tasks::quality` has it per model, not yet per card role.
+- **Moves:** `expedite` (one at a time) and `standard`, `hold` (Ready to Discovery, held until released), `release`, `drop` (confirmed; Discarded, never run), `engine` (an IDE card handed to the engine). A card with a task is the engine's; the app's task detail does the rest (approve, retry, keep, discard).
+- **Surfaces:** the app's commands, the task API (`GET /pygg/v1/board?workspace=W`, `POST /pygg/v1/board/{card}/move` with `to: discovery|ready`) and the MCP tools above.
+
 ## 4. The interface
 
 Reviewed against [SCREENS.md](SCREENS.md) on 2026-11-19 (a read-only Codex review of the draft, and a survey of comparable products: OpenRouter, Cursor, Cline, Kilo Code, LMArena, Vibe Kanban, Conductor, Codex cloud, Claude Code web, Jules, Devin, Linear agents, Kiro). What was taken from each is in the table at the end of this section.
@@ -303,6 +313,7 @@ One board per workspace, a workspace switcher when there are several. Reached fr
 - **Dependencies:** a card whose prerequisite was dropped shows **Needs an answer** in Blocked with the missing card named; a cycle the planner produced is refused at parse time, so the board never holds one.
 - **Width:** when seven readable columns do not fit the content area (the sidebar takes 224 px; at a 1024 px window that leaves about 114 px per column), the board becomes one list grouped by column, Blocked first, with every action a button. The switch is by available width, not window width, so it holds with the sidebar open and at Windows text scaling (819 and 683 px).
 - **States:** no board yet ("Brainstorms start from your coding agent: ask it to use pygg/brain"); load error with **Try Again**; the engine stopped; a workspace removed (the board is kept read-only, with the reason).
+- **As built** (`Board.tsx`, `board.css`): reached as the **Board** entry after the Tasks filters (with the count of cards in Blocked and Review); the header carries the workspace or its switcher, the counts, **Measures** as a disclosure and **Use the default limits** when the workspace differs; **Limit…** on Running and Checking edits in place. A card shows its title, the role chip, the attempt chips of its task, the ladder's first model and how many follow, the Blocked reason and time, the phase and elapsed time while it runs, and its buttons. The list layout switches at a board width of 980 px by container query, Blocked first, then Review, Running, Checking, Ready, Discovery, Done. Not built yet: the engine's state in the header, a removed workspace's read-only board, `+42 −18 · 6 files` on Review and Done (the task's diff is in its detail).
 
 ### 4.7 Facts on Providers
 
@@ -320,6 +331,7 @@ A screen of its own in the Smart Tasks group (owner, 2026-11-19), so the picks a
 - **Projects that differ:** the workspaces with an override (which roles and limits), **Edit…** and **Use defaults**; other workspaces offer **Override…**. An override holds only what differs.
 - **How it starts:** the reminder that a brainstorm starts from the coding agent with the model `pygg/brain`, with the one-line command per agent. No text box.
 - **States:** no connected model for a role ("nothing eligible for code: connect a provider or loosen the policy"); a saved model no longer eligible (kept, marked, with the reason); facts off (every role row reads "by tier"); stress at 683 px with 90-character ids wrapping under the role chip.
+- **As built** (`BrainStorming.tsx`, settings keys `brain.*`, `brain_picks` scope `global` or a workspace id): the five sections above. **Models by role** shows the saved pick with its evidence line (your runs, the fact, or the tier), **Change…** a select of the role's ranking in place of the role sheet, **Clear**. **Defaults** hold the runner, both WIP limits (Checking's marked display-only until the engine holds a run before its checks), **Remember a planner picked in a brainstorm**, and what **Change…** on a card offers first; the approval-asks-again threshold is not built (approval already confirms every time). **Projects that differ** lists every workspace with its own picks (`role → model`) and **Use defaults**; a workspace's own picks are written from a brainstorm's **Change…** and its limits from its board, so there is no **Override…** sheet here. **How it starts** shows the three commands.
 
 ### 4.7c How Tasks, Workspaces, Agents and Brain Storming link
 

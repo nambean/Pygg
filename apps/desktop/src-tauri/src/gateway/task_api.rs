@@ -41,6 +41,72 @@ pub fn routes() -> Router<Shared> {
         .route("/pygg/v1/brainstorms", get(brainstorms))
         .route("/pygg/v1/brainstorms/{id}", get(brainstorm))
         .route("/pygg/v1/facts", get(facts))
+        // The board (ADR-042): read, and move a card between Discovery and Ready; nothing here approves a step.
+        .route("/pygg/v1/board", get(board_view))
+        .route("/pygg/v1/board/{card}/move", post(board_move))
+}
+
+/// A workspace's board (`?workspace=<id>`), for the client's own brainstorms' cards.
+async fn board_view(State(shared): State<Shared>, headers: HeaderMap, uri: Uri) -> Response {
+    let client = match authenticate(&shared, &headers) {
+        Ok(client) => client,
+        Err(refusal) => return refusal.openai(),
+    };
+    let Some(workspace) = query_value(&uri, "workspace") else {
+        return error(StatusCode::BAD_REQUEST, "Name the workspace: ?workspace=<id>");
+    };
+    let result = blocking(&shared, move |db| {
+        let mut board = crate::board::board(db, &workspace)?;
+        board.cards.retain(|c| {
+            c.brainstorm_id
+                .as_deref()
+                .and_then(|b| crate::gateway::brain::get(db, b).ok().flatten())
+                .is_some_and(|b| b.client_id == Some(client.id.clone()))
+        });
+        Ok(board)
+    })
+    .await;
+    match result {
+        Ok(board) => Json(board).into_response(),
+        Err(r) => r,
+    }
+}
+
+#[derive(Deserialize)]
+struct Move {
+    /// `ready` (release a held card) or `discovery` (hold it).
+    to: String,
+}
+
+async fn board_move(
+    State(shared): State<Shared>, headers: HeaderMap, Path(card): Path<String>, Json(m): Json<Move>,
+) -> Response {
+    let client = match authenticate(&shared, &headers) {
+        Ok(client) => client,
+        Err(refusal) => return refusal.openai(),
+    };
+    let action = match m.to.as_str() {
+        "ready" => "release",
+        "discovery" => "hold",
+        _ => return error(StatusCode::BAD_REQUEST, "to is ready or discovery"),
+    };
+    let result = blocking(&shared, move |db| {
+        let c = crate::board::card(db, &card)?.ok_or("No such card")?;
+        let owned = c
+            .brainstorm_id
+            .as_deref()
+            .and_then(|b| crate::gateway::brain::get(db, b).ok().flatten())
+            .is_some_and(|b| b.client_id == Some(client.id.clone()));
+        if !owned {
+            return Err("No such card of this client".into());
+        }
+        crate::board::act(db, &card, action)
+    })
+    .await;
+    match result {
+        Ok(c) => Json(c).into_response(),
+        Err(r) => r,
+    }
 }
 
 /// One value of the request's query string, un-escaped only as far as `+` and `%2F` go (ids and roles are plain).

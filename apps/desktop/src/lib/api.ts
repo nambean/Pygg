@@ -6,7 +6,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { engineText } from './engineText';
 import { runningInDesktop } from './native';
-import type { DayBudget, NewTask, TaskDetail, TaskSummary, WorkspaceView, Brainstorm, BrainRole, RoleLine } from './tasks';
+import type { DayBudget, NewTask, TaskDetail, TaskSummary, WorkspaceView, Brainstorm, BrainRole, RoleLine, Board, BoardAction, BoardCard, BoardLimits, BoardSummary, BrainPick, BrainSettings, FactsStatus } from './tasks';
 
 export type Billing = 'free' | 'local' | 'subscription' | 'paid' | 'unknown';
 export const BILLINGS: Billing[] = ['free', 'local', 'subscription', 'paid', 'unknown'];
@@ -604,6 +604,20 @@ export interface GatewayApi {
   brainstormApprove(id: string, workspaceId: string, agent: string): Promise<string[]>;
   /** The enabled models ranked for a role from the model facts feed (ADR-040). */
   modelFactsRole(role: BrainRole): Promise<RoleLine[]>;
+  modelFactsStatus(): Promise<FactsStatus>;
+  modelFactsRefresh(): Promise<FactsStatus>;
+  modelFactsSetEnabled(on: boolean): Promise<FactsStatus>;
+  /** The board (ADR-042): the workspaces that have one, one workspace's board, a button on a card, the limits. */
+  boards(): Promise<BoardSummary[]>;
+  board(workspaceId: string): Promise<Board>;
+  boardAct(cardId: string, action: BoardAction): Promise<BoardCard>;
+  /** A workspace's own WIP limits; `running` null returns it to the defaults. */
+  boardSetLimits(workspaceId: string, running: number | null, checking: number | null): Promise<BoardLimits>;
+  /** The Brain Storming screen (BRAIN.md 4.7b): defaults, and the saved picks by role and scope. */
+  brainSettings(): Promise<BrainSettings>;
+  setBrainSettings(settings: BrainSettings): Promise<BrainSettings>;
+  brainPicks(): Promise<BrainPick[]>;
+  setBrainPick(scope: string, role: BrainRole, model: string | null): Promise<BrainPick[]>;
   /** Where pygg-mcp is, for the IDE setup instructions. */
   mcpSetup(): Promise<McpSetup>;
   /** The agents Pygg can register its MCP server with, and whether it is. */
@@ -732,6 +746,17 @@ const native: GatewayApi = {
   brainstormDecline: id => invoke('brainstorm_decline', {id}),
   brainstormApprove: (id, workspaceId, agent) => invoke('brainstorm_approve', {id, workspaceId, agent}),
   modelFactsRole: role => invoke('model_facts_role', {role}),
+  modelFactsStatus: () => invoke('model_facts_status'),
+  modelFactsRefresh: () => invoke('model_facts_refresh'),
+  modelFactsSetEnabled: on => invoke('model_facts_set_enabled', {on}),
+  boards: () => invoke('boards_list'),
+  board: workspaceId => invoke('board_get', {workspaceId}),
+  boardAct: (cardId, action) => invoke('board_act', {cardId, action}),
+  boardSetLimits: (workspaceId, running, checking) => invoke('board_set_limits', {workspaceId, running, checking}),
+  brainSettings: () => invoke('brain_settings'),
+  setBrainSettings: settings => invoke('brain_settings_set', {settings}),
+  brainPicks: () => invoke('brain_picks'),
+  setBrainPick: (scope, role, model) => invoke('brain_pick_set', {scope, role, model}),
   cancelTask: id => invoke('task_cancel', {id}),
   decideTask: (id, approve, capUsd) => invoke('task_decide', {id, approve, capUsd}),
   retryTask: id => invoke('task_retry', {id}),

@@ -58,6 +58,12 @@ const states = [
   {screen: 'brainstorm', name: 'Approve sheet', steps: `click('Approve', -1); await wait(600);`, expect: '[role=dialog]'},
   {screen: 'brainstorm-pick', name: 'the planner pick', steps: '', expect: '.brain-pick'},
   {screen: 'brainstorm-failed', name: 'the planner failed', steps: `document.querySelectorAll('.form-disclosure').forEach(d => d.open = true); await wait(200);`, expect: '.error-note'},
+  // The board (BRAIN.md §4.6) with its measures open and a limit being edited; the Brain Storming screen with a role
+  // pick being changed.
+  {screen: 'board', name: 'the board, measures open', steps: `document.querySelectorAll('.board-head details').forEach(d => d.open = true); await wait(200);`, expect: '.board-card'},
+  {screen: 'board', name: 'a limit being edited', steps: `click('Limit…', 0); await wait(300);`, expect: '.limit-field'},
+  {screen: 'brain', name: 'Brain Storming', steps: '', expect: '.group'},
+  {screen: 'brain', name: 'a role pick being changed', steps: `click('Change…', 0); await wait(800);`, expect: '.group select'},
   // First run: nothing connected, no keys, no requests.
   ...['overview', 'connections', 'endpoint', 'tools', 'combos', 'usage', 'skills'].map(screen => ({screen, query: 'empty', name: 'first run', steps: ''})),
   {screen: 'connections', query: 'empty', name: 'first run, Connect sheet', steps: `click('Connect Provider'); await wait(800);`, expect: '[role=dialog]'},

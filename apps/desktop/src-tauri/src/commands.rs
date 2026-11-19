@@ -1764,8 +1764,9 @@ pub fn brainstorm_decline(state: State<'_, AppState>, id: String) -> Res<brain::
     Ok(b)
 }
 
-/// Approves a proposal: every card that is not dropped becomes a task of the workspace, in wave order, with one
-/// step on the card's model run by `agent`. A paid step still waits for approval when it starts (ADR-010).
+/// Approves a proposal: every card that is not dropped becomes a card of the workspace's board (board.rs, ADR-042),
+/// pulled into a task by the board's tick under the workspace's WIP limit. A paid step still waits for approval
+/// when it starts (ADR-010). Returns the board cards' ids.
 #[tauri::command]
 pub async fn brainstorm_approve(
     state: State<'_, AppState>, id: String, workspace_id: String, agent: String,
@@ -1775,85 +1776,125 @@ pub async fn brainstorm_approve(
         return Err("Only a proposed brainstorm can be approved".into());
     }
     crate::agents::find(&agent).ok_or_else(|| format!("{agent} is not an agent Pygg knows"))?;
-    let mut cards: Vec<&brain::Card> = b.proposal.cards.iter().filter(|c| !c.dropped).collect();
-    if cards.is_empty() {
+    let kept: Vec<&brain::Card> = b.proposal.cards.iter().filter(|c| !c.dropped).collect();
+    if kept.is_empty() {
         return Err("Every card was dropped; nothing to approve".into());
     }
-    if cards.iter().any(|c| c.model.is_none()) {
+    if kept.iter().any(|c| c.model.is_none()) {
         return Err("A card has no eligible model; pick one for it first".into());
     }
-    cards.sort_by_key(|c| c.wave);
-    let models = state.shared.with_db(|db| store::list_models(db, None))?;
-    let mut ids = Vec::new();
-    for card in cards {
-        // The card's model first, then its fallbacks: one step each, so a failed attempt (a connection error, a spent
-        // quota, a failed check) moves the task to the next model (AGENTS.md, the task engine).
-        let ladder: Vec<String> = std::iter::once(card.model.clone().unwrap_or_default())
-            .chain(card.fallbacks.iter().map(|f| f.model.clone()))
-            .take(tasks::MAX_STEPS)
-            .collect();
-        let mut steps = Vec::new();
-        for model in &ladder {
-            let row =
-                model.split_once('/').and_then(|(p, m)| models.iter().find(|x| x.provider_id == p && x.model_id == m));
-            let tier = row
-                .and_then(|m| m.capabilities.tier.as_deref())
-                .and_then(|t| t.strip_prefix('T'))
-                .and_then(|t| t.parse().ok())
-                .unwrap_or(0);
-            // Only an agent pointed at the gateway runs the card on the model Pygg picked: OpenCode through its Pygg
-            // provider (`pygg/<connection/model>`). The others run with their own sign-in and the pick is told to them.
-            let (step_model, billing) = if agent == "opencode" {
-                (Some(format!("pygg/{model}")), row.map(|m| m.billing.clone()).unwrap_or_else(|| "unknown".into()))
-            } else {
-                (None, "unknown".to_string())
-            };
-            steps.push(tasks::Step { agent: agent.clone(), model: step_model, tier, billing });
-        }
-        if agent != "opencode" {
-            steps.truncate(1);
-        }
-        let note = if agent == "opencode" {
-            String::new()
-        } else {
-            format!(
-                "\n\nPygg picked {} for this card; this agent runs with its own sign-in and model.",
-                ladder.join(", then ")
-            )
-        };
-        let prompt = format!(
-            "{}\n\nThis card: {} (role: {}).\nDone when: {}{}\n\nThe whole requirement, for context:\n{}",
-            card.title, card.title, card.role, card.done, note, b.requirement
-        );
-        let new = tasks::NewTask {
-            workspace_id: workspace_id.clone(),
-            title: Some(card.title.clone()),
-            prompt,
-            strategy: "balanced".into(),
-            steps,
-            allow_shell: false,
-            timeout_secs: None,
-            handoff: None,
-        };
-        let card_id = card.id.clone();
-        let card_role = card.role.clone();
-        let brainstorm_id = b.id.clone();
-        let task_id = state.shared.with_db(|db| {
-            let task_id = tasks::create_task(db, &new)?;
-            db.execute(
-                "UPDATE tasks SET brainstorm_id = ?2, card_id = ?3, card_role = ?4 WHERE id = ?1",
-                rusqlite::params![task_id, brainstorm_id, card_id, card_role],
-            )
-            .map_err(|e| e.to_string())?;
-            Ok::<String, String>(task_id)
-        })?;
-        state.tasks.start(&task_id);
-        ids.push(task_id);
-    }
+    let ids = state.shared.with_db(|db| {
+        tasks::workspace(db, &workspace_id)?;
+        crate::board::add_cards(db, &b, &workspace_id, &agent)
+    })?;
     b.workspace_id = Some(workspace_id);
     b.state = "approved".into();
     state.shared.with_db(|db| brain::save(db, &b))?;
+    board_tick(&state);
     Ok(ids)
+}
+
+/// Runs the board's tick now and starts the tasks it made (the app also ticks every few seconds).
+fn board_tick(state: &AppState) {
+    match state.shared.with_db(crate::board::tick) {
+        Ok(ids) => {
+            for id in ids {
+                state.tasks.start(&id);
+            }
+        }
+        Err(e) => crate::applog::warn(&format!("board: {e}")),
+    }
+}
+
+// ---------- The board (board.rs, ADR-042) ----------
+
+/// The workspaces that have a board, with how many cards wait on the user.
+#[tauri::command]
+pub fn boards_list(state: State<'_, AppState>) -> Res<Vec<crate::board::BoardSummary>> {
+    state.shared.with_db(crate::board::list)
+}
+
+/// A workspace's board after a tick: its cards with their tasks, its limits and its measures.
+#[tauri::command]
+pub fn board_get(state: State<'_, AppState>, workspace_id: String) -> Res<crate::board::Board> {
+    board_tick(&state);
+    state.shared.with_db(|db| crate::board::board(db, &workspace_id))
+}
+
+/// A button on a card: `expedite`, `standard`, `hold`, `release`, `drop` or `engine`.
+#[tauri::command]
+pub fn board_act(state: State<'_, AppState>, card_id: String, action: String) -> Res<crate::board::Card> {
+    let card = state.shared.with_db(|db| crate::board::act(db, &card_id, &action))?;
+    board_tick(&state);
+    Ok(card)
+}
+
+/// A workspace's own WIP limits, or back to the defaults with `running` null.
+#[tauri::command]
+pub fn board_set_limits(
+    state: State<'_, AppState>, workspace_id: String, running: Option<u32>, checking: Option<u32>,
+) -> Res<crate::board::Limits> {
+    let limits = state
+        .shared
+        .with_db(|db| crate::board::set_limits(db, &workspace_id, running.map(|r| (r, checking.unwrap_or(1)))))?;
+    board_tick(&state);
+    Ok(limits)
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrainSettings {
+    pub wip_running: u32,
+    pub wip_checking: u32,
+    /// `engine` or `ide`.
+    pub runner: String,
+    pub remember_planner: bool,
+    /// `ask`, `card` or `role`: what Change… on a card offers first.
+    pub change_scope: String,
+}
+
+/// The Brain Storming defaults (BRAIN.md 4.7b), from `settings`.
+#[tauri::command]
+pub fn brain_settings(state: State<'_, AppState>) -> Res<BrainSettings> {
+    state.shared.with_db(|db| {
+        let get = |k: &str| store::setting(db, k).ok().flatten();
+        let num = |k: &str| get(k).and_then(|v| v.parse::<u32>().ok()).filter(|v| *v >= 1).unwrap_or(1);
+        Ok(BrainSettings {
+            wip_running: num(crate::board::SETTING_WIP_RUNNING),
+            wip_checking: num(crate::board::SETTING_WIP_CHECKING),
+            runner: get(crate::board::SETTING_RUNNER).filter(|v| v == "ide").unwrap_or_else(|| "engine".into()),
+            remember_planner: get(crate::board::SETTING_REMEMBER_PLANNER).is_none_or(|v| v != "0"),
+            change_scope: get(crate::board::SETTING_CHANGE_SCOPE)
+                .filter(|v| v == "card" || v == "role")
+                .unwrap_or_else(|| "ask".into()),
+        })
+    })
+}
+
+#[tauri::command]
+pub fn brain_settings_set(state: State<'_, AppState>, settings: BrainSettings) -> Res<BrainSettings> {
+    if settings.wip_running < 1 || settings.wip_checking < 1 {
+        return Err("A WIP limit is never below 1".into());
+    }
+    if settings.runner != "engine" && settings.runner != "ide" {
+        return Err("A runner is engine or ide".into());
+    }
+    if !["ask", "card", "role"].contains(&settings.change_scope.as_str()) {
+        return Err("Change… offers ask, card or role".into());
+    }
+    state.shared.with_db(|db| {
+        store::set_setting(db, crate::board::SETTING_WIP_RUNNING, &settings.wip_running.to_string())?;
+        store::set_setting(db, crate::board::SETTING_WIP_CHECKING, &settings.wip_checking.to_string())?;
+        store::set_setting(db, crate::board::SETTING_RUNNER, &settings.runner)?;
+        store::set_setting(
+            db,
+            crate::board::SETTING_REMEMBER_PLANNER,
+            if settings.remember_planner { "1" } else { "0" },
+        )?;
+        store::set_setting(db, crate::board::SETTING_CHANGE_SCOPE, &settings.change_scope)
+    })?;
+    board_tick(&state);
+    brain_settings(state)
 }
 
 #[derive(Serialize)]

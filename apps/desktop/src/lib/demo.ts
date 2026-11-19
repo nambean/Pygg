@@ -10,7 +10,7 @@ import type { AgentInfo, Integration, Launcher, ClientDefaults, ConnectionCheck,
 import { TIERS, WEB_WARNING_VERSION, type AutoAlias, type AutoRole, type ConnectionKey, type KeyStrategy } from './api';
 import { SAMPLE_WORKSPACES, sampleTasks } from './sample';
 import { demoSkills } from './demoSkills';
-import type { AttemptView, NewTask, TaskDetail, TaskSummary, WorkspaceView, Brainstorm, BrainCard, BrainQuestion, BrainRole, RoleLine } from './tasks';
+import type { AttemptView, NewTask, TaskDetail, TaskSummary, WorkspaceView, Brainstorm, BrainCard, BrainQuestion, BrainRole, RoleLine, BoardCard, BoardLane, BrainPick, BrainSettings, FactsStatus } from './tasks';
 
 type BasePreset = Omit<Preset, 'offer' | 'offerNote' | 'freeModels'>;
 const BASE_PRESETS: BasePreset[] = [
@@ -540,6 +540,14 @@ export function demoApi(): GatewayApi {
   const touch = async <T>(value: T): Promise<T> => { await sleep(120); return clone(value); };
 
   /** A short port of gateway/auto.rs for the preview: the same filters and order, on the demo models. */
+  // The Brain Storming screen (BRAIN.md 4.7b) and the feed's state, as the app keeps them.
+  const brainSettings: BrainSettings = {wipRunning: 1, wipChecking: 1, runner: 'engine', rememberPlanner: true, changeScope: 'ask'};
+  const brainPicks: BrainPick[] = [{scope: 'global', role: 'plan', model: 'gemini/gemini-3.1-pro-preview'}];
+  const factsStatus: FactsStatus = {enabled: true, fetchedAt: Date.now() - 2 * 86_400_000, built: '2026-11-18T06:12:00Z', facts: 187, stale: false, lastError: null, sources: [
+    {id: 'terminal-bench', name: 'Terminal-Bench 4.x', url: 'https://www.tbench.ai/leaderboard', licence: 'Apache-2.0', attribution: 'Terminal-Bench', measures: 'tasks solved in a terminal by an agent with the model', roles: ['code', 'test'], status: 'ok', observed: '2026-11-18', rows: 71, termsRead: '2026-11-10', error: null},
+    {id: 'swe-bench-verified', name: 'SWE-bench Verified', url: 'https://www.swebench.com', licence: 'CC BY-NC 4.0', attribution: 'SWE-bench', measures: 'GitHub issues resolved', roles: ['code'], status: 'ok', observed: '2026-11-17', rows: 110, termsRead: '2026-11-10', error: null},
+    {id: 'aider-polyglot', name: 'Aider polyglot', url: 'https://aider.chat/docs/leaderboards/', licence: 'Apache-2.0', attribution: 'Aider', measures: 'exercises passed', roles: ['code'], status: 'ok', observed: '2025-09-01', rows: 42, termsRead: '2026-11-10', error: null},
+    {id: 'lmarena', name: 'LMArena (hard prompts)', url: 'https://lmarena.ai', licence: 'CC BY 4.0', attribution: 'LMArena', measures: 'pairwise human preference', roles: ['plan', 'review', 'image'], status: 'carried', observed: '2026-11-11', rows: 405, termsRead: '2026-11-10', error: 'HTTP 503 at the last build'}]};
   function simulate(clientId: string | null, alias: AutoAlias, needs: Parameters<GatewayApi['autoSimulate']>[2]): AutoPlan {
     const client = clients.find(c => c.id === clientId);
     const cheap = alias === 'auto/cheap';
@@ -910,9 +918,21 @@ export function demoApi(): GatewayApi {
     },
     autoSimulate: async (clientId, alias, needs) => touch(simulate(clientId, alias, needs)),
     brainstormCandidates: async () => touch(simulate(null, 'auto/plan', {surfaceAnthropic: false, tools: false, vision: false, inputTokens: 3000, maxTokens: 6000, thinking: null, effort: null})),
+    modelFactsStatus: async () => touch(factsStatus),
+    modelFactsRefresh: async () => { await sleep(600); factsStatus.fetchedAt = Date.now(); factsStatus.stale = false; factsStatus.lastError = null; return touch(factsStatus); },
+    modelFactsSetEnabled: async on => { factsStatus.enabled = on; return touch(factsStatus); },
+    brainSettings: async () => touch(brainSettings),
+    setBrainSettings: async s => { Object.assign(brainSettings, s); return touch(brainSettings); },
+    brainPicks: async () => touch(brainPicks),
+    setBrainPick: async (scope, role, model) => {
+      const i = brainPicks.findIndex(p => p.scope === scope && p.role === role);
+      if (i >= 0) brainPicks.splice(i, 1);
+      if (model) brainPicks.push({scope, role, model});
+      return touch(brainPicks);
+    },
     modelFactsRole: async role => touch(models.filter(m => m.enabled).slice(0, 40).map((m, i): RoleLine => ({
       model: `${m.providerId}/${m.modelId}`, providerId: m.providerId, modelId: m.modelId, billing: m.billing, tier: m.capabilities.tier, tierSource: m.capabilities.tierSource ?? null,
-      layer: i % 3 === 0 ? 'feed' : m.capabilities.tier ? 'tier' : 'none', others: [], outputMicroPerMtok: m.price?.outputMicroPerMtok ?? null,
+      layer: i === 1 ? 'own' : i % 3 === 0 ? 'feed' : m.capabilities.tier ? 'tier' : 'none', own: i === 1 ? {attempts: 14, checksPassed: 11, kept: 9, ranks: true} : i === 4 ? {attempts: 3, checksPassed: 2, kept: 2, ranks: false} : null, others: [], outputMicroPerMtok: m.price?.outputMicroPerMtok ?? null,
       fact: i % 3 === 0 ? {source: 'terminal-bench', sourceName: 'Terminal-Bench 4.x', licence: 'Apache-2.0', url: null, name: m.modelId, place: 3 + i, of: 71, rank: 0.9, score: 64.85, unit: '% resolved',
         ci: 3.11, date: '2026-09-22', derived: role !== 'code', agent: 'claude-code', effort: 'max', votes: null, ranks: true, measures: 'tasks solved in a terminal by an agent with the model'} : null}))),
     removeModel: async (providerId, modelId) => {
@@ -1212,7 +1232,7 @@ export function demoApi(): GatewayApi {
 const DEMO_DIFF = 'diff --git a/src/timeout.ts b/src/timeout.ts\n--- a/src/timeout.ts\n+++ b/src/timeout.ts\n@@ -3,3 +3,3 @@\n-  return setTimeout(fn, ms * 100);\n+  return setTimeout(fn, ms);\n';
 
 /** Tasks for the browser preview: the sample tasks, and new ones that "run" for a few seconds. Nothing runs. */
-function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'brainstorms' | 'brainstorm' | 'brainstormPickPlanner' | 'brainstormRetry' | 'brainstormSetModel' | 'brainstormSetCard' | 'brainstormDecline' | 'brainstormApprove' | 'workspaces' | 'addWorkspace' | 'removeWorkspace' | 'taskBudget' | 'setTaskBudget' | 'setWorkspaceBudget' | 'setWorkspacePrivacy' | 'pickFolder' | 'exportPatch'
+function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards' | 'board' | 'boardAct' | 'boardSetLimits' | 'brainstorms' | 'brainstorm' | 'brainstormPickPlanner' | 'brainstormRetry' | 'brainstormSetModel' | 'brainstormSetCard' | 'brainstormDecline' | 'brainstormApprove' | 'workspaces' | 'addWorkspace' | 'removeWorkspace' | 'taskBudget' | 'setTaskBudget' | 'setWorkspaceBudget' | 'setWorkspacePrivacy' | 'pickFolder' | 'exportPatch'
   | 'detectChecks' | 'workspaceCheck' | 'tasks' | 'task' | 'createTask' | 'cancelTask' | 'decideTask' | 'retryTask' | 'taskDiff'
   | 'finishTask'> {
   let dailyLimit: number | null = 2;
@@ -1310,7 +1330,56 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'brains
   const set = (id: string, change: Partial<TaskDetail>) => { details.set(id, {...get(id), ...change, updatedAt: Date.now()}); };
   const findWorkspace = (id: string) => { const w = workspaces.find(x => x.id === id); if (!w) throw 'That workspace no longer exists'; return w; };
 
+  // The board (board.rs): the proposed brainstorm's cards as if approved into the first workspace, in every lane.
+  const boardLimits = new Map<string, {wipRunning: number; wipChecking: number}>();
+  const boardCards: BoardCard[] = (() => {
+    const ws = workspaces[0]?.id ?? '';
+    const tasks = [...details.values()].filter(d => d.workspaceId === ws);
+    const byState = (state: string) => tasks.find(d => d.state === state) ?? tasks[0] ?? null;
+    const lanes: Record<string, [BoardLane, string | null, string | null]> = {
+      c1: ['done', 'done', null], c2: ['review', 'done', null], c3: ['running', 'running', null], c4: ['ready', null, null],
+      c5: ['blocked', null, 'Needs q3, q4'], c6: ['discovery', null, null], c7: ['discarded', null, null], c8: ['discovery', null, null]};
+    const now = Date.now();
+    return proposedCards().map((c, i): BoardCard => {
+      const [lane, taskState, reason] = lanes[c.id] ?? [(['discovery', 'ready', 'blocked', 'done'] as BoardLane[])[i % 4], null, i % 4 === 2 ? 'Waiting for your agent' : null];
+      const task = taskState ? byState(taskState) : null;
+      return {id: `bc-${c.id}`, workspaceId: ws, brainstormId: 'bs-proposed', cardId: c.id, title: c.title, role: c.role, done: c.done, prompt: c.done, dependsOn: c.dependsOn,
+        ladder: [c.model ?? 'auto/code', ...c.fallbacks.map(f => f.model)], agent: 'opencode', runner: c.id === 'c8' ? 'ide' : 'engine', class: c.id === 'c4' ? 'expedite' : 'standard', lane,
+        held: c.id === 'c6', taskId: task?.id ?? null, blockedReason: lane === 'blocked' ? reason : null, blockedSince: lane === 'blocked' ? now - 5_400_000 : null, blockedMs: lane === 'blocked' ? 1_200_000 : 0,
+        readyAt: now - 7_200_000, startedAt: ['running', 'checking', 'review', 'done'].includes(lane) ? now - 3_600_000 : null, doneAt: lane === 'done' ? now - 1_800_000 : null,
+        position: c.wave * 1000 + i, createdAt: now - 7_200_000, updatedAt: now - 60_000, task: task ? summary(task) : null};
+    });
+  })();
+  const boardOf = (workspaceId: string) => {
+    const w = findWorkspace(workspaceId);
+    const own = boardLimits.get(workspaceId);
+    const cards = boardCards.filter(c => c.workspaceId === workspaceId).map(c => ({...c, task: c.taskId && details.has(c.taskId) ? summary(get(c.taskId)) : null}));
+    const done = cards.filter(c => c.lane === 'done').length;
+    return {workspaceId, workspaceName: w.name, workspacePath: w.path, limits: {wipRunning: own?.wipRunning ?? 1, wipChecking: own?.wipChecking ?? 1, own: !!own}, cards,
+      measures: {measured: done >= 5, done, doneToday: done, cycleTimeMedianMs: done ? 1_800_000 : null, leadTimeMedianMs: done ? 5_400_000 : null, blockedTodayMs: 1_200_000}};
+  };
+
   return {
+    boards: () => touch(workspaces.filter(w => boardCards.some(c => c.workspaceId === w.id)).map(w => ({workspaceId: w.id, workspaceName: w.name,
+      cards: boardCards.filter(c => c.workspaceId === w.id && c.lane !== 'discarded').length, attention: boardCards.filter(c => c.workspaceId === w.id && (c.lane === 'blocked' || c.lane === 'review')).length}))),
+    board: async id => touch(boardOf(id)),
+    boardAct: async (cardId, action) => {
+      const c = boardCards.find(x => x.id === cardId);
+      if (!c) throw 'That card no longer exists';
+      if (action === 'expedite') { if (boardCards.some(x => x.class === 'expedite' && x.lane !== 'done' && x.lane !== 'discarded' && x.id !== c.id)) throw 'One card at a time can be expedited'; c.class = 'expedite'; }
+      else if (action === 'standard') c.class = 'standard';
+      else if (action === 'hold') { c.held = true; c.lane = 'discovery'; }
+      else if (action === 'release') { c.held = false; c.lane = 'ready'; }
+      else if (action === 'drop') c.lane = 'discarded';
+      else if (action === 'engine') { c.runner = 'engine'; if (c.lane === 'blocked') { c.lane = 'ready'; c.blockedReason = null; c.blockedSince = null; } }
+      c.updatedAt = Date.now();
+      await sleep(80);
+      return clone(c);
+    },
+    boardSetLimits: async (workspaceId, running, checking) => {
+      if (running == null) boardLimits.delete(workspaceId); else boardLimits.set(workspaceId, {wipRunning: Math.max(1, running), wipChecking: Math.max(1, checking ?? 1)});
+      return touch(boardOf(workspaceId).limits);
+    },
     workspaces: () => touch(workspaces.map(w => ({...w, tasks: [...details.values()].filter(d => d.workspaceId === w.id).length}))),
     addWorkspace: async (path, name) => {
       await sleep(200);

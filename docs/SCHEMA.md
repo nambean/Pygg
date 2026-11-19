@@ -1,6 +1,6 @@
 # Store schema
 
-> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v43
+> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v44
 
 The local SQLite store (`db.rs`): every table after all migrations, in order. Credentials are never here: a
 connection holds only a reference to its key in the OS credential store (ADR-002). Client tokens are stored as
@@ -69,6 +69,55 @@ References: `stage_id` → `task_stages.id` (on delete cascade).
 | `entity` | TEXT | no |  |  | 0001_init |
 | `metadata_json` | TEXT | no | `'{}'` |  | 0001_init |
 | `created_at` | INTEGER | no |  |  | 0001_init |
+
+## `board_cards`
+
+| Column | Type | Null | Default | Key | Added in |
+| --- | --- | --- | --- | --- | --- |
+| `id` | TEXT | yes |  | primary | 0044_board |
+| `workspace_id` | TEXT | no |  |  | 0044_board |
+| `brainstorm_id` | TEXT | yes |  |  | 0044_board |
+| `card_id` | TEXT | no |  |  | 0044_board |
+| `title` | TEXT | no |  |  | 0044_board |
+| `role` | TEXT | no |  |  | 0044_board |
+| `done` | TEXT | no |  |  | 0044_board |
+| `prompt` | TEXT | no |  |  | 0044_board |
+| `depends_on_json` | TEXT | no | `'[]'` |  | 0044_board |
+| `ladder_json` | TEXT | no | `'[]'` |  | 0044_board |
+| `agent` | TEXT | no |  |  | 0044_board |
+| `runner` | TEXT | no | `'engine'` |  | 0044_board |
+| `class` | TEXT | no | `'standard'` |  | 0044_board |
+| `lane` | TEXT | no | `'discovery'` |  | 0044_board |
+| `held` | INTEGER | no | `0` |  | 0044_board |
+| `task_id` | TEXT | yes |  |  | 0044_board |
+| `blocked_reason` | TEXT | yes |  |  | 0044_board |
+| `blocked_since` | INTEGER | yes |  |  | 0044_board |
+| `blocked_ms` | INTEGER | no | `0` |  | 0044_board |
+| `ready_at` | INTEGER | yes |  |  | 0044_board |
+| `started_at` | INTEGER | yes |  |  | 0044_board |
+| `done_at` | INTEGER | yes |  |  | 0044_board |
+| `position` | INTEGER | no | `0` |  | 0044_board |
+| `created_at` | INTEGER | no |  |  | 0044_board |
+| `updated_at` | INTEGER | no |  |  | 0044_board |
+
+References: `task_id` → `tasks.id` (on delete set null); `brainstorm_id` → `brainstorms.id` (on delete set null); `workspace_id` → `workspaces.id` (on delete cascade).
+
+Indexes: `board_cards_by_brainstorm`, `board_cards_by_workspace`.
+
+5 CHECK constraints (see the migrations).
+
+## `board_settings`
+
+| Column | Type | Null | Default | Key | Added in |
+| --- | --- | --- | --- | --- | --- |
+| `workspace_id` | TEXT | yes |  | primary | 0044_board |
+| `wip_running` | INTEGER | no | `1` |  | 0044_board |
+| `wip_checking` | INTEGER | no | `1` |  | 0044_board |
+| `updated_at` | INTEGER | no |  |  | 0044_board |
+
+References: `workspace_id` → `workspaces.id` (on delete cascade).
+
+2 CHECK constraints (see the migrations).
 
 ## `brain_picks`
 

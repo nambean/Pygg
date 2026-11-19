@@ -668,6 +668,13 @@ pub fn list_tasks(conn: &Connection) -> Result<Vec<TaskSummary>> {
         .collect()
 }
 
+/// One task's summary, as the list shows it (for a board card's task, board.rs).
+pub fn task_summary(conn: &Connection, id: &str) -> Result<TaskSummary> {
+    let row = task_row(conn, id)?;
+    let attempts = attempts_of(conn, id)?;
+    summary_of(conn, id, &row, &attempts)
+}
+
 pub fn task_detail(conn: &Connection, id: &str) -> Result<TaskDetail> {
     task_detail_for(conn, id, None)
 }

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BookMarked, BookOpen, Bot, ChartColumn, FolderGit2, House, Link2, ListOrdered, ListTodo, PanelLeft, Plug, Plus, Search, Settings as SettingsIcon,
+import { BookMarked, BookOpen, Bot, Brain, ChartColumn, FolderGit2, House, Link2, ListOrdered, ListTodo, PanelLeft, Plug, Plus, Search, Settings as SettingsIcon,
   SlidersHorizontal, TerminalSquare } from 'lucide-react';
 import './styles.css';
 import brandMark from './assets/brand-mark.svg';
@@ -20,6 +20,8 @@ import { NewTaskView } from './components/NewTaskView';
 import { SettingsView } from './components/SettingsView';
 import { TaskDetail } from './components/TaskDetail';
 import { BrainstormDetail } from './components/BrainstormDetail';
+import { Board } from './components/Board';
+import { BrainStorming } from './components/BrainStorming';
 import { TaskList } from './components/TaskList';
 import { needsChecks, WorkspacesView } from './components/WorkspacesView';
 import { WindowControls } from './components/WindowControls';
@@ -39,6 +41,8 @@ type View =
   | {kind: 'tasks'; filter: TaskFilter}
   | {kind: 'task'; id: string; from: TaskFilter}
   | {kind: 'brainstorm'; id: string; from: TaskFilter}
+  | {kind: 'board'; workspaceId: string | null}
+  | {kind: 'brain'}
   | {kind: 'new'}
   | {kind: 'policies'}
   | {kind: 'skills'}
@@ -82,6 +86,8 @@ function startView(): View {
   if (screen === 'brainstorm') return {kind: 'brainstorm', id: 'bs-proposed', from: 'all'};
   if (screen === 'brainstorm-pick') return {kind: 'brainstorm', id: 'bs-pick', from: 'all'};
   if (screen === 'brainstorm-failed') return {kind: 'brainstorm', id: 'bs-failed', from: 'all'};
+  if (screen === 'board') return {kind: 'board', workspaceId: null};
+  if (screen === 'brain') return {kind: 'brain'};
   return {kind: 'overview'};
 }
 
@@ -104,6 +110,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
   const workspaceList = useGateway(api => api.workspaces());
   // Brainstorms from pygg/brain (ADR-041): rows beside the tasks, live while one thinks or waits.
   const brainList = useGateway(api => api.brainstorms(), [], 3_000);
+  const boardList = useGateway(api => api.boards(), [], 10_000);
   const brainstorms = useMemo(() => brainList.data ?? [], [brainList.data]);
   const budget = useGateway(api => api.taskBudget(), [], 10_000);
   const allTasks = useMemo(() => taskList.data ?? [], [taskList.data]);
@@ -182,6 +189,9 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
     return list;
   }, [go, newTask, counts, sidebarOpen]);
 
+  // The board's workspaces: those with cards first, else every workspace (an empty board says how cards arrive).
+  const boardWorkspaces = useMemo(() => (boardList.data?.length ? boardList.data : workspaces.map(w => ({workspaceId: w.id, workspaceName: w.name, cards: 0, attention: 0}))), [boardList.data, workspaces]);
+  const boardAttention = useMemo(() => (boardList.data ?? []).reduce((n, b) => n + b.attention, 0), [boardList.data]);
   const openTask = (task: TaskSummary) => setView({kind: 'task', id: task.id, from: view.kind === 'tasks' ? view.filter : 'all'});
   const openedTask = view.kind === 'task' ? allTasks.find(task => task.id === view.id) : undefined;
   const created = (id: string) => { taskList.reload(); workspaceList.reload(); setView({kind: 'task', id, from: 'all'}); };
@@ -189,6 +199,8 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
     : view.kind === 'tasks' ? t('Tasks')
     : view.kind === 'task' ? openedTask?.title ?? t('Task')
     : view.kind === 'brainstorm' ? t('Brainstorm')
+    : view.kind === 'board' ? t('Tasks')
+    : view.kind === 'brain' ? t('Brain Storming')
     : view.kind === 'new' ? t('New Task')
     : view.kind === 'policies' ? t('Policies')
     : view.kind === 'skills' ? t('Skills & Prompts')
@@ -196,7 +208,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
     : view.kind === 'agents' ? t('Agents')
     : view.kind === 'guide' ? t('Guide')
     : t('Settings');
-  const isTaskScreen = view.kind === 'tasks' || view.kind === 'task' || view.kind === 'brainstorm' || view.kind === 'new' || view.kind === 'workspaces';
+  const isTaskScreen = view.kind === 'tasks' || view.kind === 'task' || view.kind === 'brainstorm' || view.kind === 'board' || view.kind === 'brain' || view.kind === 'new' || view.kind === 'workspaces';
   const primary = isGateway(view.kind) ? PRIMARY[view.kind] : undefined;
   useRowHints();
   // After moving to another page, focus goes to its heading so a screen reader says where it is and Tab starts at the
@@ -235,11 +247,13 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         </SidebarGroup>
         <SidebarGroup title={t('Smart Tasks · Experimental')}>
           <SidebarItem icon={<ListTodo/>} label={t('Tasks')} count={attention} emphasized shortcut={`${MOD}7`}
-            selected={view.kind === 'tasks' || view.kind === 'task' || view.kind === 'new'} onSelect={() => setView({kind: 'tasks', filter: 'all'})}/>
+            selected={view.kind === 'tasks' || view.kind === 'task' || view.kind === 'new' || view.kind === 'board'} onSelect={() => setView({kind: 'tasks', filter: 'all'})}/>
           <SidebarItem icon={<FolderGit2/>} label={t('Workspaces')} count={workspaces.filter(needsChecks).length} emphasized
             title={t('Workspaces')} selected={view.kind === 'workspaces'} onSelect={() => setView({kind: 'workspaces'})}/>
           <SidebarItem icon={<Bot/>} label={t('Agents')} shortcut={`${MOD}8`}
             selected={view.kind === 'agents'} onSelect={() => setView({kind: 'agents'})}/>
+          <SidebarItem icon={<Brain/>} label={t('Brain Storming')}
+            selected={view.kind === 'brain'} onSelect={() => setView({kind: 'brain'})}/>
         </SidebarGroup>
         <SidebarGroup title={t('App')}>
           <SidebarItem icon={<BookOpen/>} label={t('Guide')} shortcut={`${MOD}/`}
@@ -263,7 +277,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         </button>
         <div className="toolbar-title" data-tauri-drag-region>
           <h1 ref={heading} tabIndex={-1}>{title}</h1>
-          {(view.kind === 'tasks' || view.kind === 'task') &&
+          {(view.kind === 'tasks' || view.kind === 'task' || view.kind === 'board') &&
             <BudgetSubtitle running={counts.running} waiting={counts.approval} budget={budget.data ?? undefined}/>}
         </div>
         <span className="spacer" data-tauri-drag-region/>
@@ -299,11 +313,20 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         {view.kind === 'agents' && <Agents/>}
         {view.kind === 'skills' && <Skills intent={intent === 'create' ? 'create' : undefined} onIntentDone={intentDone}/>}
         {view.kind === 'guide' && <Guide go={go} base={status?.baseUrl ?? (status ? `http://127.0.0.1:${status.port}` : null)}/>}
-        {view.kind === 'tasks' && <>
+        {(view.kind === 'tasks' || view.kind === 'board') &&
           <div className="page-bar task-filters">
-            <Segmented label={t('Show')} value={view.filter} onChange={filter => setView({kind: 'tasks', filter})}
-              options={FILTERS.map(f => ({value: f, label: `${t(FILTER_TITLES[f])}${counts[f] ? ` ${counts[f]}` : ''}`}))}/>
-          </div>
+            {/* The board (ADR-042) is a view of the same tasks: one more option after the filters. */}
+            <Segmented<TaskFilter | 'board'> label={t('Show')} value={view.kind === 'board' ? 'board' : view.filter}
+              onChange={filter => setView(filter === 'board' ? {kind: 'board', workspaceId: null} : {kind: 'tasks', filter})}
+              options={[...FILTERS.map(f => ({value: f as TaskFilter | 'board', label: `${t(FILTER_TITLES[f])}${counts[f] ? ` ${counts[f]}` : ''}`})),
+                {value: 'board', label: `${t('Board')}${boardAttention ? ` ${boardAttention}` : ''}`}]}/>
+          </div>}
+        {view.kind === 'board' && (boardWorkspaces.length === 0
+          ? <div className="page"><p className="group-footnote">{t('No workspace yet. The board shows the cards of a workspace’s approved brainstorms; a brainstorm from your coding agent adds its repository by itself.')}</p></div>
+          : <Board workspaceId={view.workspaceId ?? boardWorkspaces[0].workspaceId} workspaces={boardWorkspaces}
+              onWorkspace={id => setView({kind: 'board', workspaceId: id})} onOpenTask={id => { taskList.reload(); setView({kind: 'task', id, from: 'all'}); }}/>)}
+        {view.kind === 'brain' && <BrainStorming onSkills={() => setView({kind: 'skills'})} onWorkspaces={() => setView({kind: 'workspaces'})}/>}
+        {view.kind === 'tasks' && <>
           {/* Until the list has loaded once, an empty list would read as "no tasks yet". */}
           {!taskList.data ? (taskList.error
             ? <div className="page"><ErrorNote>{t('Tasks could not be loaded: {error}', {error: taskList.error})}{' '}
