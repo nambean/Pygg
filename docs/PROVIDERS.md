@@ -82,7 +82,7 @@ Recipes, hosts and selectors are in `apps/desktop/src-tauri/src/websession/mod.r
 | Perplexity (`perplexity-web`) | `https://www.perplexity.ai/` | `perplexity` | yes: the benchmark (8 of 8) |
 | DeepSeek (`deepseek-web`) | `https://chat.deepseek.com/` | `deepseek` | yes: the benchmark (8 of 8) |
 | Grok (`grok-web`) | `https://grok.com/` | `grok` | yes: sign-in with Google, Check Sign-In and Test, and the benchmark (8 of 8) |
-| Gemini (`gemini-web`) | `https://gemini.google.com/app` | `gemini` | selectors read from the live page in a browser (2026-11-19); not yet run in Pygg's window |
+| Gemini (`gemini-web`) | `https://gemini.google.com/app` | `gemini` | yes: Check Sign-In with the account shown, a text answer, and a picture it made (2026-11-19) |
 
 The benchmark is [web sessions](../benchmark/reports/2026-11-13-web-sessions.md): eight short checked tasks per account through the app's gateway, at Pygg's pace, with no money spent. Each live check was a single run. Not verified yet: use over many days, how close each site's own limits are, and a pool of two accounts used live.
 
