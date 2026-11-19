@@ -53,7 +53,7 @@ CI runs all of these on Windows, and the layout check below. A separate workflow
 ## Live tests and money
 
 - **Never commit a key or token.** Keys come from environment variables; test keys put in the OS credential store are removed afterwards.
-- **A live run on the project's budget** needs the maintainer's approval and fits the benchmark budget ($20 in total, ADR-028). Record what it verified, the model, the date and what it cost in IMPLEMENTATION-STATUS.
+- **A live run on the project's budget** needs the maintainer's approval and fits the benchmark budget ($50 for the larger benchmark, after the first $20; ADR-028). Record what it verified, the model, the date and what it cost in IMPLEMENTATION-STATUS.
 - **Web sessions** are real accounts on sites that may ban them. Live checks are short questions only, with the guard on; never point a benchmark of long prompts at a web session.
 - **Say what was not verified.** "Built" names its code; "verified" says how (unit test, fake provider, live run).
 

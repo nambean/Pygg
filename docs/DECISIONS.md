@@ -204,12 +204,14 @@ This replaces the parts of [design/SCREENS.md](design/SCREENS.md) that assume ta
 
 **Decisions:**
 - **Licence:** Pygg is open source under the MIT licence ([LICENSE](../LICENSE)). MIT-licensed code from other projects may be ported with its copyright and licence notice kept, listed in `THIRD_PARTY_NOTICES.md`. ADR-026 still applies, whatever another project's licence.
-- **Benchmark budget:** paid benchmark runs cost at most $20 in total, enforced with `bench --budget-usd`. Free tiers, local models and agents on subscriptions do not count against it; their runs are reported apart.
+- **Benchmark budget:** paid benchmark runs cost at most $20 in total, enforced with `bench --budget-usd`. Free tiers, local models and agents on subscriptions do not count against it; their runs are reported apart. The larger benchmark has a budget of its own, $50 (below).
 - **No Auto Chat in the app.** The app is not a place to compose chats or tasks (ADR-027). There is no app-owned conversation store, memory screen or per-turn model choice (ADR-017 and ADR-018 withdrawn). What tasks need survives: the bounded handoff from a failed attempt to the next step (ADR-030), and session affinity in the gateway.
 
 **Why:** Open source fits a local tool that holds keys and code. A fixed budget keeps the benchmark honest about what it can claim. Auto Chat would make the app a chat client.
 
 **Chat from the command line (owner's decision, 2026-11-18).** `pygg chat` and `pygg ask` talk to any connected model through the gateway from a terminal, like other AI command-line tools, with Pygg's routing, fallbacks, web-session guard and ledger. They are clients of the gateway with an API key of their own ("Pygg CLI (ask)"). A conversation lives in the command's memory and is forgotten when it ends: there is still no conversation store, memory screen or chat in the app.
+
+**The larger benchmark: $50 (owner's decision, 2026-11-19).** The runs published so far used about $16.7 of the $20. The larger benchmark in the [ROADMAP](ROADMAP.md) has $50 of paid traffic of its own, under the same rules: enforced with `bench --budget-usd`, free, local and subscription runs reported apart. Anthropic's Claude models are left out of it while the owner's Anthropic usage limit is reached; they join later within the same $50. Coding agents such as Claude Code still run in it, through Pygg on other models.
 
 **`pygg/brain` is not chat (ADR-041).** Its questions go back to the client that asked and are answered there; the app shows the proposal, the approval and the board, and has no reply box.
 

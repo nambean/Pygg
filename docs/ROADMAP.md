@@ -41,7 +41,7 @@ What comes next, in order, and what must be true before a public release. What i
 - **Claude Code, Codex and OpenCode**, at least three repeats per case and arm, with `auto`, `auto/cheap` and the role aliases next to pinned models.
 - **Reported per task category:** pass rate on the first attempt and across all repeats, cost per solved task and time, with confidence intervals, and every arm where the cheaper route lost.
 
-Its results replace the README's figures. Its paid traffic needs a budget the owner sets first: about $16.7 of the $20 (ADR-028) is already spent. Runs contributed by others ([CONTRIBUTING](../CONTRIBUTING.md#benchmark-runs)) are added beside it.
+Its results replace the README's figures. Its paid traffic is capped at **$50** (owner, 2026-11-19, ADR-028), apart from the $20 the earlier runs used. Anthropic's Claude models are left out while the owner's Anthropic usage limit is reached, and join within the same $50 later; Claude Code still runs, through Pygg on other models. Runs contributed by others ([CONTRIBUTING](../CONTRIBUTING.md#benchmark-runs)) are added beside it.
 
 Smart tasks' next shape is decided and being built in ADR-041's order (owner, 2026-11-19): the model facts feed (ADR-040, built), the role aliases (built, not yet measured with the harness), then `pygg/brain` proposals as ordinary tasks, the board (ADR-042) with the Brain Storming screen, and the image role. Design: [design/BRAIN.md](design/BRAIN.md).
 
@@ -88,6 +88,6 @@ Withdrawn: Auto Chat and app-owned memory (ADR-028); bridging subscription sign-
 ## Owner decisions in force
 
 - MIT licence (ADR-028).
-- Benchmark paid traffic: $20 in total (ADR-028). More needs the owner's approval.
+- Benchmark paid traffic: $20 for the runs published so far, and $50 for the larger benchmark, Claude models paused while the Anthropic limit is reached (ADR-028). More needs the owner's approval.
 - No Auto Chat in the app (ADR-028).
 - No code signing during development; a certificate is bought for release.
