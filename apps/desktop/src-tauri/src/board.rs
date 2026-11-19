@@ -244,6 +244,7 @@ fn lane_of(t: &TaskState) -> (&'static str, Option<&'static str>) {
         return ("discarded", None);
     }
     match t.state.as_str() {
+        // A run held before its checks (Checking full) is still Running.
         "running" => (if t.phase.as_deref() == Some("checking") { "checking" } else { "running" }, None),
         "waiting_approval" => ("blocked", Some("Waiting for approval")),
         "needs_revalidation" => ("blocked", Some("Approval needs a new look")),
@@ -360,6 +361,38 @@ fn task_for(conn: &Connection, card: &Card) -> Result<NewTask> {
         timeout_secs: None,
         handoff: None,
     })
+}
+
+/// Whether a task may enter its checks now (ADR-042, Checking's WIP limit): Checking has room under the
+/// workspace's limit, less the held tasks of cards ahead of this one (expedite first, then position). A task that
+/// is not a card's is never held. The runner asks before its checks and, told no, sets the phase `held` and asks
+/// again until yes.
+pub fn checking_room(conn: &Connection, task_id: &str) -> Result<bool> {
+    let card: Option<(String, String, String, i64)> = conn
+        .query_row("SELECT workspace_id, id, class, position FROM board_cards WHERE task_id = ?1", [task_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })
+        .optional()
+        .map_err(err)?;
+    let Some((workspace_id, card_id, class, position)) = card else { return Ok(true) };
+    let limit = limits(conn, &workspace_id)?.wip_checking as i64;
+    let checking: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND state = 'running' AND phase = 'checking'",
+            [&workspace_id],
+            |r| r.get(0),
+        )
+        .map_err(err)?;
+    let ahead: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM board_cards c JOIN tasks t ON t.id = c.task_id \
+             WHERE c.workspace_id = ?1 AND c.id <> ?2 AND t.state = 'running' AND t.phase = 'held' \
+             AND ((c.class = 'expedite') > (?3 = 'expedite') OR ((c.class = 'expedite') = (?3 = 'expedite') AND c.position < ?4))",
+            params![workspace_id, card_id, class, position],
+            |r| r.get(0),
+        )
+        .map_err(err)?;
+    Ok(ahead < limit - checking)
 }
 
 /// Settles every workspace's lanes and pulls Ready cards into Running under the limit, making their tasks. Returns
@@ -518,6 +551,20 @@ pub struct Measures {
     pub cycle_time_median_ms: Option<i64>,
     pub lead_time_median_ms: Option<i64>,
     pub blocked_today_ms: i64,
+    /// Known money per kept result, by role (ADR-029): what the done cards' tasks cost through the gateway.
+    pub money: Vec<RoleMoney>,
+}
+
+/// What the kept results of one role cost: the done cards' tasks' priced requests, and how many had no price.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RoleMoney {
+    pub role: String,
+    pub kept: usize,
+    pub known_usd: f64,
+    pub unknown_calls: u32,
+    /// `known_usd / kept`; None when nothing is priced.
+    pub usd_per_kept: Option<f64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -562,6 +609,29 @@ pub fn board(conn: &Connection, workspace_id: &str) -> Result<Board> {
             .iter()
             .map(|c| c.blocked_ms + c.blocked_since.map(|s| now - s.max(day)).unwrap_or(0).max(0))
             .sum(),
+        money: {
+            let mut by_role: std::collections::BTreeMap<String, RoleMoney> = std::collections::BTreeMap::new();
+            for c in &done {
+                let Some(task) = &c.task else { continue };
+                let m = by_role.entry(c.role.clone()).or_insert_with(|| RoleMoney {
+                    role: c.role.clone(),
+                    kept: 0,
+                    known_usd: 0.0,
+                    unknown_calls: 0,
+                    usd_per_kept: None,
+                });
+                m.kept += 1;
+                m.known_usd += task.cost.actual_usd + task.cost.estimated_usd;
+                m.unknown_calls += task.cost.unknown_calls;
+            }
+            by_role
+                .into_values()
+                .map(|mut m| {
+                    m.usd_per_kept = (m.known_usd > 0.0).then(|| m.known_usd / m.kept as f64);
+                    m
+                })
+                .collect()
+        },
     };
     Ok(Board {
         workspace_id: ws.id,
@@ -670,6 +740,50 @@ mod tests {
     fn lane(conn: &Connection, ws: &str, card_id: &str) -> (String, Option<String>) {
         let c = cards_of(conn, ws).unwrap().into_iter().find(|c| c.card_id == card_id).unwrap();
         (c.lane, c.blocked_reason)
+    }
+
+    #[test]
+    fn checking_has_a_limit_and_held_runs_take_the_room_expedite_first_then_in_order() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let ws = workspace(&conn);
+        let b = brainstorm(
+            vec![bcard("c1", &[], 1, "engine"), bcard("c2", &[], 1, "engine"), bcard("c3", &[], 2, "engine")],
+            vec![],
+        );
+        insert_brainstorm(&conn, &b);
+        add_cards(&conn, &b, &ws, "opencode").unwrap();
+        set_limits(&conn, &ws, Some((3, 1))).unwrap();
+        assert_eq!(tick(&conn).unwrap().len(), 3);
+        let task_of = |card_id: &str| {
+            cards_of(&conn, &ws).unwrap().into_iter().find(|c| c.card_id == card_id).unwrap().task_id.unwrap()
+        };
+        let phase = |task: &str, phase: &str| {
+            conn.execute("UPDATE tasks SET state = 'running', phase = ?2 WHERE id = ?1", params![task, phase]).unwrap();
+        };
+        let (t1, t2, t3) = (task_of("c1"), task_of("c2"), task_of("c3"));
+        // One in Checking fills the limit of 1; room with the limit raised.
+        phase(&t1, "checking");
+        assert!(!checking_room(&conn, &t2).unwrap());
+        set_limits(&conn, &ws, Some((3, 2))).unwrap();
+        assert!(checking_room(&conn, &t2).unwrap());
+        set_limits(&conn, &ws, Some((3, 1))).unwrap();
+        // Checking empty, two held: the first by position goes, the other waits; an expedited card goes first.
+        phase(&t1, "generating");
+        phase(&t2, "held");
+        phase(&t3, "held");
+        assert!(checking_room(&conn, &t2).unwrap());
+        assert!(!checking_room(&conn, &t3).unwrap());
+        let c3 = cards_of(&conn, &ws).unwrap().into_iter().find(|c| c.card_id == "c3").unwrap();
+        act(&conn, &c3.id, "expedite").unwrap();
+        assert!(checking_room(&conn, &t3).unwrap());
+        assert!(!checking_room(&conn, &t2).unwrap());
+        // A task that is no card's is never held.
+        let plain = tasks::create_task(&conn, &task_for(&conn, &c3).unwrap()).unwrap();
+        assert!(checking_room(&conn, &plain).unwrap());
+        // A held run is still in Running on the board.
+        assert_eq!(lane(&conn, &ws, "c2").0, "running");
+        let board = board(&conn, &ws).unwrap();
+        assert!(board.measures.money.is_empty(), "no card is done yet");
     }
 
     #[test]
@@ -790,6 +904,27 @@ mod tests {
             ["c4"]
         );
         assert_eq!(list(&conn).unwrap()[0].cards, 5);
+        // Money per kept result: c1's task had one priced request through the gateway and one without a price.
+        let stage: String =
+            conn.query_row("SELECT id FROM task_stages WHERE task_id = ?1", [&started[0]], |r| r.get(0)).unwrap();
+        conn.execute(
+            "INSERT INTO attempts (id, stage_id, number, agent, model_ref, tier, billing, state) VALUES ('a_c1', ?1, 1, 'opencode', 'pygg/paid/mid', 1, 'paid', 'done')",
+            [&stage],
+        )
+        .unwrap();
+        for (id, status, micro) in [("u1", "estimated", 150_000), ("u2", "unknown", 0)] {
+            conn.execute(
+                "INSERT INTO usage_events (id, attempt_id, provider, model, cost_status, cost_micro_usd, source, created_at) VALUES (?1, 'a_c1', 'paid', 'mid', ?2, ?3, 'gateway', 1)",
+                params![id, status, micro],
+            )
+            .unwrap();
+        }
+        let money = super::board(&conn, &ws).unwrap().measures.money;
+        assert_eq!(money.len(), 1);
+        assert_eq!(
+            (money[0].role.as_str(), money[0].kept, money[0].unknown_calls, money[0].usd_per_kept),
+            ("code", 1, 1, Some(0.15))
+        );
     }
 
     #[test]

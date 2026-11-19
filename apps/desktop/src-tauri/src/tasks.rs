@@ -1691,6 +1691,21 @@ impl Runner {
                     .map_err(err);
             }
 
+            // Checking's WIP limit (ADR-042): a card's run waits here, phase `held`, while Checking is full.
+            if !self.with_db(|c| crate::board::checking_room(c, id))? {
+                self.with_db(|c| set_phase(c, id, "held")).map_err(err)?;
+                loop {
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    if *cancel.borrow() || self.with_db(|c| crate::board::checking_room(c, id))? {
+                        break;
+                    }
+                }
+                if *cancel.borrow() {
+                    drop_worktree(self)?;
+                    self.with_db(|c| close_attempt(c, &attempt, "canceled", None)).map_err(err)?;
+                    return stop(self);
+                }
+            }
             self.with_db(|c| set_phase(c, id, "checking")).map_err(err)?;
             let mut results: Vec<CheckResult> = Vec::new();
             for check in &row.policy.checks {

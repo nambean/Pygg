@@ -1356,7 +1356,8 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
     const cards = boardCards.filter(c => c.workspaceId === workspaceId).map(c => ({...c, task: c.taskId && details.has(c.taskId) ? summary(get(c.taskId)) : null}));
     const done = cards.filter(c => c.lane === 'done').length;
     return {workspaceId, workspaceName: w.name, workspacePath: w.path, limits: {wipRunning: own?.wipRunning ?? 1, wipChecking: own?.wipChecking ?? 1, own: !!own}, cards,
-      measures: {measured: done >= 5, done, doneToday: done, cycleTimeMedianMs: done ? 1_800_000 : null, leadTimeMedianMs: done ? 5_400_000 : null, blockedTodayMs: 1_200_000}};
+      measures: {measured: done >= 5, done, doneToday: done, cycleTimeMedianMs: done ? 1_800_000 : null, leadTimeMedianMs: done ? 5_400_000 : null, blockedTodayMs: 1_200_000,
+        money: done ? [{role: 'plan' as BrainRole, kept: 1, knownUsd: 0.172, unknownCalls: 0, usdPerKept: 0.172}, {role: 'code' as BrainRole, kept: done, knownUsd: 0.91 * done, unknownCalls: 2, usdPerKept: 0.91}] : []}};
   };
 
   return {

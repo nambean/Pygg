@@ -46,7 +46,7 @@ export function BrainStorming({onSkills, onWorkspaces}: {onSkills: () => void; o
         <Row label={t('WIP limit · Running')} hint={t('Paid steps in flight at once; never below 1')}>
           <input className="text-input" type="number" min={1} style={{width: 52, textAlign: 'center'}} defaultValue={s.wipRunning} disabled={busy} aria-label={t('WIP limit · Running')}
             onBlur={e => { const n = Math.max(1, Number(e.target.value) || 1); if (n !== s.wipRunning) save({wipRunning: n}); }}/></Row>
-        <Row label={t('WIP limit · Checking')} hint={t('Shown on the board; the engine does not yet hold a run before its checks')}>
+        <Row label={t('WIP limit · Checking')} hint={t('Runs whose agent is done wait before their checks while Checking is full')}>
           <input className="text-input" type="number" min={1} style={{width: 52, textAlign: 'center'}} defaultValue={s.wipChecking} disabled={busy} aria-label={t('WIP limit · Checking')}
             onBlur={e => { const n = Math.max(1, Number(e.target.value) || 1); if (n !== s.wipChecking) save({wipChecking: n}); }}/></Row>
         <Row label={t('Remember a planner picked in a brainstorm')} hint={t('Saves it as the plan role above')}>

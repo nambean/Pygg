@@ -3,7 +3,7 @@ import { ArrowUp, Play } from 'lucide-react';
 import { call, errorText, gatewayChanged } from '../lib/api';
 import { elapsed } from '../lib/format';
 import { t } from '../lib/i18n';
-import { BOARD_LANES, type BoardAction, type BoardCard, type BoardLane } from '../lib/tasks';
+import { BOARD_LANES, phaseLabel, type BoardAction, type BoardCard, type BoardLane } from '../lib/tasks';
 import { useGateway } from '../hooks/useGateway';
 import { AttemptSequence } from './AttemptSequence';
 import { ErrorNote, Spinner } from './ui';
@@ -59,7 +59,8 @@ export function Board({workspaceId, workspaces, onWorkspace, onOpenTask}: {
       <span className="counts">{t('Running {r}/{l} · Blocked {b} · Ready {y} · Review {v} · Done {d}', {r: count('running'), l: board.limits.wipRunning, b: count('blocked'), y: count('ready'), v: count('review'), d: count('done')})}</span>
       <details><summary>{t('Measures')}</summary>
         <span className="brain-meta"> {m.measured
-          ? t('cycle time median {c} · {n} done today · blocked today {b} · from the cards’ times and their tasks', {c: m.cycleTimeMedianMs != null ? elapsed(m.cycleTimeMedianMs) : '—', n: m.doneToday, b: elapsed(m.blockedTodayMs)})
+          ? t('cycle time median {c} · {n} done today · blocked today {b} · money per kept result {money} · from the cards’ times and their tasks’ ledger', {c: m.cycleTimeMedianMs != null ? elapsed(m.cycleTimeMedianMs) : '—', n: m.doneToday, b: elapsed(m.blockedTodayMs),
+              money: m.money.length ? m.money.map(r => `${r.role} ${r.usdPerKept != null ? `≈$${r.usdPerKept.toFixed(r.usdPerKept < 0.1 ? 3 : 2)}` : t('unknown')}${r.unknownCalls ? ` (${t('{n} unpriced', {n: r.unknownCalls})})` : ''}`).join(', ') : t('none kept')})
           : t('measures appear after 5 cards are done ({n} so far)', {n: m.done})}</span></details>
       {board.limits.own && <button type="button" className="link-button" disabled={busy} onClick={() => act(() => call(api => api.boardSetLimits(board.workspaceId, null, null)))}>{t('Use the default limits')}</button>}
     </div>
@@ -97,7 +98,7 @@ function Card({card: c, busy, onAct, onOpenTask}: {card: BoardCard; busy: boolea
     {c.blockedReason && <div className="reason">{c.blockedReason}</div>}
     <div className="foot">
       {c.lane === 'blocked' && <span>{t('blocked {time}', {time: elapsed(blocked)})}</span>}
-      {c.lane === 'running' && c.startedAt != null && <span>{t('{phase} · {time}', {phase: c.task?.phase ?? t('running'), time: elapsed(now - c.startedAt)})}</span>}
+      {c.lane === 'running' && c.startedAt != null && <span>{t('{phase} · {time}', {phase: c.task ? phaseLabel(c.task.phase) : t('running'), time: elapsed(now - c.startedAt)})}</span>}
       {c.lane === 'discovery' && <span>{c.held ? t('held by you') : t('waits for {deps}', {deps: c.dependsOn.join(', ') || '—'})}</span>}
       {c.lane === 'ready' && <span>{t('next in line')}</span>}
       {result && <span>{result.outcome === 'passed' ? t('checks passed') : t('finished')}</span>}

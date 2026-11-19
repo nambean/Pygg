@@ -1,3 +1,4 @@
+import { t } from './i18n';
 /**
  * Task model as the interface sees it, and the sidebar filters over it (docs/design/SCREENS.md §2.2, §5.1).
  * The Rust core owns these records (src-tauri/src/tasks.rs); the browser preview fills them from sample data (sample.ts).
@@ -38,7 +39,8 @@ export type TaskCost = {
   localOnly: boolean;
 };
 
-export type RunningPhase = 'preparing' | 'generating' | 'checking';
+/** `held`: the agent is done and the run waits for room in Checking (the board's limit, ADR-042). */
+export type RunningPhase = 'preparing' | 'generating' | 'checking' | 'held';
 
 export type TaskSummary = {
   id: string;
@@ -221,7 +223,12 @@ export type BoardCard = {
   startedAt: number | null; doneAt: number | null; position: number; createdAt: number; updatedAt: number; task: TaskSummary | null;
 };
 export type BoardLimits = { wipRunning: number; wipChecking: number; own: boolean };
-export type BoardMeasures = { measured: boolean; done: number; doneToday: number; cycleTimeMedianMs: number | null; leadTimeMedianMs: number | null; blockedTodayMs: number };
+export type RoleMoney = { role: BrainRole; kept: number; knownUsd: number; unknownCalls: number; usdPerKept: number | null };
+export type BoardMeasures = { measured: boolean; done: number; doneToday: number; cycleTimeMedianMs: number | null; leadTimeMedianMs: number | null; blockedTodayMs: number; money: RoleMoney[] };
+/** A running task's phase as a word. */
+export function phaseLabel(phase: RunningPhase | undefined): string {
+  return phase === 'preparing' ? t('Preparing') : phase === 'checking' ? t('Checking') : phase === 'held' ? t('Waiting for Checking') : t('Generating');
+}
 export type Board = { workspaceId: string; workspaceName: string; workspacePath: string; limits: BoardLimits; cards: BoardCard[]; measures: BoardMeasures };
 export type BoardSummary = { workspaceId: string; workspaceName: string; cards: number; attention: number };
 export type BoardAction = 'expedite' | 'standard' | 'hold' | 'release' | 'drop' | 'engine';

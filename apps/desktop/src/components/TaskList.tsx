@@ -4,7 +4,7 @@ import type { RefObject } from 'react';
 import { ago, elapsed, taskCost } from '../lib/format';
 import { t } from '../lib/i18n';
 import { brainstormNeedsAttention, matchesFilter, needsAttention, type Brainstorm, type TaskFilter, type TaskState, type TaskSummary,
-  type Workspace } from '../lib/tasks';
+  type Workspace, phaseLabel } from '../lib/tasks';
 import { AttemptSequence } from './AttemptSequence';
 
 type Props = {
@@ -130,8 +130,7 @@ export function statusLine(task: TaskSummary, now = Date.now()): string {
   const attempt = task.attempts.length;
   switch (task.state) {
     case 'running': {
-      const phase = task.phase === 'preparing' ? t('Preparing') : task.phase === 'checking' ? t('Checking')
-        : t('Generating');
+      const phase = phaseLabel(task.phase);
       return t('{phase} · attempt {n} · {time}', {phase, n: attempt, time: elapsed(now - task.startedAt)});
     }
     case 'waiting_approval': return t('Waiting for approval · attempt {n}', {n: attempt});
