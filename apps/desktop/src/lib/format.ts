@@ -29,6 +29,16 @@ export function elapsed(ms: number): string {
   return m ? `${m}m ${String(s).padStart(2, '0')}s` : `${s}s`;
 }
 
+/** A span that may run to hours or days (time blocked, a cycle time): `2 d 3 h`, `1 h 50 min`, `7 min 28 s`, `42 s`. */
+export function span(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const d = Math.floor(total / 86_400), h = Math.floor(total / 3600) % 24, m = Math.floor(total / 60) % 60, s = total % 60;
+  if (d) return `${d} d ${h} h`;
+  if (h) return `${h} h ${m} min`;
+  if (m) return `${m} min ${s} s`;
+  return `${s} s`;
+}
+
 /**
  * A task's cost so far, honest about what is known (SCREENS.md §3.3): a local-only task says so instead of
  * "$0.00"; unknown calls are named next to the known amount, never added to it.

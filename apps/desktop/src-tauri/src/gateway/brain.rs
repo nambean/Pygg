@@ -64,6 +64,11 @@ pub struct Card {
     /// Why that model: auto's reason for the role alias (the fact, or the tier).
     #[serde(default)]
     pub reason: Option<String>,
+    /// What one run of the card on `model` would cost by the route's estimate (BRAIN.md §4.1, honest values):
+    /// `Some(0)` for a free or local model, `None` when the model has no price (unpriced), so the approval line
+    /// sums the known estimates and counts the unpriced cards.
+    #[serde(default)]
+    pub estimate_micro_usd: Option<u64>,
     /// Models tried after `model` when an attempt on it fails (a connection error, a spent quota, a failed check),
     /// each a step of the card's task: the next of the role's route by rule, or the user's own picks.
     #[serde(default)]
@@ -449,7 +454,7 @@ async fn call(shared: &Shared, client: &Client, incoming: &Incoming<'_>) -> std:
 /// The model for each card, by rule: the role alias's ranking under the client's policy (never the planner's).
 pub fn pick_models(conn: &Connection, client: &Client, proposal: &mut Proposal) -> std::result::Result<(), String> {
     let feed = super::facts::for_conn(conn);
-    let mut per_role: HashMap<String, Option<(String, String, Vec<Fallback>)>> = HashMap::new();
+    let mut per_role: HashMap<String, Option<(String, String, Option<u64>, Vec<Fallback>)>> = HashMap::new();
     for card in &mut proposal.cards {
         let entry = match per_role.get(&card.role) {
             Some(e) => e.clone(),
@@ -471,21 +476,23 @@ pub fn pick_models(conn: &Connection, client: &Client, proposal: &mut Proposal) 
                 )?;
                 // The route as auto would try it (at most two models of one connection while others are eligible):
                 // the first is the card's model, the next ones its suggested fallbacks.
-                let mut route =
-                    plan.route.iter().map(|r| (format!("{}/{}", r.provider_id, r.model_id), r.reason.clone()));
-                let best = route.next().map(|(model, reason)| {
+                let mut route = plan.route.iter().map(|r| {
+                    (format!("{}/{}", r.provider_id, r.model_id), r.reason.clone(), Some(r.estimate_micro_usd))
+                });
+                let best = route.next().map(|(model, reason, estimate)| {
                     let fallbacks =
-                        route.take(SUGGESTED_FALLBACKS).map(|(model, reason)| Fallback { model, reason }).collect();
-                    (model, reason, fallbacks)
+                        route.take(SUGGESTED_FALLBACKS).map(|(model, reason, _)| Fallback { model, reason }).collect();
+                    (model, reason, estimate, fallbacks)
                 });
                 per_role.insert(card.role.clone(), best.clone());
                 best
             }
         };
         match entry {
-            Some((model, reason, suggested)) => {
+            Some((model, reason, estimate, suggested)) => {
                 card.model = Some(model);
                 card.reason = Some(reason);
+                card.estimate_micro_usd = estimate;
                 // The user's own fallbacks (kept across a refinement) come first; the rule's suggestions fill the rest.
                 let mut fallbacks: Vec<Fallback> =
                     card.fallbacks.iter().filter(|f| f.reason == "your pick").cloned().collect();
@@ -501,6 +508,7 @@ pub fn pick_models(conn: &Connection, client: &Client, proposal: &mut Proposal) 
             None => {
                 card.model = None;
                 card.reason = Some(format!("nothing eligible for {} under this client's policy", card.role));
+                card.estimate_micro_usd = None;
             }
         }
     }
@@ -612,6 +620,7 @@ pub fn parse_reply(text: &str) -> std::result::Result<Proposal, String> {
             depends_on,
             model: None,
             reason: None,
+            estimate_micro_usd: None,
             fallbacks: Vec::new(),
             runner: engine(),
             class: standard(),

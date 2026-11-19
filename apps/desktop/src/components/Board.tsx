@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { ArrowUp, Play } from 'lucide-react';
 import { call, errorText, gatewayChanged } from '../lib/api';
-import { elapsed } from '../lib/format';
+import { elapsed, span } from '../lib/format';
 import { t } from '../lib/i18n';
 import { BOARD_LANES, phaseLabel, type BoardAction, type BoardCard, type BoardLane } from '../lib/tasks';
 import { useGateway } from '../hooks/useGateway';
 import { AttemptSequence } from './AttemptSequence';
-import { ErrorNote, Spinner } from './ui';
+import { ConfirmSheet, ErrorNote, Spinner } from './ui';
 import './brain.css';
 import './board.css';
 
@@ -29,6 +29,7 @@ export function Board({workspaceId, workspaces, onWorkspace, onOpenTask}: {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editingLimit, setEditingLimit] = useState<'running' | 'checking' | null>(null);
+  const [dropping, setDropping] = useState<BoardCard | null>(null);
   const act = (f: () => Promise<unknown>) => { setBusy(true); setError(null); f().then(() => { setBusy(false); loaded.reload(); gatewayChanged(); }, e => { setError(errorText(e)); setBusy(false); }); };
   if (loaded.error && !board) return <div className="page"><ErrorNote>{loaded.error}</ErrorNote>
     <button type="button" className="link-button" onClick={loaded.reload}>{t('Try Again')}</button></div>;
@@ -42,8 +43,9 @@ export function Board({workspaceId, workspaces, onWorkspace, onOpenTask}: {
       <span>{t(LANE_NAMES[lane])}</span>
       <span className="lim">{limit != null ? `${count(lane)} / ${limit}` : count(lane)}</span>
       {limit != null && (editingLimit === lane
-        ? <label className="limit-field"><input className="text-input" type="number" min={1} defaultValue={limit} aria-label={t('{lane} limit', {lane: t(LANE_NAMES[lane])})}
-            onBlur={e => { const n = Math.max(1, Number(e.target.value) || 1); setEditingLimit(null);
+        ? <label className="limit-field"><input className="text-input" type="number" min={1} defaultValue={limit} autoFocus aria-label={t('{lane} limit: Enter saves, Escape keeps {n}', {lane: t(LANE_NAMES[lane]), n: limit})}
+            onKeyDown={e => { if (e.key === 'Escape') { e.currentTarget.value = String(limit); e.currentTarget.blur(); } else if (e.key === 'Enter') e.currentTarget.blur(); }}
+            onBlur={e => { const n = Math.max(1, Number(e.target.value) || 1); setEditingLimit(null); if (n === limit) return;
               act(() => call(api => api.boardSetLimits(board.workspaceId, lane === 'running' ? n : board.limits.wipRunning, lane === 'checking' ? n : board.limits.wipChecking))); }}/></label>
         : <button type="button" className="link-button" onClick={() => setEditingLimit(lane as 'running' | 'checking')}>{t('Limit…')}</button>)}
     </>;
@@ -59,7 +61,7 @@ export function Board({workspaceId, workspaces, onWorkspace, onOpenTask}: {
       <span className="counts">{t('Running {r}/{l} · Blocked {b} · Ready {y} · Review {v} · Done {d}', {r: count('running'), l: board.limits.wipRunning, b: count('blocked'), y: count('ready'), v: count('review'), d: count('done')})}</span>
       <details><summary>{t('Measures')}</summary>
         <span className="brain-meta"> {m.measured
-          ? t('cycle time median {c} · {n} done today · blocked today {b} · money per kept result {money} · from the cards’ times and their tasks’ ledger', {c: m.cycleTimeMedianMs != null ? (m.cycleTimed < m.done ? t('{t} ({k} of {n} cards timed)', {t: elapsed(m.cycleTimeMedianMs), k: m.cycleTimed, n: m.done}) : elapsed(m.cycleTimeMedianMs)) : '—', n: m.doneToday, b: elapsed(m.blockedTodayMs),
+          ? t('cycle time median {c} · {n} done today · blocked today {b} · known money per kept result {money} · from the cards’ times and their tasks’ ledger', {c: m.cycleTimeMedianMs != null ? (m.cycleTimed < m.done ? t('{t} ({k} of {n} cards timed)', {t: span(m.cycleTimeMedianMs), k: m.cycleTimed, n: m.done}) : span(m.cycleTimeMedianMs)) : '—', n: m.doneToday, b: span(m.blockedTodayMs),
               money: m.money.length ? m.money.map(r => `${r.role} ${r.usdPerKept != null ? `≈$${r.usdPerKept.toFixed(r.usdPerKept < 0.1 ? 3 : 2)}` : t('unknown')}${r.unknownCalls ? ` (${t('{n} unpriced', {n: r.unknownCalls})})` : ''}`).join(', ') : t('none kept')})
           : t('measures appear after 5 cards are done ({n} so far)', {n: m.done})}</span></details>
       {board.limits.own && <button type="button" className="link-button" disabled={busy} onClick={() => act(() => call(api => api.boardSetLimits(board.workspaceId, null, null)))}>{t('Use the default limits')}</button>}
@@ -70,22 +72,25 @@ export function Board({workspaceId, workspaces, onWorkspace, onOpenTask}: {
       <div className="board-columns">
         {BOARD_LANES.map(lane => <div key={lane} className={`board-column ${lane}`}>
           {header(lane, 'div')}
-          {cards.filter(c => c.lane === lane).map(c => <Card key={c.id} card={c} busy={busy} onAct={a => act(() => call(api => api.boardAct(c.id, a)))} onOpenTask={onOpenTask}/>)}
+          {cards.filter(c => c.lane === lane).map(c => <Card key={c.id} card={c} busy={busy} onAct={a => act(() => call(api => api.boardAct(c.id, a)))} onOpenTask={onOpenTask} onDrop={() => setDropping(c)}/>)}
           {count(lane) === 0 && <p className="board-empty">{t('Nothing here')}</p>}
         </div>)}
       </div>
       <div className="board-list">
         {LIST_ORDER.map(lane => <section key={lane} className={`board-group ${lane}`}>
           {header(lane, 'h3')}
-          {cards.filter(c => c.lane === lane).map(c => <Card key={c.id} card={c} busy={busy} onAct={a => act(() => call(api => api.boardAct(c.id, a)))} onOpenTask={onOpenTask}/>)}
+          {cards.filter(c => c.lane === lane).map(c => <Card key={c.id} card={c} busy={busy} onAct={a => act(() => call(api => api.boardAct(c.id, a)))} onOpenTask={onOpenTask} onDrop={() => setDropping(c)}/>)}
           {count(lane) === 0 && <p className="board-empty">{t('Nothing here')}</p>}
         </section>)}
       </div>
     </div>
+    {dropping && <ConfirmSheet title={t('Drop “{title}”?', {title: dropping.title})} confirmLabel={t('Drop')}
+      message={<p>{t('The card leaves the board and never runs. Cards that depend on it will block, naming it.')}</p>}
+      onClose={() => setDropping(null)} onConfirm={async () => { const id = dropping.id; setDropping(null); await call(api => api.boardAct(id, 'drop')); loaded.reload(); gatewayChanged(); }}/>}
   </div>;
 }
 
-function Card({card: c, busy, onAct, onOpenTask}: {card: BoardCard; busy: boolean; onAct: (a: BoardAction) => void; onOpenTask: (id: string) => void}) {
+function Card({card: c, busy, onAct, onOpenTask, onDrop}: {card: BoardCard; busy: boolean; onAct: (a: BoardAction) => void; onOpenTask: (id: string) => void; onDrop: () => void}) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(id); }, []);
   const blocked = c.lane === 'blocked' ? c.blockedMs + (c.blockedSince ? now - c.blockedSince : 0) : 0;
@@ -97,20 +102,20 @@ function Card({card: c, busy, onAct, onOpenTask}: {card: BoardCard; busy: boolea
     <span className="brain-id">{c.ladder[0] ?? '—'}{c.ladder.length > 1 && t(', then {n} more', {n: c.ladder.length - 1})}</span>
     {c.blockedReason && <div className="reason">{c.blockedReason}</div>}
     <div className="foot">
-      {c.lane === 'blocked' && <span>{t('blocked {time}', {time: elapsed(blocked)})}</span>}
+      {c.lane === 'blocked' && <span>{t('blocked {time}', {time: span(blocked)})}</span>}
       {c.lane === 'running' && c.startedAt != null && <span>{t('{phase} · {time}', {phase: c.task ? phaseLabel(c.task.phase) : t('running'), time: elapsed(now - c.startedAt)})}</span>}
       {c.lane === 'discovery' && <span>{c.held ? t('held by you') : t('waits for {deps}', {deps: c.dependsOn.join(', ') || '—'})}</span>}
       {c.lane === 'ready' && <span>{t('next in line')}</span>}
       {result && <span>{result.outcome === 'passed' ? t('checks passed') : t('finished')}</span>}
     </div>
     <div className="actions">
-      {c.taskId && <button type="button" className="button" onClick={() => onOpenTask(c.taskId!)}>{c.lane === 'blocked' || c.lane === 'review' ? t('Review') : t('Open')}</button>}
+      {c.taskId && <button type="button" className="button" aria-label={t('{action}: {title}', {action: c.lane === 'blocked' || c.lane === 'review' ? t('Review') : t('Open'), title: c.title})} onClick={() => onOpenTask(c.taskId!)}>{c.lane === 'blocked' || c.lane === 'review' ? t('Review') : t('Open')}</button>}
       {c.lane === 'ready' && <>
         <button type="button" className="button" disabled={busy} onClick={() => onAct(c.class === 'expedite' ? 'standard' : 'expedite')}>{c.class === 'expedite' ? t('Standard') : t('Expedite')}</button>
         <button type="button" className="button" disabled={busy} onClick={() => onAct('hold')}>{t('Back to Discovery')}</button>
       </>}
       {c.lane === 'discovery' && c.held && <button type="button" className="button" disabled={busy} onClick={() => onAct('release')}><Play size={12} aria-hidden/>{t('Move to Ready')}</button>}
-      {!c.taskId && c.lane !== 'done' && <button type="button" className="button" disabled={busy} onClick={() => { if (window.confirm(t('Drop this card? It will not run.'))) onAct('drop'); }}>{t('Drop')}</button>}
+      {!c.taskId && c.lane !== 'done' && <button type="button" className="button" disabled={busy} aria-label={t('Drop {title}', {title: c.title})} onClick={onDrop}>{t('Drop')}</button>}
       {c.runner === 'ide' && !c.taskId && <button type="button" className="button" disabled={busy} onClick={() => onAct('engine')}>{t('Hand to the engine')}</button>}
     </div>
   </div>;

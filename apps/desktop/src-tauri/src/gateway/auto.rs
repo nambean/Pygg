@@ -165,7 +165,7 @@ impl Needs {
 
     /// The estimated cost of this request at `price`: the prompt at the higher of the input and cache-write
     /// prices, plus the output limit (or 4096 tokens).
-    fn estimate_micro(&self, price: &crate::gateway::pricing::Price) -> u64 {
+    pub(crate) fn estimate_micro(&self, price: &crate::gateway::pricing::Price) -> u64 {
         let input_price = price.input_micro_per_mtok.max(price.cache_write_micro_per_mtok.unwrap_or(0));
         let per = |tokens: u64, micro: u64| ((tokens as u128 * micro as u128).div_ceil(1_000_000)) as u64;
         per(self.input_tokens, input_price) + per(self.output_tokens(), price.output_micro_per_mtok)

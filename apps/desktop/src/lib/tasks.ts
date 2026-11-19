@@ -177,6 +177,8 @@ export type BrainCard = {
   id: string; title: string; role: BrainRole; done: string; dependsOn: string[];
   /** `connection/model`, picked by rule for the role; null when nothing was eligible. */
   model: string | null; reason: string | null;
+  /** One run of the card by the route's estimate, in micro-USD: 0 for free or local, null when the model has no price. */
+  estimateMicroUsd: number | null;
   /** Tried after `model` when an attempt on it fails: the rule's suggestions, or the user's own picks (`your pick`). */
   fallbacks: {model: string; reason: string}[];
   runner: 'engine' | 'ide'; class: 'standard' | 'expedite'; dropped: boolean; wave: number;
@@ -230,7 +232,7 @@ export function phaseLabel(phase: RunningPhase | undefined): string {
   return phase === 'preparing' ? t('Preparing') : phase === 'checking' ? t('Checking') : phase === 'held' ? t('Waiting for Checking') : t('Generating');
 }
 export type Board = { workspaceId: string; workspaceName: string; workspacePath: string; limits: BoardLimits; cards: BoardCard[]; measures: BoardMeasures };
-export type BoardSummary = { workspaceId: string; workspaceName: string; cards: number; attention: number };
+export type BoardSummary = { workspaceId: string; workspaceName: string; cards: number; attention: number; limits: {wipRunning: number; wipChecking: number} | null };
 export type BoardAction = 'expedite' | 'standard' | 'hold' | 'release' | 'drop' | 'engine';
 /** The Brain Storming defaults (BRAIN.md 4.7b). */
 export type BrainSettings = { wipRunning: number; wipChecking: number; runner: 'engine' | 'ide'; rememberPlanner: boolean; changeScope: 'ask' | 'card' | 'role' };

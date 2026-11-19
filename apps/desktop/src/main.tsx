@@ -339,7 +339,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         {view.kind === 'task' && <TaskDetail id={view.id} backTo={view.from === 'board' ? t('Board') : t('Tasks')}
           onBack={() => { taskList.reload(); setView(view.from === 'board' ? {kind: 'board', workspaceId: null} : {kind: 'tasks', filter: view.from}); }}/>}
         {view.kind === 'brainstorm' && <BrainstormDetail id={view.id} onBack={() => { brainList.reload(); taskList.reload(); setView({kind: 'tasks', filter: view.from}); }}
-          onOpenTask={id => { taskList.reload(); setView({kind: 'task', id, from: 'all'}); }}/>}
+          onOpenBoard={workspaceId => { boardList.reload(); taskList.reload(); setView({kind: 'board', workspaceId}); }}/>}
         {view.kind === 'new' && <NewTaskView onCreated={created}/>}
         {view.kind === 'workspaces' && <WorkspacesView/>}
         {view.kind === 'policies' && <Policies go={go} onSettings={() => setView({kind: 'settings'})}

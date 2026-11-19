@@ -653,14 +653,26 @@ pub struct BoardSummary {
     pub workspace_name: String,
     pub cards: usize,
     pub attention: usize,
+    /// The workspace's own WIP limits, when it set any (`board_settings`); None means the defaults.
+    pub limits: Option<OwnLimits>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnLimits {
+    pub wip_running: u32,
+    pub wip_checking: u32,
 }
 
 /// The workspaces that have a board, with how many cards wait on the user (Blocked and Review).
 pub fn list(conn: &Connection) -> Result<Vec<BoardSummary>> {
     let mut stmt = conn
         .prepare(
-            "SELECT w.id, w.name, COUNT(c.id), SUM(CASE WHEN c.lane IN ('blocked', 'review') THEN 1 ELSE 0 END) \
-             FROM board_cards c JOIN workspaces w ON w.id = c.workspace_id GROUP BY w.id ORDER BY w.name",
+            "SELECT w.id, w.name, COUNT(c.id), SUM(CASE WHEN c.lane IN ('blocked', 'review') THEN 1 ELSE 0 END), \
+             s.wip_running, s.wip_checking \
+             FROM workspaces w JOIN board_cards c ON c.workspace_id = w.id AND c.lane <> 'discarded' \
+             LEFT JOIN board_settings s ON s.workspace_id = w.id \
+             GROUP BY w.id, w.name, s.wip_running, s.wip_checking ORDER BY w.name",
         )
         .map_err(err)?;
     let rows = stmt
@@ -670,6 +682,12 @@ pub fn list(conn: &Connection) -> Result<Vec<BoardSummary>> {
                 workspace_name: r.get(1)?,
                 cards: r.get::<_, i64>(2)? as usize,
                 attention: r.get::<_, Option<i64>>(3)?.unwrap_or(0) as usize,
+                limits: match (r.get::<_, Option<i64>>(4)?, r.get::<_, Option<i64>>(5)?) {
+                    (Some(running), Some(checking)) => {
+                        Some(OwnLimits { wip_running: running.max(1) as u32, wip_checking: checking.max(1) as u32 })
+                    }
+                    _ => None,
+                },
             })
         })
         .map_err(err)?;
@@ -723,6 +741,7 @@ mod tests {
             depends_on: deps.iter().map(|d| d.to_string()).collect(),
             model: Some("paid/mid".into()),
             reason: Some("tier".into()),
+            estimate_micro_usd: Some(46_000),
             fallbacks: vec![Fallback { model: "free/gift".into(), reason: "tier".into() }],
             runner: runner.into(),
             class: "standard".into(),

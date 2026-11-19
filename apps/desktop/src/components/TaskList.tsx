@@ -104,7 +104,7 @@ function BrainstormRow({brainstorm: b, attention, onOpen}: {brainstorm: Brainsto
   const open = b.proposal.questions.filter(q => !q.answered).length;
   const cards = b.proposal.cards.filter(c => !c.dropped).length;
   const state = ({waiting_pick: t('waits for your pick'), thinking: t('thinking'), proposed: t('proposed · revision {n}', {n: b.revision}),
-    approved: t('approved · its cards are tasks'), declined: t('declined'), failed: t('planner failed')} as Record<Brainstorm['state'], string>)[b.state];
+    approved: t('approved · on the board'), declined: t('declined'), failed: t('planner failed')} as Record<Brainstorm['state'], string>)[b.state];
   return <li className={`task-row${attention ? ' attention' : ''}`}>
     <span className={`state-icon ${b.state === 'failed' ? 'check_failed' : b.state === 'approved' ? 'checks_passed' : 'waiting_approval'}`}>
       <Lightbulb size={18} strokeWidth={1.9} aria-hidden/></span>

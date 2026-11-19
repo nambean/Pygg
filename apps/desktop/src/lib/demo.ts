@@ -542,7 +542,7 @@ export function demoApi(): GatewayApi {
   /** A short port of gateway/auto.rs for the preview: the same filters and order, on the demo models. */
   // The Brain Storming screen (BRAIN.md 4.7b) and the feed's state, as the app keeps them.
   const brainSettings: BrainSettings = {wipRunning: 1, wipChecking: 1, runner: 'engine', rememberPlanner: true, changeScope: 'ask'};
-  const brainPicks: BrainPick[] = [{scope: 'global', role: 'plan', model: 'gemini/gemini-3.1-pro-preview'}];
+  const brainPicks: BrainPick[] = new URLSearchParams(location.search).has('empty') ? [] : [{scope: 'global', role: 'plan', model: 'gemini/gemini-3.1-pro-preview'}];
   const factsStatus: FactsStatus = {enabled: true, fetchedAt: Date.now() - 2 * 86_400_000, built: '2026-11-18T06:12:00Z', facts: 187, stale: false, lastError: null, sources: [
     {id: 'terminal-bench', name: 'Terminal-Bench 4.x', url: 'https://www.tbench.ai/leaderboard', licence: 'Apache-2.0', attribution: 'Terminal-Bench', measures: 'tasks solved in a terminal by an agent with the model', roles: ['code', 'test'], status: 'ok', observed: '2026-11-18', rows: 71, termsRead: '2026-11-10', error: null},
     {id: 'swe-bench-verified', name: 'SWE-bench Verified', url: 'https://www.swebench.com', licence: 'CC BY-NC 4.0', attribution: 'SWE-bench', measures: 'GitHub issues resolved', roles: ['code'], status: 'ok', observed: '2026-11-17', rows: 110, termsRead: '2026-11-10', error: null},
@@ -1245,7 +1245,7 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
   // and long ids), and one whose planner failed. Models and reasons are shaped like the gateway's.
   const stress = new URLSearchParams(location.search).has('stress');
   const card = (id: string, title: string, role: BrainRole, done: string, dependsOn: string[], model: string | null, reason: string | null, wave: number, dropped = false): BrainCard =>
-    ({id, title, role, done, dependsOn, model, reason, fallbacks: model && role !== 'plan' ? [{model: 'google-gemini/gemini-3.1-flash', reason: "no fact for code; tier T2 from Pygg's table; paid; about $0.0090 at the provider's list price"}, {model: 'siliconflow/zai-org/GLM-5', reason: 'SWE-bench Verified #16 of 110 (72.8%) dated 2026-02-17, run with mini-SWE-agent at high for code; free; free (as set)'}] : [], runner: 'engine', class: 'standard', dropped, wave});
+    ({id, title, role, done, dependsOn, model, reason, estimateMicroUsd: model === 'anthropic/claude-opus-5-5' ? null : model === 'ollama/qwen3:8b' || model?.endsWith(':free') ? 0 : role === 'plan' ? 85_400 : 46_000, fallbacks: model && role !== 'plan' ? [{model: 'google-gemini/gemini-3.1-flash', reason: "no fact for code; tier T2 from Pygg's table; paid; about $0.0090 at the provider's list price"}, {model: 'siliconflow/zai-org/GLM-5', reason: 'SWE-bench Verified #16 of 110 (72.8%) dated 2026-02-17, run with mini-SWE-agent at high for code; free; free (as set)'}] : [], runner: 'engine', class: 'standard', dropped, wave});
   const sonnet = 'openrouter/anthropic/claude-sonnet-5';
   const codeReason = "Terminal-Bench 4.x #3 of 71 (64.85% +/-3.11) dated 2026-09-22, run with claude-code at max for code; paid; about $0.0460 at the provider's list price";
   const proposedCards = (): BrainCard[] => {
@@ -1267,7 +1267,8 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
     {id: 'q1', text: 'Which payment providers?', answered: true}, {id: 'q2', text: 'Is there an admin area?', answered: true},
     {id: 'q3', text: 'Which language for the storefront?', answered: false}, {id: 'q4', text: 'Do products have variants (size, colour)?', answered: false},
     ...Array.from({length: Math.max(0, n - 4)}, (_, i) => ({id: `q${i + 5}`, text: `Question ${i + 5}: ${'a long clarifying question the planner asked about the requirement, '.repeat(3)}`, answered: i % 2 === 0}))];
-  const brainstorms: Brainstorm[] = [
+  const empty = new URLSearchParams(location.search).has('empty');
+  const brainstorms: Brainstorm[] = empty ? [] : [
     {id: 'bs-pick', clientId: 'k-1', session: '3f2a', workspaceId: null, state: 'waiting_pick', requirement: 'Build a shop website', planner: null, promptVersion: 'brain-v1', revision: 0,
       proposal: {questions: [], cards: [], droppedCards: 0}, rawReply: null, note: 'the rule would pick openrouter/anthropic/claude-sonnet-5, which costs money; pick a planner in Pygg', error: null,
       createdAt: Date.now() - 120_000, updatedAt: Date.now() - 120_000},
@@ -1332,7 +1333,7 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
 
   // The board (board.rs): the proposed brainstorm's cards as if approved into the first workspace, in every lane.
   const boardLimits = new Map<string, {wipRunning: number; wipChecking: number}>();
-  const boardCards: BoardCard[] = (() => {
+  const boardCards: BoardCard[] = empty ? [] : (() => {
     const ws = workspaces[0]?.id ?? '';
     const tasks = [...details.values()].filter(d => d.workspaceId === ws);
     const byState = (state: string) => tasks.find(d => d.state === state) ?? tasks[0] ?? null;
@@ -1362,7 +1363,8 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
 
   return {
     boards: () => touch(workspaces.filter(w => boardCards.some(c => c.workspaceId === w.id)).map(w => ({workspaceId: w.id, workspaceName: w.name,
-      cards: boardCards.filter(c => c.workspaceId === w.id && c.lane !== 'discarded').length, attention: boardCards.filter(c => c.workspaceId === w.id && (c.lane === 'blocked' || c.lane === 'review')).length}))),
+      cards: boardCards.filter(c => c.workspaceId === w.id && c.lane !== 'discarded').length, attention: boardCards.filter(c => c.workspaceId === w.id && (c.lane === 'blocked' || c.lane === 'review')).length,
+      limits: boardLimits.get(w.id) ?? null}))),
     board: async id => touch(boardOf(id)),
     boardAct: async (cardId, action) => {
       const c = boardCards.find(x => x.id === cardId);

@@ -55,6 +55,8 @@ const states = [
   // sheet, the planner pick, and a failed planner.
   {screen: 'brainstorm', name: 'a proposed brainstorm, details open', steps: `document.querySelectorAll('.card-row details').forEach(d => d.open = true); await wait(200);`, expect: '.brain-cards'},
   {screen: 'brainstorm', name: 'a card’s model being changed', steps: `click('Change…', 0); await wait(800);`, expect: '.card-row select'},
+  {screen: 'brainstorm', name: 'a model chosen, the scope asked', steps: `click('Change…', 0); await wait(800); const s = document.querySelector('.card-row select'); s.value = s.options[2].value; s.dispatchEvent(new Event('change', {bubbles: true})); await wait(300);`, expect: '.scope-choice'},
+  {screen: 'board', name: 'a card being dropped', steps: `click('Drop', 0); await wait(500);`, expect: '[role=dialog]'},
   {screen: 'brainstorm', name: 'Approve sheet', steps: `click('Approve', -1); await wait(600);`, expect: '[role=dialog]'},
   {screen: 'brainstorm-pick', name: 'the planner pick', steps: '', expect: '.brain-pick'},
   {screen: 'brainstorm-failed', name: 'the planner failed', steps: `document.querySelectorAll('.form-disclosure').forEach(d => d.open = true); await wait(200);`, expect: '.error-note'},

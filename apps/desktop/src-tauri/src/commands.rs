@@ -1688,10 +1688,27 @@ pub fn brainstorm_set_model(
         return Err("Only a proposed brainstorm can be changed".into());
     }
     let role = b.proposal.cards.iter().find(|c| c.id == card).map(|c| c.role.clone()).ok_or("Card not found")?;
+    // The estimate the route would give this model for one card (BRAIN.md §4.1): free and local cost nothing, a
+    // model without a price is unpriced.
+    let estimate = state.shared.with_db(|db| -> Res<Option<u64>> {
+        let (provider_id, model_id) = model.split_once('/').ok_or("The model is connection/model")?;
+        let row = store::list_models(db, None)?
+            .into_iter()
+            .find(|m| m.provider_id == provider_id && m.model_id == model_id)
+            .ok_or("That model is not connected")?;
+        Ok(match row.billing.as_str() {
+            "free" | "local" => Some(0),
+            _ => row.price.as_ref().map(|p| {
+                crate::gateway::auto::Needs { input_tokens: 8_000, tools: role != "plan", ..Default::default() }
+                    .estimate_micro(p)
+            }),
+        })
+    })?;
     for c in &mut b.proposal.cards {
         if c.id == card || (all_of_role && c.role == role) {
             c.model = Some(model.clone());
             c.reason = Some("your pick".into());
+            c.estimate_micro_usd = estimate;
         }
     }
     state.shared.with_db(|db| brain::save(db, &b))?;

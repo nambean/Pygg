@@ -5,6 +5,7 @@ import { t } from '../lib/i18n';
 import { AGENT_NAMES, factLine, type Brainstorm, type BrainCard, type BrainRole, type RoleLine } from '../lib/tasks';
 import { useGateway } from '../hooks/useGateway';
 import { Badge, ConfirmSheet, ErrorNote, Spinner } from './ui';
+import { usd } from '../lib/format';
 import './brain.css';
 
 /**
@@ -12,7 +13,8 @@ import './brain.css';
  * coding agent, never here), the cards by wave with the model Pygg picked and why, and approval into tasks.
  * Nothing on this screen sends anything to a model except the pick, which the user makes.
  */
-export function BrainstormDetail({id, onBack, onOpenTask}: {id: string; onBack: () => void; onOpenTask: (taskId: string) => void}) {
+export function BrainstormDetail({id, onBack, onOpenBoard}: {id: string; onBack: () => void; onOpenBoard: (workspaceId: string) => void}) {
+  const settings = useGateway(api => api.brainSettings());
   const [live, setLive] = useState(true);
   const loaded = useGateway(api => api.brainstorm(id).then(b => { setLive(b.state === 'thinking' || b.state === 'waiting_pick'); return b; }),
     [id], live ? 2_000 : undefined);
@@ -22,8 +24,8 @@ export function BrainstormDetail({id, onBack, onOpenTask}: {id: string; onBack: 
     <button type="button" className="back-button" onClick={onBack}>
       <ChevronLeft size={15} strokeWidth={2} aria-hidden/>{t('Tasks')}
     </button>
-    {loaded.error && <ErrorNote>{loaded.error}</ErrorNote>}
-    {!b ? <Spinner/> : <>
+    {loaded.error && <ErrorNote>{loaded.error}{' '}<button type="button" className="link-button" onClick={loaded.reload} disabled={loaded.loading}>{loaded.loading ? t('Trying again…') : t('Try Again')}</button></ErrorNote>}
+    {!b ? (loaded.error ? null : <Spinner/>) : <>
       <header className="detail-header">
         <span className="state-icon waiting_approval"><Lightbulb size={18} strokeWidth={1.9} aria-hidden/></span>
         <div style={{minWidth: 0, flex: 1}}>
@@ -33,23 +35,38 @@ export function BrainstormDetail({id, onBack, onOpenTask}: {id: string; onBack: 
         </div>
       </header>
 
-      {b.state === 'waiting_pick' && <PickPlanner b={b} onChanged={changed}/>}
+      {b.state === 'waiting_pick' && <PickPlanner b={b} onChanged={changed} remember={settings.data?.rememberPlanner ?? true}/>}
       {b.state === 'thinking' && <p className="group-footnote"><Spinner label={t('The planner is reading the requirement…')}/></p>}
       {b.state === 'failed' && <section className="group">
         <ErrorNote>{b.error ?? t('The planner failed.')}</ErrorNote>
         {b.rawReply && <details className="form-disclosure"><summary>{t('What the planner answered')}</summary>
           <pre className="code-block selectable">{b.rawReply}</pre></details>}
-        <PickPlanner b={b} onChanged={changed} retry/>
+        {b.planner && <RetrySame b={b} onChanged={changed}/>}
+        <PickPlanner b={b} onChanged={changed} retry remember={settings.data?.rememberPlanner ?? true}/>
       </section>}
       {b.state === 'declined' && <p className="group-footnote">{t('Declined. Nothing was started.')}</p>}
-      {b.state === 'approved' && <p className="ok-note">{t('Approved: its cards are tasks of this workspace now. Paid steps still wait for your approval when they start.')}</p>}
+      {b.state === 'approved' && <div className="approve-bar"><span className="ok-note" style={{margin: 0}}>{t('Approved: its cards are on the workspace’s board. Paid steps still wait for your approval when they start.')}</span>
+        <span className="spacer"/>{b.workspaceId && <button type="button" className="button prominent" onClick={() => onOpenBoard(b.workspaceId!)}>{t('Open Board')}</button>}</div>}
 
       {(b.state === 'proposed' || b.state === 'approved') && <>
         <Questions b={b}/>
-        <Cards b={b} onChanged={changed}/>
-        {b.state === 'proposed' && <Approve b={b} onChanged={changed} onOpenTask={onOpenTask}/>}
+        <Cards b={b} onChanged={changed} changeScope={settings.data?.changeScope ?? 'ask'}/>
+        {b.state === 'proposed' && <Approve b={b} onChanged={changed} onOpenBoard={onOpenBoard}/>}
       </>}
     </>}
+  </div>;
+}
+
+/** Runs the planner again as it is (BRAIN.md 4.4, Retry); the pick below is the other way out. */
+function RetrySame({b, onChanged}: {b: Brainstorm; onChanged: () => void}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return <div className="form-actions" style={{margin: '10px 0 4px'}}>
+    <button type="button" className="button prominent" disabled={busy}
+      onClick={() => { setBusy(true); setError(null); call(api => api.brainstormRetry(b.id)).then(() => { setBusy(false); onChanged(); }, e => { setError(errorText(e)); setBusy(false); }); }}>
+      {t('Retry with {model}', {model: b.planner ?? ''})}</button>
+    <span className="brain-meta">{t('or pick another planner below')}</span>
+    {error && <ErrorNote>{error}</ErrorNote>}
   </div>;
 }
 
@@ -58,17 +75,17 @@ function StateBadge({state, revision}: {state: Brainstorm['state']; revision: nu
     case 'waiting_pick': return <Badge tone="warn">{t('Waits for your pick')}</Badge>;
     case 'thinking': return <Badge tone="info">{t('Thinking')}</Badge>;
     case 'proposed': return <Badge tone="info">{t('Proposed · revision {n}', {n: revision})}</Badge>;
-    case 'approved': return <Badge tone="ok">{t('Approved')}</Badge>;
+    case 'approved': return <Badge tone="ok">{t('Approved · board')}</Badge>;
     case 'declined': return <Badge tone="warn">{t('Declined')}</Badge>;
     case 'failed': return <Badge tone="error">{t('Planner failed')}</Badge>;
   }
 }
 
 /** The inline pick (BRAIN.md 4.4): the plan role's ranking under the client's policy, the rule's line first. */
-function PickPlanner({b, onChanged, retry}: {b: Brainstorm; onChanged: () => void; retry?: boolean}) {
+function PickPlanner({b, onChanged, retry, remember: rememberDefault}: {b: Brainstorm; onChanged: () => void; retry?: boolean; remember: boolean}) {
   const candidates = useGateway(api => api.brainstormCandidates(b.id), [b.id]);
   const [choice, setChoice] = useState<string | null>(null);
-  const [remember, setRemember] = useState(true);
+  const [remember, setRemember] = useState(rememberDefault);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const plan: AutoPlan | null = candidates.data;
@@ -87,21 +104,21 @@ function PickPlanner({b, onChanged, retry}: {b: Brainstorm; onChanged: () => voi
         : <ul className="brain-pick" role="radiogroup" aria-label={t('Planner')}>
           {plan.ranked.map((r, i) => {
             const name = `${r.providerId}/${r.modelId}`;
-            return <li key={name} className={picked === name ? 'selected' : ''}>
-              <input type="radio" name="planner" checked={picked === name} onChange={() => setChoice(name)} aria-label={name}/>
+            return <li key={name} className={picked === name ? 'selected' : ''}><label>
+              <input type="radio" name="planner" checked={picked === name} onChange={() => setChoice(name)}/>
               <div>
                 <div className="brain-head"><span className="brain-id">{name}</span>
-                  <span className="brain-meta">{r.tier ?? t('no tier')} · {r.billing}</span></div>
+                  <span className="brain-meta">{r.tier ?? t('no tier')} · {r.billing}{r.estimateMicroUsd != null && ` · ≈${usd(r.estimateMicroUsd / 1e6)} ${t('per brainstorm')}`}</span></div>
                 <div className="brain-evidence">{i === 0 && <><span className="wins">{t('the rule’s pick')}</span> · </>}{r.reason}</div>
               </div>
-            </li>;
+            </label></li>;
           })}
         </ul>}
       {error && <ErrorNote>{error}</ErrorNote>}
       <div className="form-actions" style={{margin: '14px 10px 4px'}}>
         <label className="inline-field"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)}/> {t('Remember this planner for every project')}</label>
         <span className="spacer"/>
-        {!retry && <button type="button" className="button" disabled={busy} onClick={() => act(() => call(api => api.brainstormDecline(b.id)))}>{t('Decline')}</button>}
+        <button type="button" className="button" disabled={busy} onClick={() => act(() => call(api => api.brainstormDecline(b.id)))}>{t('Decline')}</button>
         <button type="button" className="button prominent" disabled={busy || !picked}
           onClick={() => picked && act(() => call(api => api.brainstormPickPlanner(b.id, picked, remember)))}>
           {picked ? t('Use {model}', {model: picked}) : t('Use')}
@@ -119,7 +136,7 @@ function Questions({b}: {b: Brainstorm}) {
     <div className="group-heading"><h2>{t('Questions · {n}, {m} answered', {n: qs.length, m: answered})}</h2>
       <span className="brain-meta">{t('Answered in your coding agent, not here')}</span></div>
     {qs.length === 0 ? <p className="group-footnote">{t('The planner asked nothing.')}</p> : <div className="group-box">
-      {qs.map((q, i) => <div key={q.id} className="q-row"><span className="n">{i + 1}.</span><span>{q.text}</span>
+      {qs.map(q => <div key={q.id} className="q-row"><span className="n">{q.id}</span><span>{q.text}</span>
         {q.answered ? <span className="brain-meta">{t('answered')}</span> : <Badge tone="warn">{t('open')}</Badge>}</div>)}
     </div>}
   </section>;
@@ -127,24 +144,25 @@ function Questions({b}: {b: Brainstorm}) {
 
 const ROLE_NAMES: Record<BrainRole, string> = {plan: 'plan', code: 'code', test: 'test', review: 'review'};
 
-function Cards({b, onChanged}: {b: Brainstorm; onChanged: () => void}) {
+function Cards({b, onChanged, changeScope}: {b: Brainstorm; onChanged: () => void; changeScope: 'ask' | 'card' | 'role'}) {
   const cards = b.proposal.cards;
   const waves = [...new Set(cards.map(c => c.wave))].sort((x, y) => x - y);
   const kept = cards.filter(c => !c.dropped).length;
   return <section className="group brain-cards">
-    <div className="group-heading"><h2>{t('Cards · {kept} of {total}', {kept, total: cards.length})}{b.proposal.droppedCards > 0 && ` (${t('{n} left out: not in the schema', {n: b.proposal.droppedCards})})`}</h2>
+    <div className="group-heading"><h2>{t('Cards · {kept} kept of {total}', {kept, total: cards.length})}{b.proposal.droppedCards > 0 && ` · ${t('{n} more rejected by the schema', {n: b.proposal.droppedCards})}`}</h2>
       <span className="brain-meta">{t('Models picked by Pygg’s rules; the planner wrote the cards')}</span></div>
     <div className="group-box">
       {waves.map(wave => <div key={wave}>
         <div className="wave-head">{wave === 1 ? t('Wave 1 · depends on nothing') : t('Wave {n} · after wave {m}', {n: wave, m: wave - 1})}</div>
-        {cards.filter(c => c.wave === wave).map(c => <CardRow key={c.id} b={b} card={c} onChanged={onChanged}/>)}
+        {cards.filter(c => c.wave === wave).map(c => <CardRow key={c.id} b={b} card={c} onChanged={onChanged} changeScope={changeScope}/>)}
       </div>)}
     </div>
   </section>;
 }
 
-function CardRow({b, card, onChanged}: {b: Brainstorm; card: BrainCard; onChanged: () => void}) {
+function CardRow({b, card, onChanged, changeScope}: {b: Brainstorm; card: BrainCard; onChanged: () => void; changeScope: 'ask' | 'card' | 'role'}) {
   const [changing, setChanging] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [lines, setLines] = useState<RoleLine[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -155,6 +173,7 @@ function CardRow({b, card, onChanged}: {b: Brainstorm; card: BrainCard; onChange
     if (!changing || lines) return;
     call(api => api.modelFactsRole(card.role)).then(setLines, e => setError(errorText(e)));
   }, [changing, lines, card.role]);
+  const apply = (model: string, all: boolean) => act(() => call(api => api.brainstormSetModel(b.id, card.id, model, all))).then(() => { setPending(null); setChanging(false); });
   const deps = card.dependsOn.filter(d => d.startsWith('q'));
   return <div className={`card-row${card.dropped ? ' dropped' : ''}`}>
     <div className="card-main">
@@ -162,13 +181,19 @@ function CardRow({b, card, onChanged}: {b: Brainstorm; card: BrainCard; onChange
         {deps.length > 0 && <span className="brain-meta">{t('needs {q} answered', {q: deps.join(', ')})}</span>}</div>
       <div className="card-line"><span className="brain-id">{card.model ?? t('nothing eligible')}</span>
         {changing && <select className="popup-button" aria-label={t('Model for this card')} disabled={busy || !lines}
-          value={card.model ?? ''} onChange={e => { const model = e.target.value; const all = window.confirm(t('Apply {model} to every {role} card? Cancel applies it to this card only.', {model, role: card.role}));
-            act(() => call(api => api.brainstormSetModel(b.id, card.id, model, all))).then(() => setChanging(false)); }}>
+          value={pending ?? card.model ?? ''} onChange={e => { const model = e.target.value; if (!model || model === card.model) return;
+            if (changeScope === 'ask') setPending(model); else apply(model, changeScope === 'role'); }}>
           {!lines && <option value={card.model ?? ''}>{t('Loading…')}</option>}
           {lines?.map(l => <option key={l.model} value={l.model}>{l.model} · {l.fact ? factLine(l.fact) : l.tier ? t('tier {tier} only', {tier: l.tier}) : t('no tier')}</option>)}
         </select>}
       </div>
-      <div className="brain-evidence">{card.reason ?? ''}</div>
+      {pending && <div className="scope-choice" role="group" aria-label={t('Apply {model} to', {model: pending})}>
+        <span>{t('Apply {model} to', {model: pending})}</span>
+        <button type="button" className="button" disabled={busy} onClick={() => apply(pending, false)}>{t('This card')}</button>
+        <button type="button" className="button" disabled={busy} onClick={() => apply(pending, true)}>{t('All {role} cards', {role: card.role})}</button>
+        <button type="button" className="link-button" disabled={busy} onClick={() => setPending(null)}>{t('Cancel')}</button>
+      </div>}
+      <div className="brain-evidence">{card.reason ?? ''}{card.model && card.estimateMicroUsd == null && ` · ${t('unpriced')}`}</div>
       {card.model && <ul className="brain-fallbacks" aria-label={t('Fallbacks')}>
         {card.fallbacks.map((f, i) => <li key={f.model}>
           <span className="brain-meta">{i === 0 ? t('then') : t('then')}</span> <span className="brain-id">{f.model}</span>
@@ -206,18 +231,21 @@ function CardRow({b, card, onChanged}: {b: Brainstorm; card: BrainCard; onChange
     </div>
     {editable && <div className="card-actions">
       {card.dropped
-        ? <button type="button" className="button" disabled={busy} onClick={() => act(() => call(api => api.brainstormSetCard(b.id, card.id, {dropped: false})))}>{t('Restore')}</button>
+        ? <button type="button" className="button" disabled={busy} aria-label={t('Restore {title}', {title: card.title})} onClick={() => act(() => call(api => api.brainstormSetCard(b.id, card.id, {dropped: false})))}>{t('Restore')}</button>
         : <>
-          <button type="button" className="button" disabled={busy} onClick={() => setChanging(v => !v)}>{changing ? t('Keep') : t('Change…')}</button>
-          <button type="button" className="button" disabled={busy} onClick={() => act(() => call(api => api.brainstormSetCard(b.id, card.id, {dropped: true})))}>{t('Drop')}</button>
+          <button type="button" className="button" disabled={busy} aria-label={changing ? t('Close the model choice of {title}', {title: card.title}) : t('Change the model of {title}', {title: card.title})} onClick={() => { setPending(null); setChanging(v => !v); }}>{changing ? t('Cancel') : t('Change…')}</button>
+          <button type="button" className="button" disabled={busy} aria-label={t('Drop {title}', {title: card.title})} onClick={() => act(() => call(api => api.brainstormSetCard(b.id, card.id, {dropped: true})))}>{t('Drop')}</button>
         </>}
     </div>}
   </div>;
 }
 
-function Approve({b, onChanged, onOpenTask}: {b: Brainstorm; onChanged: () => void; onOpenTask: (id: string) => void}) {
+function Approve({b, onChanged, onOpenBoard}: {b: Brainstorm; onChanged: () => void; onOpenBoard: (workspaceId: string) => void}) {
   const workspaces = useGateway(api => api.workspaces());
   const agents = useGateway(api => api.agents());
+  const budget = useGateway(api => api.taskBudget());
+  const boards = useGateway(api => api.boards());
+  const settings = useGateway(api => api.brainSettings());
   const [workspace, setWorkspace] = useState<string>(b.workspaceId ?? '');
   const [agent, setAgent] = useState<string>('');
   const [confirming, setConfirming] = useState(false);
@@ -229,13 +257,24 @@ function Approve({b, onChanged, onOpenTask}: {b: Brainstorm; onChanged: () => vo
   useEffect(() => { if (!agent && installed.length) setAgent(installed.find(a => a.id === 'opencode')?.id ?? installed[0].id); }, [installed, agent]);
   const kept = b.proposal.cards.filter(c => !c.dropped);
   const unpicked = kept.filter(c => !c.model).length;
+  const known = kept.reduce((sum, c) => sum + (c.estimateMicroUsd ?? 0), 0) / 1e6;
+  const unpriced = kept.filter(c => c.model && c.estimateMicroUsd == null).length;
+  const runningLimit = boards.data?.find(x => x.workspaceId === workspace)?.limits?.wipRunning ?? settings.data?.wipRunning ?? 1;
+  const left = budget.data ? (budget.data.limitUsd == null ? null : Math.max(0, budget.data.limitUsd - budget.data.recordedUsd - budget.data.reservedUsd)) : undefined;
+  const estimateLine = [
+    unpriced === kept.length ? t('Estimate: Unknown (no card is priced)') : t('Known estimate ≈{usd} for one run of every card', {usd: usd(known)}) + (unpriced ? ` · ${t('unpriced cards: {n}', {n: unpriced})}` : ''),
+    left === undefined ? null : left === null ? t('no daily task limit') : t('today’s task budget left {usd}', {usd: usd(left)}),
+    t('Running limit {n}', {n: runningLimit}),
+  ].filter(Boolean).join(' · ');
   const ready = kept.length > 0 && unpicked === 0 && !!workspace && !!agent;
   if (made) return <div className="approve-bar">
-    <span>{t('{n} tasks started', {n: made.length})}</span>
-    {made.map((id, i) => <button key={id} type="button" className="link-button" onClick={() => onOpenTask(id)}>{t('Open task {n}', {n: i + 1})}</button>)}
+    <span>{t('{n} cards on the board; the first ready ones are being pulled into Running', {n: made.length})}</span>
+    <span className="spacer"/>
+    <button type="button" className="button prominent" onClick={() => onOpenBoard(workspace)}>{t('Open Board')}</button>
   </div>;
   return <>
-    <div className="approve-bar">
+    <div className="approve-bar sticky">
+      <span className="estimate brain-meta">{estimateLine}</span>
       <span>{t('{n} cards', {n: kept.length})}{unpicked > 0 && <span className="warn-text"> · {t('{n} without an eligible model', {n: unpicked})}</span>}</span>
       <label className="inline-field">{t('Workspace')}
         <select className="popup-button" value={workspace} onChange={e => setWorkspace(e.target.value)} aria-label={t('Workspace')}>
@@ -251,10 +290,13 @@ function Approve({b, onChanged, onOpenTask}: {b: Brainstorm; onChanged: () => vo
     </div>
     {agent && agent !== 'opencode' && <p className="group-footnote">{t('Only OpenCode through Pygg runs a card on the model Pygg picked. {agent} runs with its own sign-in and model; the pick is told to it.', {agent: AGENT_NAMES[agent] ?? agent})}</p>}
     {installed.length === 0 && agents.data && <p className="warn-text">{t('No agent is installed; install one on Agents to run the cards.')}</p>}
+    {workspaces.data?.length === 0 && <p className="warn-text">{t('No workspace yet: add the repository on Workspaces first, then approve here.')}</p>}
     {error && <ErrorNote>{error}</ErrorNote>}
     {confirming && <ConfirmSheet destructive={false} title={t('Approve {n} cards?', {n: kept.length})} confirmLabel={t('Approve')}
-      message={<p>{t('Each card becomes a task of {workspace}, run by {agent} on the model shown, one step each, judged by the workspace’s approved checks. A paid step still waits for your approval when it starts.',
-        {workspace: workspaces.data?.find(w => w.id === workspace)?.name ?? workspace, agent: AGENT_NAMES[agent] ?? agent})}</p>}
+      message={<p>{agent === 'opencode'
+          ? t('Each card becomes a card on the board of {workspace}; when pulled, {agent} runs it on the model shown, then its fallbacks, judged by the workspace’s approved checks.', {workspace: workspaces.data?.find(w => w.id === workspace)?.name ?? workspace, agent: AGENT_NAMES[agent] ?? agent})
+          : t('Each card becomes a card on the board of {workspace}; when pulled, {agent} runs it with its own sign-in and model (the pick is told to it), judged by the workspace’s approved checks.', {workspace: workspaces.data?.find(w => w.id === workspace)?.name ?? workspace, agent: AGENT_NAMES[agent] ?? agent})}
+        {' '}{estimateLine}. {t('A paid step still waits for your approval when it starts.')}</p>}
       onClose={() => setConfirming(false)}
       onConfirm={async () => { const ids = await call(api => api.brainstormApprove(b.id, workspace, agent)); setMade(ids); onChanged(); }}/>}
   </>;

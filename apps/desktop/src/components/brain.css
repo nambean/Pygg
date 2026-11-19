@@ -16,6 +16,8 @@
 .brain-pick li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; padding: 8px 10px; border-radius: 8px; align-items: start; }
 .brain-pick li.selected { background: var(--selection); }
 .brain-pick input { margin: 3px 0 0; }
+/* The whole row is the radio's label, so clicking the model or its evidence picks it. */
+.brain-pick label { display: contents; }
 .brain-head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; min-width: 0; }
 .brain-meta { font-size: 11px; color: var(--secondary); font-variant-numeric: tabular-nums; }
 .brain-questions .q-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 8px 12px; font-size: 12px; }
@@ -42,6 +44,11 @@
 .card-line select { flex: 1 1 100%; }
 .approve-bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-top: 16px; padding: 12px; background: var(--surface); border-radius: 10px; box-shadow: var(--shadow); font-size: 12px; }
 .approve-bar .spacer { flex: 1; }
+/* The approval stays in view under a long proposal; the estimate line takes a row of its own. */
+.approve-bar.sticky { position: sticky; bottom: 8px; z-index: 1; }
+.approve-bar .estimate { flex-basis: 100%; }
+/* After a model is chosen with the scope set to ask: apply to this card, to every card of the role, or not at all. */
+.scope-choice { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-top: 6px; font-size: 12px; }
 .approve-bar select { max-width: 100%; }
 /* Narrow (a 1024 px window at Windows text scaling): the actions go under the card, and the card's column takes the
    whole width so its nowrap title and long ids are clipped and wrapped inside it rather than widening the page. */
@@ -50,3 +57,5 @@
   .card-main { width: 100%; }
   .card-actions { max-width: none; justify-content: flex-start; }
 }
+/* The start commands (Brain Storming): the code block scrolls inside its column instead of widening the page. */
+.brain-start .code-block { min-width: 0; max-width: 100%; }
