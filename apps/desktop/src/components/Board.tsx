@@ -25,6 +25,7 @@ export function Board({workspaceId, workspaces, onWorkspace, onOpenTask}: {
   workspaceId: string; workspaces: {workspaceId: string; workspaceName: string}[]; onWorkspace: (id: string) => void; onOpenTask: (taskId: string) => void;
 }) {
   const loaded = useGateway(api => api.board(workspaceId), [workspaceId], 3_000);
+  const gateway = useGateway(api => api.gatewayStatus(), [], 5_000);
   const board = loaded.data;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -65,6 +66,8 @@ export function Board({workspaceId, workspaces, onWorkspace, onOpenTask}: {
               money: m.money.length ? m.money.map(r => `${r.role} ${r.usdPerKept != null ? `≈$${r.usdPerKept.toFixed(r.usdPerKept < 0.1 ? 3 : 2)}` : t('unknown')}${r.unknownCalls ? ` (${t('{n} unpriced', {n: r.unknownCalls})})` : ''}`).join(', ') : t('none kept')})
           : t('measures appear after 5 cards are done ({n} so far)', {n: m.done})}</span></details>
       {board.limits.own && <button type="button" className="link-button" disabled={busy} onClick={() => act(() => call(api => api.boardSetLimits(board.workspaceId, null, null)))}>{t('Use the default limits')}</button>}
+      {gateway.data && gateway.data.state !== 'running' && <span className="engine-state"><span className="warn-text">{gateway.data.state === 'failed' ? t('Gateway failed: {error}', {error: gateway.data.error ?? ''}) : t('Gateway stopped')}{' · '}{t('cards run through it, so Ready waits')}</span>
+        <button type="button" className="button prominent" disabled={busy} onClick={() => act(() => call(api => api.gatewayStart()).then(() => gateway.reload()))}>{t('Start')}</button></span>}
     </div>
     {error && <ErrorNote>{error}</ErrorNote>}
     {cards.length === 0 && <p className="group-footnote">{t('No cards yet. Brainstorms start from your coding agent: ask it to use the model pygg/brain, then approve the proposal under Tasks.')}</p>}

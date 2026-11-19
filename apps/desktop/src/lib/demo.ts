@@ -142,6 +142,8 @@ export function demoApi(): GatewayApi {
   const now = Date.now();
   let status: GatewayStatus = {state: 'running', port: 8741, baseUrl: 'http://127.0.0.1:8741', error: null, autostart: true,
     accountingError: null, finishing: false};
+  // `?gateway=stopped` shows the screens that say so (the board's header).
+  if (new URLSearchParams(location.search).get('gateway') === 'stopped') status = {...status, state: 'stopped', baseUrl: null};
   const accounts = new Map<string, Account>();
   const connections: Stored[] = [
     {id: 'gemini', kind: 'gemini', label: 'Gemini', endpoint: PRESETS[0].endpoint!, enabled: true, credentialRef: 'provider-demo1',
@@ -1232,7 +1234,7 @@ export function demoApi(): GatewayApi {
 const DEMO_DIFF = 'diff --git a/src/timeout.ts b/src/timeout.ts\n--- a/src/timeout.ts\n+++ b/src/timeout.ts\n@@ -3,3 +3,3 @@\n-  return setTimeout(fn, ms * 100);\n+  return setTimeout(fn, ms);\n';
 
 /** Tasks for the browser preview: the sample tasks, and new ones that "run" for a few seconds. Nothing runs. */
-function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards' | 'board' | 'boardAct' | 'boardSetLimits' | 'brainstorms' | 'brainstorm' | 'brainstormPickPlanner' | 'brainstormRetry' | 'brainstormSetModel' | 'brainstormSetCard' | 'brainstormDecline' | 'brainstormApprove' | 'workspaces' | 'addWorkspace' | 'removeWorkspace' | 'taskBudget' | 'setTaskBudget' | 'setWorkspaceBudget' | 'setWorkspacePrivacy' | 'pickFolder' | 'exportPatch'
+function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards' | 'board' | 'boardLimits' | 'boardAct' | 'boardSetLimits' | 'brainstorms' | 'brainstorm' | 'brainstormPickPlanner' | 'brainstormRetry' | 'brainstormSetModel' | 'brainstormSetCard' | 'brainstormDecline' | 'brainstormApprove' | 'workspaces' | 'addWorkspace' | 'removeWorkspace' | 'taskBudget' | 'setTaskBudget' | 'setWorkspaceBudget' | 'setWorkspacePrivacy' | 'pickFolder' | 'exportPatch'
   | 'detectChecks' | 'workspaceCheck' | 'tasks' | 'task' | 'createTask' | 'cancelTask' | 'decideTask' | 'retryTask' | 'taskDiff'
   | 'finishTask'> {
   let dailyLimit: number | null = 2;
@@ -1366,6 +1368,7 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
       cards: boardCards.filter(c => c.workspaceId === w.id && c.lane !== 'discarded').length, attention: boardCards.filter(c => c.workspaceId === w.id && (c.lane === 'blocked' || c.lane === 'review')).length,
       limits: boardLimits.get(w.id) ?? null}))),
     board: async id => touch(boardOf(id)),
+    boardLimits: async id => touch(boardOf(id).limits),
     boardAct: async (cardId, action) => {
       const c = boardCards.find(x => x.id === cardId);
       if (!c) throw 'That card no longer exists';

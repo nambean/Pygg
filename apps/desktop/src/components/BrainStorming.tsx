@@ -6,6 +6,7 @@ import { evidenceLine, type BrainPick, type BrainRole, type BrainSettings } from
 import { useGateway } from '../hooks/useGateway';
 import { CodeBlock, ErrorNote, Spinner, Switch } from './ui';
 import { RoleSheet } from './RoleSheet';
+import { BrainOverride } from './BrainOverride';
 import './brain.css';
 
 const ROLES: BrainRole[] = ['plan', 'code', 'test', 'review'];
@@ -23,6 +24,7 @@ export function BrainStorming({onSkills, onWorkspaces}: {onSkills: () => void; o
   const boards = useGateway(api => api.boards());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [override, setOverride] = useState<{id: string; name: string} | null>(null);
   const act = (f: () => Promise<unknown>, done?: () => void) => { setBusy(true); setError(null); f().then(() => { setBusy(false); done?.(); }, e => { setError(errorText(e)); setBusy(false); }); };
   const s = settings.data;
   const save = (change: Partial<BrainSettings>) => s && act(() => call(api => api.setBrainSettings({...s, ...change})), settings.reload);
@@ -82,7 +84,7 @@ export function BrainStorming({onSkills, onWorkspaces}: {onSkills: () => void; o
 
     <section className="group">
       <div className="group-heading"><h2>{t('Projects that differ')}</h2>
-        <span className="brain-meta">{t('{n} workspaces', {n: workspaces.data?.length ?? 0})}</span></div>
+        <span className="brain-meta">{t('{n} workspaces', {n: workspaces.data?.length ?? 0})} · <button type="button" className="link-button" onClick={onWorkspaces}>{t('Workspaces')}</button></span></div>
       <div className="group-box">
         {(workspaces.data ?? []).map(w => {
           const own = (picks.data ?? []).filter(p => p.scope === w.id);
@@ -91,14 +93,15 @@ export function BrainStorming({onSkills, onWorkspaces}: {onSkills: () => void; o
           return <div key={w.id} className="group-row">
             <div className="group-label"><label>{w.name}</label><small>{differs.length ? differs.join(' · ') : t('Uses the defaults above')}</small></div>
             <div className="group-control">
-              {own.length > 0 && <button type="button" className="button" disabled={busy} onClick={() => act(async () => { for (const p of own) await call(api => api.setBrainPick(w.id, p.role, null)); }, picks.reload)}>{t('Use defaults')}</button>}
-              <button type="button" className="button" onClick={onWorkspaces}>{t('Workspaces')}</button>
+              <button type="button" className="button" disabled={busy} aria-label={t('{action} for {name}', {action: differs.length ? t('Edit…') : t('Override…'), name: w.name})} onClick={() => setOverride({id: w.id, name: w.name})}>{differs.length ? t('Edit…') : t('Override…')}</button>
+              {differs.length > 0 && <button type="button" className="button" disabled={busy} aria-label={t('Use the defaults for {name}', {name: w.name})} onClick={() => act(async () => { for (const p of own) await call(api => api.setBrainPick(w.id, p.role, null)); if (limits) await call(api => api.boardSetLimits(w.id, null, null)); }, () => { picks.reload(); boards.reload(); })}>{t('Use defaults')}</button>}
             </div>
           </div>;
         })}
         {workspaces.data?.length === 0 && <p className="group-footnote">{t('No workspace yet; a brainstorm from an IDE adds its repository by itself.')}</p>}
       </div>
-      <p className="group-footnote">{t('A project’s own picks come from Change… in its brainstorms and its WIP limits from Limit… on its board; Use defaults clears the picks, and the board’s Use the default limits clears the limits.')}</p>
+      <p className="group-footnote">{t('An override holds only what differs: a pick for a role, or the WIP limits. The board’s Limit… sets the same limits.')}</p>
+      {override && <BrainOverride workspace={override} picks={picks.data ?? []} settings={s ?? null} onClose={() => setOverride(null)} onChanged={() => { picks.reload(); boards.reload(); }}/>}
     </section>
 
     <section className="group">

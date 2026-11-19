@@ -135,7 +135,7 @@ The one-time set-up for `pygg/brain` applied to every project (`BrainStorming.ts
 - **Models by role:** plan, code, test and review, each with the saved pick (`connection/model`, tier, billing, the evidence that ranks it: your runs, a fact with its source and date, or the tier), **Change…** (the role sheet, §6) and **Clear**; a cleared role reads "By the rules today" with the model the rules would pick now.
 - **Defaults for a new brainstorm:** the runner, the WIP limits for Running and Checking, whether a planner picked inside a brainstorm is saved as the plan role, and what **Change…** on a card offers first.
 - **Facts and prompt:** the model facts switch, its build date, when it was fetched, **Refresh**, the sources with their licences, row counts and dates, and the brain prompt `brain-v1` with **Open** into Skills & Prompts.
-- **Projects that differ:** every workspace, with its own picks when it has any, **Use defaults**, and **Workspaces**.
+- **Projects that differ:** every workspace with what differs from the defaults (a role's pick, the WIP limits), **Override…** or **Edit…** opening the project's sheet (§6), and **Use defaults**; **Workspaces** in the heading.
 - **How it starts:** the command per agent that starts a brainstorm; there is no text box.
 
 #### Guide
@@ -312,7 +312,7 @@ The cards of a workspace's approved brainstorms as Kanban columns (`Board.tsx`, 
 - **Card:** the title (▲ when expedited), the role chip, the task's attempt chips, the first model of the ladder and how many follow, the Blocked reason and `blocked 2 h 10 min` (hours and days when long), the phase and time while it runs (*Waiting for Checking* when the run is held by Checking's limit), "held by you" or what it waits for in Discovery, "next in line" in Ready, "checks passed" or "finished" in Review and Done.
 - **Buttons:** **Review** (Blocked, Review) or **Open** (elsewhere) opens the task detail with **‹ Board**; in Ready, **Expedite** / **Standard** and **Back to Discovery**; in Discovery on a held card, **Move to Ready**; **Drop** (a sheet naming the card) on a card without a task; **Hand to the engine** on a card waiting for the IDE agent. Running, Checking, Review and Done are the engine's; there is no drag.
 - **Width:** a single list grouped by column, Blocked first, when the board is narrower than 980 px.
-- **States:** loading; a load error with **Try Again**; no cards yet, with how a brainstorm starts; no workspace yet.
+- **States:** loading; a load error with **Try Again**; no cards yet, with how a brainstorm starts; no workspace yet; the gateway stopped or failed (its state and **Start** in the header; Ready waits, since cards run through it).
 
 ### 5.2 Task detail
 
@@ -467,6 +467,10 @@ The role sheet (`RoleSheet.tsx`, [BRAIN.md](BRAIN.md) §4.5), opened by a card's
 - **Row:** `connection/model · tier · billing · ≈$0.05 per run` (the route's estimate; without a brainstorm, the output price per Mtok or *price unknown*), the evidence line that ranks it (your runs, a fact with its source linked, or the tier), *current* and *your saved pick*, **Not eligible: <reason>** when the client's policy rules it out, **Why this model?** (the chain saved pick › your runs › facts feed › tier with the winner marked, then every source line with what it measures and its licence; a fact older than a year is marked as not ranking), and **Use**.
 - **States:** loading; a load error; no match for the search; nothing eligible (with the hint to look at All connections); no enabled model.
 - **Footer:** **Refresh facts**, **Cancel**. Escape closes; focus returns to the opener.
+
+### A project's overrides
+
+`BrainOverride.tsx`, opened by **Override…** or **Edit…** on Brain Storming's Projects that differ: `<name>: what differs`. One row per role with `Default: <the Brain Storming pick or by the rules>` and `This project: <its pick or the default>`, **Override…** (the role sheet) or **Change…**, and **Use default**; a WIP limits row with **Own limits for this project**, Running and Checking, and **Save limits** (off, the project follows the defaults). A pick is saved as it is chosen. **Done** closes.
 
 A sheet (`Sheet` in `ui.tsx`) is a modal dialog:
 

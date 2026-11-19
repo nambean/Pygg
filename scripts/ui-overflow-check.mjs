@@ -67,6 +67,8 @@ const states = [
   {screen: 'board', name: 'a limit being edited', steps: `click('Limit…', 0); await wait(300);`, expect: '.limit-field'},
   {screen: 'brain', name: 'Brain Storming', steps: '', expect: '.group'},
   {screen: 'brain', name: 'a role pick being changed: the role sheet', steps: `click('Change…', 0); await wait(1200);`, expect: '[role=dialog] .role-row'},
+  {screen: 'brain', name: 'a project’s override sheet', steps: `click('Override…', 0); await wait(1200);`, expect: '[role=dialog] .group-box'},
+  {screen: 'board', query: 'stress&gateway=stopped', name: 'the gateway stopped', steps: '', expect: '.board-head .engine-state'},
   // First run: nothing connected, no keys, no requests.
   ...['overview', 'connections', 'endpoint', 'tools', 'combos', 'usage', 'skills'].map(screen => ({screen, query: 'empty', name: 'first run', steps: ''})),
   {screen: 'connections', query: 'empty', name: 'first run, Connect sheet', steps: `click('Connect Provider'); await wait(800);`, expect: '[role=dialog]'},

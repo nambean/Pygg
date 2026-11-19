@@ -611,6 +611,8 @@ export interface GatewayApi {
   /** The board (ADR-042): the workspaces that have one, one workspace's board, a button on a card, the limits. */
   boards(): Promise<BoardSummary[]>;
   board(workspaceId: string): Promise<Board>;
+  /** A workspace's WIP limits on their own: its own, or the Brain Storming defaults (`own` says which). */
+  boardLimits(workspaceId: string): Promise<BoardLimits>;
   boardAct(cardId: string, action: BoardAction): Promise<BoardCard>;
   /** A workspace's own WIP limits; `running` null returns it to the defaults. */
   boardSetLimits(workspaceId: string, running: number | null, checking: number | null): Promise<BoardLimits>;
@@ -752,6 +754,7 @@ const native: GatewayApi = {
   modelFactsSetEnabled: on => invoke('model_facts_set_enabled', {on}),
   boards: () => invoke('boards_list'),
   board: workspaceId => invoke('board_get', {workspaceId}),
+  boardLimits: workspaceId => invoke('board_limits', {workspaceId}),
   boardAct: (cardId, action) => invoke('board_act', {cardId, action}),
   boardSetLimits: (workspaceId, running, checking) => invoke('board_set_limits', {workspaceId, running, checking}),
   brainSettings: () => invoke('brain_settings'),

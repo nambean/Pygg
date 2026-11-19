@@ -228,25 +228,6 @@ pub fn run() {
                     }
                 });
             }
-            // The board's tick (board.rs, ADR-042): every few seconds the cards' lanes follow their tasks and Ready cards
-            // are pulled into Running under each workspace's WIP limit; the tasks it makes start here.
-            {
-                let shared = state.shared.clone();
-                let runner = state.tasks.clone();
-                tauri::async_runtime::spawn(async move {
-                    loop {
-                        match shared.with_db(board::tick) {
-                            Ok(ids) => {
-                                for id in ids {
-                                    runner.start(&id);
-                                }
-                            }
-                            Err(e) => applog::warn(&format!("board: {e}")),
-                        }
-                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                    }
-                });
-            }
             // Usage history older than the user keeps (Settings → Data) goes at start-up and once a day; forever by default.
             // The store's daily copy (backup.rs) is made on the same round.
             {
@@ -271,6 +252,33 @@ pub fn run() {
                 let _ = tauri::async_runtime::block_on(state.start());
             }
             app.manage(state);
+            // The board's tick (board.rs, ADR-042): every few seconds the cards' lanes follow their tasks and, while
+            // the gateway runs, Ready cards are pulled into Running under each workspace's WIP limit; the tasks it
+            // makes start here. With the gateway stopped the lanes still settle, and the pull waits: a card's steps
+            // run through the gateway and would fail at once.
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        let state = handle.state::<commands::AppState>();
+                        let running = state.server.lock().await.is_some();
+                        let result = if running {
+                            state.shared.with_db(board::tick)
+                        } else {
+                            state.shared.with_db(board::settle).map(|()| Vec::new())
+                        };
+                        match result {
+                            Ok(ids) => {
+                                for id in ids {
+                                    state.tasks.start(&id);
+                                }
+                            }
+                            Err(e) => applog::warn(&format!("board: {e}")),
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    }
+                });
+            }
             // The main window is built here, after the state its page asks for is in place, and not from the
             // configuration, so an app on another store keeps its WebView2 profile beside that store: two apps
             // cannot share one profile with different settings.
@@ -347,6 +355,7 @@ pub fn run() {
             commands::brain_pick_set,
             commands::boards_list,
             commands::board_get,
+            commands::board_limits,
             commands::board_act,
             commands::board_set_limits,
             commands::brain_settings,

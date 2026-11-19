@@ -1831,6 +1831,12 @@ pub fn boards_list(state: State<'_, AppState>) -> Res<Vec<crate::board::BoardSum
     state.shared.with_db(crate::board::list)
 }
 
+/// A workspace's WIP limits: its own, or the Brain Storming defaults (`own` says which).
+#[tauri::command]
+pub fn board_limits(state: State<'_, AppState>, workspace_id: String) -> Res<crate::board::Limits> {
+    state.shared.with_db(|db| crate::board::limits(db, &workspace_id))
+}
+
 /// A workspace's board after a tick: its cards with their tasks, its limits and its measures.
 #[tauri::command]
 pub fn board_get(state: State<'_, AppState>, workspace_id: String) -> Res<crate::board::Board> {

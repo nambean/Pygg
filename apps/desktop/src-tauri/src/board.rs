@@ -398,6 +398,16 @@ pub fn checking_room(conn: &Connection, task_id: &str) -> Result<bool> {
 /// Settles every workspace's lanes and pulls Ready cards into Running under the limit, making their tasks. Returns
 /// the ids of the tasks to start (the caller holds the runner).
 pub fn tick(conn: &Connection) -> Result<Vec<String>> {
+    tick_with(conn, true)
+}
+
+/// The tick without the pull: lanes follow their tasks, Ready cards stay in Ready. The app runs this while the
+/// gateway is stopped, since a card's steps run through it (`pygg/<model>`) and would fail at once.
+pub fn settle(conn: &Connection) -> Result<()> {
+    tick_with(conn, false).map(|_| ())
+}
+
+fn tick_with(conn: &Connection, pull: bool) -> Result<Vec<String>> {
     let workspaces: Vec<String> = conn
         .prepare("SELECT DISTINCT workspace_id FROM board_cards WHERE lane NOT IN ('done', 'discarded')")
         .map_err(err)?
@@ -407,12 +417,12 @@ pub fn tick(conn: &Connection) -> Result<Vec<String>> {
         .map_err(err)?;
     let mut to_start = Vec::new();
     for ws in workspaces {
-        to_start.extend(tick_workspace(conn, &ws)?);
+        to_start.extend(tick_workspace(conn, &ws, pull)?);
     }
     Ok(to_start)
 }
 
-fn tick_workspace(conn: &Connection, workspace_id: &str) -> Result<Vec<String>> {
+fn tick_workspace(conn: &Connection, workspace_id: &str, pull: bool) -> Result<Vec<String>> {
     let mut questions: std::collections::HashMap<String, Vec<brain::Question>> = std::collections::HashMap::new();
     // Lanes from the tasks and the dependencies, in two passes so a card done this tick frees the ones behind it.
     for _pass in 0..2 {
@@ -450,6 +460,9 @@ fn tick_workspace(conn: &Connection, workspace_id: &str) -> Result<Vec<String>> 
         }
     }
     // Pull: expedite first, then position, while Running has room.
+    if !pull {
+        return Ok(Vec::new());
+    }
     let limits = limits(conn, workspace_id)?;
     let current = cards_of(conn, workspace_id)?;
     let running = current.iter().filter(|c| c.lane == "running").count() as u32;
