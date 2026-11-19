@@ -1,6 +1,6 @@
 # Store schema
 
-> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v40
+> **Status:** Current · generated from the migrations by `scripts/schema-reference.py`; do not edit by hand · schema v41
 
 The local SQLite store (`db.rs`): every table after all migrations, in order. Credentials are never here: a
 connection holds only a reference to its key in the OS credential store (ADR-002). Client tokens are stored as
@@ -330,6 +330,7 @@ Indexes: `provider_keys_by_provider`.
 | `web_strikes` | INTEGER | no | `0` |  | 0028_web_guard |
 | `key_strategy` | TEXT | no | `'in_order'` |  | 0031_key_rings |
 | `key_cursor` | INTEGER | no | `0` |  | 0031_key_rings |
+| `web_account` | TEXT | yes |  |  | 0041_web_account |
 
 5 CHECK constraints (see the migrations).
 
