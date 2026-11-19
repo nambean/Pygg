@@ -7,7 +7,7 @@
 
 <h3 align="center">Run your coding agents on cheaper models without losing the answers.</h3>
 
-<p align="center">Pygg is a local gateway that routes each request to a model you connected, and measures what it saved:<br><b><a href="#measured-not-claimed">88% less per solved task</a></b> in our benchmark, with every task still solved.</p>
+<p align="center">Pygg is a local gateway that routes each request to a model you connected, and measures what it saved:<br><b><a href="#measured-not-claimed">88% less per solved task</a></b> on 12 small coding tasks (36 of 36 runs solved in one attempt),<br>and about 40% less on a real repository, where the cheaper model took more turns.</p>
 
 <p align="center">
 <a href="https://github.com/nambean/Pygg/actions/workflows/ci.yml"><img src="https://github.com/nambean/Pygg/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -146,15 +146,15 @@ Real agents, real models, checks the agent cannot edit, about $16.7 of a $20 bud
 
 | What was measured | Result | Report |
 | --- | --- | --- |
-| OpenCode on 12 harder coding tasks × 3, through Pygg to Claude Haiku 5.5 instead of Sonnet 5.5 | **88% less per solved task** (95% CI 87–90%); 36/36 solved against 34/36 | [N2](benchmark/reports/2026-11-12-n2-savings.md) |
+| OpenCode on 12 small Node tasks × 3 (3 bug fixes, 8 features, 1 three-file refactor; 20 to 211 lines each), through Pygg to Claude Haiku 5.5 instead of Sonnet 5.5 | **88% less per solved task** (95% CI 87–90%); one attempt per run, no retry: 36/36 passed against 34/36 | [N2](benchmark/reports/2026-11-12-n2-savings.md) |
 | Claude Code on the same tasks, Haiku 5.5 instead of Sonnet 5.5 | **79% less per solved task** (95% CI 74–84%); `auto/cheap` with OpenCode: 34/36 at $0.0129 per solved task | [P0](benchmark/reports/2026-11-12-p0-optimization.md) |
-| Claude Code on six tasks from a real production repository | Haiku 5.5: **6/6 for $1.50**, 96% of input read from cache; Sonnet 5.5: 4/5 for $1.19; OpenCode with `auto/cheap`: 2/6 for $0.35 | [CCHT](benchmark/reports/2026-11-13-ccht-real-repository.md) |
+| Claude Code on six tasks from a real production repository (Express + Prisma API, features across API, reports and Excel export, 124-check end-to-end suite) | Haiku 5.5: **6/6 for $1.50**, one attempt each; Sonnet 5.5: 4/5 for $1.19; on the 4 both solved, Haiku cost **about 40% less**, in 2 to 3 times the requests. OpenCode with `auto/cheap`: 2/6 for $0.35 | [CCHT](benchmark/reports/2026-11-13-ccht-real-repository.md) |
 | Codex on Claude Haiku 5.5, Pygg's prompt caching off vs on | 16/16 either way; **30% less in all, 68% less on input** | [Prompt cache](benchmark/reports/2026-11-14-codex-claude-prompt-cache.md) |
 | An OpenAI-format agent on Claude Haiku 5.5 through OpenRouter, with Pygg's cache marker | After each session's first turn, **99.7% of every prompt read from cache**; $0.0066 in all | [OpenRouter cache](benchmark/reports/2026-11-16-openrouter-cache-live.md) |
 | The gateway's own overhead, against a local fake provider | **About 4 ms** per short request, 5 ms per 400 kB prompt; about 230 requests/s with 16 clients | [Overhead](benchmark/reports/2026-11-14-gateway-overhead.md) |
 | Web sessions on five sites, 48 short tasks | **47/48 correct**, about 18 s each, $0 | [Web sessions](benchmark/reports/2026-11-13-web-sessions.md) |
 
-Not claimed: a quality ranking of models (a handful of tasks each), a provider's bill (costs are the ledger at list prices), or "60–95% fewer tokens". A longer web-session run on coding tasks got the owner's DeepSeek account suspended for three days ([report](benchmark/reports/2026-11-13-web-coding.md)); the guard has been stricter since.
+Not claimed: a quality ranking of models (a handful of tasks each), a provider's bill (costs are the ledger at list prices), "60–95% fewer tokens", or savings on large refactors, database migrations or other languages, which no run has measured yet. The 88% is the whole session pinned to a cheaper model on small tasks; on the real repository the saving narrowed to about 40%, and a cost-first `auto/cheap` over free models solved 2 of 6. A longer web-session run on coding tasks got the owner's DeepSeek account suspended for three days ([report](benchmark/reports/2026-11-13-web-coding.md)); the guard has been stricter since.
 
 **Next to LiteLLM**, measured with the same fake provider and requests (LiteLLM 1.106.2, defaults plus fallbacks; other projects compared from their docs in [BENCHMARKS.md](docs/BENCHMARKS.md#pygg-next-to-other-gateways)):
 
