@@ -224,7 +224,7 @@ export type BoardCard = {
 };
 export type BoardLimits = { wipRunning: number; wipChecking: number; own: boolean };
 export type RoleMoney = { role: BrainRole; kept: number; knownUsd: number; unknownCalls: number; usdPerKept: number | null };
-export type BoardMeasures = { measured: boolean; done: number; doneToday: number; cycleTimeMedianMs: number | null; leadTimeMedianMs: number | null; blockedTodayMs: number; money: RoleMoney[] };
+export type BoardMeasures = { measured: boolean; done: number; doneToday: number; cycleTimeMedianMs: number | null; cycleTimed: number; leadTimeMedianMs: number | null; blockedTodayMs: number; money: RoleMoney[] };
 /** A running task's phase as a word. */
 export function phaseLabel(phase: RunningPhase | undefined): string {
   return phase === 'preparing' ? t('Preparing') : phase === 'checking' ? t('Checking') : phase === 'held' ? t('Waiting for Checking') : t('Generating');

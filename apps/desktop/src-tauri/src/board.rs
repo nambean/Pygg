@@ -549,6 +549,8 @@ pub struct Measures {
     pub done: usize,
     pub done_today: usize,
     pub cycle_time_median_ms: Option<i64>,
+    /// How many done cards the cycle time covers: those that passed through Ready with a time.
+    pub cycle_timed: usize,
     pub lead_time_median_ms: Option<i64>,
     pub blocked_today_ms: i64,
     /// Known money per kept result, by role (ADR-029): what the done cards' tasks cost through the gateway.
@@ -604,6 +606,7 @@ pub fn board(conn: &Connection, workspace_id: &str) -> Result<Board> {
         done: done.len(),
         done_today: done.iter().filter(|c| c.done_at.is_some_and(|d| d >= day)).count(),
         cycle_time_median_ms: median(done.iter().filter_map(|c| Some(c.done_at? - c.ready_at?)).collect()),
+        cycle_timed: done.iter().filter(|c| c.ready_at.is_some() && c.done_at.is_some()).count(),
         lead_time_median_ms: median(done.iter().filter_map(|c| Some(c.done_at? - c.created_at)).collect()),
         blocked_today_ms: cards
             .iter()
