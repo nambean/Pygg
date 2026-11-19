@@ -132,7 +132,7 @@ The official agent CLIs on this computer (`Agents.tsx`), each with its own sign-
 
 The one-time set-up for `pygg/brain` applied to every project (`BrainStorming.tsx`, ADR-042, [BRAIN.md](BRAIN.md) §4.7b). Settings only: nothing on it sends anything to a model.
 
-- **Models by role:** plan, code, test and review, each with the saved pick (`connection/model`, tier, billing, the evidence that ranks it: your runs, a fact with its source and date, or the tier), **Change…** (the role's ranking in a select) and **Clear**; a cleared role reads "By the rules (no saved pick)".
+- **Models by role:** plan, code, test and review, each with the saved pick (`connection/model`, tier, billing, the evidence that ranks it: your runs, a fact with its source and date, or the tier), **Change…** (the role sheet, §6) and **Clear**; a cleared role reads "By the rules today" with the model the rules would pick now.
 - **Defaults for a new brainstorm:** the runner, the WIP limits for Running and Checking, whether a planner picked inside a brainstorm is saved as the plan role, and what **Change…** on a card offers first.
 - **Facts and prompt:** the model facts switch, its build date, when it was fetched, **Refresh**, the sources with their licences, row counts and dates, and the brain prompt `brain-v1` with **Open** into Skills & Prompts.
 - **Projects that differ:** every workspace, with its own picks when it has any, **Use defaults**, and **Workspaces**.
@@ -341,7 +341,7 @@ A brainstorm from `pygg/brain` (`BrainstormDetail.tsx`, ADR-041, [BRAIN.md](BRAI
 
 - **Waits for your pick.** Inline, like a paid step: the plan role's ranking under the client's policy as radio rows (`connection/model`, tier, billing, the reason), the rule's pick first, **Remember this planner for every project** on by default, **Decline** and **Use <model>**. With nothing eligible, the reasons and only **Decline**.
 - **Questions.** Read-only: each open or answered. The caption says answers come from the coding agent.
-- **Cards**, grouped by wave, a role chip each: the title, `connection/model` (selectable, wraps), the reason the rule gave, and a disclosure with the done criterion, the dependencies, the runner (Pygg engine, or My IDE agent) and the class. **Change…** opens a select of the role's ranking (each line with its source and date, or its tier); a chosen model is applied to **This card** or **All <role> cards**, or **Cancel** changes nothing, unless Brain Storming's setting answers that question; **Drop** strikes a card through and offers **Restore**. A card whose model has no price reads *unpriced* after its reason. Questions carry their ids (`q3`), the ids cards and the board name. Under the model, the card's **fallbacks** ("then …", each with its reason): the two the rule suggested from the role's route, **Remove** on each, and **Add a fallback…**, a select of the same ranking, up to five. On approval each model is a step of the card's task, tried in order when an attempt fails.
+- **Cards**, grouped by wave, a role chip each: the title, `connection/model` (selectable, wraps), the reason the rule gave, and a disclosure with the done criterion, the dependencies, the runner (Pygg engine, or My IDE agent) and the class. **Change…** opens the role sheet (§6, Models for a role); a chosen model is applied to **This card** or **All <role> cards**, or **Cancel** changes nothing, unless Brain Storming's setting answers that question; **Drop** strikes a card through and offers **Restore**. A card whose model has no price reads *unpriced* after its reason. Questions carry their ids (`q3`), the ids cards and the board name. Under the model, the card's **fallbacks** ("then …", each with its reason): the two the rule suggested from the role's route, **Remove** on each, and **Add a fallback…**, the same sheet without the models already in the ladder, up to five. On approval each model is a step of the card's task, tried in order when an attempt fails.
 - **Approve.** A bar that stays in view under a long proposal: `Known estimate ≈$1.20 for one run of every card · unpriced cards: 2 · today's task budget left $1.52 · Running limit 1` (or *Estimate: Unknown* when no card is priced, *no daily task limit* when none is set), the count of kept cards, a workspace, an agent (installed ones; OpenCode first, since only OpenCode through Pygg runs a card on the model Pygg picked), **Decline brainstorm**, and **Approve <n> cards…**, which confirms with the same line and words that fit the agent, then says the cards are on the board with **Open Board**. The button waits while a card has no eligible model; with no workspace yet the bar says to add the repository on Workspaces first. An approved brainstorm keeps **Open Board** in its header.
 - **Planner failed:** the reason, what the planner answered behind a disclosure, **Retry with <planner>**, and the pick to choose another planner and run again, with **Decline**. A load error shows **Try Again**, never a spinner.
 
@@ -457,6 +457,16 @@ Where tools send their requests, and the keys they use (`Endpoint.tsx`, `Clients
 - **About:** the version, the licence, Source Code, Report an Issue, third-party licences, and where the log and daily backups are kept.
 
 ## 6. Sheets
+
+### Models for a role
+
+The role sheet (`RoleSheet.tsx`, [BRAIN.md](BRAIN.md) §4.5), opened by a card's **Change…** and **Add a fallback…**, by the planner pick's "Why these models?", and by **Change…** on Brain Storming.
+
+- **Header:** `Models for code · facts as of 2026-11-18`; *ranked by tier; facts off* with **Turn facts on** in the footer; *could not refresh* when the kept feed is stale.
+- **Bar:** a search field; with a brainstorm, **Eligible under my policy** / **All connections**.
+- **Row:** `connection/model · tier · billing · ≈$0.05 per run` (the route's estimate; without a brainstorm, the output price per Mtok or *price unknown*), the evidence line that ranks it (your runs, a fact with its source linked, or the tier), *current* and *your saved pick*, **Not eligible: <reason>** when the client's policy rules it out, **Why this model?** (the chain saved pick › your runs › facts feed › tier with the winner marked, then every source line with what it measures and its licence; a fact older than a year is marked as not ranking), and **Use**.
+- **States:** loading; a load error; no match for the search; nothing eligible (with the hint to look at All connections); no enabled model.
+- **Footer:** **Refresh facts**, **Cancel**. Escape closes; focus returns to the opener.
 
 A sheet (`Sheet` in `ui.tsx`) is a modal dialog:
 

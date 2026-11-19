@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { ChevronLeft, Lightbulb } from 'lucide-react';
 import { call, errorText, gatewayChanged, type AutoPlan } from '../lib/api';
 import { t } from '../lib/i18n';
-import { AGENT_NAMES, factLine, type Brainstorm, type BrainCard, type BrainRole, type RoleLine } from '../lib/tasks';
+import { AGENT_NAMES, type Brainstorm, type BrainCard, type BrainRole } from '../lib/tasks';
 import { useGateway } from '../hooks/useGateway';
 import { Badge, ConfirmSheet, ErrorNote, Spinner } from './ui';
+import { RoleSheet } from './RoleSheet';
 import { usd } from '../lib/format';
 import './brain.css';
 
@@ -85,6 +86,7 @@ function StateBadge({state, revision}: {state: Brainstorm['state']; revision: nu
 function PickPlanner({b, onChanged, retry, remember: rememberDefault}: {b: Brainstorm; onChanged: () => void; retry?: boolean; remember: boolean}) {
   const candidates = useGateway(api => api.brainstormCandidates(b.id), [b.id]);
   const [choice, setChoice] = useState<string | null>(null);
+  const [sheet, setSheet] = useState(false);
   const [remember, setRemember] = useState(rememberDefault);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -115,6 +117,8 @@ function PickPlanner({b, onChanged, retry, remember: rememberDefault}: {b: Brain
           })}
         </ul>}
       {error && <ErrorNote>{error}</ErrorNote>}
+      <button type="button" className="link-button" style={{margin: '8px 10px 0'}} onClick={() => setSheet(true)}>{t('Why these models? Every model for plan, with its evidence…')}</button>
+      {sheet && <RoleSheet role="plan" brainstormId={b.id} current={picked} onPick={model => setChoice(model)} onClose={() => setSheet(false)}/>}
       <div className="form-actions" style={{margin: '14px 10px 4px'}}>
         <label className="inline-field"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)}/> {t('Remember this planner for every project')}</label>
         <span className="spacer"/>
@@ -161,32 +165,23 @@ function Cards({b, onChanged, changeScope}: {b: Brainstorm; onChanged: () => voi
 }
 
 function CardRow({b, card, onChanged, changeScope}: {b: Brainstorm; card: BrainCard; onChanged: () => void; changeScope: 'ask' | 'card' | 'role'}) {
-  const [changing, setChanging] = useState(false);
+  const [sheet, setSheet] = useState<'change' | 'fallback' | null>(null);
   const [pending, setPending] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [lines, setLines] = useState<RoleLine[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const editable = b.state === 'proposed';
   const act = (f: () => Promise<unknown>) => { setBusy(true); setError(null); return f().then(() => { setBusy(false); onChanged(); }, e => { setError(errorText(e)); setBusy(false); }); };
-  useEffect(() => {
-    if (!changing || lines) return;
-    call(api => api.modelFactsRole(card.role)).then(setLines, e => setError(errorText(e)));
-  }, [changing, lines, card.role]);
-  const apply = (model: string, all: boolean) => act(() => call(api => api.brainstormSetModel(b.id, card.id, model, all))).then(() => { setPending(null); setChanging(false); });
+  const apply = (model: string, all: boolean) => act(() => call(api => api.brainstormSetModel(b.id, card.id, model, all))).then(() => setPending(null));
   const deps = card.dependsOn.filter(d => d.startsWith('q'));
   return <div className={`card-row${card.dropped ? ' dropped' : ''}`}>
     <div className="card-main">
       <div className="row-title"><span className="name">{card.title}</span><span className={`role-chip ${card.role}`}>{ROLE_NAMES[card.role]}</span>
         {deps.length > 0 && <span className="brain-meta">{t('needs {q} answered', {q: deps.join(', ')})}</span>}</div>
-      <div className="card-line"><span className="brain-id">{card.model ?? t('nothing eligible')}</span>
-        {changing && <select className="popup-button" aria-label={t('Model for this card')} disabled={busy || !lines}
-          value={pending ?? card.model ?? ''} onChange={e => { const model = e.target.value; if (!model || model === card.model) return;
-            if (changeScope === 'ask') setPending(model); else apply(model, changeScope === 'role'); }}>
-          {!lines && <option value={card.model ?? ''}>{t('Loading…')}</option>}
-          {lines?.map(l => <option key={l.model} value={l.model}>{l.model} · {l.fact ? factLine(l.fact) : l.tier ? t('tier {tier} only', {tier: l.tier}) : t('no tier')}</option>)}
-        </select>}
-      </div>
+      <div className="card-line"><span className="brain-id">{card.model ?? t('nothing eligible')}</span></div>
+      {sheet === 'change' && <RoleSheet role={card.role} brainstormId={b.id} current={card.model} onClose={() => setSheet(null)}
+        onPick={model => { if (changeScope === 'ask') { setPending(model); return; } return apply(model, changeScope === 'role'); }}/>}
+      {sheet === 'fallback' && <RoleSheet role={card.role} brainstormId={b.id} exclude={[card.model ?? '', ...card.fallbacks.map(f => f.model)]} onClose={() => setSheet(null)}
+        onPick={model => act(() => call(api => api.brainstormSetCard(b.id, card.id, {fallbacks: [...card.fallbacks.map(x => x.model), model]})))}/>}
       {pending && <div className="scope-choice" role="group" aria-label={t('Apply {model} to', {model: pending})}>
         <span>{t('Apply {model} to', {model: pending})}</span>
         <button type="button" className="button" disabled={busy} onClick={() => apply(pending, false)}>{t('This card')}</button>
@@ -202,15 +197,7 @@ function CardRow({b, card, onChanged, changeScope}: {b: Brainstorm; card: BrainC
             onClick={() => act(() => call(api => api.brainstormSetCard(b.id, card.id, {fallbacks: card.fallbacks.filter(x => x.model !== f.model).map(x => x.model)})))}>{t('Remove')}</button>}
         </li>)}
         {editable && card.fallbacks.length < 5 && <li>
-          {adding
-            ? <select className="popup-button" aria-label={t('Add a fallback')} disabled={busy || !lines} value=""
-                onChange={e => { const model = e.target.value; if (!model) return;
-                  act(() => call(api => api.brainstormSetCard(b.id, card.id, {fallbacks: [...card.fallbacks.map(x => x.model), model]}))).then(() => setAdding(false)); }}>
-                <option value="">{lines ? t('Pick a fallback…') : t('Loading…')}</option>
-                {lines?.filter(l => l.model !== card.model && !card.fallbacks.some(f => f.model === l.model)).map(l =>
-                  <option key={l.model} value={l.model}>{l.model} · {l.fact ? factLine(l.fact) : l.tier ? t('tier {tier} only', {tier: l.tier}) : t('no tier')}</option>)}
-              </select>
-            : <button type="button" className="link-button" disabled={busy} onClick={() => { setAdding(true); if (!lines) call(api => api.modelFactsRole(card.role)).then(setLines, e => setError(errorText(e))); }}>{t('Add a fallback…')}</button>}
+          <button type="button" className="link-button" disabled={busy} aria-label={t('Add a fallback to {title}', {title: card.title})} onClick={() => setSheet('fallback')}>{t('Add a fallback…')}</button>
           <span className="brain-meta"> {t('tried in order when an attempt fails: a connection error, a spent quota, a failed check')}</span>
         </li>}
       </ul>}
@@ -233,7 +220,7 @@ function CardRow({b, card, onChanged, changeScope}: {b: Brainstorm; card: BrainC
       {card.dropped
         ? <button type="button" className="button" disabled={busy} aria-label={t('Restore {title}', {title: card.title})} onClick={() => act(() => call(api => api.brainstormSetCard(b.id, card.id, {dropped: false})))}>{t('Restore')}</button>
         : <>
-          <button type="button" className="button" disabled={busy} aria-label={changing ? t('Close the model choice of {title}', {title: card.title}) : t('Change the model of {title}', {title: card.title})} onClick={() => { setPending(null); setChanging(v => !v); }}>{changing ? t('Cancel') : t('Change…')}</button>
+          <button type="button" className="button" disabled={busy} aria-label={t('Change the model of {title}', {title: card.title})} onClick={() => { setPending(null); setSheet('change'); }}>{t('Change…')}</button>
           <button type="button" className="button" disabled={busy} aria-label={t('Drop {title}', {title: card.title})} onClick={() => act(() => call(api => api.brainstormSetCard(b.id, card.id, {dropped: true})))}>{t('Drop')}</button>
         </>}
     </div>}

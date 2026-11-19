@@ -593,7 +593,8 @@ export interface GatewayApi {
   brainstorms(): Promise<Brainstorm[]>;
   brainstorm(id: string): Promise<Brainstorm>;
   /** The models eligible as the planner, ranked for the plan role, with the reasons for the rest. */
-  brainstormCandidates(id: string): Promise<AutoPlan>;
+  /** The models eligible for a role under the brainstorm's client, ranked as the brain ranks them; the plan role by default. */
+  brainstormCandidates(id: string, role?: BrainRole): Promise<AutoPlan>;
   /** The user's planner pick (`connection/model`); remembered for every project when asked. The planner then runs. */
   brainstormPickPlanner(id: string, model: string, remember: boolean): Promise<Brainstorm>;
   brainstormRetry(id: string): Promise<Brainstorm>;
@@ -738,7 +739,7 @@ const native: GatewayApi = {
   createTask: task => invoke('task_create', {task}),
   brainstorms: () => invoke('brainstorms_list'),
   brainstorm: id => invoke('brainstorm_get', {id}),
-  brainstormCandidates: id => invoke('brainstorm_candidates', {id}),
+  brainstormCandidates: (id, role) => invoke('brainstorm_candidates', {id, role: role ?? null}),
   brainstormPickPlanner: (id, model, remember) => invoke('brainstorm_pick_planner', {id, model, remember}),
   brainstormRetry: id => invoke('brainstorm_retry', {id}),
   brainstormSetModel: (id, card, model, allOfRole) => invoke('brainstorm_set_model', {id, card, model, allOfRole}),

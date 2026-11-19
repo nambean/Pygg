@@ -917,7 +917,7 @@ export function demoApi(): GatewayApi {
       await sleep(80);
     },
     autoSimulate: async (clientId, alias, needs) => touch(simulate(clientId, alias, needs)),
-    brainstormCandidates: async () => touch(simulate(null, 'auto/plan', {surfaceAnthropic: false, tools: false, vision: false, inputTokens: 3000, maxTokens: 6000, thinking: null, effort: null})),
+    brainstormCandidates: async (_id, role) => touch(simulate(null, `auto/${role ?? 'plan'}`, {surfaceAnthropic: false, tools: role != null && role !== 'plan', vision: false, inputTokens: role && role !== 'plan' ? 8000 : 3000, maxTokens: role && role !== 'plan' ? null : 6000, thinking: null, effort: null})),
     modelFactsStatus: async () => touch(factsStatus),
     modelFactsRefresh: async () => { await sleep(600); factsStatus.fetchedAt = Date.now(); factsStatus.stale = false; factsStatus.lastError = null; return touch(factsStatus); },
     modelFactsSetEnabled: async on => { factsStatus.enabled = on; return touch(factsStatus); },

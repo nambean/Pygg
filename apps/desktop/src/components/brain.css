@@ -59,3 +59,27 @@
 }
 /* The start commands (Brain Storming): the code block scrolls inside its column instead of widening the page. */
 .brain-start .code-block { min-width: 0; max-width: 100%; }
+
+/* The role sheet (BRAIN.md §4.5): one row per model with its evidence line, Why this model? with the chain and the
+   sources, Use on a row; the actions stack under the row when narrow. */
+.role-sheet-dialog { width: min(780px, calc(100vw - 32px)); }
+.role-sheet-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0 10px; }
+.role-sheet-bar .text-input { flex: 1 1 200px; min-width: 0; }
+.role-scope { display: inline-flex; gap: 4px; }
+.role-rows { list-style: none; margin: 0; padding: 0; }
+.role-row { display: flex; gap: 12px; padding: 10px 6px; border-top: 1px solid var(--separator); align-items: flex-start; }
+.role-row:first-child { border-top: 0; }
+.role-row.out { opacity: .72; }
+.role-row.current { background: var(--selection); border-radius: 8px; }
+.role-main { flex: 1; min-width: 0; font-size: 12px; }
+.role-main .link-button { margin-top: 4px; font-size: 11px; }
+.role-actions { flex-shrink: 0; }
+.role-why { margin-top: 6px; font-size: 12px; }
+.role-chain { margin: 4px 0; padding-left: 18px; }
+.role-chain li { margin: 2px 0; overflow-wrap: anywhere; }
+.role-chain li.wins { font-weight: 600; }
+.role-chain .badge { margin-inline-start: 6px; }
+.role-layer { color: var(--secondary); margin-right: 6px; }
+.role-sources { list-style: none; margin: 6px 0 0; padding: 0; }
+.role-sources li { margin-top: 4px; overflow-wrap: anywhere; }
+@media (max-width: 760px) { .role-row { flex-direction: column; } }

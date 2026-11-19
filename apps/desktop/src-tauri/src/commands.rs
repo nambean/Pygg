@@ -1639,10 +1639,10 @@ pub fn brainstorm_get(state: State<'_, AppState>, id: String) -> Res<brain::Brai
 /// The models eligible as this brainstorm's planner, ranked for the plan role under its client's policy, with the
 /// reasons for the rest (the inline pick, BRAIN.md 4.4).
 #[tauri::command]
-pub fn brainstorm_candidates(state: State<'_, AppState>, id: String) -> Res<gateway::auto::Plan> {
+pub fn brainstorm_candidates(state: State<'_, AppState>, id: String, role: Option<String>) -> Res<gateway::auto::Plan> {
     let b = brainstorm_of(&state, &id)?;
     let client = client_of(&state, &b)?;
-    state.shared.with_db(|db| brain::candidates(db, &client))
+    state.shared.with_db(|db| brain::candidates_for(db, &client, role.as_deref().unwrap_or("plan")))
 }
 
 /// The user's pick of a planner (`connection/model`), saved for every project when asked; the planner then runs.

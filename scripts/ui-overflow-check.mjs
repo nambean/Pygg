@@ -54,8 +54,9 @@ const states = [
   // pygg/brain (BRAIN.md §4.4): a proposal with every card's details open, a card's model being changed, the approve
   // sheet, the planner pick, and a failed planner.
   {screen: 'brainstorm', name: 'a proposed brainstorm, details open', steps: `document.querySelectorAll('.card-row details').forEach(d => d.open = true); await wait(200);`, expect: '.brain-cards'},
-  {screen: 'brainstorm', name: 'a card’s model being changed', steps: `click('Change…', 0); await wait(800);`, expect: '.card-row select'},
-  {screen: 'brainstorm', name: 'a model chosen, the scope asked', steps: `click('Change…', 0); await wait(800); const s = document.querySelector('.card-row select'); s.value = s.options[2].value; s.dispatchEvent(new Event('change', {bubbles: true})); await wait(300);`, expect: '.scope-choice'},
+  {screen: 'brainstorm', name: 'a card’s model being changed: the role sheet', steps: `click('Change…', 0); await wait(1200);`, expect: '[role=dialog] .role-row'},
+  {screen: 'brainstorm', name: 'the role sheet, every connection, why open', steps: `click('Change…', 0); await wait(1200); click('All connections'); await wait(300); click('Why this model?', 0); await wait(300);`, expect: '[role=dialog] .role-why'},
+  {screen: 'brainstorm', name: 'a model chosen, the scope asked', steps: `click('Change…', 0); await wait(1200); [...document.querySelectorAll('[role=dialog] .role-row .button.prominent')].find(b => !b.disabled).click(); await wait(600);`, expect: '.scope-choice'},
   {screen: 'board', name: 'a card being dropped', steps: `click('Drop', 0); await wait(500);`, expect: '[role=dialog]'},
   {screen: 'brainstorm', name: 'Approve sheet', steps: `click('Approve', -1); await wait(600);`, expect: '[role=dialog]'},
   {screen: 'brainstorm-pick', name: 'the planner pick', steps: '', expect: '.brain-pick'},
@@ -65,7 +66,7 @@ const states = [
   {screen: 'board', name: 'the board, measures open', steps: `document.querySelectorAll('.board-head details').forEach(d => d.open = true); await wait(200);`, expect: '.board-card'},
   {screen: 'board', name: 'a limit being edited', steps: `click('Limit…', 0); await wait(300);`, expect: '.limit-field'},
   {screen: 'brain', name: 'Brain Storming', steps: '', expect: '.group'},
-  {screen: 'brain', name: 'a role pick being changed', steps: `click('Change…', 0); await wait(800);`, expect: '.group select'},
+  {screen: 'brain', name: 'a role pick being changed: the role sheet', steps: `click('Change…', 0); await wait(1200);`, expect: '[role=dialog] .role-row'},
   // First run: nothing connected, no keys, no requests.
   ...['overview', 'connections', 'endpoint', 'tools', 'combos', 'usage', 'skills'].map(screen => ({screen, query: 'empty', name: 'first run', steps: ''})),
   {screen: 'connections', query: 'empty', name: 'first run, Connect sheet', steps: `click('Connect Provider'); await wait(800);`, expect: '[role=dialog]'},

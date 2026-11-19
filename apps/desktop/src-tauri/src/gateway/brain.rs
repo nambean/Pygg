@@ -287,6 +287,21 @@ pub fn candidates(conn: &Connection, client: &Client) -> Result<auto::Plan> {
     auto::plan_with(conn, client, "auto/plan", Strategy::Role(Role::Plan), &planner_needs(), feed.as_deref())
 }
 
+/// The models eligible for a card of `role` under the client's policy, ranked as `pick_models` ranks them (the role
+/// sheet, BRAIN.md §4.5): the plan role with the planner's needs, the others with a card's.
+pub fn candidates_for(conn: &Connection, client: &Client, role: &str) -> Result<auto::Plan> {
+    let role = match role {
+        "plan" => return candidates(conn, client),
+        "code" => Role::Code,
+        "test" => Role::Test,
+        "review" => Role::Review,
+        other => return Err(format!("unknown role {other}")),
+    };
+    let feed = super::facts::for_conn(conn);
+    let needs = Needs { input_tokens: 8_000, tools: true, ..Needs::default() };
+    auto::plan_with(conn, client, &format!("auto/{}", role.as_str()), Strategy::Role(role), &needs, feed.as_deref())
+}
+
 /// How the planner was chosen.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pick {

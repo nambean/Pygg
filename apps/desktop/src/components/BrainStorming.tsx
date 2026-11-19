@@ -5,6 +5,7 @@ import { t } from '../lib/i18n';
 import { evidenceLine, type BrainPick, type BrainRole, type BrainSettings } from '../lib/tasks';
 import { useGateway } from '../hooks/useGateway';
 import { CodeBlock, ErrorNote, Spinner, Switch } from './ui';
+import { RoleSheet } from './RoleSheet';
 import './brain.css';
 
 const ROLES: BrainRole[] = ['plan', 'code', 'test', 'review'];
@@ -122,7 +123,7 @@ function Row({label, hint, children}: {label: string; hint: string; children: Re
 }
 
 function RoleRow({role, pick, busy, onSet}: {role: BrainRole; pick: BrainPick | null; busy: boolean; onSet: (model: string | null) => void}) {
-  const [changing, setChanging] = useState(false);
+  const [sheet, setSheet] = useState(false);
   const lines = useGateway(api => api.modelFactsRole(role), [role]);
   const line = pick ? lines.data?.find(l => l.model === pick.model) ?? null : lines.data?.[0] ?? null;
   return <div className="group-row" style={{alignItems: 'flex-start'}}>
@@ -133,14 +134,10 @@ function RoleRow({role, pick, busy, onSet}: {role: BrainRole; pick: BrainPick | 
         {line && <span className="brain-meta">{line.tier ?? t('no tier')} · {line.billing}</span>}</div>
       {line && <div className="brain-evidence">{evidenceLine(line)}</div>}
       {pick && lines.data && !line && <div className="warn-text" style={{fontSize: 11}}>{t('No longer eligible: not connected, turned off, or below the policy. Pick again or clear.')}</div>}
-      {changing && <select className="popup-button" style={{marginTop: 6, maxWidth: '100%'}} aria-label={t('Model for {role}', {role})} disabled={busy || !lines.data} value={pick?.model ?? ''}
-        onChange={e => { onSet(e.target.value || null); setChanging(false); }}>
-        <option value="">{lines.data ? t('By the rules') : t('Loading…')}</option>
-        {lines.data?.map(l => <option key={l.model} value={l.model}>{l.model} · {evidenceLine(l)}</option>)}
-      </select>}
+      {sheet && <RoleSheet role={role} current={pick?.model ?? null} savedPick={pick?.model ?? null} onPick={model => { onSet(model); lines.reload(); }} onClose={() => setSheet(false)}/>}
     </div>
     <div className="row-buttons" style={{display: 'flex', gap: 6, flexShrink: 0}}>
-      <button type="button" className="button" disabled={busy} onClick={() => setChanging(v => !v)}>{changing ? t('Cancel') : t('Change…')}</button>
+      <button type="button" className="button" disabled={busy} aria-label={t('Change the {role} model', {role})} onClick={() => setSheet(true)}>{t('Change…')}</button>
       {pick && <button type="button" className="button" disabled={busy} onClick={() => onSet(null)}>{t('Clear')}</button>}
     </div>
   </div>;
