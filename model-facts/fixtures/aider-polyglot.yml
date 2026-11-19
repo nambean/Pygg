@@ -1,0 +1,135 @@
+- dirname: 2024-12-21-19-23-03--polyglot-o1-hard-diff
+  test_cases: 224
+  model: o1-2024-12-17 (high)
+  edit_format: diff
+  commit_hash: a755079-dirty
+  pass_rate_1: 23.7
+  pass_rate_2: 61.7
+  pass_num_1: 53
+  pass_num_2: 139
+  percent_cases_well_formed: 91.5
+  error_outputs: 25
+  num_malformed_responses: 24
+  num_with_malformed_responses: 19
+  user_asks: 16
+  lazy_comments: 0
+  syntax_errors: 0
+  indentation_errors: 0
+  exhausted_context_windows: 0
+  test_timeouts: 2
+  total_tests: 225
+  command: aider --model openrouter/openai/o1
+  date: 2024-12-21
+  versions: 0.69.2.dev
+  seconds_per_case: 133.2
+  total_cost: 186.4958
+
+- dirname: 2024-12-21-21-46-27--polyglot-haiku-diff
+  test_cases: 225
+  model: claude-3-5-haiku-20241022
+  edit_format: diff
+  commit_hash: a755079-dirty
+  pass_rate_1: 7.1
+  pass_rate_2: 28.0
+  pass_num_1: 16
+  pass_num_2: 63
+  percent_cases_well_formed: 91.1
+  error_outputs: 31
+  num_malformed_responses: 30
+  num_with_malformed_responses: 20
+  user_asks: 13
+  lazy_comments: 0
+  syntax_errors: 0
+  indentation_errors: 0
+  exhausted_context_windows: 1
+  test_timeouts: 9
+  total_tests: 225
+  command: aider --model claude-3-5-haiku-20241022
+  date: 2024-12-21
+  versions: 0.69.2.dev
+  seconds_per_case: 31.8
+  total_cost: 6.0583
+
+- dirname: 2025-01-20-19-11-38--ds-turns-upd-cur-msgs-fix-with-summarizer
+  test_cases: 225
+  model: DeepSeek R1
+  edit_format: diff
+  commit_hash: 5650697-dirty
+  pass_rate_1: 26.7
+  pass_rate_2: 56.9
+  pass_num_1: 60
+  pass_num_2: 128
+  percent_cases_well_formed: 96.9
+  error_outputs: 8
+  num_malformed_responses: 7
+  num_with_malformed_responses: 7
+  user_asks: 15
+  lazy_comments: 0
+  syntax_errors: 0
+  indentation_errors: 0
+  exhausted_context_windows: 1
+  test_timeouts: 5
+  total_tests: 225
+  command: aider --model deepseek/deepseek-reasoner
+  date: 2025-01-20
+  versions: 0.71.2.dev
+  seconds_per_case: 113.7
+  total_cost: 5.4193
+
+- dirname: 2025-06-06-16-47-07--r1-diff
+  test_cases: 224
+  model: DeepSeek R1 (0528)
+  edit_format: diff
+  commit_hash: 4c161f9-dirty
+  pass_rate_1: 34.4
+  pass_rate_2: 71.4
+  pass_num_1: 77
+  pass_num_2: 160
+  percent_cases_well_formed: 94.6
+  error_outputs: 28
+  num_malformed_responses: 15
+  num_with_malformed_responses: 12
+  user_asks: 105
+  lazy_comments: 0
+  syntax_errors: 0
+  indentation_errors: 0
+  exhausted_context_windows: 0
+  prompt_tokens: 2644169
+  completion_tokens: 1842168
+  test_timeouts: 2
+  total_tests: 225
+  command: aider --model deepseek/deepseek-reasoner
+  date: 2025-06-06
+  versions: 0.84.1.dev
+  seconds_per_case: 716.6
+  total_cost: 4.8016
+
+- dirname: 2025-08-23-15-47-21--gpt-5-high
+  test_cases: 225
+  model: gpt-5 (high)
+  edit_format: diff
+  commit_hash: 32faf82
+  reasoning_effort: high
+  pass_rate_1: 52.0
+  pass_rate_2: 88.0
+  pass_num_1: 117
+  pass_num_2: 198
+  percent_cases_well_formed: 91.6
+  error_outputs: 23
+  num_malformed_responses: 22
+  num_with_malformed_responses: 19
+  user_asks: 96
+  lazy_comments: 3
+  syntax_errors: 0
+  indentation_errors: 0
+  exhausted_context_windows: 0
+  prompt_tokens: 2675561
+  completion_tokens: 2623429
+  test_timeouts: 3
+  total_tests: 225
+  command: aider --model openai/gpt-5
+  date: 2025-08-23
+  versions: 0.86.2.dev
+  seconds_per_case: 194.0
+  total_cost: 29.0829
+

@@ -559,6 +559,7 @@ pub async fn run(mut args: Vec<String>) -> i32 {
             let rest = args.get(1..).unwrap_or_default();
             read::finish(match args.first().map(String::as_str) {
                 Some("info") | Some("show") => manage::model_info(rest),
+                Some("facts") => manage::model_facts(rest),
                 Some("test") => manage::model_test(rest).await,
                 Some("enable") => manage::model_switch(rest, true),
                 Some("disable") => manage::model_switch(rest, false),

@@ -34,6 +34,7 @@ cargo test --all-features --lib --tests   # with the integration tests in tests/
 cd ../../..
 python scripts/schema-reference.py --check
 python scripts/licences.py --check
+python scripts/model-facts.py selftest   # after a change to the model facts builder (pip install pyyaml pyarrow cryptography)
 ```
 
 CI runs all of these on Windows, and the layout check below. A separate workflow runs `cargo audit` and `pnpm audit` when a lockfile changes and every Monday; a known vulnerability fails it. CodeQL scans the Rust, TypeScript, Python and workflow code on every push and weekly. Actions in the workflows are pinned to commit SHAs; Dependabot proposes updates monthly.

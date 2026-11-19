@@ -1,6 +1,6 @@
 # Pygg — The brain, the facts feed and the board
 
-> **Status:** Design · decided (ADR-040, ADR-041, ADR-042), not built · reviewed 2026-11-19
+> **Status:** Design · the model facts feed (ADR-040) is built; `pygg/brain` (ADR-041) and the board (ADR-042) are decided, not built · reviewed 2026-11-19
 
 How a requirement typed into the user's own coding agent becomes a board of cards, each on a model picked by rule from measured facts, run one at a time under the user's approval. Nothing in this document claims that code exists; [Implementation Status](../IMPLEMENTATION-STATUS.md) says what does.
 
@@ -18,18 +18,19 @@ Each part is useful on its own: the feed improves `auto` and the Providers scree
 
 | Field | Meaning |
 | --- | --- |
-| `match` | A model line, as `gateway/tiers.rs` matches it (every part appears in the id), or `{exact: "<provider id>"}` |
+| `ids` | The canonical ids the row is about: the tail of a provider id after a router's vendor prefix, lower-cased, `.`, `_` and spaces as `-`, a `:free`-style variant, `-latest` and a trailing date dropped (`openrouter/anthropic/claude-opus-4.5` and `claude-opus-4-5-20251101` both give `claude-opus-4-5`; `canonical` in `scripts/model-facts.py` and `gateway/facts.rs`, the same rule in both) |
+| `name` | The name as the source writes it |
 | `role` | `plan`, `code`, `test`, `review`, `image` |
-| `score` | The number the source published, unchanged, with its unit |
+| `score` | The number the source published, to two decimals, with its `unit` |
 | `place`, `of` | The row's place in its source (1 is best; rows with the same score share a place: `place` is one more than the number of rows with a strictly better score) and the source's row count |
 | `rank` | `(of − place) / (of − 1)`, so 1 is the best and 0 the worst within that source (1 when `of` is 1). Comparable across sources; `score` is not |
 | `agent` | For Terminal-Bench and SWE-bench, the agent the row was run with (`claude-code`, `codex`, `mini-swe-agent`, …); absent elsewhere |
 | `effort` | The reasoning effort the row was run with, when the source states it (`high`, `max`, …) |
 | `licence` | The source's licence for this row (`Apache-2.0`, `CC-BY-4.0`, `CC-BY-NC-4.0`) |
 | `derived` | `true` when the role is not what the source measured (every `plan` and `review` fact; `test` until a source measures it) |
-| `source` | The source's short name, from the feed's source list |
-| `url` | Where the number was read |
-| `observed` | The date the job read it |
+| `source` | The source's id, from the feed's source list, which holds its name, URL, licence, attribution, what it measures and does not, its status (`ok`, or `stale` when carried forward), the date it was read and its row count |
+| `url` | Where the row was read, when the source gives one per row |
+| `date` | The row's own date in the source (`YYYY-MM-DD`): what the twelve-month rule reads |
 
 A fact with no source has no row. A model the feed does not name has no fact and keeps its tier (ADR-006).
 
@@ -65,11 +66,12 @@ model-facts/
     facts.json.sig    its signature (ed25519)
 ```
 
-- **The names map**, `model-facts/names.json`, is kept by hand and reviewed in a pull request, because leaderboard names (`Claude 4.5 Opus (high)`, `Claude Opus 5.5 (High)`) are not provider ids. One entry per source and name: `{"<source>": {"<name as the source writes it>": {"match": ["claude", "opus-4-5"], "effort": "high"}}}`. `match` is the line as `gateway/tiers.rs` matches it: every part must appear in the connected model's id, lower-cased, after a router's vendor prefix (`openrouter/anthropic/claude-opus-4-5` matches). Terminal-Bench and Aider rows already carry a `provider/model` id, which the builder turns into `match` parts itself; the map is consulted only for the names it lists. A name the map does not know is written to the build log and left out, never guessed.
+- **The names map**, `model-facts/names.json`, is kept by hand and reviewed in a pull request, because leaderboard names (`Claude 4.5 Opus`, `Claude Opus 5.5 (High)`) are not provider ids. One entry per source and name: `{"<source>": {"<name as the source writes it>": {"ids": ["claude-opus-4-5"], "effort": "high"}}}`. Terminal-Bench and Aider rows carry a `provider/model` id, which the builder makes canonical itself; SWE-bench and LMArena names go through the map, and a name it does not know is written to the build log and left out, never guessed (`python scripts/model-facts.py names` lists them with a proposed id to review). The first map was proposed from the real names on 2026-11-19 and reviewed by hand; system names (a fine-tune, a sampling scheme, an agent) were left out.
+- **The app matches** a fact to a connected model when `canonical(model_id)` is one of the fact's `ids`; a connection's prefix plays no part, so one fact serves the same model on every connection.
 - **Built by `scripts/model-facts.py`** in a scheduled workflow, weekly (and on demand), from the sources' published data. A source that is unreachable or no longer parses keeps its facts from the last published feed, with `observed` unchanged and the source marked `stale` in the source list; the build fails only when every source fails. The 4 MB SWE-bench file is read by the job, never by the app.
-- **Signed** with an ed25519 key: the 32-byte seed is the repository secret `MODEL_FACTS_SIGNING_KEY`, held only in GitHub Actions; the public key is a constant in the app (`gateway/facts.rs`). The signature is over the exact bytes of `facts.json` and is published beside it as `facts.json.sig` (base64). A feed that does not verify, or whose `built` is older than the one already kept, is refused and the kept one stays.
+- **Signed** with an ed25519 key: the 32-byte seed, base64, is the repository secret `MODEL_FACTS_SIGNING_KEY`, held only in GitHub Actions; the public key is a constant in the app (`gateway/facts.rs`, `KEYS`, key id `mf-2026-1`). The signature is over the exact bytes of `facts.json` and is published beside it as `facts.json.sig`, one line `<key id>:<base64 signature>`. A feed that does not verify, or whose `built` is not later than the one already kept, is refused and the kept one stays. Without the secret the workflow builds and keeps the feed as a run artifact and publishes nothing.
 - **Published** as the assets of one fixed pre-release tag of this repository, `model-facts-v1`, replaced on every build; the app fetches `https://github.com/nambean/Pygg/releases/download/model-facts-v1/facts.json` and its `.sig`. A `v2` of the format gets a new tag and a new app constant; `v1` stays for older apps.
-- **Kept next to the store**, like the models.dev catalog (`reference/model-facts.json`, ADR-031's pattern in `gateway/reference.rs`), with the fetch time in `settings` (`model_facts.fetched_at`), the switch in `settings` (`model_facts.enabled`, on by default), and the public GET carrying nothing about the user. The app checks once a day when the gateway starts or a screen that ranks asks; **Refresh** fetches now. **Off** removes the feed layer only: the user's own evidence and the tier still rank, and the kept file stays for when it is turned on again. Offline, the kept feed is used and its `built` date shown; the screens tell offline ("could not refresh"), stale (a `built` older than the weekly cadence) and refused (signature) apart.
+- **Kept next to the store**, like the models.dev catalog (`reference/model-facts.json` and its `.sig`, ADR-031's pattern in `gateway/reference.rs`), verified again on every read, with the fetch time in `settings` (`model_facts.fetched_at`), the switch in `settings` (`model_facts.enabled`, on by default), the last fetch error in `model_facts.last_error`, and the public GET carrying nothing about the user. The app checks once a day when it starts, and so does `pygg gateway serve`; **Refresh** (and `pygg gateway facts --refresh yes`) fetches now; `pygg models facts` reads what is kept. **Off** removes the feed layer only: the user's own evidence and the tier still rank, and the kept file stays for when it is turned on again. Offline, the kept feed is used and its `built` date shown; the screens tell offline ("could not refresh"), stale (a `built` older than the weekly cadence) and refused (signature) apart.
 - **Keys.** The `.sig` file names its key id; the app holds the public keys it trusts by id. Rotation: a release adds the new public key, then the secret changes; the old key is dropped in a later release. A compromised key is dropped in a release and every feed signed by it is refused from then on; a feed never grants trust to a key.
 - **Attribution.** The source list carries each source's licence and the attribution line its licence asks for; the app shows the source's name and link wherever a fact is shown (SCREENS §3.2), and THIRD_PARTY_NOTICES.md lists the sources with their licences.
 

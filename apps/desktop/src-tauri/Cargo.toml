@@ -51,6 +51,9 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 bytes = "1"
 # Client tokens are stored only as SHA-256 hashes.
 sha2 = "0.10"
+# The model facts feed is signed by the project's job and verified here (gateway/facts.rs, ADR-040).
+ed25519-dalek = "2"
+base64 = "0.22"
 # `Retry-After` as an HTTP date (already in the tree through hyper).
 httpdate = "1"
 # Codex's config.toml edited keeping its comments and layout (src/integrations.rs; already in the tree through Tauri).

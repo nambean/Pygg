@@ -41,6 +41,8 @@ pygg providers remove CONNECTION --yes
 pygg models [CONNECTION]              models to ask for, billing, price   [--search TEXT] [--all] [--limit N]
 pygg models info CONNECTION/MODEL     price, tier, limits, tools, health over 24 hours, place in auto and auto/cheap
 pygg models test CONNECTION/MODEL     one short question through the gateway
+pygg models facts [ROLE]              your models ranked for a role from the model facts feed, each with its
+                                      source and date, or its tier   [--all] [--json]
 pygg models enable | disable CONNECTION/MODEL…
 pygg route [auto|auto/cheap]          the models the router would try, best first, and why the rest are left out
                                       [--key NAME] [--tools] [--images] [--prompt N]
@@ -92,6 +94,7 @@ Every command takes `--db PATH`; `pygg <command> --help` says more.
 - `providers add|refresh|enable|disable|remove`, `models enable|disable` and `default` open the store read-write without migrating it, and only at the schema this program knows (`manage::open_write`). The running app and gateway read the store at each request, so a change applies at once.
 - `providers add` reads the key from an environment variable (`--key-env`), never from the command line, keeps it in the credential store and lists the connection's models (with models.dev's facts), as Connect Provider does. Web-session presets are refused with a pointer to the app, which opens the site's sign-in window. `providers remove` needs `--yes` and deletes the connection's keys from the credential store; its past requests stay in the ledger.
 - `models info` reads only the store: the price, tier, limits, what it takes, its requests over 24 hours, and its place in `auto` and `auto/cheap` for a 1,000-token chat by the first API key's rules (`route` takes another key and other needs). `models test` sends one short question through the running gateway, as `ask` does.
+- `models facts [plan|code|test|review|image]` reads the model facts feed the app keeps beside the store (ADR-040) and ranks the enabled models for the role: the layer that won (the feed, else the tier), the source, its place and row count, the score, the agent and effort the row was run with, `derived` where the source measures something near the role, and the row's date. A row older than a year is shown as not ranking. The feed is never fetched by this command; the app and `pygg gateway facts` fetch it.
 - Making, limiting and revoking API keys, combos, prices and tiers stay in the app (and in `pygg gateway` for a headless gateway). A key's secret is never printed by `keys`.
 
 ### `gateway` (advanced)
@@ -106,6 +109,8 @@ pygg gateway [--db PATH] <command>
                          S: in_order, round_robin, least_used, quota_aware
   refresh-models --id ID
   lookup [--refresh yes]                 fill model facts from the models.dev catalog
+  facts [--refresh yes] [--role R] [--limit N]   fetch the model facts feed when due (or now), verify it, and
+                                         rank the connected models for a role (ADR-040)
   test-model --model CONNECTION/MODEL    one short request (a paid model costs a little)
   create-client --name NAME [--monthly-usd N]
   client --name NAME [--auto-min-tier T0-T4] [--paid-retries N] [--tasks yes|no] [--no-training yes|no]

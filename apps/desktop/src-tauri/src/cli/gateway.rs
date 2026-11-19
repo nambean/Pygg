@@ -9,6 +9,8 @@
 //!       adds another account's key to the connection's key ring (ADR-038); S: in_order, round_robin, least_used,
 //!       quota_aware
 //!   gateway [--db PATH] refresh-models --id ID
+//!   gateway [--db PATH] facts [--refresh yes] [--role R] [--limit N]
+//!       the model facts feed (ADR-040), fetched when due or with --refresh yes, and the models ranked for a role
 //!   gateway [--db PATH] create-client --name NAME [--monthly-usd N]
 //!   gateway [--db PATH] combo --name NAME --member CONNECTION/MODEL [--member …]
 //!   gateway [--db PATH] model --model CONNECTION/MODEL [--tier T0-T4] [--context N] [--max-output N]
@@ -55,6 +57,8 @@ const HELP: &str = "usage: gateway [--db PATH] <command> [--flag value …]
                                          add another account's key to the connection's key ring
   refresh-models --id ID
   lookup [--refresh yes]                 fill model facts from the models.dev catalog
+  facts [--refresh yes] [--role R] [--limit N]   the model facts feed (ADR-040): fetch when due or now, then the
+                                         connected models ranked for a role (plan, code, test, review, image)
   test-model --model CONNECTION/MODEL    one short request (a paid model costs a little)
   create-client --name NAME [--monthly-usd N]
   client --name NAME [--auto-min-tier T0-T4] [--paid-retries N] [--tasks yes|no] [--no-training yes|no]
@@ -122,6 +126,8 @@ pub async fn run(mut args: Vec<String>) {
             let port =
                 one("port").map(|p| p.parse().unwrap_or_else(|_| fail("bad port"))).unwrap_or(gateway::DEFAULT_PORT);
             let owner = shared.clone();
+            // The model facts feed (ADR-040): fetched when a day has passed, so a headless gateway ranks roles too.
+            gateway::facts::refresh_if_due(&shared, &gateway::facts::cache_path(&db_path)).await;
             let server = gateway::start(shared, port).await.unwrap_or_else(|e| match e.kind() {
                 std::io::ErrorKind::ResourceBusy => fail(e.to_string()),
                 _ => fail(format!("127.0.0.1:{port}: {e}")),
@@ -228,6 +234,68 @@ pub async fn run(mut args: Vec<String>) {
                     "models.dev described {}; filled {}; tiered by price {}; added {} free; {} media models off",
                     applied.matched, applied.filled, applied.tiered, applied.added, applied.media_off
                 );
+            }
+        }
+        "facts" => {
+            // The model facts feed (ADR-040): --refresh yes fetches and verifies it now; else the kept one, and the
+            // daily check. Then the connected models ranked for --role (code by default).
+            let path = gateway::facts::cache_path(&db_path);
+            let feed = if one("refresh").as_deref() == Some("yes") {
+                Some(gateway::facts::refresh(&shared, &path).await.unwrap_or_else(|e| fail(e)))
+            } else {
+                gateway::facts::refresh_if_due(&shared, &path).await
+            };
+            let status = shared.with_db(|db| gateway::facts::status(db, &path));
+            match &status.built {
+                Some(built) => println!(
+                    "model facts built {built}: {} facts from {} sources{}",
+                    status.facts,
+                    status.sources.len(),
+                    status.last_error.as_ref().map(|e| format!("; last fetch failed: {e}")).unwrap_or_default()
+                ),
+                None => println!(
+                    "no model facts kept{}",
+                    status.last_error.as_ref().map(|e| format!(": {e}")).unwrap_or_default()
+                ),
+            }
+            let role = one("role").unwrap_or_else(|| "code".into());
+            let lines =
+                shared.with_db(|db| gateway::facts::rank_role(db, feed.as_ref(), &role)).unwrap_or_else(|e| fail(e));
+            println!("{role}: {} models", lines.len());
+            for l in lines.iter().take(one("limit").and_then(|v| v.parse().ok()).unwrap_or(30)) {
+                match &l.fact {
+                    Some(f) => println!(
+                        "  {:<48} {:<3} {:<6} feed  {} #{} of {} · {} {}{}{}· {}",
+                        l.model,
+                        l.tier.as_deref().unwrap_or("-"),
+                        l.billing,
+                        f.source_name,
+                        f.place,
+                        f.of,
+                        f.score,
+                        f.agent.as_deref().map(|a| format!("· {a} ")).unwrap_or_default(),
+                        f.effort.as_deref().map(|e| format!("· {e} ")).unwrap_or_default(),
+                        if f.derived { "· derived " } else { "" },
+                        f.date.as_deref().unwrap_or("undated")
+                    ),
+                    None => println!(
+                        "  {:<48} {:<3} {:<6} {}  {}",
+                        l.model,
+                        l.tier.as_deref().unwrap_or("-"),
+                        l.billing,
+                        l.layer,
+                        l.others
+                            .first()
+                            .map(|o| format!(
+                                "{} #{} of {} from {}: older than a year, shown only",
+                                o.source_name,
+                                o.place,
+                                o.of,
+                                o.date.as_deref().unwrap_or("?")
+                            ))
+                            .unwrap_or_else(|| "no fact for this role".into())
+                    ),
+                }
             }
         }
         "lookup" => {

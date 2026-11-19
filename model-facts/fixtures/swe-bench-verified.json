@@ -1,0 +1,130 @@
+{
+ "leaderboards": [
+  {
+   "name": "Lite",
+   "results": []
+  },
+  {
+   "name": "Verified",
+   "results": [
+    {
+     "name": "Sonar Foundation Agent + Claude 4.5 Opus",
+     "agent": "Sonar Foundation Agent",
+     "model_display": "Claude 4.5 Opus",
+     "model_org": "Anthropic",
+     "reasoning_effort": null,
+     "resolved": 79.2,
+     "date": "2025-12-05",
+     "cost": null,
+     "site": "https://www.sonarsource.com",
+     "os_system": false,
+     "os_model": false
+    },
+    {
+     "name": "live-SWE-agent + Claude 4.5 Opus medium (20251101)",
+     "agent": "live-SWE-agent",
+     "model_display": "Claude 4.5 Opus",
+     "model_org": "Anthropic",
+     "reasoning_effort": "medium",
+     "resolved": 79.2,
+     "date": "2025-12-15",
+     "cost": null,
+     "site": "https://github.com/OpenAutoCoder/live-swe-agent",
+     "os_system": true,
+     "os_model": false
+    },
+    {
+     "name": "live-SWE-agent + Gemini 3 Pro Preview (2025-11-18)",
+     "agent": "live-SWE-agent",
+     "model_display": "Gemini 3 Pro Preview",
+     "model_org": "Google DeepMind",
+     "reasoning_effort": null,
+     "resolved": 77.4,
+     "date": "2025-11-20",
+     "cost": null,
+     "site": "https://github.com/OpenAutoCoder/live-swe-agent",
+     "os_system": true,
+     "os_model": false
+    },
+    {
+     "name": "Claude 4.5 Opus (high)",
+     "agent": "mini-SWE-agent",
+     "model_display": "Claude 4.5 Opus",
+     "model_org": "Anthropic",
+     "reasoning_effort": "high",
+     "resolved": 76.8,
+     "date": "2026-02-17",
+     "cost": 376.9539985,
+     "site": "https://www.anthropic.com/claude",
+     "os_system": true,
+     "os_model": false
+    },
+    {
+     "name": "Claude 4.5 Opus (20251101) (medium)",
+     "agent": "mini-SWE-agent",
+     "model_display": "Claude 4.5 Opus",
+     "model_org": "Anthropic",
+     "reasoning_effort": "medium",
+     "resolved": 74.4,
+     "date": "2025-11-24",
+     "cost": 360.6224985,
+     "site": "https://www.anthropic.com/news/claude-opus-4-5",
+     "os_system": true,
+     "os_model": false
+    },
+    {
+     "name": "Gemini 3 Pro Preview (2025-11-18)",
+     "agent": "mini-SWE-agent",
+     "model_display": "Gemini 3 Pro Preview",
+     "model_org": "Google DeepMind",
+     "reasoning_effort": null,
+     "resolved": 74.2,
+     "date": "2025-11-18",
+     "cost": 229.978759475,
+     "site": "https://ai.google.dev/gemini-api/docs/models",
+     "os_system": true,
+     "os_model": false
+    },
+    {
+     "name": "GPT 5.2 (high)",
+     "agent": "mini-SWE-agent",
+     "model_display": "GPT 5.2",
+     "model_org": "OpenAI",
+     "reasoning_effort": "high",
+     "resolved": 72.8,
+     "date": "2026-02-17",
+     "cost": 236.78350885,
+     "site": "https://platform.openai.com",
+     "os_system": true,
+     "os_model": false
+    },
+    {
+     "name": "GPT 5.2 (2025-12-11) (high)",
+     "agent": "mini-SWE-agent",
+     "model_display": "GPT 5.2",
+     "model_org": "OpenAI",
+     "reasoning_effort": "high",
+     "resolved": 71.8,
+     "date": "2025-12-11",
+     "cost": 260.1295018,
+     "site": "https://platform.openai.com/docs/models/gpt-5",
+     "os_system": true,
+     "os_model": false
+    },
+    {
+     "name": "TRAE",
+     "agent": "TRAE",
+     "model_display": "Undisclosed",
+     "model_org": null,
+     "reasoning_effort": null,
+     "resolved": 70.6,
+     "date": "2025-05-19",
+     "cost": null,
+     "site": "https://www.trae.ai/",
+     "os_system": false,
+     "os_model": false
+    }
+   ]
+  }
+ ]
+}

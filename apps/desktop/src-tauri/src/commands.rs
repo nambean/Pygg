@@ -1564,3 +1564,45 @@ pub async fn task_finish(
         }
     })
 }
+
+// ---------- The model facts feed (ADR-040, gateway/facts.rs) ----------
+
+fn facts_path(state: &AppState) -> std::path::PathBuf {
+    gateway::facts::cache_path(&state.data_dir.join("store.sqlite3"))
+}
+
+/// Whether facts are on, when they were fetched, the kept feed's date and sources, and the last fetch error.
+#[tauri::command]
+pub fn model_facts_status(state: State<'_, AppState>) -> Res<gateway::facts::Status> {
+    let path = facts_path(&state);
+    Ok(state.shared.with_db(|db| gateway::facts::status(db, &path)))
+}
+
+/// Fetches the feed now; the kept one stays when the fetch fails or does not verify, and the status says why.
+#[tauri::command]
+pub async fn model_facts_refresh(state: State<'_, AppState>) -> Res<gateway::facts::Status> {
+    let path = facts_path(&state);
+    let outcome = gateway::facts::refresh(&state.shared, &path).await;
+    let status = state.shared.with_db(|db| gateway::facts::status(db, &path));
+    outcome.map(|_| status.clone()).or_else(|e| if status.built.is_some() { Ok(status) } else { Err(e) })
+}
+
+/// Off keeps the file and drops the feed layer from every ranking; own evidence and tiers still rank.
+#[tauri::command]
+pub fn model_facts_set_enabled(state: State<'_, AppState>, on: bool) -> Res<gateway::facts::Status> {
+    let path = facts_path(&state);
+    state.shared.with_db(|db| {
+        gateway::facts::set_enabled(db, on)?;
+        Ok(gateway::facts::status(db, &path))
+    })
+}
+
+/// The connected models ranked for a role, each with the layer that won and the facts behind it.
+#[tauri::command]
+pub fn model_facts_role(state: State<'_, AppState>, role: String) -> Res<Vec<gateway::facts::Line>> {
+    let path = facts_path(&state);
+    state.shared.with_db(|db| {
+        let feed = if gateway::facts::enabled(db) { gateway::facts::load(&path, gateway::facts::KEYS) } else { None };
+        gateway::facts::rank_role(db, feed.as_ref(), &role)
+    })
+}

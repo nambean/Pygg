@@ -25,6 +25,7 @@ pub mod anthropic;
 pub mod auto;
 pub mod catalog;
 pub mod checker;
+pub mod facts;
 pub mod hints;
 pub mod keys;
 pub mod model_test;

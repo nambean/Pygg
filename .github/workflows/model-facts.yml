@@ -1,0 +1,72 @@
+# The model facts feed (ADR-040, docs/design/BRAIN.md section 1): built weekly from the sources the owner approved,
+# signed with the repository's key, and published as the assets of the fixed pre-release tag `model-facts-v1`, which
+# the app fetches. A source that fails is carried forward from the last published feed; the build fails only when
+# every source does. Without the signing secret the feed is built and kept as a run artifact, never published.
+name: model-facts
+
+on:
+  schedule:
+    - cron: '23 4 * * 1'   # Mondays, 04:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: model-facts
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - run: pip install pyyaml==6.0.2 pyarrow==19.0.1 cryptography==45.0.5
+      - name: Parsers against the fixtures
+        run: python scripts/model-facts.py selftest
+      - name: The last published feed, for carrying a failed source forward
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p previous
+          gh release download model-facts-v1 --pattern facts.json --dir previous --repo "$GITHUB_REPOSITORY" || echo "no previous feed"
+      - name: Build
+        run: |
+          if [ -f previous/facts.json ]; then
+            python scripts/model-facts.py build --out model-facts/v1/facts.json --previous previous/facts.json
+          else
+            python scripts/model-facts.py build --out model-facts/v1/facts.json
+          fi
+          ls -la model-facts/v1
+      - name: Sign
+        if: ${{ env.MODEL_FACTS_SIGNING_KEY != '' }}
+        env:
+          MODEL_FACTS_SIGNING_KEY: ${{ secrets.MODEL_FACTS_SIGNING_KEY }}
+        run: python scripts/model-facts.py sign model-facts/v1/facts.json --key-id mf-2026-1
+      - name: Verify with the key the app ships
+        if: ${{ env.MODEL_FACTS_SIGNING_KEY != '' }}
+        env:
+          MODEL_FACTS_SIGNING_KEY: ${{ secrets.MODEL_FACTS_SIGNING_KEY }}
+        run: |
+          public=$(grep -oE '"mf-2026-1", "[0-9a-f]{64}"' apps/desktop/src-tauri/src/gateway/facts.rs | grep -oE '[0-9a-f]{64}')
+          python scripts/model-facts.py verify model-facts/v1/facts.json --public "$public"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: model-facts
+          path: model-facts/v1/
+      - name: Publish as the assets of model-facts-v1
+        if: ${{ env.MODEL_FACTS_SIGNING_KEY != '' }}
+        env:
+          MODEL_FACTS_SIGNING_KEY: ${{ secrets.MODEL_FACTS_SIGNING_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view model-facts-v1 --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create model-facts-v1 --repo "$GITHUB_REPOSITORY" --prerelease \
+              --title "Model facts feed v1" \
+              --notes "The model facts feed the app fetches (ADR-040). Replaced by every build of the model-facts workflow; the assets are the only content. Rows carry their source's licence, including CC BY-NC rows from SWE-bench Verified."
+          fi
+          gh release upload model-facts-v1 model-facts/v1/facts.json model-facts/v1/facts.json.sig --clobber --repo "$GITHUB_REPOSITORY"

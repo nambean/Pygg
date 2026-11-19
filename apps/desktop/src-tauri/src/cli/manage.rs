@@ -81,7 +81,91 @@ fn yes_no(v: Option<bool>) -> &'static str {
 pub const MODELS_MORE: &str = "
   pygg models info CONNECTION/MODEL      everything Pygg knows about one model, and whether auto can choose it
   pygg models test CONNECTION/MODEL      one short question through the gateway (a paid model costs a little)
-  pygg models enable|disable CONNECTION/MODEL…   let the router use it, or not";
+  pygg models enable|disable CONNECTION/MODEL…   let the router use it, or not
+  pygg models facts [ROLE] [--all]       your models ranked for a role (plan, code, test, review, image) from the
+                                         model facts feed (ADR-040): each line names its source and date, or its tier";
+
+/// `pygg models facts [ROLE] [--all] [--json]`: the kept feed, read as the app keeps it, never fetched here.
+pub fn model_facts(args: &[String]) -> Result<i32, Fail> {
+    let opts = Opts::parse("models facts", args, &["json", "all"], &["db"])?;
+    let role = match opts.words.as_slice() {
+        [] => "code".to_string(),
+        [role] => role.clone(),
+        _ => return Err(Fail::usage("name one role.\nUse: pygg models facts [plan|code|test|review|image]")),
+    };
+    let conn = open_read(&opts)?;
+    let path = gateway::facts::cache_path(
+        &super::read::store_path(&opts).ok_or_else(|| Fail::op("no store found: pass --db PATH"))?,
+    );
+    let status = gateway::facts::status(&conn, &path);
+    let feed = if status.enabled { gateway::facts::load(&path, gateway::facts::KEYS) } else { None };
+    let lines = gateway::facts::rank_role(&conn, feed.as_ref(), &role).map_err(Fail::usage)?;
+    let shown: Vec<_> = if opts.has("all") { lines.iter().collect() } else { lines.iter().take(50).collect() };
+    if opts.has("json") {
+        return Ok(print_json(json!({ "schemaVersion": JSON_SCHEMA, "status": status, "role": role, "lines": shown })));
+    }
+    let fetched =
+        status.fetched_at.map(|t| super::read::ago(crate::db::now_ms() - t)).unwrap_or_else(|| "never".into());
+    let stale = status.sources.iter().filter(|s| s.status != "ok").count();
+    match (&status.built, status.enabled) {
+        (_, false) => println!("Model facts: off (every line ranks by its tier; turn facts on in the app)"),
+        (None, true) => println!(
+            "Model facts: none kept yet{} (every line ranks by its tier)",
+            status.last_error.as_ref().map(|e| format!("; last fetch: {e}")).unwrap_or_default()
+        ),
+        (Some(built), true) => println!(
+            "Model facts: built {built} · fetched {fetched} · {} sources{}{}{}",
+            status.sources.len(),
+            if stale > 0 { format!(" ({stale} carried forward)") } else { String::new() },
+            if status.stale { " · older than the weekly cadence" } else { "" },
+            status.last_error.as_ref().map(|e| format!(" · last fetch failed: {e}")).unwrap_or_default()
+        ),
+    }
+    println!("{role}");
+    if shown.is_empty() {
+        println!("  no enabled model on an enabled connection");
+    }
+    for l in &shown {
+        let tier = l.tier.as_deref().unwrap_or("no tier");
+        match &l.fact {
+            Some(f) => println!(
+                "  {:<48} {tier} {:<6} feed  {} #{} of {} · {}{} {}{}{}{} · {}",
+                l.model,
+                l.billing,
+                f.source_name,
+                f.place,
+                f.of,
+                f.score,
+                f.unit.strip_prefix('%').map(|_| "%".to_string()).unwrap_or_else(|| format!(" {}", f.unit)),
+                f.ci.map(|c| format!("±{c:.1} ")).unwrap_or_default(),
+                f.agent.as_deref().map(|a| format!("· {a} ")).unwrap_or_default(),
+                f.effort.as_deref().map(|e| format!("· {e} ")).unwrap_or_default(),
+                if f.derived { "· derived " } else { "" },
+                f.date.as_deref().unwrap_or("undated")
+            ),
+            None => println!(
+                "  {:<48} {tier} {:<6} {}  {}",
+                l.model,
+                l.billing,
+                if l.layer == "tier" { "tier" } else { "none" },
+                match l.others.first() {
+                    Some(o) => format!(
+                        "no fact ranks for {role}; {} #{} of {} is from {}, older than a year",
+                        o.source_name,
+                        o.place,
+                        o.of,
+                        o.date.as_deref().unwrap_or("?")
+                    ),
+                    None => format!("no fact for {role}"),
+                }
+            ),
+        }
+    }
+    if lines.len() > shown.len() {
+        println!("  … {} more (--all)", lines.len() - shown.len());
+    }
+    Ok(0)
+}
 
 /// `pygg models info|show NAME`
 pub fn model_info(args: &[String]) -> Result<i32, Fail> {

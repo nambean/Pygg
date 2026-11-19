@@ -35,7 +35,7 @@ What comes next, in order, and what must be true before a public release. What i
 7. **Housekeeping.** Demo data that replays recorded snapshots instead of copying the core's rules.
 8. **The Vietnamese translation**, last, once the interface's English text is final.
 
-Smart tasks are **on hold** for building. Their next shape is decided: the model facts feed (ADR-040), `pygg/brain` (ADR-041) and the Kanban board (ADR-042), designed in [design/BRAIN.md](design/BRAIN.md). The owner says when work starts; it then runs in ADR-041's order: the feed, the role aliases, brain proposals as ordinary tasks, the board, the image role.
+Smart tasks' next shape is decided and being built in ADR-041's order (owner, 2026-11-19): the model facts feed (ADR-040, built), then the role aliases, `pygg/brain` proposals as ordinary tasks, the board (ADR-042) with the Brain Storming screen, and the image role. Design: [design/BRAIN.md](design/BRAIN.md).
 
 ## Release gates
 

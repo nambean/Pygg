@@ -199,7 +199,10 @@ pub fn run() {
             {
                 let shared = state.shared.clone();
                 let cache = gateway::reference::cache_path(&path);
+                let facts = gateway::facts::cache_path(&path);
                 tauri::async_runtime::spawn(async move {
+                    // The model facts feed (ADR-040): fetched when a day has passed, verified, kept beside the store.
+                    gateway::facts::refresh_if_due(&shared, &facts).await;
                     if let Some(catalog) = gateway::reference::current(&shared.http, &cache).await {
                         shared.with_db(|db| match gateway::reference::apply(db, &catalog) {
                             Ok(_) => gateway::reference::mark_applied(db),
@@ -285,6 +288,10 @@ pub fn run() {
             commands::connection_set_terms,
             commands::connection_refresh_models,
             commands::models_list,
+            commands::model_facts_status,
+            commands::model_facts_refresh,
+            commands::model_facts_set_enabled,
+            commands::model_facts_role,
             commands::model_set_capabilities,
             commands::auto_simulate,
             commands::agents_detect,

@@ -32,6 +32,23 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## The model facts feed's sources
+
+The model facts feed (`scripts/model-facts.py`, ADR-040) is built from these published results, each read under its
+own licence; every row of the feed names its source and carries that licence, and the app shows the source's name
+and link wherever a fact is shown.
+
+- **Terminal-Bench** leaderboard submissions, `harbor-framework/terminal-bench` (Apache License 2.0).
+  https://github.com/harbor-framework/terminal-bench
+- **SWE-bench Verified** leaderboard, `SWE-bench/swe-bench.github.io` (Creative Commons Attribution-NonCommercial
+  4.0 International). Non-commercial use only: Pygg is free and open source; anyone redistributing Pygg or the feed
+  for money must drop the rows whose `licence` is `CC-BY-NC-4.0`.
+  https://github.com/SWE-bench/swe-bench.github.io
+- **Aider polyglot** leaderboard, `Aider-AI/aider` (Apache License 2.0). https://github.com/Aider-AI/aider
+- **Arena leaderboard dataset**, `lmarena-ai/leaderboard-dataset` on Hugging Face (Creative Commons Attribution 4.0
+  International). The site's own terms forbid automated access, so only the dataset is read.
+  https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset
+
 ## OpenAI Codex
 
 Codex's model catalog (`apps/desktop/src-tauri/src/codex_catalog.rs`) carries Codex's default instructions for a

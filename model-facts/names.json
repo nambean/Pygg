@@ -1,0 +1,2894 @@
+{
+ "swe-bench-verified": {
+  "Claude 2": {
+   "ids": [
+    "claude-2"
+   ]
+  },
+  "Claude 3 Opus": {
+   "ids": [
+    "claude-3-opus"
+   ]
+  },
+  "Claude 3.5 Haiku": {
+   "ids": [
+    "claude-3-5-haiku"
+   ]
+  },
+  "Claude 3.5 Sonnet": {
+   "ids": [
+    "claude-3-5-sonnet"
+   ]
+  },
+  "Claude 3.5-Sonnet-20241022": {
+   "ids": [
+    "claude-3-5-sonnet"
+   ]
+  },
+  "Claude 3.7 Sonnet": {
+   "ids": [
+    "claude-3-7-sonnet"
+   ]
+  },
+  "Claude 4 Opus": {
+   "ids": [
+    "claude-opus-4"
+   ]
+  },
+  "Claude 4 Sonnet": {
+   "ids": [
+    "claude-sonnet-4"
+   ]
+  },
+  "Claude 4.5 Haiku": {
+   "ids": [
+    "claude-haiku-4-5"
+   ]
+  },
+  "Claude 4.5 Opus": {
+   "ids": [
+    "claude-opus-4-5"
+   ]
+  },
+  "Claude 4.5 Sonnet": {
+   "ids": [
+    "claude-sonnet-4-5"
+   ]
+  },
+  "Claude 4.6 Opus": {
+   "ids": [
+    "claude-opus-4-6"
+   ]
+  },
+  "Claude Sonnet 4": {
+   "ids": [
+    "claude-sonnet-4"
+   ]
+  },
+  "DeepSeek V3 0324": {
+   "ids": [
+    "deepseek-v3-0324"
+   ]
+  },
+  "DeepSeek V3.2": {
+   "ids": [
+    "deepseek-v3-2"
+   ]
+  },
+  "DeepSeek V3.2 Reasoner": {
+   "ids": [
+    "deepseek-v3-2-reasoner"
+   ]
+  },
+  "DevStral Small 2505": {
+   "ids": [
+    "devstral-small-2505"
+   ]
+  },
+  "DevStral Small 2507": {
+   "ids": [
+    "devstral-small-2507"
+   ]
+  },
+  "Devstral (2512)": {
+   "ids": [
+    "devstral"
+   ]
+  },
+  "Devstral Small (2512)": {
+   "ids": [
+    "devstral-small"
+   ]
+  },
+  "GLM 4.5": {
+   "ids": [
+    "glm-4-5"
+   ]
+  },
+  "GLM 4.6": {
+   "ids": [
+    "glm-4-6"
+   ]
+  },
+  "GLM 5": {
+   "ids": [
+    "glm-5"
+   ]
+  },
+  "GLM-4.5": {
+   "ids": [
+    "glm-4-5"
+   ]
+  },
+  "GLM-4.6": {
+   "ids": [
+    "glm-4-6"
+   ]
+  },
+  "GPT 4.1": {
+   "ids": [
+    "gpt-4-1"
+   ]
+  },
+  "GPT 4.1 mini": {
+   "ids": [
+    "gpt-4-1-mini"
+   ]
+  },
+  "GPT 4o": {
+   "ids": [
+    "gpt-4o"
+   ]
+  },
+  "GPT 5": {
+   "ids": [
+    "gpt-5"
+   ]
+  },
+  "GPT 5 mini": {
+   "ids": [
+    "gpt-5-mini"
+   ]
+  },
+  "GPT 5 nano": {
+   "ids": [
+    "gpt-5-nano"
+   ]
+  },
+  "GPT 5.1": {
+   "ids": [
+    "gpt-5-1"
+   ]
+  },
+  "GPT 5.1 Codex": {
+   "ids": [
+    "gpt-5-1-codex"
+   ]
+  },
+  "GPT 5.2": {
+   "ids": [
+    "gpt-5-2"
+   ]
+  },
+  "GPT 5.2 Codex": {
+   "ids": [
+    "gpt-5-2-codex"
+   ]
+  },
+  "GPT-3.5": {
+   "ids": [
+    "gpt-3-5"
+   ]
+  },
+  "GPT-4 (1106)": {
+   "ids": [
+    "gpt-4"
+   ]
+  },
+  "GPT-4o": {
+   "ids": [
+    "gpt-4o"
+   ]
+  },
+  "GPT-5": {
+   "ids": [
+    "gpt-5"
+   ]
+  },
+  "Gemini 2.0 Flash": {
+   "ids": [
+    "gemini-2-0-flash"
+   ]
+  },
+  "Gemini 2.0 Flash (Experimental)": {
+   "ids": [
+    "gemini-2-0-flash"
+   ]
+  },
+  "Gemini 2.0 Flash (v20241212-experimental)": {
+   "ids": [
+    "gemini-2-0-flash"
+   ]
+  },
+  "Gemini 2.5 Flash": {
+   "ids": [
+    "gemini-2-5-flash"
+   ]
+  },
+  "Gemini 2.5 Pro": {
+   "ids": [
+    "gemini-2-5-pro"
+   ]
+  },
+  "Gemini 3 Flash": {
+   "ids": [
+    "gemini-3-flash"
+   ]
+  },
+  "Gemini 3 Pro": {
+   "ids": [
+    "gemini-3-pro"
+   ]
+  },
+  "Gemini 3 Pro Preview": {
+   "ids": [
+    "gemini-3-pro-preview"
+   ]
+  },
+  "Kimi K2": {
+   "ids": [
+    "kimi-k2"
+   ]
+  },
+  "Kimi K2 Instruct": {
+   "ids": [
+    "kimi-k2-instruct"
+   ]
+  },
+  "Kimi K2 Thinking": {
+   "ids": [
+    "kimi-k2-thinking"
+   ]
+  },
+  "Kimi K2.5": {
+   "ids": [
+    "kimi-k2-5"
+   ]
+  },
+  "Llama 4 Maverick Instruct": {
+   "ids": [
+    "llama-4-maverick-instruct"
+   ]
+  },
+  "Llama 4 Scout Instruct": {
+   "ids": [
+    "llama-4-scout-instruct"
+   ]
+  },
+  "MiniMax M2": {
+   "ids": [
+    "minimax-m2"
+   ]
+  },
+  "MiniMax M2.5": {
+   "ids": [
+    "minimax-m2-5"
+   ]
+  },
+  "O3 Mini": {
+   "ids": [
+    "o3-mini"
+   ]
+  },
+  "Qwen2.5 Coder 32B Instruct": {
+   "ids": [
+    "qwen2-5-coder-32b-instruct"
+   ]
+  },
+  "Qwen2.5-Coder 32B Instruct": {
+   "ids": [
+    "qwen2-5-coder-32b-instruct"
+   ]
+  },
+  "Qwen3-Coder-30B-A3B-Instruct": {
+   "ids": [
+    "qwen3-coder-30b-a3b-instruct"
+   ]
+  },
+  "Qwen3-Coder-480B-A35B-Instruct": {
+   "ids": [
+    "qwen3-coder-480b-a35b-instruct"
+   ]
+  },
+  "gpt-oss-120b": {
+   "ids": [
+    "gpt-oss-120b"
+   ]
+  },
+  "o1-preview": {
+   "ids": [
+    "o1-preview"
+   ]
+  },
+  "o3": {
+   "ids": [
+    "o3"
+   ]
+  },
+  "o4-mini": {
+   "ids": [
+    "o4-mini"
+   ]
+  }
+ },
+ "lmarena-hard-prompts": {
+  "Alpaca 13B": {
+   "ids": [
+    "alpaca-13b"
+   ]
+  },
+  "Amazon Nova 2 Lite": {
+   "ids": [
+    "amazon-nova-2-lite"
+   ]
+  },
+  "Amazon Nova Lite 1.0": {
+   "ids": [
+    "amazon-nova-lite-1-0"
+   ]
+  },
+  "Amazon Nova Micro 1.0": {
+   "ids": [
+    "amazon-nova-micro-1-0"
+   ]
+  },
+  "Amazon Nova Pro 1.0": {
+   "ids": [
+    "amazon-nova-pro-1-0"
+   ]
+  },
+  "Athene 70B (0725)": {
+   "ids": [
+    "athene-70b"
+   ]
+  },
+  "Athene V2 Chat": {
+   "ids": [
+    "athene-v2-chat"
+   ]
+  },
+  "Aya Expanse 32B": {
+   "ids": [
+    "aya-expanse-32b"
+   ]
+  },
+  "Aya Expanse 8B": {
+   "ids": [
+    "aya-expanse-8b"
+   ]
+  },
+  "Beam 1.0 501B A23B": {
+   "ids": [
+    "beam-1-0-501b-a23b"
+   ]
+  },
+  "ChatGLM 6B": {
+   "ids": [
+    "chatglm-6b"
+   ]
+  },
+  "ChatGLM2 6B": {
+   "ids": [
+    "chatglm2-6b"
+   ]
+  },
+  "ChatGLM3 6B": {
+   "ids": [
+    "chatglm3-6b"
+   ]
+  },
+  "ChatGPT-4o Latest (20250326)": {
+   "ids": [
+    "chatgpt-4o"
+   ]
+  },
+  "Claude 3 Haiku (20240307)": {
+   "ids": [
+    "claude-3-haiku"
+   ]
+  },
+  "Claude 3 Opus (20240229)": {
+   "ids": [
+    "claude-3-opus"
+   ]
+  },
+  "Claude 3 Sonnet (20240229)": {
+   "ids": [
+    "claude-3-sonnet"
+   ]
+  },
+  "Claude 3.5 Haiku (20241022)": {
+   "ids": [
+    "claude-3-5-haiku"
+   ]
+  },
+  "Claude 3.5 Sonnet (20240620)": {
+   "ids": [
+    "claude-3-5-sonnet"
+   ]
+  },
+  "Claude 3.5 Sonnet (20241022)": {
+   "ids": [
+    "claude-3-5-sonnet"
+   ]
+  },
+  "Claude 3.7 Sonnet (20250219)": {
+   "ids": [
+    "claude-3-7-sonnet"
+   ]
+  },
+  "Claude 3.7 Sonnet (Thinking 32K, 20250219)": {
+   "ids": [
+    "claude-3-7-sonnet"
+   ],
+   "effort": "thinking"
+  },
+  "Claude Fable 5 (High)": {
+   "ids": [
+    "claude-fable-5"
+   ],
+   "effort": "high"
+  },
+  "Claude Fable 5.1 (Max)": {
+   "ids": [
+    "claude-fable-5-1"
+   ],
+   "effort": "max"
+  },
+  "Claude Haiku 4.5 (20251001)": {
+   "ids": [
+    "claude-haiku-4-5"
+   ]
+  },
+  "Claude Haiku 5.5 (High)": {
+   "ids": [
+    "claude-haiku-5-5"
+   ],
+   "effort": "high"
+  },
+  "Claude Opus 4 (20250514)": {
+   "ids": [
+    "claude-opus-4"
+   ]
+  },
+  "Claude Opus 4 (Thinking 16K, 20250514)": {
+   "ids": [
+    "claude-opus-4"
+   ],
+   "effort": "thinking"
+  },
+  "Claude Opus 4.1 (20250805)": {
+   "ids": [
+    "claude-opus-4-1"
+   ]
+  },
+  "Claude Opus 4.1 (Thinking 16K, 20250805)": {
+   "ids": [
+    "claude-opus-4-1"
+   ],
+   "effort": "thinking"
+  },
+  "Claude Opus 4.5 (20251101)": {
+   "ids": [
+    "claude-opus-4-5"
+   ]
+  },
+  "Claude Opus 4.5 (High, 32K, 20251101)": {
+   "ids": [
+    "claude-opus-4-5"
+   ],
+   "effort": "high"
+  },
+  "Claude Opus 4.6": {
+   "ids": [
+    "claude-opus-4-6"
+   ]
+  },
+  "Claude Opus 4.6 (High)": {
+   "ids": [
+    "claude-opus-4-6"
+   ],
+   "effort": "high"
+  },
+  "Claude Opus 4.7": {
+   "ids": [
+    "claude-opus-4-7"
+   ]
+  },
+  "Claude Opus 4.7 (High)": {
+   "ids": [
+    "claude-opus-4-7"
+   ],
+   "effort": "high"
+  },
+  "Claude Opus 4.8": {
+   "ids": [
+    "claude-opus-4-8"
+   ]
+  },
+  "Claude Opus 4.8 (High)": {
+   "ids": [
+    "claude-opus-4-8"
+   ],
+   "effort": "high"
+  },
+  "Claude Opus 5 (High)": {
+   "ids": [
+    "claude-opus-5"
+   ],
+   "effort": "high"
+  },
+  "Claude Opus 5 (Max)": {
+   "ids": [
+    "claude-opus-5"
+   ],
+   "effort": "max"
+  },
+  "Claude Opus 5.5 (High)": {
+   "ids": [
+    "claude-opus-5-5"
+   ],
+   "effort": "high"
+  },
+  "Claude Sonnet 4 (20250514)": {
+   "ids": [
+    "claude-sonnet-4"
+   ]
+  },
+  "Claude Sonnet 4 (Thinking 32K, 20250514)": {
+   "ids": [
+    "claude-sonnet-4"
+   ],
+   "effort": "thinking"
+  },
+  "Claude Sonnet 4.5 (20250929)": {
+   "ids": [
+    "claude-sonnet-4-5"
+   ]
+  },
+  "Claude Sonnet 4.5 (High, 32K, 20250929)": {
+   "ids": [
+    "claude-sonnet-4-5"
+   ],
+   "effort": "high"
+  },
+  "Claude Sonnet 4.6": {
+   "ids": [
+    "claude-sonnet-4-6"
+   ]
+  },
+  "Claude Sonnet 5 (High)": {
+   "ids": [
+    "claude-sonnet-5"
+   ],
+   "effort": "high"
+  },
+  "Claude Sonnet 5.5 (xHigh)": {
+   "ids": [
+    "claude-sonnet-5-5"
+   ],
+   "effort": "xhigh"
+  },
+  "Code Llama 34B Instruct": {
+   "ids": [
+    "code-llama-34b-instruct"
+   ]
+  },
+  "Code Llama 70B Instruct": {
+   "ids": [
+    "code-llama-70b-instruct"
+   ]
+  },
+  "Command A (03-2025)": {
+   "ids": [
+    "command-a"
+   ]
+  },
+  "Command R (08-2024)": {
+   "ids": [
+    "command-r"
+   ]
+  },
+  "Command R+ (08-2024)": {
+   "ids": [
+    "command-r+"
+   ]
+  },
+  "DeepSeek LLM 67B Chat": {
+   "ids": [
+    "deepseek-llm-67b-chat"
+   ]
+  },
+  "DeepSeek-Coder-V2": {
+   "ids": [
+    "deepseek-coder-v2"
+   ]
+  },
+  "DeepSeek-R1": {
+   "ids": [
+    "deepseek-r1"
+   ]
+  },
+  "DeepSeek-R1 (0528)": {
+   "ids": [
+    "deepseek-r1"
+   ]
+  },
+  "DeepSeek-V2.5": {
+   "ids": [
+    "deepseek-v2-5"
+   ]
+  },
+  "DeepSeek-V2.5 (1210)": {
+   "ids": [
+    "deepseek-v2-5"
+   ]
+  },
+  "DeepSeek-V3": {
+   "ids": [
+    "deepseek-v3"
+   ]
+  },
+  "DeepSeek-V3 (0324)": {
+   "ids": [
+    "deepseek-v3"
+   ]
+  },
+  "DeepSeek-V3.1": {
+   "ids": [
+    "deepseek-v3-1"
+   ]
+  },
+  "DeepSeek-V3.1 (Thinking)": {
+   "ids": [
+    "deepseek-v3-1"
+   ],
+   "effort": "thinking"
+  },
+  "DeepSeek-V3.1-Terminus": {
+   "ids": [
+    "deepseek-v3-1-terminus"
+   ]
+  },
+  "DeepSeek-V3.1-Terminus (Thinking)": {
+   "ids": [
+    "deepseek-v3-1-terminus"
+   ],
+   "effort": "thinking"
+  },
+  "DeepSeek-V3.2": {
+   "ids": [
+    "deepseek-v3-2"
+   ]
+  },
+  "DeepSeek-V3.2 (Thinking)": {
+   "ids": [
+    "deepseek-v3-2"
+   ],
+   "effort": "thinking"
+  },
+  "DeepSeek-V3.2-Exp": {
+   "ids": [
+    "deepseek-v3-2-exp"
+   ]
+  },
+  "DeepSeek-V3.2-Exp (Thinking)": {
+   "ids": [
+    "deepseek-v3-2-exp"
+   ],
+   "effort": "thinking"
+  },
+  "DeepSeek-V4-Flash": {
+   "ids": [
+    "deepseek-v4-flash"
+   ]
+  },
+  "DeepSeek-V4-Flash Preview (High)": {
+   "ids": [
+    "deepseek-v4-flash-preview"
+   ],
+   "effort": "high"
+  },
+  "DeepSeek-V4-Pro": {
+   "ids": [
+    "deepseek-v4-pro"
+   ]
+  },
+  "DeepSeek-V4-Pro (High, 20260813)": {
+   "ids": [
+    "deepseek-v4-pro"
+   ],
+   "effort": "high"
+  },
+  "DeepSeek-V4-Pro Preview (High)": {
+   "ids": [
+    "deepseek-v4-pro-preview"
+   ],
+   "effort": "high"
+  },
+  "DeepSeek-V4.1-Flash-20260910 (Max)": {
+   "ids": [
+    "deepseek-v4-1-flash"
+   ],
+   "effort": "max"
+  },
+  "Dola Seed 2.0 Pro": {
+   "ids": [
+    "dola-seed-2-0-pro"
+   ]
+  },
+  "Dolly 2.0 12B": {
+   "ids": [
+    "dolly-2-0-12b"
+   ]
+  },
+  "Dolphin 2.2.1 Mistral 7B": {
+   "ids": [
+    "dolphin-2-2-1-mistral-7b"
+   ]
+  },
+  "ERNIE 5.0 (0110)": {
+   "ids": [
+    "ernie-5-0"
+   ]
+  },
+  "ERNIE 5.1": {
+   "ids": [
+    "ernie-5-1"
+   ]
+  },
+  "ERNIE-5.0-Preview (1022)": {
+   "ids": [
+    "ernie-5-0-preview"
+   ]
+  },
+  "ERNIE-5.0-Preview (1203)": {
+   "ids": [
+    "ernie-5-0-preview"
+   ]
+  },
+  "Falcon 180B Chat": {
+   "ids": [
+    "falcon-180b-chat"
+   ]
+  },
+  "FastChat-T5 3B": {
+   "ids": [
+    "fastchat-t5-3b"
+   ]
+  },
+  "GLM-4 (0520)": {
+   "ids": [
+    "glm-4"
+   ]
+  },
+  "GLM-4-Plus": {
+   "ids": [
+    "glm-4-plus"
+   ]
+  },
+  "GLM-4-Plus (0111)": {
+   "ids": [
+    "glm-4-plus"
+   ]
+  },
+  "GLM-4.5": {
+   "ids": [
+    "glm-4-5"
+   ]
+  },
+  "GLM-4.5-Air": {
+   "ids": [
+    "glm-4-5-air"
+   ]
+  },
+  "GLM-4.5V": {
+   "ids": [
+    "glm-4-5v"
+   ]
+  },
+  "GLM-4.6": {
+   "ids": [
+    "glm-4-6"
+   ]
+  },
+  "GLM-4.6V": {
+   "ids": [
+    "glm-4-6v"
+   ]
+  },
+  "GLM-4.7": {
+   "ids": [
+    "glm-4-7"
+   ]
+  },
+  "GLM-4.7-Flash": {
+   "ids": [
+    "glm-4-7-flash"
+   ]
+  },
+  "GLM-5": {
+   "ids": [
+    "glm-5"
+   ]
+  },
+  "GLM-5.1": {
+   "ids": [
+    "glm-5-1"
+   ]
+  },
+  "GLM-5.2 (Max)": {
+   "ids": [
+    "glm-5-2"
+   ],
+   "effort": "max"
+  },
+  "GLM-5.3 (Max)": {
+   "ids": [
+    "glm-5-3"
+   ],
+   "effort": "max"
+  },
+  "GLM-5.3-Flash": {
+   "ids": [
+    "glm-5-3-flash"
+   ]
+  },
+  "GPT-3.5 Turbo (0125)": {
+   "ids": [
+    "gpt-3-5-turbo"
+   ]
+  },
+  "GPT-3.5 Turbo (1106)": {
+   "ids": [
+    "gpt-3-5-turbo"
+   ]
+  },
+  "GPT-4 (0314)": {
+   "ids": [
+    "gpt-4"
+   ]
+  },
+  "GPT-4 (0613)": {
+   "ids": [
+    "gpt-4"
+   ]
+  },
+  "GPT-4 Turbo (2024-04-09)": {
+   "ids": [
+    "gpt-4-turbo"
+   ]
+  },
+  "GPT-4 Turbo Preview (0125)": {
+   "ids": [
+    "gpt-4-turbo-preview"
+   ]
+  },
+  "GPT-4 Turbo Preview (1106)": {
+   "ids": [
+    "gpt-4-turbo-preview"
+   ]
+  },
+  "GPT-4.1 (2025-04-14)": {
+   "ids": [
+    "gpt-4-1"
+   ]
+  },
+  "GPT-4.1 mini (2025-04-14)": {
+   "ids": [
+    "gpt-4-1-mini"
+   ]
+  },
+  "GPT-4.1 nano (2025-04-14)": {
+   "ids": [
+    "gpt-4-1-nano"
+   ]
+  },
+  "GPT-4.5 Preview (2025-02-27)": {
+   "ids": [
+    "gpt-4-5-preview"
+   ]
+  },
+  "GPT-4o (2024-05-13)": {
+   "ids": [
+    "gpt-4o"
+   ]
+  },
+  "GPT-4o (2024-08-06)": {
+   "ids": [
+    "gpt-4o"
+   ]
+  },
+  "GPT-4o mini (2024-07-18)": {
+   "ids": [
+    "gpt-4o-mini"
+   ]
+  },
+  "GPT-5 (High)": {
+   "ids": [
+    "gpt-5"
+   ],
+   "effort": "high"
+  },
+  "GPT-5 Chat": {
+   "ids": [
+    "gpt-5-chat"
+   ]
+  },
+  "GPT-5 mini (High)": {
+   "ids": [
+    "gpt-5-mini"
+   ],
+   "effort": "high"
+  },
+  "GPT-5 nano (High)": {
+   "ids": [
+    "gpt-5-nano"
+   ],
+   "effort": "high"
+  },
+  "GPT-5.1": {
+   "ids": [
+    "gpt-5-1"
+   ]
+  },
+  "GPT-5.1 (High)": {
+   "ids": [
+    "gpt-5-1"
+   ],
+   "effort": "high"
+  },
+  "GPT-5.2": {
+   "ids": [
+    "gpt-5-2"
+   ]
+  },
+  "GPT-5.2 (High)": {
+   "ids": [
+    "gpt-5-2"
+   ],
+   "effort": "high"
+  },
+  "GPT-5.2 Chat (20260210)": {
+   "ids": [
+    "gpt-5-2-chat"
+   ]
+  },
+  "GPT-5.3 Chat": {
+   "ids": [
+    "gpt-5-3-chat"
+   ]
+  },
+  "GPT-5.4": {
+   "ids": [
+    "gpt-5-4"
+   ]
+  },
+  "GPT-5.4 (High)": {
+   "ids": [
+    "gpt-5-4"
+   ],
+   "effort": "high"
+  },
+  "GPT-5.4 mini (High)": {
+   "ids": [
+    "gpt-5-4-mini"
+   ],
+   "effort": "high"
+  },
+  "GPT-5.4 nano (High)": {
+   "ids": [
+    "gpt-5-4-nano"
+   ],
+   "effort": "high"
+  },
+  "GPT-5.5": {
+   "ids": [
+    "gpt-5-5"
+   ]
+  },
+  "GPT-5.5 (High)": {
+   "ids": [
+    "gpt-5-5"
+   ],
+   "effort": "high"
+  },
+  "GPT-5.5 Instant": {
+   "ids": [
+    "gpt-5-5-instant"
+   ]
+  },
+  "GPT-5.6 Luna (xHigh)": {
+   "ids": [
+    "gpt-5-6-luna"
+   ],
+   "effort": "xhigh"
+  },
+  "GPT-5.6 Sol (xHigh)": {
+   "ids": [
+    "gpt-5-6-sol"
+   ],
+   "effort": "xhigh"
+  },
+  "GPT-5.6 Terra (xHigh)": {
+   "ids": [
+    "gpt-5-6-terra"
+   ],
+   "effort": "xhigh"
+  },
+  "GPT-6 Astra (Max)": {
+   "ids": [
+    "gpt-6-astra"
+   ],
+   "effort": "max"
+  },
+  "GPT-6 Luna (Max)": {
+   "ids": [
+    "gpt-6-luna"
+   ],
+   "effort": "max"
+  },
+  "GPT-6 Sol (Max)": {
+   "ids": [
+    "gpt-6-sol"
+   ],
+   "effort": "max"
+  },
+  "GPT-6.1 Sol (Max)": {
+   "ids": [
+    "gpt-6-1-sol"
+   ],
+   "effort": "max"
+  },
+  "GPT4All 13B Snoozy": {
+   "ids": [
+    "gpt4all-13b-snoozy"
+   ]
+  },
+  "Gemini 1.5 Flash (001)": {
+   "ids": [
+    "gemini-1-5-flash"
+   ]
+  },
+  "Gemini 1.5 Flash (002)": {
+   "ids": [
+    "gemini-1-5-flash"
+   ]
+  },
+  "Gemini 1.5 Flash-8B (001)": {
+   "ids": [
+    "gemini-1-5-flash-8b"
+   ]
+  },
+  "Gemini 1.5 Pro (001)": {
+   "ids": [
+    "gemini-1-5-pro"
+   ]
+  },
+  "Gemini 1.5 Pro (002)": {
+   "ids": [
+    "gemini-1-5-pro"
+   ]
+  },
+  "Gemini 2.0 Flash (001)": {
+   "ids": [
+    "gemini-2-0-flash"
+   ]
+  },
+  "Gemini 2.0 Flash-Lite Preview (02-05)": {
+   "ids": [
+    "gemini-2-0-flash-lite-preview"
+   ]
+  },
+  "Gemini 2.5 Flash": {
+   "ids": [
+    "gemini-2-5-flash"
+   ]
+  },
+  "Gemini 2.5 Flash Preview (09-2025)": {
+   "ids": [
+    "gemini-2-5-flash-preview"
+   ]
+  },
+  "Gemini 2.5 Flash-Lite Preview (Non-Thinking, 09-2025)": {
+   "ids": [
+    "gemini-2-5-flash-lite-preview"
+   ]
+  },
+  "Gemini 2.5 Flash-Lite Preview (Thinking, 06-17)": {
+   "ids": [
+    "gemini-2-5-flash-lite-preview"
+   ],
+   "effort": "thinking"
+  },
+  "Gemini 2.5 Pro": {
+   "ids": [
+    "gemini-2-5-pro"
+   ]
+  },
+  "Gemini 3 Flash": {
+   "ids": [
+    "gemini-3-flash"
+   ]
+  },
+  "Gemini 3 Flash (Minimal)": {
+   "ids": [
+    "gemini-3-flash"
+   ],
+   "effort": "minimal"
+  },
+  "Gemini 3 Pro": {
+   "ids": [
+    "gemini-3-pro"
+   ]
+  },
+  "Gemini 3.1 Flash-Lite Preview": {
+   "ids": [
+    "gemini-3-1-flash-lite-preview"
+   ]
+  },
+  "Gemini 3.1 Pro Preview": {
+   "ids": [
+    "gemini-3-1-pro-preview"
+   ]
+  },
+  "Gemini 3.5 Flash (High)": {
+   "ids": [
+    "gemini-3-5-flash"
+   ],
+   "effort": "high"
+  },
+  "Gemini 3.5 Flash (Medium)": {
+   "ids": [
+    "gemini-3-5-flash"
+   ],
+   "effort": "medium"
+  },
+  "Gemini 3.5 Flash-Lite": {
+   "ids": [
+    "gemini-3-5-flash-lite"
+   ]
+  },
+  "Gemini 3.6 Flash (High)": {
+   "ids": [
+    "gemini-3-6-flash"
+   ],
+   "effort": "high"
+  },
+  "Gemini 3.7 Flash (High)": {
+   "ids": [
+    "gemini-3-7-flash"
+   ],
+   "effort": "high"
+  },
+  "Gemini 3.8 Flash (High)": {
+   "ids": [
+    "gemini-3-8-flash"
+   ],
+   "effort": "high"
+  },
+  "Gemini 4 Argon (High)": {
+   "ids": [
+    "gemini-4-argon"
+   ],
+   "effort": "high"
+  },
+  "Gemini 4 Carbon (High)": {
+   "ids": [
+    "gemini-4-carbon"
+   ],
+   "effort": "high"
+  },
+  "Gemini 4 Hydrogen (High)": {
+   "ids": [
+    "gemini-4-hydrogen"
+   ],
+   "effort": "high"
+  },
+  "Gemini 4 Neon (High)": {
+   "ids": [
+    "gemini-4-neon"
+   ],
+   "effort": "high"
+  },
+  "Gemini Advanced (0514)": {
+   "ids": [
+    "gemini-advanced"
+   ]
+  },
+  "Gemma 1.1 2B IT": {
+   "ids": [
+    "gemma-1-1-2b-it"
+   ]
+  },
+  "Gemma 1.1 7B IT": {
+   "ids": [
+    "gemma-1-1-7b-it"
+   ]
+  },
+  "Gemma 2 27B IT": {
+   "ids": [
+    "gemma-2-27b-it"
+   ]
+  },
+  "Gemma 2 2B IT": {
+   "ids": [
+    "gemma-2-2b-it"
+   ]
+  },
+  "Gemma 2 9B IT": {
+   "ids": [
+    "gemma-2-9b-it"
+   ]
+  },
+  "Gemma 2 9B IT SimPO": {
+   "ids": [
+    "gemma-2-9b-it-simpo"
+   ]
+  },
+  "Gemma 2B IT": {
+   "ids": [
+    "gemma-2b-it"
+   ]
+  },
+  "Gemma 3 12B IT": {
+   "ids": [
+    "gemma-3-12b-it"
+   ]
+  },
+  "Gemma 3 27B IT": {
+   "ids": [
+    "gemma-3-27b-it"
+   ]
+  },
+  "Gemma 3 4B IT": {
+   "ids": [
+    "gemma-3-4b-it"
+   ]
+  },
+  "Gemma 3n E4B IT": {
+   "ids": [
+    "gemma-3n-e4b-it"
+   ]
+  },
+  "Gemma 4 26B A4B": {
+   "ids": [
+    "gemma-4-26b-a4b"
+   ]
+  },
+  "Gemma 4 31B": {
+   "ids": [
+    "gemma-4-31b"
+   ]
+  },
+  "Gemma 7B IT": {
+   "ids": [
+    "gemma-7b-it"
+   ]
+  },
+  "Granite 3.0 2B Instruct": {
+   "ids": [
+    "granite-3-0-2b-instruct"
+   ]
+  },
+  "Granite 3.0 8B Instruct": {
+   "ids": [
+    "granite-3-0-8b-instruct"
+   ]
+  },
+  "Granite 3.1 2B Instruct": {
+   "ids": [
+    "granite-3-1-2b-instruct"
+   ]
+  },
+  "Granite 3.1 8B Instruct": {
+   "ids": [
+    "granite-3-1-8b-instruct"
+   ]
+  },
+  "Granite 4.1 8B": {
+   "ids": [
+    "granite-4-1-8b"
+   ]
+  },
+  "Granite 4.2 30B": {
+   "ids": [
+    "granite-4-2-30b"
+   ]
+  },
+  "Granite 4.2 3B": {
+   "ids": [
+    "granite-4-2-3b"
+   ]
+  },
+  "Granite 4.2 8B": {
+   "ids": [
+    "granite-4-2-8b"
+   ]
+  },
+  "Granite-4.0-H-Small": {
+   "ids": [
+    "granite-4-0-h-small"
+   ]
+  },
+  "Grok 2 (2024-08-13)": {
+   "ids": [
+    "grok-2"
+   ]
+  },
+  "Grok 2 mini (2024-08-13)": {
+   "ids": [
+    "grok-2-mini"
+   ]
+  },
+  "Grok 3 Mini (High)": {
+   "ids": [
+    "grok-3-mini"
+   ],
+   "effort": "high"
+  },
+  "Grok 3 Mini Beta": {
+   "ids": [
+    "grok-3-mini-beta"
+   ]
+  },
+  "Grok 3 Preview (02-24)": {
+   "ids": [
+    "grok-3-preview"
+   ]
+  },
+  "Grok 4 (0709)": {
+   "ids": [
+    "grok-4"
+   ]
+  },
+  "Grok 4 Fast (Non-Reasoning)": {
+   "ids": [
+    "grok-4-fast"
+   ]
+  },
+  "Grok 4 Fast (Reasoning)": {
+   "ids": [
+    "grok-4-fast"
+   ]
+  },
+  "Grok 4.1": {
+   "ids": [
+    "grok-4-1"
+   ]
+  },
+  "Grok 4.1 (Thinking)": {
+   "ids": [
+    "grok-4-1"
+   ],
+   "effort": "thinking"
+  },
+  "Grok 4.1 Fast (Reasoning)": {
+   "ids": [
+    "grok-4-1-fast"
+   ]
+  },
+  "Grok 4.20 Beta (Reasoning, 0309)": {
+   "ids": [
+    "grok-4-20-beta"
+   ]
+  },
+  "Grok 4.20 Beta 1": {
+   "ids": [
+    "grok-4-20-beta-1"
+   ]
+  },
+  "Grok 4.3": {
+   "ids": [
+    "grok-4-3"
+   ]
+  },
+  "Grok 4.5": {
+   "ids": [
+    "grok-4-5"
+   ]
+  },
+  "Grok 4.6 (High)": {
+   "ids": [
+    "grok-4-6"
+   ],
+   "effort": "high"
+  },
+  "Grok 4.7 (xHigh)": {
+   "ids": [
+    "grok-4-7"
+   ],
+   "effort": "xhigh"
+  },
+  "Guanaco 33B": {
+   "ids": [
+    "guanaco-33b"
+   ]
+  },
+  "Hunyuan Large (2025-02-10)": {
+   "ids": [
+    "hunyuan-large"
+   ]
+  },
+  "Hunyuan Standard (2025-02-10)": {
+   "ids": [
+    "hunyuan-standard"
+   ]
+  },
+  "Hunyuan Standard 256K": {
+   "ids": [
+    "hunyuan-standard-256k"
+   ]
+  },
+  "Hunyuan T1 (20250711)": {
+   "ids": [
+    "hunyuan-t1"
+   ]
+  },
+  "Hunyuan Turbo (0110)": {
+   "ids": [
+    "hunyuan-turbo"
+   ]
+  },
+  "Hunyuan TurboS (20250226)": {
+   "ids": [
+    "hunyuan-turbos"
+   ]
+  },
+  "Hunyuan TurboS (20250416)": {
+   "ids": [
+    "hunyuan-turbos"
+   ]
+  },
+  "Hunyuan Vision 1.5 Thinking": {
+   "ids": [
+    "hunyuan-vision-1-5-thinking"
+   ]
+  },
+  "Hy3": {
+   "ids": [
+    "hy3"
+   ]
+  },
+  "Hy3 preview": {
+   "ids": [
+    "hy3-preview"
+   ]
+  },
+  "INTELLECT-3": {
+   "ids": [
+    "intellect-3"
+   ]
+  },
+  "Inkling 2 Small": {
+   "ids": [
+    "inkling-2-small"
+   ]
+  },
+  "InternLM2.5 20B Chat": {
+   "ids": [
+    "internlm2-5-20b-chat"
+   ]
+  },
+  "Jamba 1.5 Large": {
+   "ids": [
+    "jamba-1-5-large"
+   ]
+  },
+  "Jamba 1.5 Mini": {
+   "ids": [
+    "jamba-1-5-mini"
+   ]
+  },
+  "Kimi K2 Preview (0711)": {
+   "ids": [
+    "kimi-k2-preview"
+   ]
+  },
+  "Kimi K2 Preview (0905)": {
+   "ids": [
+    "kimi-k2-preview"
+   ]
+  },
+  "Kimi K2 Thinking Turbo": {
+   "ids": [
+    "kimi-k2-thinking-turbo"
+   ]
+  },
+  "Kimi K2.5 (Instant)": {
+   "ids": [
+    "kimi-k2-5"
+   ]
+  },
+  "Kimi K2.5 (Thinking)": {
+   "ids": [
+    "kimi-k2-5"
+   ],
+   "effort": "thinking"
+  },
+  "Kimi K2.6": {
+   "ids": [
+    "kimi-k2-6"
+   ]
+  },
+  "Kimi K3 (Max)": {
+   "ids": [
+    "kimi-k3"
+   ],
+   "effort": "max"
+  },
+  "Kimi K3.1 Pro (Max)": {
+   "ids": [
+    "kimi-k3-1-pro"
+   ],
+   "effort": "max"
+  },
+  "Koala 13B": {
+   "ids": [
+    "koala-13b"
+   ]
+  },
+  "LLaMA 13B": {
+   "ids": [
+    "llama-13b"
+   ]
+  },
+  "Ling-flash-2.0": {
+   "ids": [
+    "ling-flash-2-0"
+   ]
+  },
+  "Llama 2 13B Chat": {
+   "ids": [
+    "llama-2-13b-chat"
+   ]
+  },
+  "Llama 2 70B Chat": {
+   "ids": [
+    "llama-2-70b-chat"
+   ]
+  },
+  "Llama 2 70B SteerLM Chat": {
+   "ids": [
+    "llama-2-70b-steerlm-chat"
+   ]
+  },
+  "Llama 2 7B Chat": {
+   "ids": [
+    "llama-2-7b-chat"
+   ]
+  },
+  "Llama 3 70B Instruct": {
+   "ids": [
+    "llama-3-70b-instruct"
+   ]
+  },
+  "Llama 3 8B Instruct": {
+   "ids": [
+    "llama-3-8b-instruct"
+   ]
+  },
+  "Llama 3.1 405B Instruct (BF16)": {
+   "ids": [
+    "llama-3-1-405b-instruct"
+   ]
+  },
+  "Llama 3.1 405B Instruct (FP8)": {
+   "ids": [
+    "llama-3-1-405b-instruct"
+   ]
+  },
+  "Llama 3.1 70B Instruct": {
+   "ids": [
+    "llama-3-1-70b-instruct"
+   ]
+  },
+  "Llama 3.1 8B Instruct": {
+   "ids": [
+    "llama-3-1-8b-instruct"
+   ]
+  },
+  "Llama 3.1 Nemotron 51B Instruct": {
+   "ids": [
+    "llama-3-1-nemotron-51b-instruct"
+   ]
+  },
+  "Llama 3.1 Nemotron 70B Instruct": {
+   "ids": [
+    "llama-3-1-nemotron-70b-instruct"
+   ]
+  },
+  "Llama 3.1 Nemotron Ultra 253B v1": {
+   "ids": [
+    "llama-3-1-nemotron-ultra-253b-v1"
+   ]
+  },
+  "Llama 3.1 Tulu 3 70B": {
+   "ids": [
+    "llama-3-1-tulu-3-70b"
+   ]
+  },
+  "Llama 3.1 Tulu 3 8B": {
+   "ids": [
+    "llama-3-1-tulu-3-8b"
+   ]
+  },
+  "Llama 3.2 1B Instruct": {
+   "ids": [
+    "llama-3-2-1b-instruct"
+   ]
+  },
+  "Llama 3.2 3B Instruct": {
+   "ids": [
+    "llama-3-2-3b-instruct"
+   ]
+  },
+  "Llama 3.3 70B Instruct": {
+   "ids": [
+    "llama-3-3-70b-instruct"
+   ]
+  },
+  "Llama 3.3 Nemotron Super 49B v1": {
+   "ids": [
+    "llama-3-3-nemotron-super-49b-v1"
+   ]
+  },
+  "Llama 3.3 Nemotron Super 49B v1.5": {
+   "ids": [
+    "llama-3-3-nemotron-super-49b-v1-5"
+   ]
+  },
+  "Llama 4 Maverick 17B 128E Instruct": {
+   "ids": [
+    "llama-4-maverick-17b-128e-instruct"
+   ]
+  },
+  "Llama 4 Scout 17B 16E Instruct": {
+   "ids": [
+    "llama-4-scout-17b-16e-instruct"
+   ]
+  },
+  "LongCat-Flash-Chat Exp (2602)": {
+   "ids": [
+    "longcat-flash-chat-exp"
+   ]
+  },
+  "MPT 30B Chat": {
+   "ids": [
+    "mpt-30b-chat"
+   ]
+  },
+  "MPT 7B Chat": {
+   "ids": [
+    "mpt-7b-chat"
+   ]
+  },
+  "Magistral Medium (2506)": {
+   "ids": [
+    "magistral-medium"
+   ]
+  },
+  "Mercury 2": {
+   "ids": [
+    "mercury-2"
+   ]
+  },
+  "MiMo-V2-Flash (Non-Thinking)": {
+   "ids": [
+    "mimo-v2-flash"
+   ]
+  },
+  "MiMo-V2-Flash (Thinking)": {
+   "ids": [
+    "mimo-v2-flash"
+   ],
+   "effort": "thinking"
+  },
+  "MiMo-V2-Omni": {
+   "ids": [
+    "mimo-v2-omni"
+   ]
+  },
+  "MiMo-V2-Pro": {
+   "ids": [
+    "mimo-v2-pro"
+   ]
+  },
+  "MiMo-V2.5": {
+   "ids": [
+    "mimo-v2-5"
+   ]
+  },
+  "MiMo-V2.5-Pro": {
+   "ids": [
+    "mimo-v2-5-pro"
+   ]
+  },
+  "MiMo-V2.6-Flash": {
+   "ids": [
+    "mimo-v2-6-flash"
+   ]
+  },
+  "MiMo-V2.6-Pro": {
+   "ids": [
+    "mimo-v2-6-pro"
+   ]
+  },
+  "MiniMax-M1": {
+   "ids": [
+    "minimax-m1"
+   ]
+  },
+  "MiniMax-M2": {
+   "ids": [
+    "minimax-m2"
+   ]
+  },
+  "MiniMax-M2.1 Preview": {
+   "ids": [
+    "minimax-m2-1-preview"
+   ]
+  },
+  "MiniMax-M2.5": {
+   "ids": [
+    "minimax-m2-5"
+   ]
+  },
+  "MiniMax-M2.7": {
+   "ids": [
+    "minimax-m2-7"
+   ]
+  },
+  "MiniMax-M3": {
+   "ids": [
+    "minimax-m3"
+   ]
+  },
+  "Ministral 8B (2410)": {
+   "ids": [
+    "ministral-8b"
+   ]
+  },
+  "Mistral 7B Instruct": {
+   "ids": [
+    "mistral-7b-instruct"
+   ]
+  },
+  "Mistral 7B Instruct v0.2": {
+   "ids": [
+    "mistral-7b-instruct-v0-2"
+   ]
+  },
+  "Mistral Large (2402)": {
+   "ids": [
+    "mistral-large"
+   ]
+  },
+  "Mistral Large (2411)": {
+   "ids": [
+    "mistral-large"
+   ]
+  },
+  "Mistral Large 2 (2407)": {
+   "ids": [
+    "mistral-large-2"
+   ]
+  },
+  "Mistral Large 3": {
+   "ids": [
+    "mistral-large-3"
+   ]
+  },
+  "Mistral Large 4": {
+   "ids": [
+    "mistral-large-4"
+   ]
+  },
+  "Mistral Medium 3 (2505)": {
+   "ids": [
+    "mistral-medium-3"
+   ]
+  },
+  "Mistral Medium 3.1 (2508)": {
+   "ids": [
+    "mistral-medium-3-1"
+   ]
+  },
+  "Mistral Medium 3.5": {
+   "ids": [
+    "mistral-medium-3-5"
+   ]
+  },
+  "Mistral Small 24B Instruct (2501)": {
+   "ids": [
+    "mistral-small-24b-instruct"
+   ]
+  },
+  "Mistral Small 3.1 24B Instruct (2503)": {
+   "ids": [
+    "mistral-small-3-1-24b-instruct"
+   ]
+  },
+  "Mistral Small 3.2 (2506)": {
+   "ids": [
+    "mistral-small-3-2"
+   ]
+  },
+  "Mixtral 8x22B Instruct v0.1": {
+   "ids": [
+    "mixtral-8x22b-instruct-v0-1"
+   ]
+  },
+  "Mixtral 8x7B Instruct v0.1": {
+   "ids": [
+    "mixtral-8x7b-instruct-v0-1"
+   ]
+  },
+  "Molmo 2 8B": {
+   "ids": [
+    "molmo-2-8b"
+   ]
+  },
+  "Muse Spark": {
+   "ids": [
+    "muse-spark"
+   ]
+  },
+  "Muse Spark 1.1": {
+   "ids": [
+    "muse-spark-1-1"
+   ]
+  },
+  "Muse Spark 1.2 (xHigh)": {
+   "ids": [
+    "muse-spark-1-2"
+   ],
+   "effort": "xhigh"
+  },
+  "Muse Spark 1.3 (Max)": {
+   "ids": [
+    "muse-spark-1-3"
+   ],
+   "effort": "max"
+  },
+  "Muse Wonder (Max)": {
+   "ids": [
+    "muse-wonder"
+   ],
+   "effort": "max"
+  },
+  "NVIDIA-Nemotron-3-Nano-30B-A3B (BF16)": {
+   "ids": [
+    "nvidia-nemotron-3-nano-30b-a3b"
+   ]
+  },
+  "NVIDIA-Nemotron-3-Super-120B-A12B": {
+   "ids": [
+    "nvidia-nemotron-3-super-120b-a12b"
+   ]
+  },
+  "NVIDIA-Nemotron-3-Ultra-550B-A55B (NVFP4)": {
+   "ids": [
+    "nvidia-nemotron-3-ultra-550b-a55b"
+   ]
+  },
+  "NVIDIA-Nemotron-3.5-Lightning-30B-A3B (NVFP4)": {
+   "ids": [
+    "nvidia-nemotron-3-5-lightning-30b-a3b"
+   ]
+  },
+  "NVIDIA-Nemotron-3.5-Super-VL-120B-A12B (NVFP4)": {
+   "ids": [
+    "nvidia-nemotron-3-5-super-vl-120b-a12b"
+   ]
+  },
+  "Nemotron-4 340B Instruct": {
+   "ids": [
+    "nemotron-4-340b-instruct"
+   ]
+  },
+  "Nous Hermes 2 Mixtral 8x7B DPO": {
+   "ids": [
+    "nous-hermes-2-mixtral-8x7b-dpo"
+   ]
+  },
+  "OLMo 2 32B Instruct (0325)": {
+   "ids": [
+    "olmo-2-32b-instruct"
+   ]
+  },
+  "OLMo 7B Instruct": {
+   "ids": [
+    "olmo-7b-instruct"
+   ]
+  },
+  "Olmo 3 32B Think": {
+   "ids": [
+    "olmo-3-32b-think"
+   ]
+  },
+  "Olmo 3.1 32B Instruct": {
+   "ids": [
+    "olmo-3-1-32b-instruct"
+   ]
+  },
+  "Olmo 3.1 32B Think": {
+   "ids": [
+    "olmo-3-1-32b-think"
+   ]
+  },
+  "OpenAssistant Pythia 12B": {
+   "ids": [
+    "openassistant-pythia-12b"
+   ]
+  },
+  "OpenChat 3.5": {
+   "ids": [
+    "openchat-3-5"
+   ]
+  },
+  "OpenChat 3.5 (0106)": {
+   "ids": [
+    "openchat-3-5"
+   ]
+  },
+  "OpenHermes 2.5 Mistral 7B": {
+   "ids": [
+    "openhermes-2-5-mistral-7b"
+   ]
+  },
+  "PaLM 2": {
+   "ids": [
+    "palm-2"
+   ]
+  },
+  "Phi-3 Medium 4K Instruct": {
+   "ids": [
+    "phi-3-medium-4k-instruct"
+   ]
+  },
+  "Phi-3 Mini 128K Instruct": {
+   "ids": [
+    "phi-3-mini-128k-instruct"
+   ]
+  },
+  "Phi-3 Mini 4K Instruct": {
+   "ids": [
+    "phi-3-mini-4k-instruct"
+   ]
+  },
+  "Phi-3 Mini 4K Instruct (June 2024)": {
+   "ids": [
+    "phi-3-mini-4k-instruct"
+   ]
+  },
+  "Phi-3 Small 8K Instruct": {
+   "ids": [
+    "phi-3-small-8k-instruct"
+   ]
+  },
+  "Phi-4": {
+   "ids": [
+    "phi-4"
+   ]
+  },
+  "QwQ-32B": {
+   "ids": [
+    "qwq-32b"
+   ]
+  },
+  "QwQ-32B-Preview": {
+   "ids": [
+    "qwq-32b-preview"
+   ]
+  },
+  "Qwen-14B-Chat": {
+   "ids": [
+    "qwen-14b-chat"
+   ]
+  },
+  "Qwen-Max (0919)": {
+   "ids": [
+    "qwen-max"
+   ]
+  },
+  "Qwen-Plus (0125)": {
+   "ids": [
+    "qwen-plus"
+   ]
+  },
+  "Qwen1.5-110B-Chat": {
+   "ids": [
+    "qwen1-5-110b-chat"
+   ]
+  },
+  "Qwen1.5-14B-Chat": {
+   "ids": [
+    "qwen1-5-14b-chat"
+   ]
+  },
+  "Qwen1.5-32B-Chat": {
+   "ids": [
+    "qwen1-5-32b-chat"
+   ]
+  },
+  "Qwen1.5-4B-Chat": {
+   "ids": [
+    "qwen1-5-4b-chat"
+   ]
+  },
+  "Qwen1.5-72B-Chat": {
+   "ids": [
+    "qwen1-5-72b-chat"
+   ]
+  },
+  "Qwen1.5-7B-Chat": {
+   "ids": [
+    "qwen1-5-7b-chat"
+   ]
+  },
+  "Qwen2-72B-Instruct": {
+   "ids": [
+    "qwen2-72b-instruct"
+   ]
+  },
+  "Qwen2.5-72B-Instruct": {
+   "ids": [
+    "qwen2-5-72b-instruct"
+   ]
+  },
+  "Qwen2.5-Coder-32B-Instruct": {
+   "ids": [
+    "qwen2-5-coder-32b-instruct"
+   ]
+  },
+  "Qwen2.5-Max": {
+   "ids": [
+    "qwen2-5-max"
+   ]
+  },
+  "Qwen2.5-Plus (1127)": {
+   "ids": [
+    "qwen2-5-plus"
+   ]
+  },
+  "Qwen3-235B-A22B": {
+   "ids": [
+    "qwen3-235b-a22b"
+   ]
+  },
+  "Qwen3-235B-A22B (Non-Thinking)": {
+   "ids": [
+    "qwen3-235b-a22b"
+   ]
+  },
+  "Qwen3-235B-A22B-Instruct (2507)": {
+   "ids": [
+    "qwen3-235b-a22b-instruct"
+   ]
+  },
+  "Qwen3-235B-A22B-Thinking (2507)": {
+   "ids": [
+    "qwen3-235b-a22b-thinking"
+   ]
+  },
+  "Qwen3-30B-A3B": {
+   "ids": [
+    "qwen3-30b-a3b"
+   ]
+  },
+  "Qwen3-30B-A3B-Instruct (2507)": {
+   "ids": [
+    "qwen3-30b-a3b-instruct"
+   ]
+  },
+  "Qwen3-32B": {
+   "ids": [
+    "qwen3-32b"
+   ]
+  },
+  "Qwen3-Coder-480B-A35B-Instruct": {
+   "ids": [
+    "qwen3-coder-480b-a35b-instruct"
+   ]
+  },
+  "Qwen3-Max (2025-09-23)": {
+   "ids": [
+    "qwen3-max"
+   ]
+  },
+  "Qwen3-Max-Preview": {
+   "ids": [
+    "qwen3-max-preview"
+   ]
+  },
+  "Qwen3-Next-80B-A3B-Instruct": {
+   "ids": [
+    "qwen3-next-80b-a3b-instruct"
+   ]
+  },
+  "Qwen3-Next-80B-A3B-Thinking": {
+   "ids": [
+    "qwen3-next-80b-a3b-thinking"
+   ]
+  },
+  "Qwen3-VL-235B-A22B-Instruct": {
+   "ids": [
+    "qwen3-vl-235b-a22b-instruct"
+   ]
+  },
+  "Qwen3-VL-235B-A22B-Thinking": {
+   "ids": [
+    "qwen3-vl-235b-a22b-thinking"
+   ]
+  },
+  "Qwen3.5-122B-A10B": {
+   "ids": [
+    "qwen3-5-122b-a10b"
+   ]
+  },
+  "Qwen3.5-27B": {
+   "ids": [
+    "qwen3-5-27b"
+   ]
+  },
+  "Qwen3.5-35B-A3B": {
+   "ids": [
+    "qwen3-5-35b-a3b"
+   ]
+  },
+  "Qwen3.5-397B-A17B": {
+   "ids": [
+    "qwen3-5-397b-a17b"
+   ]
+  },
+  "Qwen3.5-Flash": {
+   "ids": [
+    "qwen3-5-flash"
+   ]
+  },
+  "Qwen3.5-Max-Preview": {
+   "ids": [
+    "qwen3-5-max-preview"
+   ]
+  },
+  "Qwen3.6-Max-Preview": {
+   "ids": [
+    "qwen3-6-max-preview"
+   ]
+  },
+  "Qwen3.6-Plus": {
+   "ids": [
+    "qwen3-6-plus"
+   ]
+  },
+  "Qwen3.7-Max-Preview": {
+   "ids": [
+    "qwen3-7-max-preview"
+   ]
+  },
+  "Qwen3.7-Plus": {
+   "ids": [
+    "qwen3-7-plus"
+   ]
+  },
+  "Qwen3.8-27B": {
+   "ids": [
+    "qwen3-8-27b"
+   ]
+  },
+  "Qwen3.8-Max": {
+   "ids": [
+    "qwen3-8-max"
+   ]
+  },
+  "RWKV-4 Raven 14B": {
+   "ids": [
+    "rwkv-4-raven-14b"
+   ]
+  },
+  "Reka Core (20240904)": {
+   "ids": [
+    "reka-core"
+   ]
+  },
+  "Reka Flash (20240904)": {
+   "ids": [
+    "reka-flash"
+   ]
+  },
+  "Reka Flash 21B (20240226)": {
+   "ids": [
+    "reka-flash-21b"
+   ]
+  },
+  "Reka Flash 21B (Online, 20240226)": {
+   "ids": [
+    "reka-flash-21b"
+   ]
+  },
+  "Ring-flash-2.0": {
+   "ids": [
+    "ring-flash-2-0"
+   ]
+  },
+  "SOLAR 10.7B Instruct v1.0": {
+   "ids": [
+    "solar-10-7b-instruct-v1-0"
+   ]
+  },
+  "SmolLM2 1.7B Instruct": {
+   "ids": [
+    "smollm2-1-7b-instruct"
+   ]
+  },
+  "Solar Pro 4": {
+   "ids": [
+    "solar-pro-4"
+   ]
+  },
+  "StableLM Tuned Alpha 7B": {
+   "ids": [
+    "stablelm-tuned-alpha-7b"
+   ]
+  },
+  "Starling LM 7B Alpha": {
+   "ids": [
+    "starling-lm-7b-alpha"
+   ]
+  },
+  "Starling LM 7B Beta": {
+   "ids": [
+    "starling-lm-7b-beta"
+   ]
+  },
+  "Step 5 Preview": {
+   "ids": [
+    "step-5-preview"
+   ]
+  },
+  "Step-1o Turbo (202506)": {
+   "ids": [
+    "step-1o-turbo"
+   ]
+  },
+  "Step-2 16K Exp (202412)": {
+   "ids": [
+    "step-2-16k-exp"
+   ]
+  },
+  "Step-3": {
+   "ids": [
+    "step-3"
+   ]
+  },
+  "Step-3.5-Flash": {
+   "ids": [
+    "step-3-5-flash"
+   ]
+  },
+  "StripedHyena Nous 7B": {
+   "ids": [
+    "stripedhyena-nous-7b"
+   ]
+  },
+  "Tulu 2 DPO 70B": {
+   "ids": [
+    "tulu-2-dpo-70b"
+   ]
+  },
+  "Vicuna 13B": {
+   "ids": [
+    "vicuna-13b"
+   ]
+  },
+  "Vicuna 33B": {
+   "ids": [
+    "vicuna-33b"
+   ]
+  },
+  "Vicuna 7B": {
+   "ids": [
+    "vicuna-7b"
+   ]
+  },
+  "WizardLM 13B": {
+   "ids": [
+    "wizardlm-13b"
+   ]
+  },
+  "WizardLM 70B": {
+   "ids": [
+    "wizardlm-70b"
+   ]
+  },
+  "Yi 1.5 34B Chat": {
+   "ids": [
+    "yi-1-5-34b-chat"
+   ]
+  },
+  "Yi 34B Chat": {
+   "ids": [
+    "yi-34b-chat"
+   ]
+  },
+  "Zephyr 7B Alpha": {
+   "ids": [
+    "zephyr-7b-alpha"
+   ]
+  },
+  "Zephyr 7B Beta": {
+   "ids": [
+    "zephyr-7b-beta"
+   ]
+  },
+  "Zephyr ORPO 141B A35B v0.1": {
+   "ids": [
+    "zephyr-orpo-141b-a35b-v0-1"
+   ]
+  },
+  "amazon-nova-experimental-chat (10-09)": {
+   "ids": [
+    "amazon-nova-experimental-chat"
+   ]
+  },
+  "amazon-nova-experimental-chat (10-20)": {
+   "ids": [
+    "amazon-nova-experimental-chat"
+   ]
+  },
+  "amazon-nova-experimental-chat (11-10)": {
+   "ids": [
+    "amazon-nova-experimental-chat"
+   ]
+  },
+  "amazon-nova-experimental-chat (12-10)": {
+   "ids": [
+    "amazon-nova-experimental-chat"
+   ]
+  },
+  "amazon-nova-experimental-chat (26-01-10)": {
+   "ids": [
+    "amazon-nova-experimental-chat"
+   ]
+  },
+  "amazon-nova-experimental-chat (26-02-10)": {
+   "ids": [
+    "amazon-nova-experimental-chat"
+   ]
+  },
+  "gpt-oss-120b": {
+   "ids": [
+    "gpt-oss-120b"
+   ]
+  },
+  "gpt-oss-20b": {
+   "ids": [
+    "gpt-oss-20b"
+   ]
+  },
+  "o1 (2024-12-17)": {
+   "ids": [
+    "o1"
+   ]
+  },
+  "o1-mini": {
+   "ids": [
+    "o1-mini"
+   ]
+  },
+  "o1-preview": {
+   "ids": [
+    "o1-preview"
+   ]
+  },
+  "o3 (2025-04-16)": {
+   "ids": [
+    "o3"
+   ]
+  },
+  "o3-mini": {
+   "ids": [
+    "o3-mini"
+   ]
+  },
+  "o3-mini (High)": {
+   "ids": [
+    "o3-mini"
+   ],
+   "effort": "high"
+  },
+  "o4-mini (2025-04-16)": {
+   "ids": [
+    "o4-mini"
+   ]
+  }
+ },
+ "lmarena-text-to-image": {
+  "BAGEL": {
+   "ids": [
+    "bagel"
+   ]
+  },
+  "Cosmos3-Super-Text2Image": {
+   "ids": [
+    "cosmos3-super-text2image"
+   ]
+  },
+  "Cosmos3-Super-Text2Image (Agentic)": {
+   "ids": [
+    "cosmos3-super-text2image"
+   ]
+  },
+  "DALL-E 3": {
+   "ids": [
+    "dall-e-3"
+   ]
+  },
+  "FLUX.1 Kontext [dev]": {
+   "ids": [
+    "flux-1-kontext-[dev]"
+   ]
+  },
+  "FLUX.1 Kontext [max]": {
+   "ids": [
+    "flux-1-kontext-[max]"
+   ]
+  },
+  "FLUX.1 Kontext [pro]": {
+   "ids": [
+    "flux-1-kontext-[pro]"
+   ]
+  },
+  "FLUX.1 [dev] (FP8)": {
+   "ids": [
+    "flux-1-[dev]"
+   ]
+  },
+  "FLUX.2 [dev]": {
+   "ids": [
+    "flux-2-[dev]"
+   ]
+  },
+  "FLUX.2 [flex]": {
+   "ids": [
+    "flux-2-[flex]"
+   ]
+  },
+  "FLUX.2 [klein] 4B": {
+   "ids": [
+    "flux-2-[klein]-4b"
+   ]
+  },
+  "FLUX.2 [klein] 9B": {
+   "ids": [
+    "flux-2-[klein]-9b"
+   ]
+  },
+  "FLUX.2 [max]": {
+   "ids": [
+    "flux-2-[max]"
+   ]
+  },
+  "FLUX.2 [pro]": {
+   "ids": [
+    "flux-2-[pro]"
+   ]
+  },
+  "FLUX1.1 [pro]": {
+   "ids": [
+    "flux1-1-[pro]"
+   ]
+  },
+  "GLM-Image": {
+   "ids": [
+    "glm-image"
+   ]
+  },
+  "GPT-Image-1": {
+   "ids": [
+    "gpt-image-1"
+   ]
+  },
+  "GPT-Image-1 mini": {
+   "ids": [
+    "gpt-image-1-mini"
+   ]
+  },
+  "GPT-Image-1.5 (High Fidelity)": {
+   "ids": [
+    "gpt-image-1-5"
+   ],
+   "effort": "high"
+  },
+  "GPT-Image-2 (Medium)": {
+   "ids": [
+    "gpt-image-2"
+   ],
+   "effort": "medium"
+  },
+  "GPT-Image-2.5 Flare": {
+   "ids": [
+    "gpt-image-2-5-flare"
+   ]
+  },
+  "GPT-Image-2.5 Sunburst": {
+   "ids": [
+    "gpt-image-2-5-sunburst"
+   ]
+  },
+  "GPT-Image-2.6 Flare (Medium)": {
+   "ids": [
+    "gpt-image-2-6-flare"
+   ],
+   "effort": "medium"
+  },
+  "GPT-Image-2.6 Sunburst (Medium)": {
+   "ids": [
+    "gpt-image-2-6-sunburst"
+   ],
+   "effort": "medium"
+  },
+  "Gemini 2.0 Flash Preview Image Generation": {
+   "ids": [
+    "gemini-2-0-flash-preview-image-generation"
+   ]
+  },
+  "Gemini 2.5 Flash Image Preview (nano-banana)": {
+   "ids": [
+    "gemini-2-5-flash-image-preview"
+   ]
+  },
+  "Gemini 3 Pro Image (nano-banana-pro, 2K)": {
+   "ids": [
+    "gemini-3-pro-image"
+   ]
+  },
+  "Gemini 3 Pro Image Preview (nano-banana-pro)": {
+   "ids": [
+    "gemini-3-pro-image-preview"
+   ]
+  },
+  "Gemini 3.1 Flash Image (nano-banana-2, Web Search)": {
+   "ids": [
+    "gemini-3-1-flash-image"
+   ]
+  },
+  "Gemini 3.1 Flash-Lite Image (nano-banana-2-lite)": {
+   "ids": [
+    "gemini-3-1-flash-lite-image"
+   ]
+  },
+  "Gemini Nano Banana 2.1": {
+   "ids": [
+    "gemini-nano-banana-2-1"
+   ]
+  },
+  "Grok Imagine Image": {
+   "ids": [
+    "grok-imagine-image"
+   ]
+  },
+  "Grok Imagine Image 2.0": {
+   "ids": [
+    "grok-imagine-image-2-0"
+   ]
+  },
+  "Grok Imagine Image 2.0 (20260801)": {
+   "ids": [
+    "grok-imagine-image-2-0"
+   ]
+  },
+  "Grok Imagine Image Pro": {
+   "ids": [
+    "grok-imagine-image-pro"
+   ]
+  },
+  "HiDream-O1-Image": {
+   "ids": [
+    "hidream-o1-image"
+   ]
+  },
+  "HunyuanImage 3.0": {
+   "ids": [
+    "hunyuanimage-3-0"
+   ]
+  },
+  "Ideogram 2.0": {
+   "ids": [
+    "ideogram-2-0"
+   ]
+  },
+  "Ideogram 3.0 (Quality)": {
+   "ids": [
+    "ideogram-3-0"
+   ]
+  },
+  "Ideogram 4.0 (Quality)": {
+   "ids": [
+    "ideogram-4-0"
+   ]
+  },
+  "Imagen 3 (generate-002)": {
+   "ids": [
+    "imagen-3"
+   ]
+  },
+  "Imagen 4 (generate-001)": {
+   "ids": [
+    "imagen-4"
+   ]
+  },
+  "Imagen 4 Ultra (generate-001)": {
+   "ids": [
+    "imagen-4-ultra"
+   ]
+  },
+  "Krea 2 Large": {
+   "ids": [
+    "krea-2-large"
+   ]
+  },
+  "Krea 2 Medium": {
+   "ids": [
+    "krea-2-medium"
+   ]
+  },
+  "Krea 2 Turbo": {
+   "ids": [
+    "krea-2-turbo"
+   ]
+  },
+  "Lucid Origin": {
+   "ids": [
+    "lucid-origin"
+   ]
+  },
+  "Luma Photon": {
+   "ids": [
+    "luma-photon"
+   ]
+  },
+  "MAI-Image-1": {
+   "ids": [
+    "mai-image-1"
+   ]
+  },
+  "MAI-Image-2": {
+   "ids": [
+    "mai-image-2"
+   ]
+  },
+  "MAI-Image-2.5": {
+   "ids": [
+    "mai-image-2-5"
+   ]
+  },
+  "MAI-Image-2.6": {
+   "ids": [
+    "mai-image-2-6"
+   ]
+  },
+  "MAI-Image-2.7": {
+   "ids": [
+    "mai-image-2-7"
+   ]
+  },
+  "MiniMax H3-Image": {
+   "ids": [
+    "minimax-h3-image"
+   ]
+  },
+  "Muse Image": {
+   "ids": [
+    "muse-image"
+   ]
+  },
+  "P-Image": {
+   "ids": [
+    "p-image"
+   ]
+  },
+  "Qwen-Image": {
+   "ids": [
+    "qwen-image"
+   ]
+  },
+  "Qwen-Image (2512)": {
+   "ids": [
+    "qwen-image"
+   ]
+  },
+  "Qwen-Image (Prompt Extend)": {
+   "ids": [
+    "qwen-image"
+   ]
+  },
+  "Qwen-Image-2.0-Pro (2026-06-22)": {
+   "ids": [
+    "qwen-image-2-0-pro"
+   ]
+  },
+  "Qwen-Image-2.1": {
+   "ids": [
+    "qwen-image-2-1"
+   ]
+  },
+  "Qwen-Image-3.0-Pro": {
+   "ids": [
+    "qwen-image-3-0-pro"
+   ]
+  },
+  "Recraft V3": {
+   "ids": [
+    "recraft-v3"
+   ]
+  },
+  "Recraft V4": {
+   "ids": [
+    "recraft-v4"
+   ]
+  },
+  "Recraft V4.1 Flash": {
+   "ids": [
+    "recraft-v4-1-flash"
+   ]
+  },
+  "Recraft V4.1 Pro": {
+   "ids": [
+    "recraft-v4-1-pro"
+   ]
+  },
+  "Recraft V4.1 Utility Pro": {
+   "ids": [
+    "recraft-v4-1-utility-pro"
+   ]
+  },
+  "Reve 2.0": {
+   "ids": [
+    "reve-2-0"
+   ]
+  },
+  "Reve 2.1": {
+   "ids": [
+    "reve-2-1"
+   ]
+  },
+  "Reve v1.5": {
+   "ids": [
+    "reve-v1-5"
+   ]
+  },
+  "Runway Gen-4": {
+   "ids": [
+    "runway-gen-4"
+   ]
+  },
+  "Seedream 3.0": {
+   "ids": [
+    "seedream-3-0"
+   ]
+  },
+  "Seedream 4.0 (2K)": {
+   "ids": [
+    "seedream-4-0"
+   ]
+  },
+  "Seedream 4.0 (High Res, fal)": {
+   "ids": [
+    "seedream-4-0"
+   ],
+   "effort": "high"
+  },
+  "Seedream 4.0 (fal)": {
+   "ids": [
+    "seedream-4-0"
+   ]
+  },
+  "Seedream 4.5": {
+   "ids": [
+    "seedream-4-5"
+   ]
+  },
+  "Seedream 5.0 Lite": {
+   "ids": [
+    "seedream-5-0-lite"
+   ]
+  },
+  "Seedream 5.0 Pro": {
+   "ids": [
+    "seedream-5-0-pro"
+   ]
+  },
+  "Stable Diffusion 3.5 Large": {
+   "ids": [
+    "stable-diffusion-3-5-large"
+   ]
+  },
+  "UNI-1.1": {
+   "ids": [
+    "uni-1-1"
+   ]
+  },
+  "UNI-1.1 Max": {
+   "ids": [
+    "uni-1-1-max"
+   ]
+  },
+  "Wan 2.5 Preview": {
+   "ids": [
+    "wan-2-5-preview"
+   ]
+  },
+  "Wan 2.6": {
+   "ids": [
+    "wan-2-6"
+   ]
+  },
+  "Wan 2.7 Image": {
+   "ids": [
+    "wan-2-7-image"
+   ]
+  },
+  "Wan 2.7 Image Pro": {
+   "ids": [
+    "wan-2-7-image-pro"
+   ]
+  },
+  "Z-Image-Turbo": {
+   "ids": [
+    "z-image-turbo"
+   ]
+  },
+  "dall-e-3": {
+   "ids": [
+    "dall-e-3"
+   ]
+  },
+  "flux-1-dev-fp8": {
+   "ids": [
+    "flux-1-dev-fp8"
+   ]
+  },
+  "flux-1.1-pro": {
+   "ids": [
+    "flux-1-1-pro"
+   ]
+  },
+  "ideogram-v2": {
+   "ids": [
+    "ideogram-v2"
+   ]
+  },
+  "imagen-3.0-generate-002": {
+   "ids": [
+    "imagen-3-0-generate-002"
+   ]
+  },
+  "photon": {
+   "ids": [
+    "photon"
+   ]
+  },
+  "recraft-v3": {
+   "ids": [
+    "recraft-v3"
+   ]
+  },
+  "stable-diffusion-v35-large": {
+   "ids": [
+    "stable-diffusion-v35-large"
+   ]
+  }
+ }
+}

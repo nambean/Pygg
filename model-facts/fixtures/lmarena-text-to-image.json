@@ -1,0 +1,74 @@
+[
+ {
+  "model_name": "GPT-Image-2.5 Sunburst",
+  "organization": "openai",
+  "license": "Proprietary",
+  "rating": 1428.457476981579,
+  "rating_lower": 1423.5064336402706,
+  "rating_upper": 1433.4085203228874,
+  "vote_count": 68073,
+  "rank": 1,
+  "category": "overall",
+  "leaderboard_publish_date": "2026-11-17"
+ },
+ {
+  "model_name": "GPT-Image-2.6 Sunburst (Medium)",
+  "organization": "openai",
+  "license": "Proprietary",
+  "rating": 1410.1144596717731,
+  "rating_lower": 1400.771011124068,
+  "rating_upper": 1419.457908219478,
+  "vote_count": 6547,
+  "rank": 2,
+  "category": "overall",
+  "leaderboard_publish_date": "2026-11-17"
+ },
+ {
+  "model_name": "GPT-Image-2.5 Flare",
+  "organization": "openai",
+  "license": "Proprietary",
+  "rating": 1399.5392369641024,
+  "rating_lower": 1394.711148600061,
+  "rating_upper": 1404.367325328144,
+  "vote_count": 67372,
+  "rank": 3,
+  "category": "overall",
+  "leaderboard_publish_date": "2026-11-17"
+ },
+ {
+  "model_name": "MAI-Image-2.7",
+  "organization": "microsoft-ai",
+  "license": "Proprietary",
+  "rating": 1387.3671233107225,
+  "rating_lower": 1375.4765130099256,
+  "rating_upper": 1399.2577336115194,
+  "vote_count": 3082,
+  "rank": 4,
+  "category": "overall",
+  "leaderboard_publish_date": "2026-11-17"
+ },
+ {
+  "model_name": "GPT-Image-2 (Medium)",
+  "organization": "openai",
+  "license": "Proprietary",
+  "rating": 1382.0192878030816,
+  "rating_lower": 1378.241686490968,
+  "rating_upper": 1385.7968891151952,
+  "vote_count": 110696,
+  "rank": 5,
+  "category": "overall",
+  "leaderboard_publish_date": "2026-11-17"
+ },
+ {
+  "model_name": "GPT-Image-2.6 Flare (Medium)",
+  "organization": "openai",
+  "license": "Proprietary",
+  "rating": 1375.344171109689,
+  "rating_lower": 1366.0337908701408,
+  "rating_upper": 1384.654551349237,
+  "vote_count": 6447,
+  "rank": 6,
+  "category": "overall",
+  "leaderboard_publish_date": "2026-11-17"
+ }
+]
