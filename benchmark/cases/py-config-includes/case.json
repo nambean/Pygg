@@ -1,0 +1,23 @@
+{
+  "id": "py-config-includes",
+  "title": "Includes and interpolation for a Python config loader",
+  "category": "feature",
+  "complexity": "high",
+  "prompt": "config.py loads simple config files (sections and key = value lines). Extend load(path, env=None) as SPEC.md describes: %include lines with paths relative to the including file, later definitions overriding earlier ones, ${key} and ${env:NAME} interpolation resolved after every file is read, $$ as a literal dollar sign, and ConfigError with the exact messages the spec gives for a missing include, an include cycle, an undefined key or variable, and an interpolation cycle. Python 3 standard library only. Do not change SPEC.md, test_config.py or anything in fixtures/.",
+  "checks": [
+    "python test_config.py"
+  ],
+  "protected": [
+    "SPEC.md",
+    "test_config.py",
+    "fixtures/app.cfg",
+    "fixtures/base.cfg",
+    "fixtures/cycle_a.cfg",
+    "fixtures/cycle_b.cfg",
+    "fixtures/db.cfg",
+    "fixtures/dollars.cfg",
+    "fixtures/interp_cycle.cfg",
+    "fixtures/missing.cfg",
+    "fixtures/undefined.cfg"
+  ]
+}

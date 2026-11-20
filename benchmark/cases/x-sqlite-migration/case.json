@@ -1,0 +1,9 @@
+{
+  "id": "x-sqlite-migration",
+  "title": "Split customer names and unique emails with a migration that keeps the data",
+  "category": "feature",
+  "complexity": "high",
+  "prompt": "The shop's SQLite database (db.js opens it and runs the migrations in migrations/, numbered, tracking the version in PRAGMA user_version) has customers with one `name` column and emails that differ only in case. Add migration 002 so that customers have `first_name` and `last_name` instead of `name` (the last word of the name is the last name, the rest the first name; a one-word name gives that word as first_name and an empty last_name), every email is lower-cased and trimmed, customers whose emails become equal are merged into the one with the lowest id (their orders move to it, the others are deleted), and a unique index on email exists. A database at version 1 must upgrade in place without losing an order; a new database must come out at the latest version; opening an up-to-date database twice must change nothing. Then update store.js: addCustomer(db, { firstName, lastName, email }) stores the email lower-cased and trimmed and throws an Error whose message contains 'duplicate email' when one exists already; customerSummary(db, id) returns { firstName, lastName, email, orders, totalCents } (orders is the count). Do not change test.js, fixtures/ or migrations/001_init.js.",
+  "checks": ["node test.js"],
+  "protected": ["test.js", "fixtures/v1.sql", "migrations/001_init.js"]
+}

@@ -92,6 +92,8 @@ for name, rs in arms.items():
     totals = [money(r) for r in rs]
     total = sum(t for t, _ in totals)
     unknown = sum(1 for _, ok in totals if not ok)
+    floors = sum(1 for r in rs if any(a.get("costStatus") == "floor" for a in r["attempts"]))
+    unknown = f"{unknown} ({floors} floors)" if floors else unknown
     per_run = total / n
     blo, bhi = bootstrap_mean_by_case(rs, lambda r: money(r)[0])
     pp = total / k if k else float("nan")

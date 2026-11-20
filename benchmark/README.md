@@ -36,10 +36,10 @@ benchmark/
 - Every case needs at least one deterministic check. A check passes only if it exits 0, and all of a case's checks must pass.
 - `protected` lists fixture files the agent must leave alone: the tests and the check scripts. An attempt that changes or deletes one fails before its checks run, since a check the agent rewrote proves nothing.
 - Categories: `bug_fix`, `feature`, `refactor`, `test_writing` (the agent writes tests; a script runs them against the real code, which must pass, and against altered versions, each of which must fail), and `docs` (a script checks the README or JSDoc for what the prompt asks). Complexity is `low`, `medium` or `high`.
-- The fixtures need only Node.js.
+- The fixtures need Node.js (22 or later, for `node:sqlite` in `x-sqlite-migration`), and Python 3 for the two `py-` cases.
 - Each case was checked when written: its fixture as given fails, and with a reference solution (not in the repository, so no agent can read it) it passes.
 
-There are 36 cases: 8 bug fixes, 21 features, 3 refactors, 2 test-writing cases and 2 docs cases; 7 low, 17 medium and 12 high complexity. The 12 whose id starts with `hard-` each ask for a module written against a specification with many edge cases, a concurrency or off-by-one fix, or a fix or refactor spread over three files.
+There are 41 cases: 9 bug fixes, 23 features, 4 refactors, 2 test-writing cases and 2 docs cases; 7 low, 17 medium and 17 high complexity. The 12 whose id starts with `hard-` each ask for a module written against a specification with many edge cases, a concurrency or off-by-one fix, or a fix or refactor spread over three files. The 5 added on 2026-11-20, after every hosted model solved nearly all of the first 36, are harder in other ways: `x-sqlite-migration` (a schema change with a data migration that merges duplicates and keeps every order), `x-refactor-async-modules` (five modules from callbacks to async/await, behaviour and audit order kept), `x-feature-discounts` (a feature across four modules to a written spec with two rounding rules), and in Python `py-config-includes` (includes, interpolation and exact error messages) and `py-booking-rules` (six broken rules of a room scheduler).
 
 ## Running
 
@@ -60,6 +60,7 @@ cargo run --release --bin bench -- `
 - `--only <id>` runs one case; `--agent-timeout` and `--check-timeout` set limits in seconds.
 - `--repeat N` (up to 10) runs every case N times per arm, for a pass rate rather than a single outcome.
 - `--allow-unknown yes` keeps a run going after an attempt whose cost could not be read (a free model that timed out leaves no usage). Use it only when every paid route goes through a gateway key with a strict limit, which then bounds the spend.
+- An attempt stopped at its time limit while a request through the gateway was still streaming leaves that request unknown in the ledger (its usage never arrived). The bench counts it at the tokens the gateway saw and the model's price, as a floor: the attempt's `costStatus` is `floor`, its money counts toward `--budget-usd`, and the run goes on without `--allow-unknown`. A request with no price stays unknown.
 
 Each attempt runs in its own Git worktree and is discarded afterwards. Checks run even when the agent exits with an error.
 

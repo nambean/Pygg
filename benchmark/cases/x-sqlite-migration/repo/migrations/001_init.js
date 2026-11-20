@@ -1,0 +1,12 @@
+'use strict';
+exports.up = (db) => {
+  db.exec(`
+    CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);
+    CREATE TABLE orders (
+      id INTEGER PRIMARY KEY,
+      customer_id INTEGER NOT NULL REFERENCES customers(id),
+      total_cents INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `);
+};

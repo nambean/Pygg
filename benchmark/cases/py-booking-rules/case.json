@@ -1,0 +1,14 @@
+{
+  "id": "py-booking-rules",
+  "title": "Fix a room scheduler against written rules",
+  "category": "bug_fix",
+  "complexity": "high",
+  "prompt": "Room bookings made with scheduler.py break several of the rules in RULES.md: which intervals are valid, which bookings conflict and which one a Conflict names, how ids are given out, what cancel removes, how bookings are sorted and what free() returns. Fix scheduler.py so that every rule holds. Python 3 standard library only. Do not change RULES.md or test_scheduler.py.",
+  "checks": [
+    "python test_scheduler.py"
+  ],
+  "protected": [
+    "RULES.md",
+    "test_scheduler.py"
+  ]
+}

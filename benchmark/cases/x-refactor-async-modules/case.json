@@ -1,0 +1,9 @@
+{
+  "id": "x-refactor-async-modules",
+  "title": "Move five modules from callbacks to async/await",
+  "category": "refactor",
+  "complexity": "high",
+  "prompt": "The service in src/ is written with Node-style callbacks: storage.js exposes get(key, cb), set(key, value, cb), del(key, cb) and list(prefix, cb), and users.js, sessions.js, audit.js and app.js call it and each other through callbacks. Convert all five modules to promises with async/await: every exported function that took a callback now takes the same arguments without it and returns a promise that resolves to what the callback received or rejects with the same Error (same message). No exported function may take a callback any more, and no module may use .then() chains or new Promise() except storage.js, which may wrap its timer. Behaviour must not change otherwise: the same values, the same errors, the same order of audit entries. Do not change test.js or check-structure.js.",
+  "checks": ["node test.js", "node check-structure.js"],
+  "protected": ["test.js", "check-structure.js"]
+}

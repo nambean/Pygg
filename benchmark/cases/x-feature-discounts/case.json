@@ -1,0 +1,14 @@
+{
+  "id": "x-feature-discounts",
+  "title": "Volume discounts and coupons across four modules, to a written spec",
+  "category": "feature",
+  "complexity": "high",
+  "prompt": "Add discounts to the invoice in src/ (catalog.js, cart.js, pricing.js, invoice.js) exactly as SPEC.md says: volume discounts by category, two coupon codes with their own rules, how they combine, how each amount is rounded, tax on the discounted total, and the discount lines the invoice lists. invoice.render(cart, { coupon }) gains discountCents and discounts; every field it has today keeps its value for a cart with no discount. Do not change SPEC.md or test.js.",
+  "checks": [
+    "node test.js"
+  ],
+  "protected": [
+    "SPEC.md",
+    "test.js"
+  ]
+}

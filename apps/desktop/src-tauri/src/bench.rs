@@ -142,6 +142,11 @@ pub struct GatewayUsage {
     pub known_micro_usd: u64,
     /// Requests whose money cost is unknown: no price, or a failure the provider may have billed.
     pub unknown_money: usize,
+    /// Of those, requests cut short (the agent stopped at its time limit with a request in flight) whose tokens so
+    /// far and price are known: each is counted at those tokens, a floor of what it cost.
+    pub cut_short: usize,
+    /// What the cut-short requests cost at least, at the gateway's prices, micro-USD.
+    pub floor_micro_usd: u64,
     /// Requests on a subscription: they use a quota, not money.
     pub quota: usize,
     /// `connection/model` of each target that answered, in first-use order.
@@ -161,8 +166,10 @@ pub fn gateway_usage(db: &Path, session: &str) -> Result<GatewayUsage, String> {
             .map_err(|e| format!("{}: {e}", db.display()))?;
     conn.busy_timeout(Duration::from_secs(5)).map_err(|e| e.to_string())?;
     let mut statement = conn.prepare(
-        "SELECT provider, model, outcome, input_tokens, output_tokens, cache_tokens, cache_write_tokens, cost_micro_usd, \
-         cost_status, source FROM usage_events WHERE session_key = ?1 ORDER BY created_at").map_err(|e| e.to_string())?;
+        "SELECT u.provider, u.model, u.outcome, u.input_tokens, u.output_tokens, u.cache_tokens, u.cache_write_tokens, \
+         u.cost_micro_usd, u.cost_status, u.source, m.price_json FROM usage_events u \
+         LEFT JOIN models m ON m.provider_id = u.provider AND m.model_id = u.model \
+         WHERE u.session_key = ?1 ORDER BY u.created_at").map_err(|e| e.to_string())?;
     let mut rows = statement.query([session]).map_err(|e| e.to_string())?;
     let mut usage = GatewayUsage::default();
     while let Some(row) = rows.next().map_err(|e| e.to_string())? {
@@ -186,11 +193,50 @@ pub fn gateway_usage(db: &Path, session: &str) -> Result<GatewayUsage, String> {
         usage.cache_write_tokens += get_u(6);
         match status.as_str() {
             "unknown" if source.starts_with("subscription") => usage.quota += 1,
-            "unknown" => usage.unknown_money += 1,
+            "unknown" => {
+                usage.unknown_money += 1;
+                // A stream cut short has its tokens so far; at the model's price they are a floor of the cost.
+                let price: Option<crate::gateway::pricing::Price> =
+                    row.get::<_, Option<String>>(10).ok().flatten().and_then(|j| serde_json::from_str(&j).ok());
+                if let (true, Some(price)) = (source.contains("cut short"), price) {
+                    let tokens = crate::gateway::pricing::Usage {
+                        prompt: get_u(3),
+                        completion: get_u(4),
+                        cached: get_u(5),
+                        cache_write: get_u(6),
+                        ..Default::default()
+                    };
+                    if let crate::gateway::pricing::Cost::Estimated { micro_usd, .. } =
+                        crate::gateway::pricing::resolve("paid", Some(&price), Some(&tokens))
+                    {
+                        usage.cut_short += 1;
+                        usage.floor_micro_usd += micro_usd;
+                    }
+                }
+            }
             _ => usage.known_micro_usd += get_u(7),
         }
     }
     Ok(usage)
+}
+
+/// Where an attempt's cost through the gateway came from: the ledger, or the ledger with cut-short requests counted at
+/// their tokens so far (a floor).
+fn cost_source_of(g: &GatewayUsage) -> &'static str {
+    if g.cut_short > 0 {
+        "gateway ledger at the gateway's prices; cut-short requests at their tokens so far, a floor"
+    } else {
+        "gateway ledger at the gateway's prices"
+    }
+}
+
+/// `estimated`, `floor` (known, with cut-short requests counted at their tokens so far) or `unknown`.
+fn status_of(known: bool, gateway: Option<&GatewayUsage>) -> &'static str {
+    match (known, gateway) {
+        (false, _) => "unknown",
+        (true, Some(g)) if g.requests > 0 && g.cut_short > 0 => "floor",
+        (true, _) => "estimated",
+    }
 }
 
 /// Running total for a benchmark run, shared by every case.
@@ -402,11 +448,13 @@ pub async fn run_case(
         let routed = gateway.as_ref().filter(|g| g.requests > 0);
         let (cost_known, cost_micro_usd, cost_source) = match routed {
             Some(g) => {
-                ledger.spent_micro_usd += g.known_micro_usd;
-                if g.unknown_money > 0 {
+                // Cut-short requests count at their tokens so far; only a request with no such floor leaves the
+                // attempt's cost unknown and the cap unenforceable.
+                ledger.spent_micro_usd += g.known_micro_usd + g.floor_micro_usd;
+                if g.unknown_money > g.cut_short {
                     ledger.unknown_attempts += 1;
                 }
-                (g.unknown_money == 0, Some(g.known_micro_usd), "gateway ledger at the gateway's prices")
+                (g.unknown_money == g.cut_short, Some(g.known_micro_usd + g.floor_micro_usd), cost_source_of(g))
             }
             None => {
                 match report.cost_micro_usd {
@@ -468,7 +516,7 @@ pub async fn run_case(
             files_changed: stat.files,
             insertions: stat.insertions,
             deletions: stat.deletions,
-            cost_status: if cost_known { "estimated" } else { "unknown" },
+            cost_status: status_of(cost_known, gateway.as_ref()),
             cost_micro_usd: cost_micro_usd.filter(|_| cost_known),
             cost_source: cost_known.then_some(cost_source),
             tokens: report.tokens,
@@ -573,7 +621,7 @@ pub async fn run_case_engine(
         let routed = gateway.as_ref().filter(|g| g.requests > 0);
         let agent_estimate = a.agent_estimate_usd.map(|usd| (usd * 1_000_000.0).round() as u64);
         let (known, micro, source) = match routed {
-            Some(g) => (g.unknown_money == 0, Some(g.known_micro_usd), "gateway ledger at the gateway's prices"),
+            Some(g) => (g.unknown_money == g.cut_short, Some(g.known_micro_usd + g.floor_micro_usd), cost_source_of(g)),
             None => (agent_estimate.is_some(), agent_estimate, "agent-reported, catalog list price"),
         };
         match (known, micro) {
@@ -603,7 +651,7 @@ pub async fn run_case_engine(
             files_changed: a.files_changed.unwrap_or(0) as usize,
             insertions: a.insertions.unwrap_or(0) as usize,
             deletions: a.deletions.unwrap_or(0) as usize,
-            cost_status: if known { "estimated" } else { "unknown" },
+            cost_status: status_of(known, gateway.as_ref()),
             cost_micro_usd: micro.filter(|_| known),
             cost_source: known.then_some(source),
             tokens,
@@ -879,6 +927,44 @@ mod tests {
         insert("c", "s1", "qwen3.8-flash", "ok", None, "unknown", "subscription: counts against a quota, not money");
         insert("d", "s1", "claude-sonnet-5-5", "error", Some(0), "estimated", "rejected by the provider (HTTP 400)");
         insert("e", "s2", "claude-haiku-5-5", "ok", None, "unknown", "no price recorded for this model");
+        // A stream the agent cut at its time limit: unknown in the ledger, a floor here at the model's price.
+        insert(
+            "f",
+            "s3",
+            "claude-haiku-5-5",
+            "ok",
+            None,
+            "unknown",
+            "the response was cut short before usage was reported",
+        );
+        insert(
+            "g",
+            "s4",
+            "claude-opus-9",
+            "ok",
+            None,
+            "unknown",
+            "the response was cut short before usage was reported",
+        );
+        crate::gateway::store::add_provider(
+            &conn,
+            &crate::gateway::store::NewProvider {
+                kind: "anthropic",
+                label: "anthropic",
+                endpoint: "https://x.test",
+                credential_ref: None,
+                default_billing: "paid",
+                wire: "anthropic",
+            },
+        )
+        .unwrap();
+        let provider: String = conn.query_row("SELECT id FROM providers", [], |r| r.get(0)).unwrap();
+        crate::gateway::store::add_model(&conn, &provider, "claude-haiku-5-5").unwrap();
+        conn.execute(
+            "UPDATE models SET price_json = ?1, provider_id = 'anthropic' WHERE model_id = 'claude-haiku-5-5'",
+            [r#"{"inputMicroPerMtok":1000000,"outputMicroPerMtok":5000000,"cachedInputMicroPerMtok":100000,"source":"t","observedAt":0}"#],
+        )
+        .unwrap();
         drop(conn);
 
         let one = gateway_usage(&path, "s1").unwrap();
@@ -888,6 +974,14 @@ mod tests {
         let two = gateway_usage(&path, "s2").unwrap();
         assert_eq!((two.requests, two.unknown_money), (1, 1));
         assert_eq!(gateway_usage(&path, "none").unwrap().requests, 0);
+        // 1000 in (800 read from cache, 100 written), 50 out at haiku's price: 100 × $1 + 800 × $0.10 + 100 × $1
+        // + 50 × $5 per million = 530 micro-USD, a floor; a model with no price leaves the request unknown.
+        let three = gateway_usage(&path, "s3").unwrap();
+        assert_eq!((three.unknown_money, three.cut_short, three.floor_micro_usd), (1, 1, 530));
+        assert_eq!(status_of(three.unknown_money == three.cut_short, Some(&three)), "floor");
+        let four = gateway_usage(&path, "s4").unwrap();
+        assert_eq!((four.unknown_money, four.cut_short), (1, 0));
+        assert_eq!(status_of(four.unknown_money == four.cut_short, Some(&four)), "unknown");
     }
 
     #[test]
