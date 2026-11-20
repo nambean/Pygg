@@ -142,7 +142,7 @@ brainstorm
     class:   standard | expedite               (ADR-042)
 ```
 
-Approving a brainstorm needs a workspace (a Git repository, ADR-008). Each kept card becomes a card on the workspace's board; when the board pulls it, it becomes a task with its ladder as steps, judged by the workspace's approved checks (ADR-007).
+Approving a brainstorm needs a workspace (a Git repository, ADR-008). Each kept card becomes a card on the workspace's board; when the board pulls it, it becomes a task with its ladder as steps, judged by the workspace's approved checks (ADR-007). The cards build on the brainstorm's branch (`str/brain-<requirement>-<id>`, made at approval from the workspace's HEAD; `brainstorms.branch`, migration 0045): a card's task starts from the branch's tip, and Keep adds the card's commit to it, picked onto the tip when an earlier card was kept meanwhile. A result that conflicts, or a branch that is checked out, is kept as a branch of its own (ADR-042 as amended).
 
 ### Role aliases
 

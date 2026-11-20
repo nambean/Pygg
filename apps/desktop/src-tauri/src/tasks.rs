@@ -317,6 +317,12 @@ pub fn create_task(conn: &Connection, new: &NewTask) -> Result<String> {
 
 /// `create_task` for a gateway client (the task API): the task remembers the client, which sees only its own.
 pub fn create_task_for(conn: &Connection, new: &NewTask, client_id: Option<&str>) -> Result<String> {
+    create_task_at(conn, new, client_id, None)
+}
+
+/// `create_task_for` from a named commit or branch of the workspace instead of its HEAD: a board card starts from
+/// its brainstorm's branch, so it sees what the earlier cards built (ADR-042).
+pub fn create_task_at(conn: &Connection, new: &NewTask, client_id: Option<&str>, base: Option<&str>) -> Result<String> {
     let prompt = new.prompt.trim();
     if prompt.is_empty() {
         return Err(m::DESCRIBE.into());
@@ -345,7 +351,11 @@ pub fn create_task_for(conn: &Connection, new: &NewTask, client_id: Option<&str>
         return Err(fill(m::UNKNOWN_HANDOFF, &[&handoff]));
     }
     let ws = workspace(conn, &new.workspace_id)?;
-    let base = isolation::head(Path::new(&ws.path)).map_err(|e| e.to_string())?;
+    let base = match base {
+        Some(base) => isolation::git(Path::new(&ws.path), &["rev-parse", "--verify", &format!("{base}^{{commit}}")])
+            .map_err(|e| e.to_string())?,
+        None => isolation::head(Path::new(&ws.path)).map_err(|e| e.to_string())?,
+    };
     let steps = new
         .steps
         .iter()
@@ -1831,8 +1841,36 @@ pub fn record_export(conn: &Connection, id: &str, path: &str) -> Result<()> {
 pub fn keep(conn: &Connection, id: &str, title: Option<&str>) -> Result<String> {
     let (row, attempt, worktree) = result_attempt(conn, id)?;
     let title = title.map(str::trim).filter(|t| !t.is_empty()).unwrap_or(&row.title);
-    let branch = isolation::branch_name(title, id);
-    isolation::keep_as_branch(&worktree, &branch, title).map_err(|e| e.to_string())?;
+    let own = isolation::branch_name(title, id);
+    // A board card's result goes onto its brainstorm's branch, where the next card starts (ADR-042); when it cannot
+    // (the branch is checked out, or moved and the result conflicts), it is kept as a branch of its own, as any task.
+    let shared: Option<String> = conn
+        .query_row(
+            "SELECT b.branch FROM tasks t JOIN brainstorms b ON b.id = t.brainstorm_id WHERE t.id = ?1",
+            [id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(err)?
+        .flatten();
+    let (branch, not_added) = match shared {
+        Some(shared) => {
+            let commit = isolation::commit_result(&worktree, title).map_err(|e| e.to_string())?;
+            match isolation::add_to_branch(&worktree.repo, &shared, &commit, &worktree.base)
+                .map_err(|e| e.to_string())?
+            {
+                Ok(_) => (shared, None),
+                Err(why) => {
+                    isolation::create_branch(&worktree.repo, &own, &commit).map_err(|e| e.to_string())?;
+                    (own, Some((shared, why)))
+                }
+            }
+        }
+        None => {
+            isolation::keep_as_branch(&worktree, &own, title).map_err(|e| e.to_string())?;
+            (own, None)
+        }
+    };
     let _ = isolation::discard(&worktree);
     let tx = conn.unchecked_transaction().map_err(err)?;
     forget_worktree(&tx, &attempt.id).map_err(err)?;
@@ -1844,7 +1882,14 @@ pub fn keep(conn: &Connection, id: &str, title: Option<&str>) -> Result<String> 
     )
     .map_err(err)?;
     signal(&tx, "result_kept", "task", id, true, "user").map_err(err)?;
-    audit(&tx, "task.kept", id, serde_json::json!({"branch": branch})).map_err(err)?;
+    let note = not_added.map(|(shared, why)| {
+        let why = match why {
+            isolation::NotAdded::CheckedOut => "it is checked out",
+            isolation::NotAdded::Conflict => "it conflicts with what the brainstorm's branch has now",
+        };
+        format!("not added to {shared}: {why}")
+    });
+    audit(&tx, "task.kept", id, serde_json::json!({"branch": branch, "notAdded": note})).map_err(err)?;
     tx.commit().map_err(err)?;
     Ok(branch)
 }
@@ -2344,6 +2389,71 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(rig.repo.join("app.txt")).unwrap(),
             "one\n",
+            "the user's checkout is untouched"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_brainstorms_cards_build_on_its_branch_one_after_another() {
+        let rig = rig(&[good_check()]);
+        let branch = "str/brain-shop-b1";
+        crate::isolation::ensure_branch(&rig.repo, branch).unwrap();
+        lock(&rig.db)
+            .execute(
+                "INSERT INTO brainstorms (id, session, state, requirement, prompt_version, revision, proposal_json, created_at, updated_at, branch)                  VALUES ('b1', 's1', 'approved', 'A shop', 'brain-v1', 1, '{}', 0, 0, ?1)",
+                [branch],
+            )
+            .unwrap();
+        // Card 1 writes the file the check reads; card 2 writes another file only, so its check passes only if it
+        // started from card 1's kept result.
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(
+                vec![
+                    Act::Write(
+                        "result.txt",
+                        "good
+",
+                    ),
+                    Act::Write(
+                        "page.txt", "two
+",
+                    ),
+                ],
+                rig.prompts.clone(),
+            ),
+        );
+        let card = |n: &str| {
+            let new = NewTask {
+                workspace_id: rig.workspace.clone(),
+                title: Some(format!("Card {n}")),
+                prompt: format!("Card {n}"),
+                strategy: "free_first".into(),
+                steps: vec![step("opencode", "free", 0)],
+                allow_shell: false,
+                timeout_secs: None,
+                handoff: None,
+            };
+            let db = lock(&rig.db);
+            let id = create_task_at(&db, &new, None, Some(branch)).unwrap();
+            db.execute("UPDATE tasks SET brainstorm_id = 'b1', card_id = ?2 WHERE id = ?1", params![id, n]).unwrap();
+            id
+        };
+        let first = card("c1");
+        runner.start(&first).unwrap().await.unwrap();
+        assert_eq!(keep(&lock(&rig.db), &first, None).unwrap(), branch);
+        let second = card("c2");
+        runner.start(&second).unwrap().await.unwrap();
+        assert_eq!(detail(&rig, &second).summary.state, "checks_passed", "card 2 sees card 1's result.txt");
+        assert_eq!(keep(&lock(&rig.db), &second, None).unwrap(), branch);
+        let files =
+            crate::isolation::git(&rig.repo, &["ls-tree", "--name-only", &format!("refs/heads/{branch}")]).unwrap();
+        assert!(files.contains("result.txt") && files.contains("page.txt"), "{files}");
+        assert_eq!(
+            std::fs::read_to_string(rig.repo.join("app.txt")).unwrap(),
+            "one
+",
             "the user's checkout is untouched"
         );
     }

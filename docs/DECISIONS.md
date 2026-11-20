@@ -452,6 +452,8 @@ Each `pygg run` launch is kept with what changed in Git (`launches`, schema v38)
 
 **Cost:** One card at a time is slow; a user who wants more raises the limit and pays for it.
 
+**Amended 2026-11-21: a brainstorm builds on one branch.** Approval makes a branch `str/brain-<requirement>-<id>` at the workspace's HEAD. Each card's task starts from its tip, and keeping a card's result adds the commit to it: on top when the branch has not moved since the card started, picked onto its tip when it has. A result that conflicts, or a branch the user has checked out, is kept as a branch of its own, as before, and the task says why. The user's checkout is never touched; the brainstorm's work is one branch to review and merge. **Why:** cards depend on one another, but each kept result went to its own branch from the workspace's HEAD, so a later card started without what the earlier ones built, which a project of several cards (a website, a feature across modules) cannot survive.
+
 **Status:** Built. Design and as-built: [design/BRAIN.md](design/BRAIN.md).
 
 ## Open decisions

@@ -178,8 +178,29 @@ pub fn set_limits(conn: &Connection, workspace_id: &str, wanted: Option<(u32, u3
 
 /// An approved brainstorm's kept cards become board cards of the workspace, in Discovery; the tick settles them.
 /// Every card needs a model; the ladder is the card's model then its fallbacks.
+/// The branch a brainstorm's cards build on: `str/brain-<requirement>-<id>`.
+pub fn branch_for(b: &brain::Brainstorm) -> String {
+    let first = b.requirement.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("brainstorm");
+    crate::isolation::branch_name(&format!("brain {first}"), &b.id)
+}
+
+/// The branch of a card's brainstorm, if it has one.
+fn branch_of(conn: &Connection, brainstorm_id: Option<&str>) -> Result<Option<String>> {
+    let Some(id) = brainstorm_id else { return Ok(None) };
+    conn.query_row("SELECT branch FROM brainstorms WHERE id = ?1", [id], |r| r.get(0))
+        .optional()
+        .map_err(err)
+        .map(Option::flatten)
+}
+
 pub fn add_cards(conn: &Connection, b: &brain::Brainstorm, workspace_id: &str, agent: &str) -> Result<Vec<String>> {
     let now = now_ms();
+    // One branch for the brainstorm, at the workspace's HEAD: each card starts from its tip, and keeping a card adds
+    // to it (ADR-042 as amended), so a card sees what the earlier ones built. The user's checkout is not touched.
+    let ws = tasks::workspace(conn, workspace_id)?;
+    let branch = branch_for(b);
+    crate::isolation::ensure_branch(std::path::Path::new(&ws.path), &branch).map_err(|e| e.to_string())?;
+    conn.execute("UPDATE brainstorms SET branch = ?2 WHERE id = ?1", params![b.id, branch]).map_err(err)?;
     let mut ids = Vec::new();
     for (i, c) in b.proposal.cards.iter().filter(|c| !c.dropped).enumerate() {
         let model = c.model.clone().ok_or_else(|| format!("card {} has no eligible model", c.id))?;
@@ -476,7 +497,8 @@ fn tick_workspace(conn: &Connection, workspace_id: &str, pull: bool) -> Result<V
                 continue;
             }
         };
-        let task_id = tasks::create_task(conn, &new)?;
+        let base = branch_of(conn, card.brainstorm_id.as_deref())?;
+        let task_id = tasks::create_task_at(conn, &new, None, base.as_deref())?;
         conn.execute(
             "UPDATE tasks SET brainstorm_id = ?2, card_id = ?3, card_role = ?4 WHERE id = ?1",
             params![task_id, card.brainstorm_id, card.card_id, card.role],
@@ -775,6 +797,32 @@ mod tests {
     fn lane(conn: &Connection, ws: &str, card_id: &str) -> (String, Option<String>) {
         let c = cards_of(conn, ws).unwrap().into_iter().find(|c| c.card_id == card_id).unwrap();
         (c.lane, c.blocked_reason)
+    }
+
+    #[test]
+    fn approval_makes_the_brainstorms_branch_and_a_card_starts_from_its_tip() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let ws = workspace(&conn);
+        let b = brainstorm(vec![bcard("c1", &[], 1, "engine")], vec![]);
+        insert_brainstorm(&conn, &b);
+        add_cards(&conn, &b, &ws, "opencode").unwrap();
+        let branch: String =
+            conn.query_row("SELECT branch FROM brainstorms WHERE id = ?1", [&b.id], |r| r.get(0)).unwrap();
+        assert_eq!(branch, branch_for(&b));
+        assert!(branch.starts_with("str/brain-"), "{branch}");
+        // The branch moves ahead, as when an earlier card's result was kept: the next card starts there.
+        let repo = std::path::PathBuf::from(tasks::workspace(&conn, &ws).unwrap().path);
+        let dir = std::env::temp_dir().join(format!("pygg-board-ahead-{}", uuid::Uuid::new_v4().simple()));
+        let w = crate::isolation::create(&repo, &branch, &dir).unwrap();
+        std::fs::write(w.path.join("built.txt"), "earlier card").unwrap();
+        let commit = crate::isolation::commit_result(&w, "earlier card").unwrap();
+        crate::isolation::add_to_branch(&repo, &branch, &commit, &w.base).unwrap().unwrap();
+        crate::isolation::discard(&w).unwrap();
+        let started = tick(&conn).unwrap();
+        assert_eq!(started.len(), 1);
+        let base: String =
+            conn.query_row("SELECT base_revision FROM tasks WHERE id = ?1", [&started[0]], |r| r.get(0)).unwrap();
+        assert_eq!(base, commit);
     }
 
     #[test]

@@ -180,21 +180,106 @@ pub fn branch_name(title: &str, id: &str) -> String {
 /// Commits the attempt's changes and creates `branch` at that commit. The user's checkout is untouched.
 /// Returns the new commit.
 pub fn keep_as_branch(worktree: &Worktree, branch: &str, message: &str) -> Result<String, IsolationError> {
-    if git(&worktree.repo, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).is_ok() {
+    if branch_exists(&worktree.repo, branch) {
         return Err(IsolationError::BranchExists(branch.to_string()));
     }
-    git(&worktree.path, &["add", "--all"])?;
-    // The user's own Git identity when they have one; otherwise the app's, so the commit can still be made.
-    let has_identity = git(&worktree.path, &["config", "user.email"]).map(|e| !e.is_empty()).unwrap_or(false);
-    let mut args: Vec<&str> = Vec::new();
-    if !has_identity {
-        args.extend(["-c", "user.name=Pygg", "-c", "user.email=pygg@localhost"]);
-    }
-    args.extend(["commit", "--allow-empty", "--no-verify", "-m", message]);
-    git(&worktree.path, &args)?;
-    let commit = git(&worktree.path, &["rev-parse", "HEAD"])?;
+    let commit = commit_result(worktree, message)?;
     git(&worktree.repo, &["branch", branch, &commit])?;
     Ok(commit)
+}
+
+fn branch_exists(repo: &Path, branch: &str) -> bool {
+    git(repo, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).is_ok()
+}
+
+/// The user's own Git identity when they have one; otherwise the app's, so a commit can still be made.
+fn identity(dir: &Path) -> Vec<&'static str> {
+    let has_identity = git(dir, &["config", "user.email"]).map(|e| !e.is_empty()).unwrap_or(false);
+    if has_identity {
+        Vec::new()
+    } else {
+        vec!["-c", "user.name=Pygg", "-c", "user.email=pygg@localhost"]
+    }
+}
+
+/// Commits everything the attempt changed, untracked files included, on its detached HEAD. Returns the commit.
+pub fn commit_result(worktree: &Worktree, message: &str) -> Result<String, IsolationError> {
+    git(&worktree.path, &["add", "--all"])?;
+    let mut args = identity(&worktree.path);
+    args.extend(["commit", "--allow-empty", "--no-verify", "-m", message]);
+    git(&worktree.path, &args)?;
+    git(&worktree.path, &["rev-parse", "HEAD"])
+}
+
+/// Creates `branch` at `commit`; an existing branch of that name is an error.
+pub fn create_branch(repo: &Path, branch: &str, commit: &str) -> Result<(), IsolationError> {
+    if branch_exists(repo, branch) {
+        return Err(IsolationError::BranchExists(branch.to_string()));
+    }
+    git(repo, &["branch", branch, commit]).map(|_| ())
+}
+
+/// `branch`'s commit, creating the branch at the repository's HEAD when it does not exist yet.
+pub fn ensure_branch(repo: &Path, branch: &str) -> Result<String, IsolationError> {
+    require_repository(repo)?;
+    if !branch_exists(repo, branch) {
+        git(repo, &["branch", branch, "HEAD"])?;
+    }
+    git(repo, &["rev-parse", &format!("refs/heads/{branch}")])
+}
+
+/// Whether `branch` is checked out in any worktree of the repository, the user's own included.
+fn checked_out(repo: &Path, branch: &str) -> Result<bool, IsolationError> {
+    let list = git(repo, &["worktree", "list", "--porcelain"])?;
+    let line = format!("branch refs/heads/{branch}");
+    Ok(list.lines().any(|l| l.trim() == line))
+}
+
+/// Why a kept result could not be added to a brainstorm's branch.
+#[derive(Clone, Debug, PartialEq)]
+pub enum NotAdded {
+    /// The branch is checked out somewhere; moving it would change files under someone's feet.
+    CheckedOut,
+    /// The branch moved since the attempt started, and the result does not apply cleanly on its tip.
+    Conflict,
+}
+
+/// Adds `commit` (made on `base`) to `branch` without touching any checkout: as is when the branch is still at
+/// `base`, otherwise picked onto the branch's tip in a temporary worktree. Returns the branch's new commit, or why
+/// it was left alone.
+pub fn add_to_branch(
+    repo: &Path, branch: &str, commit: &str, base: &str,
+) -> Result<Result<String, NotAdded>, IsolationError> {
+    if checked_out(repo, branch)? {
+        return Ok(Err(NotAdded::CheckedOut));
+    }
+    let reference = format!("refs/heads/{branch}");
+    let tip = git(repo, &["rev-parse", &reference])?;
+    if tip == base {
+        git(repo, &["update-ref", &reference, commit, &tip])?;
+        return Ok(Ok(commit.to_string()));
+    }
+    let dir = std::env::temp_dir().join(format!("pygg-pick-{}", uuid::Uuid::new_v4().simple()));
+    let dir_text = dir.to_string_lossy().into_owned();
+    git(repo, &["worktree", "add", "--detach", &dir_text, &tip])?;
+    let mut args = identity(&dir);
+    args.extend(["cherry-pick", "--allow-empty", "--keep-redundant-commits", commit]);
+    let picked = match git(&dir, &args) {
+        Ok(_) => Some(git(&dir, &["rev-parse", "HEAD"])?),
+        Err(_) => {
+            let _ = git(&dir, &["cherry-pick", "--abort"]);
+            None
+        }
+    };
+    let _ = git(repo, &["worktree", "remove", "--force", &dir_text]);
+    let _ = git(repo, &["worktree", "prune"]);
+    match picked {
+        Some(new) => {
+            git(repo, &["update-ref", &reference, &new, &tip])?;
+            Ok(Ok(new))
+        }
+        None => Ok(Err(NotAdded::Conflict)),
+    }
 }
 
 /// Makes `dir` a repository whose single commit holds everything in it. Used for benchmark fixtures,
@@ -292,6 +377,46 @@ pub(crate) mod tests {
         assert_eq!(fs::read_to_string(repo.join("app.txt")).unwrap(), "one\n");
         let worktrees = git(&repo, &["worktree", "list", "--porcelain"]).unwrap();
         assert_eq!(worktrees.matches("worktree ").count(), 1, "only the main checkout remains: {worktrees}");
+    }
+
+    #[test]
+    fn a_result_is_added_to_a_branch_on_top_or_picked_onto_its_moved_tip() {
+        let repo = std::env::temp_dir().join(format!("pygg-add-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+        init_repository(&repo, "start").unwrap();
+        let start = head(&repo).unwrap();
+        let tip = ensure_branch(&repo, "str/brain-x").unwrap();
+        assert_eq!(tip, start);
+        assert_eq!(ensure_branch(&repo, "str/brain-x").unwrap(), start, "an existing branch is kept as it is");
+        let attempt = |name: &str, file: &str, text: &str, base: &str| {
+            let w =
+                create(&repo, base, &std::env::temp_dir().join(format!("pygg-add-{name}-{}", uuid::Uuid::new_v4())))
+                    .unwrap();
+            std::fs::write(w.path.join(file), text).unwrap();
+            let commit = commit_result(&w, name).unwrap();
+            (w, commit)
+        };
+        // On top: the branch is still at the attempt's base.
+        let (w1, c1) = attempt("first", "b.txt", "two\n", &start);
+        assert_eq!(add_to_branch(&repo, "str/brain-x", &c1, &w1.base).unwrap(), Ok(c1.clone()));
+        // Moved: an attempt that started before c1 is picked onto the new tip, keeping both files.
+        let (w2, c2) = attempt("second", "c.txt", "three\n", &start);
+        let picked = add_to_branch(&repo, "str/brain-x", &c2, &w2.base).unwrap().unwrap();
+        assert_ne!(picked, c2);
+        let files = git(&repo, &["ls-tree", "--name-only", "refs/heads/str/brain-x"]).unwrap();
+        assert_eq!(files.lines().collect::<Vec<_>>(), ["a.txt", "b.txt", "c.txt"]);
+        // A conflict leaves the branch where it was.
+        let (w3, c3) = attempt("third", "b.txt", "other\n", &start);
+        assert_eq!(add_to_branch(&repo, "str/brain-x", &c3, &w3.base).unwrap(), Err(NotAdded::Conflict));
+        assert_eq!(git(&repo, &["rev-parse", "refs/heads/str/brain-x"]).unwrap(), picked);
+        // A branch someone has checked out is never moved.
+        git(&repo, &["checkout", "-q", "str/brain-x"]).unwrap();
+        let (w4, c4) = attempt("fourth", "d.txt", "four\n", &picked);
+        assert_eq!(add_to_branch(&repo, "str/brain-x", &c4, &w4.base).unwrap(), Err(NotAdded::CheckedOut));
+        for w in [w1, w2, w3, w4] {
+            discard(&w).unwrap();
+        }
     }
 
     #[test]
