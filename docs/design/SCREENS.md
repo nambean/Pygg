@@ -100,7 +100,7 @@ Code: `apps/desktop/src/main.tsx` (shell), `src/components` and `components/gate
 
 - **Models by role** (plan, code, test, review): the saved pick, **Change…** (role sheet, §6), **Clear**.
 - **Defaults for a new brainstorm:** runner, WIP limits for Running and Checking.
-- **Facts and prompt:** facts feed switch, **Refresh**, prompt `brain-v1`.
+- **Facts and prompt:** facts feed switch, **Refresh**, prompt `brain-v2`.
 - **Projects that differ:** **Override…** / **Edit…** (project sheet, §6), **Use defaults**.
 - **Which level wins:** workspace override, then this screen, then the rules.
 

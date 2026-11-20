@@ -104,7 +104,7 @@ struct Starter {
 /// `/name`), so none adds to an agent's context until it is used.
 const STARTERS: &[Starter] = &[
     Starter {
-        id: "brain-v1",
+        id: "brain-v2",
         description: "What pygg/brain asks the planner (ADR-041): clarifying questions and a board of small cards, one \
                       role and one done criterion each, as JSON. Pygg sends it for you; run it by hand to see or test it.",
         manual: true,
@@ -119,6 +119,9 @@ const STARTERS: &[Starter] = &[
                - Questions: only those whose answer would change the cards, at most seven. None is fine.\n\
                - Cards: small enough for one attempt and one set of checks; at most forty. Each has one role and one \
                done criterion a check can test (a command that passes, a page that renders, a file that exists).\n\
+               - Each card is judged by the repository's checks right after its attempt, and the checks must pass: \
+               every card leaves the project working and its tests passing. Put a test in the same card as the code it \
+               tests, or in a later card; never a test card before the code it tests.\n\
                - dependsOn names the questions a card needs answered and the cards it needs finished. No cycles.\n\
                - Roles: plan (a written design the other cards cite), code, test, review. Never name a model, a \
                price, a time or a story point: Pygg picks the model for each role by its own rules.\n\
@@ -537,7 +540,7 @@ fn starter(id: &str) -> Option<&'static Starter> {
     STARTERS.iter().find(|s| s.id == id)
 }
 
-/// A starter's instructions, for the gateway to send as its own prompt (`brain-v1`, ADR-041).
+/// A starter's instructions, for the gateway to send as its own prompt (`brain-v2`, ADR-041).
 pub fn starter_body(id: &str) -> Option<&'static str> {
     starter(id).map(|s| s.body)
 }

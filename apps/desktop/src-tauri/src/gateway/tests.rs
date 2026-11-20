@@ -2570,7 +2570,7 @@ fn pygg_brain_proposes_a_board_refines_it_in_the_session_and_ledgers_the_planner
         assert!(id.starts_with("b_"), "{id}");
         let answer: Value = response.json().await.unwrap();
         let text = answer["choices"][0]["message"]["content"].as_str().unwrap().to_string();
-        assert!(text.starts_with(&format!("Brainstorm {id} · revision 1 · open it in Pygg: pygg://brainstorm/{id}\nPlanner: backup/steady (brain-v1)\n")), "{text}");
+        assert!(text.starts_with(&format!("Brainstorm {id} · revision 1 · open it in Pygg: pygg://brainstorm/{id}\nPlanner: backup/steady (brain-v2)\n")), "{text}");
         assert!(text.contains("1. Which payment providers?"), "{text}");
         assert!(text.contains("- c2 [code] Catalogue pages — auto/code -> backup/steady, then main/fast (after c1, q1)"), "{text}");
         assert!(text.ends_with("Approve in Pygg; this client cannot approve. Paid cards still wait for approval one by one when they start.\n"), "{text}");
@@ -2640,7 +2640,7 @@ fn pygg_brain_waits_for_the_users_pick_when_the_planner_would_cost_money() {
         let response = rig.post_session("/v1/chat/completions", "brain-4", body).await;
         let text =
             response.json::<Value>().await.unwrap()["choices"][0]["message"]["content"].as_str().unwrap().to_string();
-        assert!(text.contains("Planner: main/fast (brain-v1)"), "{text}");
+        assert!(text.contains("Planner: main/fast (brain-v2)"), "{text}");
         assert_eq!(rig.ledger().len(), 1);
     });
 }

@@ -1,7 +1,7 @@
 //! `pygg/brain` (ADR-041, docs/design/BRAIN.md §2): the router is the brain. A client names the virtual model
 //! `pygg/brain` with a requirement; the gateway picks a planner by rule (auto's filters, the `plan` role's facts,
 //! the user's saved pick first), asks it for clarifying questions and a board of cards with Pygg's own prompt
-//! (the starter skill `brain-v1`), picks a model per card by rule (never the planner's word), stores the proposal
+//! (the starter skill `brain-v2`), picks a model per card by rule (never the planner's word), stores the proposal
 //! for the app, and answers the client with the proposal in plain text. A paid planner on first use waits for the
 //! user's pick in the app (ADR-010); a later call in the same session refines the same brainstorm.
 //!
@@ -25,7 +25,7 @@ pub const HEADER: &str = "x-pygg-brainstorm";
 /// The ledger's route kind for the calls the brain makes.
 pub const ROUTE_KIND: &str = "brain";
 /// The starter skill that holds the prompt (skills.rs, ADR-039).
-pub const PROMPT_VERSION: &str = "brain-v1";
+pub const PROMPT_VERSION: &str = "brain-v2";
 /// The quality signal written per planner reply (ADR-029, migration 0042).
 pub const METRIC: &str = "brain_schema_ok";
 pub const MAX_QUESTIONS: usize = 7;
@@ -1179,7 +1179,7 @@ mod tests {
             updated_at: 0,
         };
         let text = proposal_text(&b);
-        assert!(text.starts_with("Brainstorm b_1 · revision 1 · open it in Pygg: pygg://brainstorm/b_1\nPlanner: gemini/gemini-3.1-pro (brain-v1)\n"), "{text}");
+        assert!(text.starts_with("Brainstorm b_1 · revision 1 · open it in Pygg: pygg://brainstorm/b_1\nPlanner: gemini/gemini-3.1-pro (brain-v2)\n"), "{text}");
         assert!(text.contains("1. Which payment providers?"));
         assert!(
             text.contains(

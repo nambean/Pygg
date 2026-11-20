@@ -70,7 +70,7 @@ Each part works alone: the feed ranks the role aliases, and the aliases can be b
 - **Reply:** brainstorm id and app link, numbered questions (at most 7), proposed cards (at most 40) with role, done criterion and model, and the known estimate.
 - **Refinement:** another call in the same session with answers refines the brainstorm; a new session starts another.
 - **Planner:** picked by rule from the `plan` ranking; a saved pick wins; a paid planner waits for the user's pick in the app; a free or local one runs at once.
-- **Prompt:** `brain-v1` in Skills & Prompts (ADR-039); it never asks for a model name, a time estimate or repository content.
+- **Prompt:** `brain-v2` in Skills & Prompts (ADR-039); it never asks for a model name, a time estimate or repository content. Since v2 it tells the planner that each card is judged by the checks right after it, so every card must leave the tests passing, with a test in the same card as its code or a later one: a planner that went test-first (eleven test cards before any code) jammed the board at the first red test (2026-11-21).
 - **Models per card:** the role's saved pick on Brain Storming, else the rule's pick plus two suggested fallbacks (the user may set up to five); never the planner's suggestion.
 - **Approval** (app only, needs a Git workspace, ADR-008) writes one board card per kept card on one branch per brainstorm.
 - Only OpenCode through its Pygg provider runs the picked models; Claude Code, Codex and Gemini CLI run one step on their own sign-in and are told the picks.
