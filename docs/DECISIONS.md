@@ -1,147 +1,117 @@
 # Decisions
 
-> **Status:** Current · architecture decision records (ADR-001 to ADR-042) · reviewed 2026-11-20
+> **Status:** Current · architecture decision records (ADR-001 to ADR-042) · reviewed 2026-11-21
 
-Each record says what Pygg decided, why, and what it costs. Numbers never change, because code and other documents cite them; a record that was superseded or withdrawn keeps one line that points to what replaced it. Delivery order is in [ROADMAP](ROADMAP.md), what is built in [Implementation Status](IMPLEMENTATION-STATUS.md), and the screens in [design/SCREENS.md](design/SCREENS.md).
+ADR numbers never change; a superseded or withdrawn record keeps one line pointing to its replacement. Order: [ROADMAP](ROADMAP.md); built: [Implementation Status](IMPLEMENTATION-STATUS.md); screens: [design/SCREENS.md](design/SCREENS.md).
 
 ## ADR-001 — Windows first, macOS next
 
-**Decision:** The desktop app is built and tested on Windows first. macOS must build but is not yet release-tested; Linux is best effort. The headless CLI ships for Windows, macOS and Linux (ADR-037).
-
-**Why:** Development happens on Windows, and DownFetch follows the same order.
+*Accepted.*
+- The desktop app is built and tested on Windows first; macOS must build but is not release-tested; Linux is best effort.
+- The headless CLI ships for Windows, macOS and Linux (ADR-037).
 
 ## ADR-002 — Local first
 
-**Decision:** Everything runs on the user's machine. Credentials, the ledger, task history and workspaces never leave it. There is no account and no hosted service in the core path.
-
-**Why:** The app holds API keys and source code. Keeping it local keeps the trust boundary small.
+*Accepted.*
+- Everything runs on the user's machine: credentials, the ledger, task history and workspaces never leave it.
+- No account and no hosted service in the core path.
 
 ## ADR-003 — Route at task and session boundaries, never mid-session
 
-**Decision:** Routing decisions happen when a task, a step or a session starts. The gateway is the transport and enforcement layer: it never switches models silently inside a session. A session stays on the target that answered it, and fallback happens only on hard errors before any output has reached the client. Building the gateway before the orchestrator is ADR-016.
-
-**Why:** Switching mid-session breaks prompt caches, tool-call formats and reproducibility, and a single request carries no task context.
+*Accepted.*
+- Routing happens when a task, step or session starts; the gateway never switches models silently inside a session (it would break prompt caches and tool-call formats).
+- A session stays on the target that answered it; fallback only on hard errors before any output reached the client.
 
 ## ADR-004 — A localhost gateway, loopback only, with client tokens
 
-**Decision:** The gateway listens on `127.0.0.1`. Every request needs a scoped client token (an "API key" in the app) with its own limits. Binding beyond loopback requires an explicit user setting.
-
-**Why:** SDKs and agent CLIs reach a model only through a base URL, so a local HTTP endpoint is unavoidable. This is a deliberate difference from DownFetch, which avoids a localhost API.
-
-**Cost:** A new local attack surface, which tokens and loopback-only binding contain.
+*Accepted.*
+- The gateway listens on `127.0.0.1`; binding beyond loopback needs an explicit user setting.
+- Every request needs a scoped client token (an "API key" in the app) with its own limits.
 
 ## ADR-005 — One Tauri crate with modules; same stack as DownFetch
 
-**Decision:**
-- Tauri 2 with one Rust crate (`apps/desktop/src-tauri`) holding the core, the gateway and the agent runner. The window is the Cargo feature `app`, so the CLI builds without it (ADR-037).
-- React 19, Vite and TypeScript with plain CSS tokens; no Tailwind or shadcn.
-- A pnpm workspace. No Node sidecar.
-
-**Why:** DownFetch already ships this stack, so tooling and lessons carry over. One process avoids sidecar packaging.
-
-**Cost:** Rust has fewer multi-provider LLM libraries than Node or Python, so provider adapters are written in-house and tested against recorded fixtures.
+*Accepted.*
+- Tauri 2, one Rust crate (`apps/desktop/src-tauri`) with the core, gateway and agent runner; the window is the Cargo feature `app`, so the CLI builds without it (ADR-037).
+- React 19, Vite, TypeScript, plain CSS tokens (no Tailwind, no shadcn); a pnpm workspace; no Node sidecar.
+- Provider adapters are written in-house and tested against recorded fixtures.
 
 ## ADR-006 — Rule-based routing
 
-**Decision:** `auto` ranks models with fixed rules: a curated tier table T0–T4 (`curated:v2`, `gateway/tiers.rs`), a tier from the list price for models the table does not know (`price-band:v1`, ADR-031), a minimum tier per client, and hard eligibility filters. Minimum tiers per task category and complexity are not built. Ranking by measured cost per success comes later, and only above a minimum sample size.
-
-**Why:** There is no measured quality data to start from, and invented quality scores would mislead.
-
-**Consequence:** The UI says "lowest eligible tier under your policy", never "cheapest".
-
-**Amended by ADR-041:** `pygg/brain` lets a model classify the work into cards and roles; the model for each card is still picked by rule, from the per-role facts of ADR-040, and the user approves before money is spent.
-
-**Amended 2026-11-20 (measured length and cache):** `auto/cheap` ranks by the expected cost of the request, not by list price at the request's output limit. From a model's own answers in the last 30 days to prompts within four times this one's size (at least 20 of them), it takes their mean output and the share of their prompt read from cache. A model with fewer is taken at the median output of the others, within the limit, with no cache. The estimate shown, the holds and strict limits stay at the limit. **Why:** on the MixAICloud benchmark the cheapest model by list (Qwen 3.5 Flash) wrote about nine times DeepSeek V4 Flash's output on the same short tasks, past the request's limit, and cost seven times as much per correct answer.
+*Accepted; amended by ADR-041 and for measured length and cache.*
+- `auto` ranks by fixed rules: the curated tier table T0–T4 (`curated:v2`, `gateway/tiers.rs`), a list-price tier for unknown models (`price-band:v1`, ADR-031), a minimum tier per client, and hard eligibility filters. Minimum tiers per task category are not built; ranking by measured cost per success comes later, above a minimum sample.
+- The UI says "lowest eligible tier under your policy", never "cheapest".
+- **Amended (ADR-041):** `pygg/brain` lets a model classify work into cards and roles; each card's model is still picked by rule from ADR-040's facts, and the user approves before money is spent.
+- **Amended (measured length and cache):** `auto/cheap` ranks by expected request cost, from the model's own answers in the last 30 days to prompts within 4× this one's size (at least 20): mean output and cache-read share. With fewer, the others' median output (within the limit), no cache. The shown estimate, holds and strict limits stay at the output limit. On the MixAICloud benchmark the cheapest by list (Qwen 3.5 Flash) wrote ~9× DeepSeek V4 Flash's output and cost 7× per correct answer.
 
 ## ADR-007 — Deterministic checks gate the cascade
 
-**Decision:**
-- A task may start at a cheaper step and move to the next only on a deterministic check (typecheck, tests, build, schema).
-- An LLM review can advise but never passes a step.
-- Without an approved check there is no automatic cascade. The user reviews the result, and keeping it records it as **Manually Accepted**.
-
-**Why:** A cheap model's output is only safe to accept when a machine can verify it.
+*Accepted.*
+- A task may start at a cheaper step and moves on only on a deterministic check (typecheck, tests, build, schema); an LLM review may advise but never passes a step.
+- Without an approved check there is no automatic cascade: the user reviews, and keeping records **Manually Accepted**.
 
 ## ADR-008 — A Git worktree per attempt; Git repositories only
 
-**Decision:** Each attempt runs in its own Git worktree created from the task's recorded base commit. Failed attempts are discarded. Workspaces must be Git repositories; folders that are not are not supported.
-
-**Why:** Isolation makes trying a cheap model first harmless. Snapshot isolation for other folders is possible later but not worth its risk now.
+*Accepted.*
+- Each attempt runs in its own Git worktree from the task's recorded base commit; failed attempts are discarded.
+- Workspaces must be Git repositories; other folders are not supported.
 
 ## ADR-009 — Keep as Branch is the result handoff
 
-**Decision:** A result is kept by committing it to a new branch `str/<slug>-<short-id>` from its base commit, without switching the user's branch. Export Patch and Discard are the alternatives. Applying to the working tree, with drift detection, is not built.
-
-**Why:** Developers already know how to review and merge a branch, and it never touches the working tree.
+*Accepted; brainstorms amended by ADR-042.*
+- Keeping commits the result to a new branch `str/<slug>-<short-id>` from its base commit, without switching the user's branch.
+- Alternatives: Export Patch, Discard. Applying to the working tree (with drift detection) is not built.
 
 ## ADR-010 — Approvals are durable and cover exactly one attempt
 
-**Decision:**
-- An approval names one attempt and a spending cap.
-- It survives a restart and is invalidated by a change of policy, catalog, budget or the step's estimate.
+*Accepted.*
+- An approval names one attempt and a spending cap; it survives a restart and is invalidated by a change of policy, catalog, budget or the step's estimate.
 - Nothing is approved automatically, and no API can approve (ADR-027).
-- Notifications never include task names or paths, and never carry an approve button.
-
-**Why:** Spending must be a deliberate, specific decision.
+- Notifications never include task names or paths and never carry an approve button.
 
 ## ADR-011 — Billing types and per-fact provenance
 
-**Decision:**
-- Billing is `Free`, `Local`, `Subscription`, `Paid` or `Unknown`, set per connection and per model.
-- Every price, quota and capability value carries its own source and time.
-- Unknown is never treated as free or shown as `$0.00`.
-- Subscription use is measured as quota consumption, never as money.
-- A list price from a catalog gives an estimated cost, never an actual one (ADR-031).
-
-**Why:** Most providers do not report remaining quota, and false precision would mislead the user about spending.
+*Accepted.*
+- Billing is `Free`, `Local`, `Subscription`, `Paid` or `Unknown`, per connection and per model; every price, quota and capability value carries its own source and time.
+- Unknown is never free or `$0.00`; subscription use is quota, never money.
+- A catalog list price gives an estimated cost, never an actual one (ADR-031).
 
 ## ADR-012 — Traffic-light window controls on every platform
 
-**Decision:** The app uses DownFetch's traffic-light window controls on Windows and Linux too.
-
-**Why:** Consistency across the team's apps.
-
-**Cost:** A departure from Windows conventions. The release checks for it (snap layouts, scaling, keyboard use, screen readers) are the D12 checks in the [ROADMAP](ROADMAP.md#next-in-order); scaling and screen readers are still open.
+*Accepted.*
+- DownFetch's traffic-light window controls on Windows and Linux too.
+- Release checks (snap layouts, scaling, keyboard, screen readers) are the D12 checks in the [ROADMAP](ROADMAP.md#next-in-order); scaling and screen readers are open.
 
 ## ADR-013 — Benchmark before claiming savings
 
-**Decision:** Savings are advertised only from a benchmark of reproducible coding tasks with deterministic checks that compares always-T4, always-T2 and a check-driven cascade ([benchmark](../benchmark/README.md)). Paid runs stay within the budget of ADR-028. Running this benchmark before building the gateway is superseded by ADR-016.
-
-**Why:** The product's core idea is unproven until measured.
+*Accepted.*
+- Savings are advertised only from a benchmark of reproducible coding tasks with deterministic checks, comparing always-T4, always-T2 and a check-driven cascade ([benchmark](../benchmark/README.md)).
+- Paid runs stay within ADR-028's budget. Running it before the gateway is superseded by ADR-016.
 
 ## ADR-014 — Sample data is always labeled
 
-**Decision:** The desktop app shows only real data. The browser preview (`pnpm dev`) runs on an in-memory demo (`src/lib/demo.ts`) under an on-screen label; `?empty` shows the first-run state. A screen that is designed but not built says so instead of showing empty data.
-
-**Why:** An empty list looks like a real, empty configuration, and unlabeled sample numbers look like measurements.
+*Accepted.*
+- The desktop app shows only real data; the browser preview (`pnpm dev`) runs an in-memory demo (`src/lib/demo.ts`) under an on-screen label; `?empty` shows the first-run state.
+- A screen designed but not built says so instead of showing empty data.
 
 ## ADR-015 — Commit the pnpm lockfile
 
-**Decision:** `pnpm-lock.yaml` is committed. DownFetch ignores its lockfile; this project does not.
-
-**Why:** Reproducible installs matter more than lockfile churn for an app with a release pipeline.
+*Accepted.*
+- `pnpm-lock.yaml` is committed (unlike DownFetch).
 
 ## ADR-016 — Build the gateway first
 
-**Decision:** The multi-provider gateway comes first, in the spirit of 9router, and the task engine is a layer on top of it:
-- Clients the user already has (Codex, Cursor, OpenCode, Claude Code, scripts) point at one local base URL. The gateway serves Chat Completions, Anthropic Messages and the Responses API (ADR-033).
-- Each connection is a provider account; its key is kept in the OS credential store.
-- A **combo** is a named, ordered list of models. The gateway falls back down the list on hard errors, only before any output has reached the client (ADR-003).
-- Every request is written to the usage ledger, and each cost carries its provenance (ADR-011).
-
-The task engine runs a fixed ladder of agent steps per task (AGENTS.md). A task is not analysed into a proposed plan.
-
-**Why:** Existing clients can use the gateway on day one, and the task engine needs it anyway.
-
-**Cost:** Outside tasks, routing is per request, chosen by the client through the model name (`<connection>/<model>`, a combo or `auto`).
+*Accepted; absorbs ADR-019.*
+- The multi-provider gateway (in the spirit of 9router) comes first; the task engine is a layer on top. Existing clients (Codex, Cursor, OpenCode, Claude Code, scripts) use one local base URL serving Chat Completions, Anthropic Messages and Responses (ADR-033).
+- A connection is a provider account with its key in the OS credential store; a **combo** is a named, ordered model list that falls back on hard errors before any output (ADR-003); every request goes to the usage ledger with cost provenance (ADR-011).
+- Outside tasks, routing is per request through the model name (`<connection>/<model>`, a combo or `auto`). The task engine runs a fixed ladder of agent steps ([AGENTS.md](AGENTS.md)); a task is not analysed into a plan.
 
 ## ADR-017 — Universal conversation memory
 
-Withdrawn by ADR-028: there is no app-owned conversation store or memory. Not built.
+Withdrawn by ADR-028: no app-owned conversation store or memory. Not built.
 
 ## ADR-018 — Cache-aware model affinity for Auto Chat
 
-Withdrawn by ADR-028 (no Auto Chat). Keeping gateway clients on one model for their cache is ADR-036.
+Withdrawn by ADR-028 (no Auto Chat). Cache affinity for gateway clients is ADR-036.
 
 ## ADR-019 — Gateway-first order
 
@@ -149,312 +119,211 @@ Merged into ADR-016 (gateway first) and ADR-013 (the benchmark gates savings cla
 
 ## ADR-020 — Entitlement tiers per account and model
 
-Proposed, partly built: billing is set per connection and per model with its source (ADR-011, ADR-032). Providers views grouped by tier and a per account-model entitlement schema are not built.
+Proposed, partly built: billing per connection and per model with its source (ADR-011, ADR-032). Providers views grouped by tier and a per account-model entitlement schema are not built.
 
 ## ADR-021 — Headless CLI and npm launcher
 
-Built as ADR-037: one Rust core for the app and the headless `pygg-cli`, and an npm launcher with per-platform binaries instead of a second, Node gateway.
+Built as ADR-037: one Rust core for the app and headless `pygg-cli`, and an npm launcher with per-platform binaries (no second, Node gateway).
 
 ## ADR-022 — Safe setup of CLIs and IDEs
 
-**Decision:** Pygg changes a tool's configuration only when the user asks, after showing what will change. It backs the file up first, gives the tool a client token of its own, checks the result, and can undo it. Compatibility is claimed only for client APIs that were tested. A subscription sign-in is never routed through an unrelated client. Built as one-click setup for Claude Code, Codex CLI and OpenCode (`integrations.rs`, AGENTS.md).
-
-**Why:** A tool's configuration is the user's, and a failed setup must leave it as it was.
+*Built:* one-click setup for Claude Code, Codex CLI and OpenCode (`integrations.rs`, [AGENTS.md](AGENTS.md)).
+- Pygg changes a tool's configuration only when asked, after showing the change: it backs up first, gives the tool its own client token, checks the result, and can undo it.
+- Compatibility is claimed only for tested client APIs; a subscription sign-in is never routed through an unrelated client.
 
 ## ADR-023 — Multi-account rotation
 
-Built as ADR-034 (pools of connections) and ADR-038 (key rings). Its safety rule stands in both: rotation never gets around bans, quotas, terms or shared limits, and never changes an active attempt, tool call or stream.
+Built as ADR-034 (pools) and ADR-038 (key rings). Its rule stands in both: rotation never gets around bans, quotas, terms or shared limits, and never changes an active attempt, tool call or stream.
 
 ## ADR-024 — What to adopt from OmniRoute
 
-**Decision:** An idea from OmniRoute is adopted only when it meets these gates: entitlements the provider verifies, no privacy or budget bypass, safe rollback and a measured cost per success. Not adopted: multi-model fusion, dozens of surfaced strategies, credential, TLS or browser impersonation, lossy context compression without independent benchmarks, and claims taken from upstream benchmarks. Related decisions: ADR-031 (explainable filters), ADR-034 and ADR-038 (accounts), ADR-036 (compression only in shadow).
-
-**Why:** Pygg builds on its own gateway and rules rather than copying another router.
+*Accepted.*
+- An OmniRoute idea is adopted only with entitlements the provider verifies, no privacy or budget bypass, safe rollback and a measured cost per success.
+- Not adopted: multi-model fusion, dozens of surfaced strategies, credential/TLS/browser impersonation, lossy context compression without independent benchmarks, claims from upstream benchmarks. Related: ADR-031, ADR-034, ADR-036, ADR-038.
 
 ## ADR-025 — The gateway must not raise cost or break provider rules
 
-**Decision:** Before new router features, the gateway keeps cost and provider rules safe:
-- native, same-format Anthropic passthrough with prompt-cache parity;
-- fallback only on errors that allow it;
-- atomic budget and usage accounting, with reservations;
-- explicit session affinity (`x-pygg-session`), never derived from prompt content;
-- explainable, rule-based `auto`.
-
-External clients own their prompts, history and compaction. The gateway never inserts memory or rewrites a client's prompt; the one addition is ADR-036's cache marker on translated turns. **Amended by ADR-041:** a request that names the virtual model `pygg/brain` asks for Pygg's own prompt and for calls to more than one model; that is the only such request, it is ledgered under the client's request id, and nothing it learns reaches any other request.
-
-The first users are developers with metered API workloads, because their savings can be measured. The long-term aim includes everyday users. No cash saving is claimed for fixed-price subscription plans.
-
-**Status:** Built and tested against fake providers; native Anthropic parity was measured against the real endpoint (Implementation Status).
+*Built; tested against fake providers, native Anthropic parity measured against the real endpoint. Amended by ADR-041.*
+- Before new router features: native same-format Anthropic passthrough with prompt-cache parity; fallback only on errors that allow it; atomic budget and usage accounting with reservations; explicit session affinity (`x-pygg-session`), never derived from prompt content; explainable rule-based `auto`.
+- Clients own their prompts, history and compaction: the gateway never inserts memory or rewrites a prompt; the one addition is ADR-036's cache marker on translated turns. **ADR-041:** only a request naming `pygg/brain` gets Pygg's own prompt and calls to several models, ledgered under the client's request id; nothing it learns reaches another request.
+- First users: developers with metered API workloads. No cash saving is claimed for fixed-price subscriptions.
 
 ## ADR-026 — Official agent CLIs with their own sign-in; no bridges
 
-**Decision:** To use the subscriptions and free tiers people already have, Pygg runs the vendors' own agent CLIs (Claude Code, Codex CLI, Gemini CLI, OpenCode) headless, each with the sign-in the user gave it, in a worktree per attempt (ADR-008). Pygg never reads, stores or forwards that sign-in, never exposes it to other clients through the gateway, and does not bridge cookies or other products' OAuth tokens, whatever their licence. ADR-035 narrows this for sites with no API: the user signs in to them in a Pygg window.
-
-**Why:** Bridges depend on terms the user did not agree to with Pygg and break without notice. The official CLIs are supported, and their cost stays honest.
-
-**Cost:** Pygg cannot see which plan an agent uses. An agent step's cost is recorded as unknown, with the agent's own estimate in its source. See [AGENTS.md](AGENTS.md).
+*Accepted; narrowed by ADR-035.*
+- Pygg runs the vendors' own agent CLIs (Claude Code, Codex CLI, Gemini CLI, OpenCode) headless with the sign-in the user gave each, in a worktree per attempt (ADR-008).
+- Pygg never reads, stores or forwards that sign-in, never exposes it through the gateway, and never bridges cookies or other products' OAuth tokens, whatever their licence. Sites with no API: ADR-035.
+- An agent step's cost is recorded as unknown, with the agent's own estimate in its source ([AGENTS.md](AGENTS.md)).
 
 ## ADR-027 — Tasks start from the user's IDE agent; the app monitors
 
-**Decision:** Tasks start where people already work: their coding agent calls Pygg's MCP server (`<app> mcp`), which forwards to the gateway's task API. The app runs tasks and is where they are watched, paid steps are approved and results are reviewed. New Task in the app stays as a manual fallback. A client needs the user's **May start tasks** permission, sees only its own tasks, and cannot approve a paid step (ADR-010).
-
-**Why:** Most people will not treat a router app as an IDE.
-
-This replaces the parts of [design/SCREENS.md](design/SCREENS.md) that assume tasks are composed and planned in the app first. See [AGENTS.md](AGENTS.md#the-mcp-server-and-the-task-api-experimental-on-hold). ADR-041 keeps this: a brainstorm starts when the IDE agent calls `pygg/brain`, and the app is where it is approved.
+*Accepted (tasks on hold).*
+- Tasks start from the user's coding agent through Pygg's MCP server (`<app> mcp`), forwarded to the gateway's task API; the app runs tasks, approves paid steps and reviews results. New Task in the app is a manual fallback.
+- A client needs **May start tasks**, sees only its own tasks, and cannot approve a paid step (ADR-010).
+- Replaces the parts of [design/SCREENS.md](design/SCREENS.md) that assume tasks are planned in the app ([AGENTS.md](AGENTS.md#the-mcp-server-and-the-task-api-experimental-on-hold)). ADR-041: a brainstorm starts when the IDE agent calls `pygg/brain` and is approved in the app.
 
 ## ADR-028 — MIT licence, a $20 benchmark budget, and no Auto Chat
 
-**Decisions:**
-- **Licence:** Pygg is open source under the MIT licence ([LICENSE](../LICENSE)). MIT-licensed code from other projects may be ported with its copyright and licence notice kept, listed in `THIRD_PARTY_NOTICES.md`. ADR-026 still applies, whatever another project's licence.
-- **Benchmark budget:** paid benchmark runs cost at most $20 in total, enforced with `bench --budget-usd`. Free tiers, local models and agents on subscriptions do not count against it; their runs are reported apart. The larger benchmark has a budget of its own, $50 (below).
-- **No Auto Chat in the app.** The app is not a place to compose chats or tasks (ADR-027). There is no app-owned conversation store, memory screen or per-turn model choice (ADR-017 and ADR-018 withdrawn). What tasks need survives: the bounded handoff from a failed attempt to the next step (ADR-030), and session affinity in the gateway.
-
-**Why:** Open source fits a local tool that holds keys and code. A fixed budget keeps the benchmark honest about what it can claim. Auto Chat would make the app a chat client.
-
-**Chat from the command line (owner's decision, 2026-11-18).** `pygg chat` and `pygg ask` talk to any connected model through the gateway from a terminal, like other AI command-line tools, with Pygg's routing, fallbacks, web-session guard and ledger. They are clients of the gateway with an API key of their own ("Pygg CLI (ask)"). A conversation lives in the command's memory and is forgotten when it ends: there is still no conversation store, memory screen or chat in the app.
-
-**The larger benchmark: $50 (owner's decision, 2026-11-19).** The runs published so far used about $16.7 of the $20. The larger benchmark in the [ROADMAP](ROADMAP.md) has $50 of paid traffic of its own, under the same rules: enforced with `bench --budget-usd`, free, local and subscription runs reported apart. Anthropic's Claude models are left out of it while the owner's Anthropic usage limit is reached; they join later within the same $50. Coding agents such as Claude Code still run in it, through Pygg on other models.
-
-**`pygg/brain` is not chat (ADR-041).** Its questions go back to the client that asked and are answered there; the app shows the proposal, the approval and the board, and has no reply box.
+*Accepted (owner's decisions).*
+- **Licence:** MIT ([LICENSE](../LICENSE)). MIT code from other projects may be ported with its notice kept, listed in `THIRD_PARTY_NOTICES.md`; ADR-026 applies whatever another project's licence.
+- **Benchmark budget:** paid runs cost at most $20 in total, enforced with `bench --budget-usd` (about $16.7 used); free, local and subscription runs don't count and are reported apart. The larger benchmark ([ROADMAP](ROADMAP.md)) has its own $50 under the same rules; Anthropic's Claude models join it only once the owner's Anthropic usage limit allows, and coding agents such as Claude Code still run through Pygg on other models.
+- **No Auto Chat in the app:** no conversation store, memory screen or per-turn model choice (ADR-017, ADR-018 withdrawn); kept are the bounded task handoff (ADR-030) and gateway session affinity. `pygg chat` and `pygg ask` are terminal clients of the gateway (own API key "Pygg CLI (ask)", with routing, fallbacks, web-session guard and ledger); a conversation lives only in the command's memory. `pygg/brain` is not chat (ADR-041): its questions are answered in the client; the app has no reply box.
 
 ## ADR-029 — Quality signals in Pygg's own ledger, in TensorZero's shape
 
-**Decision:** Pygg does not adopt TensorZero: it is archived by its maintainers, needs Postgres or ClickHouse and a second gateway with its own model names, stores whole conversations and sends usage analytics by default. Pygg borrows its data model instead: **metrics** (name, boolean or float, the level they describe, whether more or less is better) and **feedback** rows keyed to a request, an attempt or a task, with their source. Migration 0015 adds both and seeds `checks_passed`, `result_kept`, `retried`, `cancelled`, `declined` and `rework_minutes`. The task engine records them as they happen, and `tasks::quality` gives the known money per kept result, counting every paid step.
-
-**Rules:** An unknown signal has no row, never a 0 or false. Pygg never infers quality from conversation content (ADR-025). Request-level feedback comes only from a client that sends it.
-
-**Why:** One user, one machine, SQLite (ADR-002): a server stack is out of proportion, and an unmaintained gateway in the path is a security cost. Keeping the shape leaves an export open.
+*Built.*
+- TensorZero is not adopted (archived, needs Postgres or ClickHouse and a second gateway, stores whole conversations, sends analytics by default); Pygg borrows its data model: **metrics** (name, boolean or float, level, better direction) and **feedback** rows keyed to a request, attempt or task, with their source.
+- Migration 0015 adds both and seeds `checks_passed`, `result_kept`, `retried`, `cancelled`, `declined`, `rework_minutes`; the task engine records them, and `tasks::quality` gives known money per kept result, counting every paid step.
+- An unknown signal has no row (never 0 or false); quality is never inferred from conversation content (ADR-025); request-level feedback comes only from a client that sends it.
 
 ## ADR-030 — Task handoff within ADR-028; portable context deferred
 
-**Decision:**
-- A task's next step may be told what earlier attempts did. The handoff holds only for that task: bounded, built from what Pygg recorded, shown to the user, never kept across tasks, never shown as memory, never sent through the gateway.
-- Modes, fixed in the task's policy: **`tail`** (the default: the failed check's command and the end of its output), **`none`**, and **`evidence`** (every earlier attempt, about 6,000 characters at most; `handoff.rs`).
-- `tail` stays the default because the A/B did not show `evidence` saving tokens, time or money, or changing the pass rate ([report](../benchmark/reports/2026-11-12-h1-handoff-ab.md)). Whether it helps when a first step reaches its checks and fails is untested.
-- **Portable context between external clients stays deferred.** MCP task dispatch carries a task description, not a typed context package. Reopening it needs evidence that the handoff helps, and a new decision on ADR-028.
-- An adaptive router is evaluated only on benchmark replays, never as a live shadow.
-
-**Why:** It is what ADR-028 already keeps, made richer only where it can be measured.
+*Built; portable context deferred.*
+- A next step may be told what earlier attempts did: bounded, from Pygg's records, shown to the user, for that task only, never kept across tasks, shown as memory or sent through the gateway.
+- Modes, fixed in the task's policy: `tail` (default: the failed check's command and the end of its output), `none`, `evidence` (every earlier attempt, about 6,000 characters at most; `handoff.rs`). `tail` stays default: the A/B showed no token, time, money or pass-rate gain for `evidence` ([report](../benchmark/reports/2026-11-12-h1-handoff-ab.md)); a first step that reaches its checks and fails is untested.
+- Portable context between external clients stays deferred (MCP carries a task description, not a context package); reopening needs evidence and a new decision on ADR-028. An adaptive router is evaluated only on benchmark replays, never as a live shadow.
 
 ## ADR-031 — The user enters a key; the app looks up the rest
 
-**Decision:**
-- **A reference catalog fills what a provider's own list leaves out.** Pygg reads [models.dev](https://models.dev), keyed by each provider's own model ids, and fills context, maximum output, tool and image support and the list price only where they are unknown. The provider's list comes first, and what the user set is never touched. A connection is matched to the catalog by its API address first, then by its kind; local runtimes are never matched. Every fact names its source, and a price reads "models.dev list price".
-- **A catalog list price is a list price** (ADR-011): it gives estimated costs, and the user's own price replaces it.
-- **Every model gets a tier.** `curated:v2` comes first; otherwise the list price band (`price-band:v1`: output under $1 per million tokens is T1, under $5 T2, under $20 T3, above T4), and `auto` says "from its list price". A $0 price gives no tier. A tier the user set stays theirs.
-- **Claude models take tools** (`curated:v1`), since Anthropic's list does not say so.
-- **A connection set as free does not make a priced model free** (ADR-032).
-- **When nothing is eligible, the refusal groups its reasons** by connection and reason.
-
-**How it runs:** at start-up in the background and after a model list refresh; at most one download a day, cached as `reference/models.dev.json` for offline use. The download is a GET of a public file and carries nothing about the user. `gateway lookup` applies it by hand.
-
-**Why:** Users cannot be expected to know model presets. They enter a key, and looking things up is the app's job. On a real store of 584 models, the catalog described 466, and `auto` with tools went from no eligible model to a ranked route.
+*Built.*
+- [models.dev](https://models.dev), keyed by provider model ids, fills only unknown context, maximum output, tool and image support and list price; the provider's list comes first and the user's settings are never touched. Matched by API address, then kind; local runtimes never. Each fact names its source ("models.dev list price"); the user's own price replaces it (ADR-011).
+- Every model gets a tier: `curated:v2` first, else `price-band:v1` by output price per million tokens (under $1 T1, under $5 T2, under $20 T3, above T4), shown as "from its list price"; $0 gives no tier; a user-set tier stays. Claude models take tools (`curated:v1`). A free connection does not make a priced model free (ADR-032). When nothing is eligible, the refusal groups reasons by connection.
+- Runs in the background at start-up and after a model list refresh; at most one download a day (a GET of a public file carrying nothing about the user), cached as `reference/models.dev.json`; `gateway lookup` applies it by hand. On a real store of 584 models it described 466.
 
 ## ADR-032 — A connection kept for its free models has only those on
 
-**Decision:**
-- **Two kinds of free.** For most free tiers the account is free (a trial key, Gemini's free tier): every call costs nothing within limits. For OpenRouter and Z.AI, the free part is a set of models listed at $0 next to paid ones; their presets say so (`free_models`).
-- **On such a connection set as free, only models listed at $0 are on and free.** A priced model is paid; one without a price is unknown, never free (OpenRouter's own routers list none and may pick a paid model). Pygg turns both off (`enabled_source = 'free-connection'`), and the Models table says why.
-- **The user's switch is theirs.** A model the user turns on stays on, billed as paid or unknown. A model Pygg turned off comes back when the reason ends.
-- **The ledger follows the same rule** as ranking: a paid model on a free connection is not recorded at $0.
-- **Missing free models are added from the catalog** (ADR-031) for Z.AI only, whose list leaves out its free Flash models.
-
-**Why:** A user who connects OpenRouter for its free models expects only those to be on, and to turn on a paid one deliberately.
+*Built.*
+- Two kinds of free: a free account (trial key, Gemini's free tier), or $0-listed models beside paid ones (OpenRouter, Z.AI; presets' `free_models`).
+- On such a connection set as free, only $0-listed models are on and free; priced models are paid, unpriced ones unknown (OpenRouter's routers list none). Pygg turns both off (`enabled_source = 'free-connection'`) and the Models table says why; a model the user turns on stays on, one Pygg turned off returns when the reason ends. The ledger follows the same rule.
+- Missing free models are added from the catalog (ADR-031) for Z.AI only (its free Flash models).
 
 ## ADR-033 — The gateway serves the Responses API, translated through Chat Completions
 
-**Decision:**
-- **`POST /v1/responses` is a third surface on the same pipeline** (`gateway/responses.rs`): authentication, routing, `auto` and combos, limits and holds, sessions, health, quota and the ledger work as for the other two.
-- **One new translator, Responses ↔ Chat Completions.** An Anthropic-format connection is reached through the existing Chat Completions → Messages translator, so there is one translator per pair of formats.
-- **Native passthrough only where a preset says so** (`Preset::serves_responses`): OpenAI.
-- **Custom tools** (Codex's `apply_patch`) cross as functions with one string parameter, `input`, carrying the grammar in the description. **Namespace tools** are flattened as `<namespace>__<name>`. Both are matched back by name from the request's own tool list; nothing is kept between requests.
-- **Reasoning** comes back as a `reasoning` item, and goes back as `reasoning_content` to providers that take it. Another provider's encrypted reasoning, hosted tools and top-level fields that are not carried are named in `x-pygg-dropped`. Nothing is dropped silently.
-- **Pygg stores no responses.** `previous_response_id`, `conversation` and `background` are refused with 400; the client sends the whole conversation.
-
-**Why:** Codex CLI speaks only the Responses API, so without it Codex could not use Pygg as a gateway.
-
-**Cost:** Hosted tools (web search, file search, code interpreter) are unavailable on translated connections. A model Codex does not know runs with Codex's fallback metadata; the `pygg` profile names a catalog Pygg writes, with each model's context size and `apply_patch` and Codex's own default instructions (Apache-2.0, bundled by the owner's decision of 2026-11-16; AGENTS.md). One-click setup is "Codex: models through Pygg".
+*Built.*
+- `POST /v1/responses` is a third surface on the same pipeline (`gateway/responses.rs`). One new translator, Responses ↔ Chat Completions; Anthropic-format connections go on through the existing Chat Completions → Messages translator. Native passthrough only where the preset says (`Preset::serves_responses`): OpenAI.
+- Custom tools (Codex's `apply_patch`) cross as functions with one string parameter `input`, grammar in the description; namespace tools flatten to `<namespace>__<name>`; both matched back by name from the request's own tool list. Reasoning returns as a `reasoning` item and goes back as `reasoning_content` where taken. Anything dropped (other providers' encrypted reasoning, hosted tools, uncarried fields) is named in `x-pygg-dropped`.
+- No stored responses: `previous_response_id`, `conversation`, `background` get 400. Hosted tools are unavailable on translated connections. The Codex `pygg` profile names a Pygg-written model catalog with context sizes, `apply_patch` and Codex's default instructions (Apache-2.0, bundled; [AGENTS.md](AGENTS.md)). One-click setup: "Codex: models through Pygg".
 
 ## ADR-034 — Pools of separate accounts
 
-**Decision:**
-- **A pool groups connections of one provider kind, each a separate account the user holds,** with its own key. A connection joins only after the user confirms it has its own provider quota. Several keys of one account cannot be pooled: that would only get around the account's limits.
-- **A pool's name is a routing prefix.** `<pool>/<model>` tries the members in the user's order, skipping disabled ones, and moves on for 401, 402, 403, 429 and Anthropic's out-of-credit 400. A session stays on the member that first answered it. The ledger names the connection that answered. `GET /v1/models` lists `<pool>/<model>`. The name may not be a connection's id, a combo's name or `auto`.
-- **Web sessions** (ADR-035) of one site may pool, each confirmed as another account; such a pool sends to the account used least today, and the web guard sends to a resting account last. Agents' sign-ins and cookies of other apps are never pooled (ADR-026).
-- **A provider's own OAuth flow that issues an API key** (OpenRouter's PKCE) is not a bridge: Pygg keeps an ordinary API key.
-
-**Why:** Accounts a user really holds can share load; one account's keys cannot multiply its quota.
-
-**Cost:** Pygg cannot check that accounts are separate; it depends on the user's confirmation. For several keys on one connection, see ADR-038.
+*Built.*
+- A pool groups connections of one provider kind, each a separate account with its own key, joined only after the user confirms it has its own quota; keys of one account cannot be pooled (ADR-038 for keys on one connection).
+- `<pool>/<model>` tries members in the user's order, skipping disabled ones, moving on for 401, 402, 403, 429 and Anthropic's out-of-credit 400; a session stays on its first-answering member; the ledger names the answering connection; `GET /v1/models` lists `<pool>/<model>`. A pool name may not be a connection id, combo name or `auto`.
+- Web sessions (ADR-035) of one site may pool: least used today first, a resting account last. Agent sign-ins and other apps' cookies are never pooled (ADR-026). A provider's own OAuth that issues an API key (OpenRouter PKCE) is not a bridge.
 
 ## ADR-035 — Web-session connections for AI sites with no API
 
-**Decision:** A connection kind, **Web session (unofficial)**, for AI sites that offer no API. It is a provider like any other: chosen in Connect, with models, health, limits and ledger entries, listed in `GET /v1/models`, and reached on all three surfaces as `<connection>/<model>` or through a combo. Only the transport (a signed-in web page) and the safeguards differ. Recipes exist for Muse, ChatGPT, Perplexity, DeepSeek, Grok and Gemini. It narrows ADR-026 for this kind only: no cookie import, no other products' OAuth tokens, no TLS impersonation, no limit evasion.
+*Built.*
+- Connection kind **Web session (unofficial)** for AI sites with no API: a normal provider (Connect, models, health, limits, ledger, `GET /v1/models`, all three surfaces as `<connection>/<model>` or in a combo). Recipes: Muse, ChatGPT, Perplexity, DeepSeek, Grok, Gemini.
+- Narrows ADR-026 for this kind only: no cookie import, no other products' OAuth tokens, no TLS impersonation, no limit evasion. The user carries the account risk, per connection.
+- Slow and without token counts: for chat-like work on a named model, not coding agents.
 
-**Why:** Some services exist only behind a website sign-in. The user carries the account risk, knowingly and per connection; the sign-in never leaves the machine.
+**How it works**
+- **Window:** one Pygg webview per connection (`web-<connection id>`) with its own WebView2 profile (`websessions/<connection id>`); the user signs in on the site's page; cookies are never copied or held. Opens hidden when needed, closes after 10 minutes unused, has no Tauri capability.
+- **No fingerprinting:** never spoofs or randomises user agent, client hints, canvas, fonts or screen, and never hides that a page is driven.
+- **Navigation:** with the sign-in window open, any https address; whenever Pygg types or presses Send the page must be the site's own host, else nothing is sent and the connection is Needs you; otherwise only the recipe's hosts.
+- **Recipe** (`RECIPES` in `websession/mod.rs`): start URL, hosts, selectors (prompt box, Send, reply, still answering, sign-in page, challenge). Scripts only read and fill the page, never `document.cookie` or storage; a mismatch fails closed as "the page has changed".
+- **Adapter:** each session is a loopback Chat Completions endpoint behind an in-memory token; a request is flattened into one prompt in a new chat; a stream reads the page every 300 ms.
+- **Waits:** first word 60 s + 1 s per 100 estimated prompt tokens, up to 240 s; once the page shows it is answering, 300 s + the same extra for the whole reply.
+- Not in headless `pygg gateway serve` (skipped with that reason).
 
-**How it works:**
-- **One Pygg-owned webview per connection** (label `web-<connection id>`), with its own WebView2 profile folder (`websessions/<connection id>`). The user signs in on the site's own page; the profile keeps the session like a browser. Nobody copies cookies, and Pygg never holds them. The window opens hidden when needed and closes after 10 minutes unused. It has no Tauri capability, so the site's scripts cannot call Pygg.
-- **Its own profile, never its own fingerprint.** Pygg never spoofs or randomises the user agent, client hints, canvas, fonts, screen or similar, and never hides that a page is driven. Every window is the Edge WebView2 it is.
-- **Navigation.** While the user has the sign-in window open, it may go to any https address, like a browser. Whenever Pygg types or presses Send, the page must be the site's own host; otherwise nothing is sent and the connection is marked Needs you. Otherwise the window follows the recipe's hosts, and a refused address is named on the connection.
-- **A recipe per site** (`RECIPES` in `websession/mod.rs`, data in Rust, reviewed like code): start URL, hosts, and selectors for the prompt box, Send, the reply, a "still answering" signal, a sign-in page and a challenge. Scripts only read and fill the page; they never read `document.cookie` or storage. A recipe that no longer matches fails closed as "the page has changed".
-- **An OpenAI-format adapter.** Each web session is served as a Chat Completions endpoint on loopback, reachable only with an in-memory token, so the gateway's translators, limits, sessions, combos and ledger apply unchanged. A request is flattened into one prompt and sent in a new chat each time; a stream reads the page every 300 ms.
-- **Waiting for a reply** follows the request: the first word is awaited 60 s plus 1 s per 100 estimated prompt tokens, up to 240 s; a page that shows it is answering gets the whole-reply limit, 300 s plus the same extra.
-- **Not in the headless gateway** (`pygg gateway serve`): there is no webview, so these connections are skipped with that reason.
+**The web guard** (`websession/guard.rs`): decides every request; fixed rules, no jitter; slows Pygg, never disguises it. Added after DeepSeek suspended an account sent 24 prompts of 2,000–6,000 tokens in 15 minutes at a 10 s pace.
 
-**The web guard** (`websession/guard.rs`) decides every request, whoever sends it. It slows Pygg down and never disguises it: fixed rules, no jitter. It was added after DeepSeek suspended an account that had received 24 prompts of 2,000 to 6,000 tokens in 15 minutes at a fixed 10 s pace.
-- **Weight:** one unit per request, plus one per started 2,000 characters of prompt.
-- **No pasted files:** a prompt over 12,000 characters is refused with 413 `prompt_too_long`.
-- **A reader's rest** after a reply: 10 s, plus 2 s per extra unit, plus 50 characters a second of reply, at most 3 minutes. A request that would wait more than 30 s is refused with 429 `web_pace` and Retry-After.
-- **Shares:** at most 20 units and 15 requests per rolling hour, 5 requests per 10 minutes, and per UTC day the daily request limit (50 by default, at most 100) and twice that in units.
-- **Back-off after trouble:** 5 minutes, doubled for each one in a row, at most 6 hours, with a floor by kind: a usage-limit notice an hour, a request to slow down or a check half an hour, a suspension notice six hours. A short reply asking to slow down is an error (429 `site_slow_down`), not an answer. A clean reply clears the back-off; Providers offers **Resume Now**.
-- **A suspension notice turns the connection off** (`RESTRICTED`); it is never read as "signed out".
-- **Per-site ceilings** (`guard::Limits`). DeepSeek's are lower: 4,000-character prompts, 8 units and 6 requests an hour, 3 requests in 10 minutes, 30 a day, and a 30 s base rest. No setting raises a ceiling or turns the guard off, and timing outside tests is held at the guard's floors (`Timing::guarded`).
-- State is kept in `web_pace` and `providers.web_*`, so a restart does not reset it.
+| Rule | Default | DeepSeek |
+| --- | --- | --- |
+| Weight | 1 unit per request + 1 per started 2,000 prompt characters | same |
+| Prompt cap | over 12,000 characters → 413 `prompt_too_long` | 4,000 characters |
+| Rest after a reply | 10 s + 2 s per extra unit + 50 reply characters/s, max 3 min; a wait over 30 s → 429 `web_pace` with Retry-After | 30 s base |
+| Per rolling hour | 20 units, 15 requests | 8 units, 6 requests |
+| Per 10 minutes | 5 requests | 3 requests |
+| Per UTC day | daily request limit (50 default, max 100), 2× that in units | 30 requests |
+| Back-off | 5 min, doubled per trouble in a row, max 6 h; floors: usage-limit notice 1 h, slow-down or check 30 min, suspension notice 6 h | same |
 
-**Safeguards (each tested):**
-1. Off by default, labelled "Web session (unofficial)" in its own group in Connect. A new connection stays out of routing until its warning is acknowledged and the user has signed in.
-2. A per-connection warning the user acknowledges: the site's terms may forbid automated use, the account can be limited or banned, the site can break the connection, and Pygg acts as the signed-in user. It is stored (`web_ack_at`, `web_ack_version`) and asked again when its text changes.
-3. No passwords, no cookie import, nothing secret written. Session data stays in the profile folder, never in logs, diagnostics, the ledger, exports or errors.
-4. The profile folder is deleted with the connection, or at the next start if WebView2 still holds it.
-5. Never chosen by `auto` or `auto/cheap`: these models have no tier and `tools = false`, and `auto` excludes the kind with its reason. They are used only when named or in a combo.
-6. **Billing is Free by default:** the site is used on the user's own plan, never paid per request, so each request is recorded at $0 with that source. The user may set Subscription instead, which counts requests as quota and records the cost as Unknown. Paid and Local are refused.
-7. One request at a time per connection; a second waits briefly and is then refused with 429 and Retry-After.
-8. Challenges stop the connection. On a CAPTCHA, a sign-in page or a bot check, Pygg marks the connection Needs you (or Not signed in), answers 401 with the reason, and tells the user to deal with it in the window. Pygg never solves, skips or hides from such a check.
-9. An API comes first: where a site has an official API (Meta's at `api.meta.ai`), Connect offers it as an API-key preset, and the web-session preset says so.
+- A short "slow down" reply is 429 `site_slow_down`, not an answer; a clean reply clears the back-off; Providers offers **Resume Now**. A suspension notice turns the connection off (`RESTRICTED`), never read as signed out.
+- No setting raises a ceiling or turns the guard off; timing outside tests is held at the floors (`Timing::guarded`). State lives in `web_pace` and `providers.web_*`, so restarts don't reset it.
 
-10. **What the site makes comes back.** Pictures, videos, sounds and documents that come with a reply are returned after its text as Markdown links: by address, copied out of the page's memory for a `blob:` address, or read from the responses and Blobs the page received. No cookie or header is kept, the site's API answers are not searched for addresses, nothing on another origin is fetched again, and the only click beyond Send and **deny** is Muse's Play, in a muted window. How each kind is read and what is logged: [SECURITY](SECURITY.md#web-sessions).
+**Safeguards (each tested)**
+1. Off by default, in its own Connect group; out of routing until the warning is acknowledged and the user has signed in.
+2. Per-connection warning (terms may forbid automation, account may be limited or banned, site may break it, Pygg acts as the user), stored as `web_ack_at`, `web_ack_version`, asked again when its text changes.
+3. No passwords, cookie import or secrets written; session data stays in the profile folder, never in logs, diagnostics, ledger, exports or errors.
+4. The profile folder is deleted with the connection, or at next start if WebView2 still holds it.
+5. Never chosen by `auto` or `auto/cheap` (no tier, `tools = false`); used only when named or in a combo.
+6. Billing Free by default ($0, with that source); Subscription allowed (quota, cost Unknown); Paid and Local refused.
+7. One request at a time per connection; a second waits briefly, then gets 429 with Retry-After.
+8. A CAPTCHA, sign-in page or bot check marks the connection Needs you (or Not signed in) and answers 401 with the reason; Pygg never solves, skips or hides from it.
+9. API first: where a site has an official API (Meta's `api.meta.ai`), Connect offers it as an API-key preset and the web preset says so.
+10. Pictures, videos, sounds and documents in a reply come back after its text as Markdown links (by address, copied from page memory for `blob:`, or from responses and Blobs the page received). No cookie or header kept, the site's API answers not searched for addresses, nothing on another origin re-fetched; the only click beyond Send and **deny** is Muse's Play, muted. Details: [SECURITY](SECURITY.md#web-sessions).
 
-**What it cannot do:** tool calls, files sent to the site, token counts, system-prompt guarantees or choice of the model behind the site. A request with tools is refused with 400. Muse can act on the user's connected apps; Pygg clicks only Send and the site's own **deny** on any approval Muse asks for.
-
-**Cost:** Requests are slow and uncounted in tokens, so this suits a user who names the model for chat-like work, not coding agents.
+**Cannot:** tool calls (a request with tools gets 400), files sent to the site, token counts, system-prompt guarantees, choice of the model behind the site. Muse can act on the user's connected apps; Pygg clicks only Send and the site's **deny** on any approval Muse asks for.
 
 ## ADR-036 — How Pygg saves tokens: keep the cache, route per session, measure before compressing
 
-**Decision, in this order:**
-1. **Keep the provider's cache working.** It is the largest saving and costs no quality. Sessions keep a launch on one model (`pygg run`, `x-pygg-session`); fallbacks happen only on failure. A session a fallback took away goes back to its home (the target it was meant for) only when no warm cache is lost: the home answered it within the last five minutes, or the fallback has not for five minutes either. It goes back when a request starts, never inside an attempt or a stream, and not while the home is cooling down (`store::Pin::goes_home`, migration 0033; `x-pygg-session: home`, route kind `+home`). When Pygg translates an OpenAI-format turn that carries tools for Anthropic's own API, it turns on Anthropic's automatic caching with one top-level `cache_control`, since the client cannot (`gateway::adds_cache`; the ledger says `added`). OpenRouter documents the same top-level marker for Anthropic's models, so an OpenAI-format agent's turn to an `anthropic/…` model there gets it too, and an Anthropic-format client's own top-level marker crosses the translation to OpenRouter. A request the client marked, a native Anthropic request, a turn without tools, other models and other providers' Anthropic-format endpoints are not changed. One marker is enough: Anthropic looks back at most 20 positions for the previous request's cache, and an agent's turn adds a few (a run of parallel tool calls, and of their results, counts as one). Providers that cache on their own (OpenAI, DeepSeek, Gemini, Kimi, Z.AI's GLM, MiniMax) need nothing added. Alibaba Model Studio also has an explicit cache (a `cache_control` on a content block: hits at 10% of the input price instead of the implicit cache's 20%, writes at 125%); Pygg adds no marker there, since its implicit cache already served 91% of qwen3.8-flash's input in the N2 benchmark (on a token plan, where tokens are quota, not money), and a gain on pay-as-you-go needs a live parity check first. A client's own marker crosses, and the writes it causes are priced (`prompt_tokens_details.cache_creation_input_tokens`). **The session is passed on** to providers that route by one, so repeated requests reach the machine that holds their cache: OpenRouter's `x-session-id` header (sticky for 60 minutes) and OpenAI's `prompt_cache_key`. What goes is `pygg-` and a SHA-256 of the client and its session id, never the id as sent and never prompt content; a client that named its own `session_id` or `prompt_cache_key` keeps it (`gateway::pass_session`). `PYGG_ANTHROPIC_AUTO_CACHE=off` and `PYGG_PASS_SESSION=off` turn either off for a benchmark arm.
-2. **Route per session or task, not per request.** `auto` chooses when a session starts and stays. A per-prompt learned router is not built.
-3. **Show where tokens go before changing anything** (Usage → Token Mix and Routing): cache share, cache writes after a model change, attempts and fallbacks, and why each answer read nothing from the cache (`store::cache_miss`, migration 0034). The cause is the ledger's best reading, worked out when the answer is settled, in this order: the provider did not report its cache; the prompt was under 1,024 tokens; the client's cache hints were dropped in translation; the session's first request; the session's last answer came from another model; the model has read nothing from its cache in seven days; more than five minutes since the session last used the model; otherwise the start of the prompt changed. A request without a session says only that. A zero cache read counts as a miss only when the provider reported the field (DeepSeek's `prompt_cache_hit_tokens` included). **The tools and system prompt** of each request are measured (migration 0036): their estimated tokens and a 64-bit fingerprint, never the text. Token Mix shows, per session, what its first request carried, how often it changed, and how often a later answer read nothing from a cache the provider reports, so the tools and system prompt went again in full or as a cache write. **A longer cache lifetime** is weighed from the pauses in each session, on models that bill cache writes (`store::cache_lifetime`, no new column): the answers that missed only because more than five minutes had passed, against two ways of keeping the cache, Anthropic's one-hour lifetime (every write at twice the input price instead of 1.25 times) and a keep-alive (the session's last request re-sent every 4.5 minutes for up to an hour, each a cache read, paid also after a session's last answer). Neither is offered unless its net stays above zero.
-4. **Compression only in shadow** until measurements show it pays. An agent's history is never rewritten; a filter on new tool output is at most an opt-in experiment. **Clearing old tool results** (Anthropic's context editing) is measured for OpenAI-format clients' requests at Anthropic's defaults: past 100,000 prompt tokens, every tool result but the last three (`shadow::clearing`, migration 0037). Usage weighs the input it would save against the cache writes it would cause, since each request that clears one more result makes the provider write the rest of the conversation again (`store::clearing_shadow`). Anthropic-format requests (Claude Code, OpenCode) are never measured or changed. It becomes an opt-in only if the net stays above zero.
-5. **Output and effort stay the client's.** Pygg passes `effort` and thinking settings through and does not inject instructions to write shorter.
+*Built; compression measured in shadow only.* In this order:
 
-**Not done:** semantic response caching, history dedup or retrieval markers, context as images, and RTK's BUSL-licensed engine.
+1. **Keep the provider's cache working.**
+   - A session keeps a launch on one model (`pygg run`, `x-pygg-session`); fallback only on failure. A session moved by a fallback goes back home only when no warm cache is lost (home answered within 5 minutes, or the fallback has not for 5 minutes), at request start, never mid-attempt or stream, not while home cools down (`store::Pin::goes_home`, migration 0033; `x-pygg-session: home`, route kind `+home`).
+   - An OpenAI-format turn with tools translated for Anthropic's own API, or for an `anthropic/…` model on OpenRouter, gets one top-level `cache_control` (`gateway::adds_cache`; ledger says `added`); an Anthropic-format client's own top-level marker crosses to OpenRouter. Unchanged: client-marked requests, native Anthropic, turns without tools, other models, other providers' Anthropic-format endpoints. One marker suffices (Anthropic looks back at most 20 positions; a run of parallel tool calls or results counts as one).
+   - Self-caching providers (OpenAI, DeepSeek, Gemini, Kimi, Z.AI GLM, MiniMax) get nothing added. Alibaba Model Studio gets no marker: its implicit cache served 91% of qwen3.8-flash's input in the N2 benchmark (explicit: hits 10% of input price vs 20%, writes 125%; pay-as-you-go needs a live parity check first). A client's own marker crosses, and its writes are priced (`prompt_tokens_details.cache_creation_input_tokens`).
+   - The session is passed on to providers that route by one: OpenRouter's `x-session-id` (sticky 60 minutes) and OpenAI's `prompt_cache_key`, as `pygg-` + SHA-256 of client and session id, never the raw id or prompt content; a client's own `session_id` or `prompt_cache_key` is kept (`gateway::pass_session`).
+   - `PYGG_ANTHROPIC_AUTO_CACHE=off` and `PYGG_PASS_SESSION=off` turn these off for a benchmark arm.
+   - Measured: Codex on Claude Haiku solved the same 16 runs with and without the added marker, 30% cheaper with it ([report](../benchmark/reports/2026-11-14-codex-claude-prompt-cache.md)).
+2. **Route per session or task, not per request.** `auto` chooses when a session starts and stays; no per-prompt learned router.
+3. **Show where tokens go before changing anything** (Usage → Token Mix and Routing).
+   - Cache share, cache writes after a model change, attempts, fallbacks, and the cause of each cache miss (`store::cache_miss`, migration 0034), in order: provider did not report its cache; prompt under 1,024 tokens; client cache hints dropped in translation; session's first request; last answer from another model; model read nothing from cache in 7 days; over 5 minutes since the session last used the model; else the prompt's start changed. A zero read is a miss only when the provider reported the field (DeepSeek's `prompt_cache_hit_tokens` included).
+   - Tools and system prompt per request (migration 0036): estimated tokens and a 64-bit fingerprint, never the text; Token Mix shows per session what the first request carried, how often it changed and how often a later answer missed.
+   - Longer cache lifetime, weighed from session pauses on models that bill cache writes (`store::cache_lifetime`): Anthropic's 1-hour lifetime (writes 2× input price vs 1.25×) and a keep-alive (last request re-sent every 4.5 minutes for up to an hour). Neither is offered unless its net stays above zero.
+4. **Compression only in shadow.** An agent's history is never rewritten; a filter on new tool output is at most an opt-in experiment. Clearing old tool results is measured for OpenAI-format requests at Anthropic's defaults (past 100,000 prompt tokens, all but the last three; `shadow::clearing`, migration 0037), weighing saved input against extra cache writes (`store::clearing_shadow`). Anthropic-format requests (Claude Code, OpenCode) are never measured or changed. Opt-in only if the net stays above zero.
+5. **Output and effort stay the client's:** `effort` and thinking settings pass through; no shorter-output instructions.
 
-**Why:** Once prompt caching works, the bill is mostly cache writes and output, so compression saves far less than it advertises. Caches are scoped to a model, so switching per request re-sends the whole conversation uncached. Measured: Codex on Claude Haiku through Pygg solved the same 16 runs with and without the added cache marker, and cost 30% less with it ([report](../benchmark/reports/2026-11-14-codex-claude-prompt-cache.md)).
-
-**Consequence:** Every saving Pygg shows is one it can trace in the ledger.
-
-**What is claimed, by scope (2026-11-18).** Savings measured on single tasks do not carry over to long work: cheaper models lose far more on feature-sized and release-sized benchmarks (SWE-EVO, FeatureBench) than on SWE-bench Verified. Parallel agents multiply tokens (about 4× chat for one agent, 15× for a multi-agent system) while people can review only a few at once. So Pygg claims:
-- **One bounded task:** cost per solved task, from checks the agent cannot edit, on the user's repository where measured.
-- **Parallel sessions:** that their cost can be seen and bounded (per session, per request class, with limits), not that more agents get more done.
-- **A whole project:** observations only (cost per launch, per commit, launches that changed nothing), never productivity or return on spend.
-
-Each `pygg run` launch is kept with what changed in Git (`launches`, schema v38) so cost can be set against what came of it.
+- **Not done:** semantic response caching, history dedup or retrieval markers, context as images, RTK's BUSL-licensed engine.
+- **Claims by scope:** one bounded task — cost per solved task from checks the agent cannot edit; parallel sessions — that cost is visible and bounded, not that more gets done; a whole project — observations only (cost per launch, per commit, launches that changed nothing), never productivity or return. Each `pygg run` launch is kept with its Git changes (`launches`, schema v38). Every saving shown is traceable in the ledger.
 
 ## ADR-037 — One npm command for every platform
 
-**Decision:** A small launcher with one optional dependency per platform, each restricted by `os`, `cpu` and, on Linux, `libc`, so npm fetches only the matching one (as esbuild, Biome, SWC and Turbo do).
-- Packages: `@pygg/cli` (the launcher, command `pygg`) and `@pygg/win32-x64`, `@pygg/darwin-arm64`, `@pygg/darwin-x64`, `@pygg/linux-x64` (glibc), all at the launcher's version. npm refused the unscoped name `pygg`, so the scope stays.
-- The launcher (`packages/npm/pygg/bin/pygg.js`) runs the platform's program with the same arguments and streams, passes on SIGTERM and SIGHUP, and exits with its code. Where no build exists it says what to do; it restores a lost execute bit; `PYGG_CLI` overrides; on Windows an installed app's `pygg-cli.exe` is the fallback.
-- **The window is a Cargo feature.** `app` (default) brings Tauri; `pygg-cli` builds with `--no-default-features` and links no webview. Credentials use the Secret Service on Linux, the Keychain on macOS and the Credential Manager on Windows. The CLI finds the store where the app keeps it on each platform, or at `PYGG_DATA_DIR`.
-- Platform packages are generated by `scripts/npm-pack.mjs` and packed on their own runner. CI (`.github/workflows/npm-packages.yml`) builds, packs and installs each, and never publishes; publishing is a manual step ([PUBLISHING.md](../packages/npm/PUBLISHING.md)).
-
-**Why:** One package with every binary costs every user about 60 MB; a `postinstall` download breaks with `--ignore-scripts`, proxies and offline caches, and adds a second source to trust.
-
-**Not done:** linux-arm64 and musl builds, and code signing (no signing during development).
-
-**Cost:** The window's code must stay behind `#[cfg(feature = "app")]`, which `cargo check --no-default-features` and the Linux CI job catch.
+*Built.*
+- Launcher `@pygg/cli` (command `pygg`) with one optional dependency per platform, restricted by `os`, `cpu` and on Linux `libc`: `@pygg/win32-x64`, `@pygg/darwin-arm64`, `@pygg/darwin-x64`, `@pygg/linux-x64` (glibc), all at the launcher's version (npm refused unscoped `pygg`). No `postinstall` download.
+- `packages/npm/pygg/bin/pygg.js` runs the platform's program with the same arguments and streams, passes SIGTERM and SIGHUP, exits with its code; explains when no build exists; restores a lost execute bit; `PYGG_CLI` overrides; on Windows an installed app's `pygg-cli.exe` is the fallback.
+- `pygg-cli` builds with `--no-default-features` (no Tauri, no webview; window code stays behind `#[cfg(feature = "app")]`, caught by `cargo check --no-default-features` and the Linux CI job). Credentials: Secret Service, Keychain, Credential Manager; the store is found where the app keeps it, or at `PYGG_DATA_DIR`. Packages come from `scripts/npm-pack.mjs`; CI (`.github/workflows/npm-packages.yml`) builds, packs and installs, never publishes; publishing is manual ([PUBLISHING.md](../packages/npm/PUBLISHING.md)).
+- **Not done:** linux-arm64, musl, code signing.
 
 ## ADR-038 — Key rings: keys of separate accounts on one connection, used in turn
 
-**Decision:** A connection may hold a **key ring**: its own key plus keys of other accounts, each confirmed by the user as another account with its own quota (the ADR-034 rule). Requests keep naming `connection/model`; combos and `auto` are unchanged.
-- **Order per connection** (`providers.key_strategy`): `in_order` (default), `round_robin`, `least_used` (fewest requests today) or `quota_aware` (most room by the limits that key's account last stated, read from its rate-limit headers; without them, least used). A session goes back to the key that answered it, for that account's prompt cache.
-- **Per-key cooldowns and blocks** (`policy.rs`): a 401 or rejected-key 400 blocks the key until the user replaces or removes it; a 402, an out-of-credit answer or a 429 cools the key (or one model, for a 429) for Retry-After or a default, and the next key is tried at once. These mark the key (`key_health`), not the connection. Other failures stay the connection's. Quota groups still hold.
-- **The ledger names the key** (`usage_events.key_id`).
-- **Secrets** stay in the OS credential store, one reference per key; nothing reads, logs or returns a key. Removing the connection deletes every key.
-- **Never rotated:** web sessions, subscription and agent sign-ins, local runtimes.
-- **Providers → a connection → API keys** shows each key's state, requests today and remaining stated limits, and offers ordering, on and off, removal and **Add Key from Another Account…**.
-
-**Not done:** weights, a sticky turn count, a simulator and per-key budgets. Pools (ADR-034) remain for accounts that need their own endpoint, models or prices.
-
-**Why:** Ten accounts in a pool mean ten copies of one model list, and clients must name the pool. A ring keeps one connection and lets the next account answer in the same request.
-
-**Cost:** The rule against rotating one account's keys depends on the user's confirmation; Pygg cannot check it.
+*Built.*
+- A connection may hold a key ring: its own key plus other accounts' keys, each confirmed by the user as a separate account with its own quota (ADR-034's rule). Requests still name `connection/model`; combos and `auto` unchanged.
+- Order (`providers.key_strategy`): `in_order` (default), `round_robin`, `least_used` (fewest requests today), `quota_aware` (most room by the account's last rate-limit headers, else least used); a session returns to the key that answered it. Per key (`policy.rs`, `key_health`): 401 or rejected-key 400 blocks it until replaced or removed; 402, out-of-credit or 429 cools it (one model, for a 429) for Retry-After or a default, and the next key is tried at once; other failures stay the connection's; quota groups hold. The ledger names the key (`usage_events.key_id`).
+- Secrets in the OS credential store, one reference per key, never read, logged or returned; removing the connection deletes every key. Never rotated: web sessions, subscription and agent sign-ins, local runtimes. UI: Providers → a connection → API keys (state, requests today, remaining limits, order, on/off, remove, **Add Key from Another Account…**).
+- **Not done:** weights, a sticky turn count, a simulator, per-key budgets. Pools stay for accounts that need their own endpoint, models or prices.
 
 ## ADR-039 — Skills & Prompts: one library, installed into each agent's own skills folder
 
-**Decision:** Pygg keeps a library of skills in the open Agent Skills format (a folder holding `SKILL.md`: front matter with `name` and `description`, then the instructions) and installs them where the agents already look. It is a library and an installer, not a hub that downloads.
-- **Targets:** Claude Code's `~/.claude/skills` (or `$CLAUDE_CONFIG_DIR/skills`), and the shared `~/.agents/skills` that Codex and OpenCode read. OpenCode also reads Claude Code's folder.
-- **A prompt is a skill run only by name.** It carries `disable-model-invocation: true`, so Claude Code and OpenCode leave it out of the list they send with every request. Codex ignores that field and has its own: `agents/openai.yaml` with `policy.allow_implicit_invocation: false` keeps a skill out of the model's context until it is called as `$name`. Pygg writes that file beside each prompt it installs in `~/.agents/skills`. Pygg's eight starter skills (written for Pygg, MIT) are all prompts, so installing them adds nothing to a request until one is used.
-- **What Pygg writes:** one `SKILL.md` per install, with `metadata.pygg-hash`, a hash of the rest of the file, and for a prompt in the shared folder Codex's `agents/openai.yaml`, Pygg's only while it reads exactly as written. A copy installed before that file existed shows as outdated until it is installed again. Pygg never overwrites a folder it did not write and never removes or rewrites a copy edited since; it says so instead. Line endings are not an edit.
-- **The user's own skills** are rows of `skills` (schema v32), so a store backup holds them. A skill found in an agent's folder can be copied into the library and then installed for the other agents. Starters cannot be changed or deleted; they are duplicated.
-- **Sent With Every Request:** for each agent, its global instruction file (`CLAUDE.md`, `AGENTS.md`) counted whole, and each listed skill or command by its name and description, estimated as the gateway estimates tokens. OpenCode falls back to `CLAUDE.md` when it has no `AGENTS.md`.
-- **Projects:** a folder the user adds (`skill_projects`, schema v35) becomes a place to install: its own `.claude/skills` (Claude Code, OpenCode) and `.agents/skills` (Codex, OpenCode), so a team's skills travel with the repository. Pygg writes only into folders listed there, refuses the home folder (its `.claude` and `.agents` are the global ones), and forgets a folder only once its copies there are removed. For each project it counts what each agent adds on top of its global files from the project's root: `CLAUDE.md`, `.claude/CLAUDE.md` and `CLAUDE.local.md` for Claude Code, `AGENTS.override.md` or `AGENTS.md` for Codex, `AGENTS.md` or else `CLAUDE.md` for OpenCode, and the listed skills and commands. Files in folders below the root, read only when the agent works there, are not counted. A project the user did not add is never read.
-
-**Not done:** downloading skills from GitHub or a catalog (each would need a pinned commit, a review of every file and a quarantine for scripts; the earlier plan's supply-chain gate), skills with scripts or extra files, and Codex's `~/.codex/prompts` as a target.
-
-**Why:** The three agents now share one format and two folders, and each keeps only a skill's name and description in context until the skill is used. A library written once and installed into those folders saves retyping without a format of Pygg's own. The always-on context is the part of every request a user can shrink themselves, and only the files on their machine say how large it is.
-
-**Cost:** Pygg follows the agents' folder conventions; when an agent moves its folder, the target changes with it.
+*Built.*
+- A library of skills in the Agent Skills format (a folder with `SKILL.md`: front matter `name`, `description`, then instructions), installed into Claude Code's `~/.claude/skills` (or `$CLAUDE_CONFIG_DIR/skills`) and the shared `~/.agents/skills` (Codex, OpenCode; OpenCode also reads Claude Code's). A library and installer, not a downloading hub.
+- A prompt is a skill run only by name: `disable-model-invocation: true` (Claude Code, OpenCode) and, beside each prompt in `~/.agents/skills`, Codex's `agents/openai.yaml` with `policy.allow_implicit_invocation: false`. The eight starter skills (MIT) are all prompts. Each install writes one `SKILL.md` with `metadata.pygg-hash`; Pygg never overwrites a folder it did not write or a copy edited since (line endings are not edits). User skills are rows of `skills` (schema v32); found skills can be copied in; starters are duplicated, never changed.
+- **Sent With Every Request:** per agent, its global instruction file (`CLAUDE.md`, `AGENTS.md`; OpenCode falls back to `CLAUDE.md`) counted whole, plus each listed skill's name and description. **Projects** (`skill_projects`, schema v35): user-added folders get `.claude/skills` and `.agents/skills`; the home folder is refused; a folder is forgotten only once its copies are removed. Counted from the project root: `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md` (Claude Code), `AGENTS.override.md` or `AGENTS.md` (Codex), `AGENTS.md` else `CLAUDE.md` (OpenCode); subfolder files are not counted; projects not added are never read.
+- **Not done:** downloading skills (would need a pinned commit, review of every file, quarantine for scripts), skills with scripts or extra files, `~/.codex/prompts` as a target.
 
 ## ADR-040 — Model facts: per-role scores with their sources, published by the project
 
-**Decision:** Pygg publishes a **model facts feed**: a signed JSON file built by a scheduled job in this repository from named public sources, fetched by the app over HTTPS and cached in the store. The app never reads a leaderboard itself.
-- **A fact** is one model line (matched as `gateway/tiers.rs` matches, or an exact id), one role, the score as the source published it, that score's rank within the source (0 to 1), the source's name and URL, the date it was read, and the feed's version. A fact with no source has no row (ADR-011, ADR-029).
-- **Roles and their sources.** `code`: SWE-bench Verified, Aider polyglot, Terminal-Bench. `plan` and `review`: general reasoning (LMArena text, LiveBench, Artificial Analysis), and every such fact is labelled **derived**, because no public source measures software planning. `test`: derived from `code` until a source measures it. `image`: LMArena text-to-image; stored, not routable until the gateway has an images path.
-- **Terms first.** Each source's terms of use are read and recorded in the feed's source list before the job reads it; a source whose terms do not allow the use is left out. Leaderboard names are mapped to provider ids by a table kept in the repository, by hand.
-- **Ranking a role in the app**, each line with its source shown: the user's own evidence from the ledger (`checks_passed` and `result_kept` per model and role, ADR-029) above a minimum sample of ten attempts; then the feed; then the tier table. The feed changes suggestions, never a choice the user saved.
-- **Signed.** The job signs the feed with a key held in the repository's CI; the public key ships in the app. A feed that does not verify is refused. Offline, the last cached feed is used and its date shown; with none, the tier table alone.
-- **Cadence.** The job runs weekly; the app checks daily.
-
-**Why:** The tier table is a judgement by vendor naming (ADR-006). Public benchmarks are the only measurement of quality that exists before the user's own, and they change monthly. Reading them in the app would break with every page change and would bind the app to each source's terms; one job in the repository, reviewed, does it once for everyone. The feed moves money, so it is signed.
-
-**Cost:** The mapping from leaderboard names to provider ids is manual work that lags new models; `plan` has no direct measure and the interface must say so (ADR-013); a feed is only as fresh as its job.
-
-**Status:** Built. Design and as-built: [design/BRAIN.md](design/BRAIN.md).
+*Built* ([design/BRAIN.md](design/BRAIN.md)).
+- A signed JSON **model facts feed**, built weekly by a job in this repository from named public sources; the app fetches it over HTTPS daily, caches it in the store, and never reads a leaderboard itself. A fact: model line (matched as `gateway/tiers.rs`, or exact id), role, score as published, rank within the source (0–1), source name and URL, read date, feed version; no source, no row.
+- Roles: `code` (SWE-bench Verified, Aider polyglot, Terminal-Bench); `plan`, `review` (LMArena text, LiveBench, Artificial Analysis, all labelled **derived**); `test` derived from `code`; `image` (LMArena text-to-image; stored, not routable until the gateway has an images path). Each source's terms are recorded before use and disallowing sources are left out; leaderboard names map to provider ids by a hand-kept table.
+- Ranking: the user's ledger evidence (`checks_passed`, `result_kept` per model and role, ADR-029) above 10 attempts, then the feed, then the tier table (bands: ADR-041). The feed changes suggestions, never a saved choice. Signed with a CI-held key, public key in the app; an unverified feed is refused; offline uses the last cached feed with its date, else the tier table.
 
 ## ADR-041 — `pygg/brain`: the router is the brain
 
-**Decision:** The gateway serves a virtual model, **`pygg/brain`**, on Chat Completions, Messages and Responses. A client sends a requirement, as plain as "build a shop website", and gets back a **proposal**: clarifying questions and a set of cards, each with a role and a done criterion, with a model per role picked by rule. Any client that can name a model can use it, so tasks still start from the user's IDE (ADR-027) and the app stays the place to approve (ADR-010).
-
-- **Steps.**
-  1. The **planner** is picked by rule from the user's connected models for the role `plan` (ADR-040). A pick the user saved wins. The first use of a paid planner waits for the user's pick in the app; a free or local planner runs at once. No LLM runs before this pick.
-  2. The gateway sends the requirement with **Pygg's brain prompt**, a versioned prompt in the Skills & Prompts library (ADR-039) the user can read, and nothing else: the planner never names a model, so it gets no list of the user's connections.
-  3. The reply must fit the **board schema**; a card that does not is dropped, never guessed. Whether the planner fit the schema is a metric, `brain_schema_ok`, per planner model (ADR-029).
-  4. **Rules pick the model for each card**: the card's role, the role's ranking, then `auto`'s own filters under the client's policy.
-  5. The proposal is stored as a **brainstorm** with an id and shown in the app, where the user changes models, drops cards and approves. The client receives a summary with the brainstorm's id and the questions. A later call in the same session refines that brainstorm; it never starts another.
-- **What keeps ADR-025.** Only a request that names `pygg/brain` runs Pygg's own prompt or fans out; a real model or `auto` never does. Every call the brain makes is a ledger entry under the client's request id, key and session, with `route_kind` `brain`, so budgets and limits apply. Nothing from a brainstorm is kept as memory or sent with any later request (ADR-030).
-- **Role aliases.** `auto/plan`, `auto/code`, `auto/test` and `auto/review`: `auto`'s filters, then the role's ranking; `x-pygg-auto` names the fact's source and date. They exist because the brain needs them, and they are measured with the benchmark harness before any claim.
-- **The LLM classifies the work; rules pick the model; the user approves before money.** This amends ADR-006 by exactly that much.
-- **Amended 2026-11-20: facts rank in bands, and price decides within a band.** In the overnight benchmark ([report](../benchmark/reports/2026-11-20-all-models.md)), `auto/code` ranked by the best fact took Gemini 4 Carbon (Terminal-Bench #4 of 71, rank 0.96) and solved 33 of 36 at $0.115 a solved task, while Gemini 4 Hydrogen (#12, rank 0.84, a quarter cheaper a token) solved 36 of 36 at $0.072, and two plan models without any fact solved 36 of 36 at no metered money. A place on a public leaderboard, run with another agent on other tasks, does not order two models this close for the user's work; their prices do. A role's order is now the user's own evidence (kept rate in bands of 0.1, since ten attempts do not tell 9 of 10 from 10, then money per kept result), then facts and tiers on one scale in bands of 0.15, the cheaper first within a band ([BRAIN.md](design/BRAIN.md) §1). The band widths are a judgment, to be checked by the next run, not a measurement.
-- **Who runs a card.** Either Pygg's task engine (an agent CLI with its own sign-in, ADR-026, on the card's model when the agent is pointed at the gateway) or the user's own IDE agent, calling the role alias. Chosen per card.
-- **No chat in the app** (ADR-028). The questions go back to the client and are answered there; the app shows proposals, approvals and the board, never a reply box.
-
-**Why:** The router alone knows, at once, the connected models, their prices and context, the user's ledger and the budgets left. A skill in the IDE would have to ask for all of it over MCP and be installed per agent; a brain in the app would be a chat.
-
-**Cost:** The planner call is the first request Pygg starts on its own, which is why it waits for the pick. The brain prompt is part of the product and needs its own benchmark. Parsing a model's structured reply is work that fails on some models, and the metric says which.
-
-**Status:** Built. Design and as-built: [design/BRAIN.md](design/BRAIN.md). Still to come: the `image` role, once the gateway has an images path.
+*Built* ([design/BRAIN.md](design/BRAIN.md)); the `image` role waits for an images path.
+- Virtual model `pygg/brain` on Chat Completions, Messages and Responses: a requirement in, a **proposal** out (clarifying questions and cards, each with a role and done criterion, a model per role picked by rule). The LLM classifies, rules pick the model, the user approves before money (amends ADR-006 that far).
+- Steps: (1) the planner is picked by rule for role `plan` (ADR-040); a saved pick wins; a paid planner's first use waits for the user's pick in the app, a free or local one runs at once; no LLM runs before this. (2) The requirement goes with Pygg's versioned brain prompt (Skills & Prompts, ADR-039) and nothing else; the planner gets no list of connections. (3) A card that does not fit the board schema is dropped; `brain_schema_ok` per planner model (ADR-029). (4) Rules pick each card's model: role, role ranking, then `auto`'s filters under the client's policy. (5) Stored as a **brainstorm** with an id, changed and approved in the app; the client gets a summary with the id and questions; a later call in the same session refines it.
+- ADR-025 kept: only `pygg/brain` requests run Pygg's prompt or fan out; every brain call is ledgered under the client's request id, key and session, `route_kind` `brain`; nothing is kept as memory (ADR-030). Role aliases `auto/plan`, `auto/code`, `auto/test`, `auto/review` (`auto`'s filters, then the role's ranking; `x-pygg-auto` names the fact's source and date). A card runs on Pygg's task engine or the user's IDE agent via the role alias, chosen per card. No chat in the app (ADR-028).
+- **Amended: facts rank in bands, price decides within a band.** Order: the user's evidence (kept rate in bands of 0.1, then money per kept result), then facts and tiers on one scale in bands of 0.15, cheaper first ([BRAIN.md](design/BRAIN.md) §1); band widths are a judgment for the next run to check. Evidence: Gemini 4 Carbon (rank 0.96) solved 33 of 36 at $0.115 per solved task, Gemini 4 Hydrogen (0.84, a quarter cheaper per token) 36 of 36 at $0.072 ([report](../benchmark/reports/2026-11-20-all-models.md)).
 
 ## ADR-042 — Smart tasks run as a Kanban board
 
-**Decision:** An approved brainstorm becomes the **board** of a workspace (a Git repository, ADR-008). Kanban is applied strictly, because every card costs money.
-- **Columns, fixed:** Discovery, Ready, Running, Checking, Blocked, Review, Done. A card is a task: a ladder of steps on the card's role model (AGENTS.md).
-- **Pull, never push.** A card enters Running only when Running has room. The working columns, **Running** and **Checking**, each have a **WIP limit**, default 1, which the user may raise and never remove; the queue columns (Discovery, Ready, Review, Done) hold any number of cards. The limit is the spending control the user can see: at most that many paid steps are in flight. (Amended 2026-11-19 from "each column has a limit": a limit on a queue would only hide cards.)
-- **Leaving a column is defined**, not judged: Running to Checking when the agent ends; Checking to Review when the approved checks pass (ADR-007), to Blocked when the ladder's last step fails; Review to Done on Keep as Branch (ADR-009). Without approved checks a card leaves Checking only for Review, marked unverified.
-- **Blocked is a column**, pinned: waiting for approval, over the cap or the budget, interrupted, or depending on a question nobody answered.
-- **Discovery holds the questions** as cards; a card that depends on an unanswered question cannot enter Ready. Answers come from the client through `pygg/brain` (ADR-041), never typed into the app.
-- **Two classes of service:** standard, and expedite, one at a time, which goes to the front of Ready and still obeys the WIP limit.
-- **Measured from what is recorded already:** cycle time (Ready to Done), lead time, throughput per day, time blocked, and known money per kept result (ADR-029). No story points, no sprints; a card's only size is the cost range of the last ten runs, as today.
-- **MCP:** tools to read the board and to move a card between Discovery and Ready. No tool approves a paid step (ADR-010).
-
-**Why:** The engine is already a ladder judged by checks; Kanban makes its states columns and its budget a limit. A strict WIP limit is what stops five agents from spending in parallel where the user cannot see it.
-
-**Cost:** One card at a time is slow; a user who wants more raises the limit and pays for it.
-
-**Amended 2026-11-21: a brainstorm builds on one branch.** Approval makes a branch `str/brain-<requirement>-<id>` at the workspace's HEAD. Each card's task starts from its tip, and keeping a card's result adds the commit to it: on top when the branch has not moved since the card started, picked onto its tip when it has. A result that conflicts, or a branch the user has checked out, is kept as a branch of its own, as before, and the task says why. The user's checkout is never touched; the brainstorm's work is one branch to review and merge. **Why:** cards depend on one another, but each kept result went to its own branch from the workspace's HEAD, so a later card started without what the earlier ones built, which a project of several cards (a website, a feature across modules) cannot survive.
-
-**Status:** Built. Design and as-built: [design/BRAIN.md](design/BRAIN.md).
+*Built* ([design/BRAIN.md](design/BRAIN.md)).
+- An approved brainstorm becomes the **board** of a workspace (a Git repository, ADR-008). Fixed columns: Discovery, Ready, Running, Checking, Blocked, Review, Done; a card is a task (a ladder of steps on the card's role model, [AGENTS.md](AGENTS.md)).
+- Pull only: **Running** and **Checking** each have a WIP limit, default 1, raisable, never removable; queue columns hold any number. Moves: Running → Checking when the agent ends; Checking → Review when approved checks pass (ADR-007), → Blocked when the ladder's last step fails (without checks, only to Review, marked unverified); Review → Done on Keep as Branch (ADR-009). Blocked (pinned): waiting for approval, over cap or budget, interrupted, or on an unanswered question. Discovery holds questions as cards, answered through `pygg/brain`, never in the app; dependent cards cannot enter Ready. Classes: standard, and expedite (one at a time, front of Ready, still under the WIP limit).
+- Measured from records: cycle time (Ready → Done), lead time, throughput per day, time blocked, known money per kept result (ADR-029); no story points or sprints; a card's size is the cost range of the last ten runs. MCP can read the board and move a card between Discovery and Ready; nothing approves a paid step (ADR-010).
+- **Amended: a brainstorm builds on one branch.** Approval makes `str/brain-<requirement>-<id>` at the workspace's HEAD; each card starts from its tip, and keeping adds the commit (on top if the branch has not moved, else picked onto its tip). A conflict, or a branch the user has checked out, is kept as its own branch and the task says why. The user's checkout is never touched.
 
 ## Open decisions
 

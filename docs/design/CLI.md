@@ -2,16 +2,16 @@
 
 > **Status:** Current · the `pygg` command and its npm launcher, as built · reviewed 2026-11-20 · built: [Implementation Status](../IMPLEMENTATION-STATUS.md) · npm: [packages/npm](../../packages/npm/pygg/README.md) · platforms: ADR-037 in [DECISIONS](../DECISIONS.md)
 
-`pygg` is the console program `pygg-cli` (`apps/desktop/src-tauri/src/cli/`), installed from npm as `@pygg/cli`. It runs the same Rust core and store as the app. On Windows the desktop app runs the gateway and is where providers are connected; on macOS and Linux, where there is no app yet, `pygg gateway add-connection` and `pygg gateway serve` do it from the terminal.
+`pygg` is the console program `pygg-cli` (`apps/desktop/src-tauri/src/cli/`), installed from npm as `@pygg/cli`; same Rust core and store as the app. On Windows the app runs the gateway and connects providers; on macOS and Linux (no app yet) use `pygg gateway add-connection` and `pygg gateway serve`.
 
 ## Rules
 
-- **Read commands only read.** `providers`, `models`, `logs`, `usage`, `status`, `doctor`, `diagnostics` and `setup --dry-run` open the store read-only. A missing, older or newer store is refused with what to do; nothing is created or migrated. They send nothing to any provider.
-- **`--json` on every read command.** The document has `schemaVersion: 1` and uses the CLI's own output types (camelCase). It never holds a credential reference, endpoint secret, prompt, session id or upstream error text.
-- **Nothing secret on the command line.** A provider key comes from an environment variable (`--key-env VAR`). A new Pygg API key is never printed.
-- **Strict options.** An unknown option, a missing value or a repeated option is a usage error (exit 2) that says what to type. A mistyped command gets a suggestion (`Did you mean pygg status?`).
-- **One port rule:** `--port`, then the port saved in the store, then 8741. The health probe accepts only an HTTP success whose `app` is Pygg.
-- **One store rule:** `--db PATH`, else `PYGG_DATA_DIR`, else the app's data folder (`%APPDATA%\app.smarttaskrouter.desktop`, `~/Library/Application Support/app.smarttaskrouter.desktop`, or `$XDG_DATA_HOME` / `~/.local/share` on Linux).
+- **Read commands only read.** `providers`, `models`, `logs`, `usage`, `status`, `doctor`, `diagnostics`, `setup --dry-run` open the store read-only and send nothing to providers. A missing, older or newer store is refused with what to do; nothing is created or migrated.
+- **`--json` on every read command:** `schemaVersion: 1`, camelCase CLI output types. Never holds a credential reference, endpoint secret, prompt, session id or upstream error text.
+- **No secrets on the command line.** Provider keys come from an environment variable (`--key-env VAR`); a new Pygg API key is never printed.
+- **Strict options.** Unknown, missing-value or repeated option: usage error (exit 2) saying what to type. A mistyped command gets a suggestion (`Did you mean pygg status?`).
+- **Port:** `--port`, else the store's saved port, else 8741. The health probe accepts only an HTTP success whose `app` is Pygg.
+- **Store:** `--db PATH`, else `PYGG_DATA_DIR`, else the app's data folder (`%APPDATA%\app.smarttaskrouter.desktop`, `~/Library/Application Support/app.smarttaskrouter.desktop`, or `$XDG_DATA_HOME` / `~/.local/share` on Linux).
 - **Errors** go to stderr and end with the next thing to try.
 
 ## Commands
@@ -77,26 +77,30 @@ Every command takes `--db PATH`; `pygg <command> --help` says more.
 
 ### `setup` and `run`
 
-- `pygg setup claude` keeps the launcher's key in the OS credential store; no file changes. `codex` and `opencode` back up the tool's configuration, then add Pygg's provider. `--dry-run` writes nothing; `--remove` takes Pygg out and revokes the key. Details: [AGENTS.md](../AGENTS.md).
-- Older names still work: `claude-launcher`, `codex-models`, `opencode-models`. `pygg setup claude-code` is refused with a pointer to `pygg mcp setup claude-code`.
-- `pygg run`: Pygg's options go **before** the tool's name; everything after it is the tool's, `--help` included (`pygg run claude --help` is Claude Code's help). `--model` and `--statusline` are for `claude` only. Each launch gets its own routing session. `run` checks the set-up, the gateway and the tool before starting, then returns the tool's own exit code. When the tool exits it prints the launch's receipt on stderr: cost, cache, models, and what changed in Git ([AGENTS.md](../AGENTS.md), "The session receipt").
+- `setup claude`: the launcher's key goes in the OS credential store; no file changes. `codex`, `opencode`: back up the tool's config, add Pygg's provider. `--dry-run` writes nothing; `--remove` takes Pygg out and revokes the key. Details: [AGENTS.md](../AGENTS.md).
+- Old names still work: `claude-launcher`, `codex-models`, `opencode-models`. `pygg setup claude-code` is refused with a pointer to `pygg mcp setup claude-code`.
+- `run`: Pygg's options go **before** the tool name; everything after is the tool's (`pygg run claude --help` is Claude Code's help). `--model`, `--statusline`: `claude` only.
+- `run` gives each launch its own routing session, checks set-up, gateway and tool before starting, returns the tool's exit code, and prints a receipt on stderr at exit: cost, cache, models, Git changes ([AGENTS.md](../AGENTS.md), "The session receipt").
 
 ### `chat` and `ask`
 
-- Both send Chat Completions requests to the gateway's `/v1/chat/completions` with `stream: true`, so the answer is printed as it arrives, then a line on stderr: the model that answered (`x-pygg-route`), the time, a fallback if there was one, and the cost the ledger knows (`cost unknown` or `on a plan` where there is no price per request).
-- They use an API key of their own, "Pygg CLI (ask)", made at first use and kept in the OS credential store (`cli.ask` in settings names it); a key missing from the credential store is revoked and made again. Its limits are set like any client's.
-- `--model` takes `connection/model`, a combo, `auto`, `auto/cheap` or a role alias (`auto/plan`, `auto/code`, `auto/test`, `auto/review`); without it, the model set by `pygg default`, else `auto`. A chat is one routing session (`chat-<uuid>`), so it stays on the model that first answered; `/model M` starts a new session for the next messages and sends the conversation so far with them. `/new` forgets the conversation.
-- The conversation is held in memory only (ADR-028). A message the gateway refused is taken out of it, so it can be changed and sent again. Every turn sends the whole conversation, so a web session such as Muse refuses a chat once it passes the site's prompt limit.
-- `ask` reads the question from its arguments, or from stdin when there are none and stdin is not a terminal. Exit codes: 0 answered, 1 no answer, 2 wrong usage.
-- **Pictures, videos and files.** A web session's answer carries what the site made as Markdown links after the text: `![image 1](URL)`, `[video 1](URL)`, `[file 1](URL)` (an https address, or a picture's `data:` URL). They are not printed (a picture's data URL is long): `chat` and `ask` save each into the current folder (`--save-dir DIR` elsewhere) as `pygg-image1-<id>.<ext>`, the extension from the address or the type the server gives, at most 500 MB each, and say where; `--no-save` prints the addresses instead. They are downloaded without the site's cookies, so an address that needs the signed-in session is reported as not saved.
+- Send Chat Completions to `/v1/chat/completions` with `stream: true`. After the answer, a stderr line: answering model (`x-pygg-route`), time, any fallback, ledger cost (`cost unknown`, or `on a plan` with no per-request price).
+- Use their own API key, "Pygg CLI (ask)", made on first use and kept in the OS credential store (`cli.ask` in settings names it). If missing from the credential store, it is revoked and remade. Limits set like any client's.
+- `--model`: `connection/model`, a combo, `auto`, `auto/cheap`, or a role alias (`auto/plan`, `auto/code`, `auto/test`, `auto/review`); default: `pygg default`, else `auto`.
+- A chat is one routing session (`chat-<uuid>`), staying on the model that first answered. `/model M` starts a new session and resends the conversation; `/new` forgets it.
+- Conversation is in memory only (ADR-028). A refused message is removed so it can be edited and resent. Every turn resends the whole conversation, so a web session (e.g. Muse) refuses once past its prompt limit.
+- `ask` reads the question from arguments, else stdin when not a terminal. Exit: 0 answered, 1 no answer, 2 wrong usage.
+- **Media in answers.** A web session's pictures, videos and files arrive as Markdown links after the text (`![image 1](URL)`, `[video 1](URL)`, `[file 1](URL)`; https or a picture's `data:` URL). They are saved to the current folder (`--save-dir DIR`) as `pygg-image1-<id>.<ext>` (extension from the address or server type), max 500 MB each, and the path is printed; `--no-save` prints the addresses instead. Downloads carry no site cookies, so a sign-in-only address is reported as not saved.
 
 ### Changing things from the terminal
 
-- `providers add|refresh|enable|disable|remove`, `models enable|disable` and `default` open the store read-write without migrating it, and only at the schema this program knows (`manage::open_write`). The running app and gateway read the store at each request, so a change applies at once.
-- `providers add` reads the key from an environment variable (`--key-env`), never from the command line, keeps it in the credential store and lists the connection's models (with models.dev's facts), as Connect Provider does. Web-session presets are refused with a pointer to the app, which opens the site's sign-in window. `providers remove` needs `--yes` and deletes the connection's keys from the credential store; its past requests stay in the ledger.
-- `models info` reads only the store: the price, tier, limits, what it takes, its requests over 24 hours, and its place in `auto` and `auto/cheap` for a 1,000-token chat by the first API key's rules (`route` takes another key and other needs). `models test` sends one short question through the running gateway, as `ask` does.
-- `models facts [plan|code|test|review|image]` reads the model facts feed the app keeps beside the store (ADR-040) and ranks the enabled models for the role: the layer that won (the feed, else the tier), the source, its place and row count, the score, the agent and effort the row was run with, `derived` where the source measures something near the role, and the row's date. A row older than a year is shown as not ranking. The feed is never fetched by this command; the app and `pygg gateway facts` fetch it.
-- Making, limiting and revoking API keys, combos, prices and tiers stay in the app (and in `pygg gateway` for a headless gateway). A key's secret is never printed by `keys`.
+- `providers add|refresh|enable|disable|remove`, `models enable|disable`, `default` open the store read-write, only at the schema this program knows, never migrating (`manage::open_write`). The running app and gateway read the store per request, so changes apply at once.
+- `providers add`: key from `--key-env` only, kept in the credential store; lists the connection's models with models.dev facts, as Connect Provider does. Web-session presets are refused with a pointer to the app (it opens the site's sign-in window).
+- `providers remove` needs `--yes`; deletes the connection's keys from the credential store; past requests stay in the ledger.
+- `models info` reads only the store: price, tier, limits, inputs, 24-hour requests, place in `auto` and `auto/cheap` for a 1,000-token chat under the first API key's rules (`route` takes another key and needs).
+- `models test`: one short question through the running gateway, as `ask` does.
+- `models facts [plan|code|test|review|image]` (ADR-040): ranks enabled models for the role from the facts feed kept beside the store. Shows the winning layer (feed, else tier), source, place and row count, score, the row's agent and effort, `derived` for a near-role measure, and the row's date; rows over a year old are not ranking. Never fetches; the app and `pygg gateway facts` do.
+- In the app only (or `pygg gateway` for a headless gateway): making, limiting and revoking API keys; combos; prices; tiers. `keys` never prints a secret.
 
 ### `gateway` (advanced)
 
@@ -128,13 +132,17 @@ pygg gateway [--db PATH] <command>
   usage
 ```
 
-Unlike the read commands, `gateway` commands open the store for writing and migrate it. `serve` refuses a store another gateway already serves. `--tasks yes` also runs smart tasks from clients allowed to start them, for a computer where the app is not open on that store.
-
-`pygg agent` (`detect`, `run`, `task`, `quality`) is described in [AGENTS.md](../AGENTS.md).
+- `gateway` commands open the store for writing and migrate it.
+- `serve` refuses a store another gateway already serves. `--tasks yes` also runs smart tasks from allowed clients, for a computer where the app is not open on that store.
+- `pygg agent` (`detect`, `run`, `task`, `quality`): see [AGENTS.md](../AGENTS.md).
 
 ## Output
 
-Tables with aligned columns and no colour. A bare `pygg` answers in about a second (one loopback probe and a few reads) and ends with the next command. `models` shows 50 rows by default (`--limit 0` for all) and a price with its units, or "no price (cost unknown)". `logs` filters before the limit (1 to 500, 20 by default). `usage` keeps known and unknown cost apart.
+- Aligned tables, no colour.
+- Bare `pygg` answers in about a second (one loopback probe, a few reads) and ends with the next command.
+- `models`: 50 rows by default (`--limit 0` for all); prices with units, or "no price (cost unknown)".
+- `logs`: filters before the limit (1 to 500, default 20).
+- `usage`: known and unknown cost kept apart.
 
 ## Exit codes
 
@@ -149,7 +157,7 @@ Tables with aligned columns and no colour. A bare `pygg` answers in about a seco
 
 ## The npm launcher (`packages/npm`)
 
-`@pygg/cli` is a Node launcher (`bin/pygg.js`, Node 18 or later) that runs the native `pygg-cli` with the same arguments, standard input and output, and exits with its code. Its own errors go to stderr only, so `pygg mcp` keeps a clean stdout. The native program is one of four optional dependencies, of which npm installs only the one matching the computer (ADR-037):
+`@pygg/cli` is a Node launcher (`bin/pygg.js`, Node 18+) that runs native `pygg-cli` with the same arguments, stdin/stdout and exit code. Its own errors go to stderr only, keeping `pygg mcp`'s stdout clean. The native program is one of four optional dependencies; npm installs the matching one (ADR-037):
 
 | Package | Platform |
 | --- | --- |
@@ -158,7 +166,7 @@ Tables with aligned columns and no colour. A bare `pygg` answers in about a seco
 | `@pygg/darwin-arm64` | macOS, Apple silicon |
 | `@pygg/darwin-x64` | macOS, Intel |
 
-All four are published under the tags `dev` and `latest`; [PUBLISHING.md](../../packages/npm/PUBLISHING.md) lists each version.
+All four are published under tags `dev` and `latest`; versions in [PUBLISHING.md](../../packages/npm/PUBLISHING.md).
 
 ```text
 npm install -g @pygg/cli@dev
@@ -167,14 +175,14 @@ pygg
 npx --yes --package=@pygg/cli@dev pygg doctor
 ```
 
-- The program is found in this order: `PYGG_CLI` (a full path only), the platform package, then on Windows an installed Pygg app (`%LOCALAPPDATA%\Pygg\pygg-cli.exe`).
-- `pygg --launcher-info` prints the launcher's version, each place it looked and the program it runs, without starting anything.
-- Where nothing can run, the launcher says why and what to do: musl Linux (Alpine) needs a glibc image; Windows on Arm needs the x64 build of Node; a package skipped by `--omit=optional` needs a reinstall; or set `PYGG_CLI` to a program built with `cargo build --release --no-default-features --bin pygg-cli`.
-- On macOS and Linux, a program unpacked without its execute bit gets it back.
-- It is a developer preview and unsigned: Windows SmartScreen, macOS Gatekeeper or an antivirus may warn.
+- **Lookup order:** `PYGG_CLI` (full path only), the platform package, then on Windows an installed app (`%LOCALAPPDATA%\Pygg\pygg-cli.exe`).
+- `pygg --launcher-info` prints the launcher version, each place checked and the program it runs, without starting anything.
+- **When nothing can run**, it says why: musl Linux (Alpine) needs a glibc image; Windows on Arm needs x64 Node; a package skipped by `--omit=optional` needs a reinstall; or set `PYGG_CLI` to a build from `cargo build --release --no-default-features --bin pygg-cli`.
+- On macOS and Linux, a missing execute bit is restored.
+- Developer preview, unsigned: SmartScreen, Gatekeeper or antivirus may warn.
 
-Verified: unit tests in `cli/mod.rs`, `cli/read.rs`, `cli/setup.rs`, `cli/run.rs` and the launcher's `node --test`; the published packages installed back from the registry and run on Windows x64 and Linux x64 (Debian bookworm); the macOS packages installed back from their tarballs and run by CI on macOS. Not yet installed from the registry on a real Mac.
+**Verified:** unit tests in `cli/mod.rs`, `cli/read.rs`, `cli/setup.rs`, `cli/run.rs` and the launcher's `node --test`; published packages installed from the registry and run on Windows x64 and Linux x64 (Debian bookworm); macOS packages installed from tarballs and run by CI on macOS. **Not yet:** installed from the registry on a real Mac.
 
 ## Not built yet
 
-`providers check`, `models refresh`, `logs --follow`, colour, and a set-up wizard.
+`providers check`, `models refresh`, `logs --follow`, colour, a set-up wizard.

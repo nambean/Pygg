@@ -2,9 +2,9 @@
 
 > **Status:** Current · connection presets, their endpoints and free tiers, which have answered live, and web sessions · reviewed 2026-11-20
 
-Each preset in `apps/desktop/src-tauri/src/gateway/presets.rs` fills in a provider's endpoint, API format and default billing type. You can change any of them when connecting, for example to use a token plan's or a regional endpoint. Every endpoint below comes from the provider's own documentation.
+Presets live in `apps/desktop/src-tauri/src/gateway/presets.rs` (endpoint, API format, default billing type); any field can be changed when connecting, e.g. a token plan's or regional endpoint. Every endpoint is from the provider's own docs.
 
-**Live** means a real request went through the gateway and the provider answered it. Every other preset is configured from the provider's documentation and has not answered a real request yet. OpenAI, Groq and Mistral have only had their answer to an invalid key recorded, and DeepSeek its answer to an empty balance (HTTP 402); a successful request to any of them is not verified yet.
+**Live** = a real request went through the gateway and the provider answered. Partly checked: OpenAI, Groq and Mistral (only an invalid-key answer recorded), DeepSeek (only HTTP 402 on an empty balance).
 
 ## Cloud, API key
 
@@ -38,15 +38,21 @@ Each preset in `apps/desktop/src-tauri/src/gateway/presets.rs` fills in a provid
 | Nebius Token Factory | `https://api.tokenfactory.nebius.com/v1` | OpenAI | context (verbose) | not stated | no | https://docs.tokenfactory.nebius.com/ |
 | Meta (Muse API) | `https://api.meta.ai/v1` | OpenAI (also Anthropic Messages and Responses) | yes | pay as you go; no free tier stated | no | https://dev.meta.ai/docs/ |
 
-An Anthropic-format endpoint is written as the base an Anthropic SDK takes plus `/v1`, because the gateway appends `/messages`. Presets for one provider in both formats (DeepSeek, Kimi, Z.AI, MiniMax) share a quota group by default, since they take the same key. Custom connections share one with the same host only.
+- **Anthropic-format endpoints** are the Anthropic SDK base plus `/v1`; the gateway appends `/messages`.
+- **Quota groups:** presets for one provider in both formats (DeepSeek, Kimi, Z.AI, MiniMax) share one by default (same key); custom connections share one only with the same host.
 
-**Several accounts on one connection.** A connection can hold API keys of several separate accounts, used in turn: in order, round robin, least used, or by the room each account's stated rate limits leave (ADR-038). A key that is rate-limited or out of credit cools down and the next key answers in the same request; a rejected key is blocked until you replace or remove it. Usage names the key that answered. Add keys in Providers → a connection → API keys, or with `pygg gateway key --id CONNECTION --label NAME --key-env VAR --separate-account yes`. Add only keys of separate accounts: several keys of one account share its limits. Web sessions, subscription sign-ins and local runtimes have no key ring.
+**Key ring: several accounts on one connection** (ADR-038)
+
+- Keys are used in order, round robin, least used, or by the room each account's stated rate limits leave.
+- A rate-limited or out-of-credit key cools down and the next key answers in the same request; a rejected key is blocked until replaced or removed. Usage names the key that answered.
+- Add: Providers → a connection → API keys, or `pygg gateway key --id CONNECTION --label NAME --key-env VAR --separate-account yes`.
+- Only keys of separate accounts (one account's keys share its limits). No key ring for web sessions, subscription sign-ins or local runtimes.
 
 ## Local
 
 | Preset | Default endpoint | Notes | Source |
 | --- | --- | --- | --- |
-| Ollama | `http://127.0.0.1:11434/v1` | **Live** (`qwen3:8b`, through the Anthropic surface for OpenCode). Agents send prompts of 20k tokens or more: start Ollama with a larger context (`OLLAMA_CONTEXT_LENGTH=32768`), or the prompt is cut. `qwen2.5-coder:7b` did not produce tool calls OpenCode could use | Ollama docs |
+| Ollama | `http://127.0.0.1:11434/v1` | **Live** (`qwen3:8b`, through the Anthropic surface for OpenCode). Agents send prompts of 20k tokens or more: start Ollama with `OLLAMA_CONTEXT_LENGTH=32768` or the prompt is cut. `qwen2.5-coder:7b` produced no tool calls OpenCode could use | Ollama docs |
 | LM Studio | `http://localhost:1234/v1` | key only if "Require Authentication" is on | https://lmstudio.ai/docs/developer/openai-compat |
 | llama.cpp server | `http://127.0.0.1:9931/v1` | the README's default port; Docker examples use 8080 | https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md |
 | vLLM | `http://localhost:8000/v1` | optional `--api-key` | https://docs.vllm.ai/en/latest/serving/online_serving/openai_compatible_server/ |
@@ -55,7 +61,7 @@ An Anthropic-format endpoint is written as the base an Anthropic SDK takes plus 
 
 ## Providers outside the list
 
-**Custom (OpenAI-compatible)** and **Custom (Anthropic-compatible)** take any endpoint you enter, for a provider that has no preset. Billing starts as unknown and you set it. `/models` is read when the endpoint offers it; otherwise add model names by hand. From the command line, the key comes from an environment variable:
+**Custom (OpenAI-compatible)** and **Custom (Anthropic-compatible)** take any endpoint. Billing starts as unknown until you set it; `/models` is read when offered, otherwise add model names by hand.
 
 ```
 pygg gateway add-connection --preset custom --label "My provider" --endpoint https://api.example.com/v1 --key-env CUSTOM_API_KEY
@@ -65,67 +71,67 @@ Not verified yet: an Anthropic-compatible endpoint other than Anthropic's own.
 
 ## Web sessions (unofficial)
 
-A web session uses an AI site that has no API through a Pygg window you sign in to yourself (ADR-035). It needs the desktop app.
+An AI site with no API, used through a Pygg window you sign in to yourself (ADR-035; desktop app only). Recipes, hosts and selectors: `RECIPES` in `apps/desktop/src-tauri/src/websession/mod.rs`.
 
-- **Off until you say so.** Each connection starts off. You acknowledge the account-risk warning for that connection and sign in. The site's terms may forbid automated use, and the account can be limited or banned.
-- **Billing.** Free by default ($0 a request: your plan with the site is paid by the month or free, never per request), or a subscription (counted as quota, cost unknown) if you choose.
-- **What it does not do.** It is never chosen by `auto`; use it by name or in a combo. It takes no tools and no images.
-- **One profile per connection.** Each connection has its own WebView2 profile with its own cookies, storage and sign-in. Pygg never changes the window's browser fingerprint. Connections of one site, each signed in to a different account, can form a pool.
-- **When the page changes.** A site can change its page at any time; the connection then fails with "the page has changed".
-
-Recipes, hosts and selectors are in `apps/desktop/src-tauri/src/websession/mod.rs` (`RECIPES`).
+- **Off until you say so:** each connection starts off; you acknowledge the account-risk warning and sign in. A site's terms may forbid automated use; the account can be limited or banned.
+- **Billing:** free by default ($0 a request) or a subscription (quota, cost unknown) if you choose.
+- **Never chosen by `auto`:** use by name or in a combo. No tools, no images.
+- **One WebView2 profile per connection** (own cookies, storage, sign-in). The browser fingerprint is never changed. Connections of one site on different accounts can form a pool.
+- **Page changes** make the connection fail with "the page has changed".
 
 | Preset (id) | Site and new chat | Model | Live |
 | --- | --- | --- | --- |
-| Muse (`muse-web`) | `https://muse.ai/thread/new` | `muse` | yes: sign-in, a test message, and the benchmark (8 of 8). Selectors follow 9router's `muse-web` executor (MIT; see THIRD_PARTY_NOTICES.md) |
-| ChatGPT (`chatgpt-web`) | `https://chatgpt.com/` | `chatgpt` | yes: sign-in with Google, Check Sign-In and Test, and the benchmark with two accounts (15 of 16) |
+| Muse (`muse-web`) | `https://muse.ai/thread/new` | `muse` | yes: sign-in, a test message, the benchmark (8 of 8). Selectors follow 9router's `muse-web` executor (MIT; see THIRD_PARTY_NOTICES.md) |
+| ChatGPT (`chatgpt-web`) | `https://chatgpt.com/` | `chatgpt` | yes: sign-in with Google, Check Sign-In and Test, the benchmark with two accounts (15 of 16) |
 | Perplexity (`perplexity-web`) | `https://www.perplexity.ai/` | `perplexity` | yes: the benchmark (8 of 8) |
 | DeepSeek (`deepseek-web`) | `https://chat.deepseek.com/` | `deepseek` | yes: the benchmark (8 of 8) |
-| Grok (`grok-web`) | `https://grok.com/` | `grok` | yes: sign-in with Google, Check Sign-In and Test, and the benchmark (8 of 8) |
-| Gemini (`gemini-web`) | `https://gemini.google.com/app` | `gemini` | yes: Check Sign-In with the account shown, a text answer, and a picture it made (2026-11-19) |
+| Grok (`grok-web`) | `https://grok.com/` | `grok` | yes: sign-in with Google, Check Sign-In and Test, the benchmark (8 of 8) |
+| Gemini (`gemini-web`) | `https://gemini.google.com/app` | `gemini` | yes: Check Sign-In with the account shown, a text answer, a picture it made (2026-11-19) |
 
-The benchmark is [web sessions](../benchmark/reports/2026-11-13-web-sessions.md): eight short checked tasks per account through the app's gateway, at Pygg's pace, with no money spent. Each live check was a single run. Not verified yet: use over many days, how close each site's own limits are, and a pool of two accounts used live.
+The benchmark is [web sessions](../benchmark/reports/2026-11-13-web-sessions.md): eight short checked tasks per account through the gateway, at Pygg's pace, $0; each live check was one run. Not verified yet: use over many days, how close each site's own limits are, a two-account pool used live.
 
 ### The guard
 
-DeepSeek suspended an account after a run of 24 prompts of 2,000 to 6,000 tokens in 15 minutes, sent one at a time with a 10 s rest. Counting requests was not enough, so every web session goes through a guard (`websession/guard.rs`). It is always on, and its numbers are ceilings you cannot raise from the app.
+Every web session goes through `websession/guard.rs`: always on, and its ceilings cannot be raised from the app. It was set after DeepSeek suspended an account for 24 prompts of 2,000–6,000 tokens in 15 minutes, one at a time with a 10 s rest.
 
-- **Prompt size.** A prompt longer than 12,000 characters (about 3,000 tokens) is refused. Longer work, such as whole files, belongs on an API connection.
-- **Weight.** A request weighs one unit, plus one for each full 2,000 characters of prompt.
-- **Rest after a reply.** 10 s, plus 2 s for each extra unit, plus the time a person takes to read the reply (50 characters a second), at most three minutes. The rest is fixed, never random: Pygg slows down; it does not disguise itself.
-- **Per hour and per 10 minutes.** At most 20 units and 15 requests in any hour, and 5 requests in any 10 minutes.
-- **Per day.** A daily request limit, 50 by default, which you can set from 1 to 100, and twice that limit in units. Days start at 00:00 UTC.
-- **One request at a time** per connection. A request waits in line at most 30 s; beyond that, or when a limit is reached, the gateway answers 429 with Retry-After and Pygg's reason, and nothing reaches the site.
-- **Signs of trouble.** No reply in time, a usage-limit notice, a request to slow down, a check or a changed page rests the account: 5 minutes, doubled for each one in a row, at most 6 hours. A request to slow down or a check rests it for at least half an hour, a usage-limit notice for at least an hour. A clean reply clears it.
-- **Suspension.** When the site says the account is suspended or restricted, Pygg turns the connection off and sends it nothing until you turn it back on.
-- **DeepSeek** has lower ceilings: prompts of at most 4,000 characters, 8 units and 6 requests an hour, 3 requests in 10 minutes, at most 30 requests a day, and a rest that starts at 30 s.
+| Rule | All sites | DeepSeek |
+| --- | --- | --- |
+| Longest prompt (refused above) | 12,000 characters (about 3,000 tokens) | 4,000 characters |
+| Weight of a request | 1 unit, plus 1 per full 2,000 characters | same |
+| Rest after a reply | 10 s + 2 s per extra unit + reading time (50 characters/s), at most 3 minutes; fixed, never random | starts at 30 s |
+| Per hour | 20 units, 15 requests | 8 units, 6 requests |
+| Per 10 minutes | 5 requests | 3 requests |
+| Per day (from 00:00 UTC) | 50 requests by default, settable 1–100; twice that in units | at most 30 requests |
+| In flight | One request per connection; waits in line at most 30 s | same |
 
-The guard decides from what Pygg recorded, so it holds across restarts. If Pygg cannot read or write that record, it sends nothing.
+- **Refused** (limit reached or line too long): the gateway answers 429 with Retry-After and Pygg's reason; nothing reaches the site.
+- **Signs of trouble** (no reply in time, a usage-limit notice, a request to slow down, a check, a changed page) rest the account 5 minutes, doubled for each in a row, at most 6 hours; at least 30 minutes after a slow-down request or a check, at least an hour after a usage-limit notice. A clean reply clears it.
+- **Suspended or restricted** per the site: Pygg turns the connection off and sends nothing until you turn it on.
+- The guard decides from Pygg's own record, so it holds across restarts; if Pygg cannot read or write that record, it sends nothing.
 
 ### Sign-in hosts
 
-While you have the window open to sign in, it may go to any https address, like a browser. When Pygg drives the window (hidden, for a request or a check), it keeps to the recipe's hosts; a refused address is blocked and named on the connection by host. A host allows its subdomains too.
+While you sign in, the window may go to any https address. When Pygg drives it (hidden, for a request or a check), it keeps to the recipe's hosts and their subdomains; a refused address is blocked and named on the connection.
 
 | Preset | Hosts in the recipe | Why each is there |
 | --- | --- | --- |
-| `muse-web` | muse.ai, meta.com, meta.ai, facebook.com, instagram.com, threads.com, threads.net, messenger.com | muse.ai is the site. Meta's sign-in checks for an existing account by passing through its sites in turn (auth.muse.ai, facebook.com, instagram.com, auth.meta.com, back to muse.ai); blocking instagram.com left the window blank. meta.ai, threads.com, threads.net and messenger.com are Meta's other sites, allowed with them and not seen in that chain |
-| `chatgpt-web` | chatgpt.com, openai.com, google.com, youtube.com, apple.com, live.com, microsoftonline.com, microsoft.com | chatgpt.com is the site; auth.openai.com is its email and phone sign-in. Google, Apple and Microsoft (login.live.com, login.microsoftonline.com) are its other sign-in buttons. The Google path was seen live; Apple and Microsoft are from the documented sign-in paths |
-| `perplexity-web` | perplexity.ai, google.com, youtube.com, apple.com | perplexity.ai is the site and its emailed-code sign-in; Google and Apple are its other sign-in buttons. From the documented sign-in paths |
-| `deepseek-web` | chat.deepseek.com, deepseek.com, google.com, youtube.com, apple.com | chat.deepseek.com is the site and sends a visitor to `/sign_in` (email or phone with a password); Google and Apple are its other sign-in buttons. From the documented sign-in paths |
-| `grok-web` | grok.com, grokusercontent.com, x.ai, x.com, twitter.com, google.com, youtube.com, apple.com | grok.com is the site. After its OAuth callback Grok sets its cookie on auth.grok.com and then auth.grokusercontent.com; blocking that hop left the window white. accounts.x.ai is its email sign-in; x.com and twitter.com are "Sign in with X"; Google and Apple are its other buttons. The Google path was seen live |
-| `gemini-web` | gemini.google.com, google.com, youtube.com | gemini.google.com is the site; Google is its only sign-in, through accounts.google.com and accounts.youtube.com. No other site's window reaches gemini.google.com, although they allow google.com to sign in with Google |
+| `muse-web` | muse.ai, meta.com, meta.ai, facebook.com, instagram.com, threads.com, threads.net, messenger.com | muse.ai is the site. Meta's sign-in passes through auth.muse.ai, facebook.com, instagram.com, auth.meta.com and back to muse.ai (blocking instagram.com left the window blank). meta.ai, threads.com, threads.net, messenger.com: Meta's other sites, not seen in that chain |
+| `chatgpt-web` | chatgpt.com, openai.com, google.com, youtube.com, apple.com, live.com, microsoftonline.com, microsoft.com | chatgpt.com is the site; auth.openai.com its email and phone sign-in. Google, Apple and Microsoft (login.live.com, login.microsoftonline.com) are its other sign-in buttons. Google path seen live; Apple and Microsoft from the documented paths |
+| `perplexity-web` | perplexity.ai, google.com, youtube.com, apple.com | perplexity.ai is the site and its emailed-code sign-in; Google and Apple its other buttons. From the documented paths |
+| `deepseek-web` | chat.deepseek.com, deepseek.com, google.com, youtube.com, apple.com | chat.deepseek.com is the site; visitors go to `/sign_in` (email or phone with a password); Google and Apple its other buttons. From the documented paths |
+| `grok-web` | grok.com, grokusercontent.com, x.ai, x.com, twitter.com, google.com, youtube.com, apple.com | grok.com is the site. After OAuth it sets its cookie on auth.grok.com, then auth.grokusercontent.com (blocking that hop left the window white). accounts.x.ai is its email sign-in; x.com and twitter.com "Sign in with X"; Google and Apple its other buttons. Google path seen live |
+| `gemini-web` | gemini.google.com, google.com, youtube.com | gemini.google.com is the site; Google is its only sign-in (accounts.google.com, accounts.youtube.com). No other recipe reaches gemini.google.com, although they allow google.com |
 
-**Google's country sign-in hosts.** Google's sign-in also sets its cookie on the account's country domain, after accounts.youtube.com: `accounts.google.com.vn` for an account in Viet Nam. Blocking that hop left ChatGPT's Google sign-in spinning. A recipe that lists google.com therefore also allows exactly `accounts.google.` followed by a two-letter country code, `com.` and a code, or `co.` and a code (`accounts.google.de`, `accounts.google.com.vn`, `accounts.google.co.jp`), and nothing else of that shape: `www.google.com.vn` and `accounts.google.com.vn.evil.com` stay blocked (test `the_window_goes_only_to_the_sites_hosts`). Muse has no Google sign-in and does not get them.
-
-- **Google sign-in.** Google may refuse to sign in inside an embedded window ("This browser or app may not be secure"). Pygg does not disguise the window, so the site's own email sign-in is then the way. Google's sign-in has worked in the window for ChatGPT and for Grok.
-- **Visitor chats.** ChatGPT, Perplexity and Grok also chat with visitors. Their recipes treat a page that shows "Log in" or "Sign in" buttons as signed out, even when the prompt box is there.
-- **Cloudflare.** Grok's site sits behind Cloudflare. Any check it shows stops the connection until you clear it in the window.
-- **Official APIs.** Meta's Muse models (Meta (Muse API), above), OpenAI's, DeepSeek's and xAI's models all have official APIs, and Pygg has a preset for each. The muse.ai agent app has no API.
+- **Google's country hosts.** A recipe that lists google.com also allows exactly `accounts.google.` + a two-letter country code, `com.` + code, or `co.` + code (`accounts.google.de`, `accounts.google.com.vn`, `accounts.google.co.jp`): Google sets its cookie there after accounts.youtube.com, and blocking it left ChatGPT's Google sign-in spinning. `www.google.com.vn` and `accounts.google.com.vn.evil.com` stay blocked (test `the_window_goes_only_to_the_sites_hosts`). Muse has no Google sign-in and does not get them.
+- **Google sign-in** may be refused in an embedded window ("This browser or app may not be secure"); Pygg does not disguise the window, so use the site's email sign-in. It has worked for ChatGPT and Grok.
+- **Visitor chats:** ChatGPT, Perplexity and Grok chat with visitors; a page with "Log in" or "Sign in" buttons counts as signed out, even with a prompt box.
+- **Cloudflare:** Grok sits behind it; any check stops the connection until you clear it in the window.
+- **Official APIs** exist for Meta's Muse models (Meta (Muse API) above), OpenAI, DeepSeek and xAI, each with a preset. The muse.ai agent app has no API.
 - **Not offered as web sessions:** image- and video-only sites; scrapers that need no sign-in.
 
 ## Left out
 
-- **GitHub Models**: retired as of July 30, 2026, per GitHub's docs.
-- **Perplexity's API**: Sonar chat completions support ended on September 27, 2026. The API now uses Responses-style endpoints, which the gateway sends to OpenAI only (ADR-033: the gateway serves the Responses API to clients, and translates it to Chat Completions for every other provider).
-- **Novita**: its docs do not make clear which base URL OpenAI clients should use. It will be added once checked with a request.
-- **Cookie bridges (pasted or imported cookies), OAuth bridges into other products' subscriptions, and scrapers that need no sign-in** (ADR-026). A site with no API can be connected as a web session instead, where you sign in yourself and no cookie leaves its window.
+- **GitHub Models:** retired as of July 30, 2026, per GitHub's docs.
+- **Perplexity's API:** Sonar chat completions ended September 27, 2026; its Responses-style endpoints are not supported, since the gateway sends Responses to OpenAI only and translates it to Chat Completions for every other provider (ADR-033).
+- **Novita:** its docs do not make clear which base URL OpenAI clients should use; to be added once checked with a request.
+- **Cookie bridges (pasted or imported cookies), OAuth bridges into other products' subscriptions, scrapers that need no sign-in** (ADR-026). Use a web session instead: you sign in yourself and no cookie leaves its window.

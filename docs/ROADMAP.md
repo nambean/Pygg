@@ -1,79 +1,83 @@
 # Roadmap
 
-> **Status:** Authoritative · delivery order and release gates · reviewed 2026-11-20
+> **Status:** Authoritative · delivery order and release gates · reviewed 2026-11-21
 
-What comes next, in order, and what must be true before a public release. What is already built, and how it was verified, is in [Implementation Status](IMPLEMENTATION-STATUS.md). Why, in [DECISIONS](DECISIONS.md). Nothing here is a claim that code exists.
-
-**North star:** a local gateway that lets developers and everyday users reach the providers, plans and free tiers they already have through the tools they already use, and lowers the total cost per successful answer, not the nominal token price. The first measured audience is API-heavy developers using coding agents, because cost per solved task can be benchmarked. The app hosts no chat of its own (ADR-028).
+The order of work and what a public release needs. Built and verified: [Implementation Status](IMPLEMENTATION-STATUS.md); why: [DECISIONS](DECISIONS.md). Nothing here claims code exists.
 
 ## Next, in order
 
-1. **Close the live-evidence gaps** listed under [Not verified yet](IMPLEMENTATION-STATUS.md#not-verified-yet) in Implementation Status. Each needs a key, an account or the owner's time; paid traffic stays inside the budget in ADR-028. Each later prerelease is the owner's decision; the npm packages follow it ([PUBLISHING](../packages/npm/PUBLISHING.md)).
-2. **The native window, clicked through.** Every screen in the installed app, not only the browser preview. The D12 checks (ADR-012): scaling, snap layouts above 100%, Narrator and NVDA, contrast themes.
-3. **Install on a clean Windows machine.** NSIS install, first run, gateway, a coding tool set up, uninstall leaving nothing behind.
-4. **Token and cost work, in the order ADR-036 sets.** What is built, and which parts were checked live, is in [Implementation Status](IMPLEMENTATION-STATUS.md). Next:
-   - **The way home after a fallback, live.** The cache marker on OpenRouter, the cache-miss causes and the meter were checked live on 2026-11-16 ([report](../benchmark/reports/2026-11-16-openrouter-cache-live.md)); the way home needs a real failure, and OpenAI's `prompt_cache_key` an OpenAI key.
-   - **Read the clearing shadow on real sessions** (Usage → Clearing Old Tool Results). Only if its net stays above zero over long Codex sessions does clearing become an opt-in, and then with a check that answers stay as good; it would be Anthropic's own `context_management` edit, never Pygg rewriting the history, which newer models check.
-   - **Read session receipts on real work.** `pygg run` now records each launch with what changed in Git (schema v38), and Claude Code's requests by class with their subagents (schema v39). `pygg launches --by-repo` already sums cost per repository and week, per commit and for launches that changed nothing; after a few weeks of the owner's own use, read it, and by tool and model, as observations; nothing is claimed about productivity.
-   - **Read the cache-lifetime shadow on real sessions** (Usage → Cache Lifetime). If one of the two ways stays above zero for a client's sessions, offer it per client key, opt-in: the one-hour `ttl` on the marker Pygg adds, or a keep-alive.
-   Anything that changes a request is opt-in, reversible and checked for cache parity first. Never rewrite an external agent's history, inject instructions or split tasks into sub-agents to save tokens.
-5. **Codex's catalog, measured.** Pygg writes it (AGENTS.md); a benchmark run of Codex with and without it on the same cases says what `apply_patch` and the real context sizes change in passes and cost. Keep `third_party/codex/prompt.md` in step with the Codex version Pygg is tested against.
-6. **Other platforms.** The macOS npm packages (published, ADR-037) run on a real Mac; the desktop app on macOS and Linux (ADR-001).
-7. **Housekeeping.** Demo data that replays recorded snapshots instead of copying the core's rules.
-8. **The Vietnamese translation**, last, once the interface's English text is final.
+| # | Item | Status |
+| --- | --- | --- |
+| 1 | Close the live-evidence gaps in [Not verified yet](IMPLEMENTATION-STATUS.md#not-verified-yet); each needs a key, an account or the owner's time; paid traffic within ADR-028's budget; each prerelease is the owner's call, npm follows ([PUBLISHING](../packages/npm/PUBLISHING.md)) | in progress |
+| 2 | The native window clicked through: every screen in the installed app; the D12 checks (ADR-012): scaling, snap layouts above 100%, Narrator and NVDA, contrast themes | next |
+| 3 | Clean Windows machine: NSIS install, first run, gateway, a coding tool set up, uninstall leaves nothing | next |
+| 4 | Token and cost work, in ADR-036's order ([below](#token-and-cost-work)) | in progress |
+| 5 | Codex's catalog measured: Codex with and without it on the same benchmark cases (passes, cost); keep `third_party/codex/prompt.md` in step with the tested Codex version | next |
+| 6 | Other platforms: the macOS npm packages (published, ADR-037) run on a real Mac; the desktop app on macOS and Linux (ADR-001) | next |
+| 7 | Housekeeping: demo data replays recorded snapshots instead of copying the core's rules | next |
+| 8 | The Vietnamese translation, once the English text is final | next (last) |
+| 9 | [A larger benchmark](#a-larger-benchmark), after 1–8 | later |
 
-**A larger benchmark, once the work above is done** (owner, 2026-11-19). The published runs are the maintainer's own, on the small fixture cases in `benchmark/cases` and six tasks from one private repository: too few to stand behind a headline. The rerun covers:
-- **More and harder cases:** large refactors across modules, more database migrations and more languages, and tasks cut from real repositories, beside the 41 cases in `benchmark/cases` (five harder ones, a schema migration and two Python cases among them, were added on 2026-11-20).
-- **Every provider and model connected to the owner's store** that can serve a coding agent: API keys, coding plans and local models. Web sessions stay out: the guard refuses benchmark-sized prompts, and a long-prompt run got an account suspended (ADR-035).
-- **Claude Code, Codex and OpenCode**, at least three repeats per case and arm, with `auto`, `auto/cheap` and the role aliases next to pinned models.
-- **Reported per task category:** pass rate on the first attempt and across all repeats, cost per solved task and time, with confidence intervals, and every arm where the cheaper route lost.
+### Token and cost work
 
-Its results replace the README's figures. Its paid traffic stays within the budget in [ADR-028](DECISIONS.md#adr-028--mit-licence-a-20-benchmark-budget-and-no-auto-chat), which also says when Claude models join. Runs contributed by others ([CONTRIBUTING](../CONTRIBUTING.md#benchmark-runs)) are added beside it.
+| Item | Status |
+| --- | --- |
+| Cache marker on OpenRouter, cache-miss causes and the meter, checked live ([report](../benchmark/reports/2026-11-16-openrouter-cache-live.md)) | done |
+| The way home after a fallback, live: needs a real failure; OpenAI's `prompt_cache_key` needs an OpenAI key | next |
+| Read the clearing shadow (Usage → Clearing Old Tool Results) over long Codex sessions; only if its net stays above zero, opt-in clearing with an answer-quality check, as Anthropic's `context_management` edit, never Pygg rewriting history | next |
+| Read session receipts on real work: launches with Git changes (schema v38) and Claude Code request classes (v39) are recorded; after a few weeks of the owner's use, read `pygg launches --by-repo` and by tool and model, as observations; no productivity claim | in progress |
+| Read the cache-lifetime shadow (Usage → Cache Lifetime); if one way stays above zero for a client, offer it per client key, opt-in: a one-hour `ttl` on Pygg's marker, or a keep-alive | next |
+
+Anything that changes a request is opt-in, reversible and checked for cache parity first. Never rewrite an external agent's history, inject instructions or split tasks into sub-agents to save tokens.
+
+### A larger benchmark
+
+Published runs are the maintainer's own (fixture cases in `benchmark/cases`, six tasks from one private repository): too few for a headline. The rerun:
+
+- **Cases:** large cross-module refactors, more database migrations and languages, tasks cut from real repositories, beside the 41 cases in `benchmark/cases` (five harder ones, a schema migration and two Python cases among them).
+- **Models:** every provider and model in the owner's store that can serve a coding agent (API keys, coding plans, local). No web sessions: the guard refuses benchmark-sized prompts, and a long-prompt run got an account suspended (ADR-035).
+- **Clients:** Claude Code, Codex and OpenCode, at least three repeats per case and arm; `auto`, `auto/cheap` and the role aliases beside pinned models.
+- **Report per task category:** first-attempt and all-repeat pass rate, cost per solved task, time, confidence intervals, and every arm where the cheaper route lost.
+
+Its results replace the README's figures. Paid traffic stays within [ADR-028](DECISIONS.md#adr-028--mit-licence-a-20-benchmark-budget-and-no-auto-chat)'s budget (which also says when Claude models join); more needs the owner's approval. Contributed runs ([CONTRIBUTING](../CONTRIBUTING.md#benchmark-runs)) are added beside it.
 
 ## Release gates
 
 A public release needs all of these:
 
-- **Parity.** For each provider path Pygg claims, the same model direct and through Pygg, over at least two turns with prompt caching, tools and streaming: cache savings and the billed amount do not regress without a stated reason. Paths not measured are named as not claimed.
-- **Honesty.** No percentage saving and no promise of kept quality without a reproducible benchmark with confidence bounds. `auto` makes no savings claim of its own until a benchmark supports one. Unknown cost stays Unknown.
-- **Security.** No key or account switch the user did not confirm, no provider whose data-use terms the client refused, no limit overrun through concurrency, loopback only. [SECURITY](SECURITY.md) matches the build.
+- **Parity.** Per claimed provider path, the same model direct and through Pygg, two or more turns with prompt caching, tools and streaming: no unexplained regression in cache savings or billed amount. Unmeasured paths are named as not claimed.
+- **Honesty.** No percentage saving or kept-quality promise without a reproducible benchmark with confidence bounds; `auto` claims no saving until one supports it; unknown cost stays Unknown.
+- **Security.** No unconfirmed key or account switch, no provider whose data-use terms the client refused, no limit overrun through concurrency, loopback only; [SECURITY](SECURITY.md) matches the build.
 - **Errors.** Real 403, 429, quota and timeout answers from the main providers run through the error policy as fixtures.
-- **Install.** The clean-machine install and uninstall pass; the installer is signed (not during development).
-- **Interface.** Every screen clicked through in the native window; the D12 checks pass; `pnpm ui-check` passes; the Vietnamese strings are complete.
-- **Web sessions.** The guard stays on and cannot be turned off; the account-risk warning is ticked per connection (ADR-035).
+- **Install.** Clean-machine install and uninstall pass; installer signed (no signing during development; a certificate is bought for release).
+- **Interface.** Every screen clicked through in the native window; D12 checks pass; `pnpm ui-check` passes; Vietnamese strings complete.
+- **Web sessions.** The guard stays on and cannot be turned off; the account-risk warning ticked per connection (ADR-035).
 
 ## Later, after data or a request
 
-Unordered. Each moves up only when data or a user request justifies it.
+Unordered; each moves up only when data or a user request justifies it.
 
 - Quota tracking for subscriptions, if a provider or agent ever states it.
 - The `image` role, once the gateway has an images path (ADR-041).
-- A root `SECURITY.md` for GitHub's Security tab, and `CHANGELOG.md` from the first tagged release.
+- A root `SECURITY.md` for GitHub's Security tab; `CHANGELOG.md` from the first tagged release.
 - Billing-tier views with per account-model entitlements (ADR-020).
-- Minimum-tier rules by task category, and a measured ranking above a minimum sample (ADR-006).
-- Idempotency keys; provider-verified organization and quota scope; reconciliation against a provider's own usage. Held until a provider adapter can fill them.
-- Fallback after headers but before the first token. Held.
+- Minimum-tier rules by task category; a measured ranking above a minimum sample (ADR-006).
+- Idempotency keys, provider-verified organization and quota scope, reconciliation against a provider's own usage: held until a provider adapter can fill them.
+- Fallback after headers but before the first token: held.
 - Running the benchmark from the app.
 - Client verification beyond Claude Code, Codex and OpenCode (Aider, Cursor).
 - A signed updater.
-- `auto/fast`, `auto/local` and `auto/quality`: not planned until the benchmark shows `auto` and `auto/cheap` are not enough. The role aliases `auto/plan`, `auto/code`, `auto/test` and `auto/review` are built (ADR-041) and ranked by the facts feed, not by hand; they are measured with the harness before any claim.
+- `auto/fast`, `auto/local`, `auto/quality`: only if the benchmark shows `auto` and `auto/cheap` are not enough. (The role aliases are built, ADR-041, and measured before any claim.)
 - Semantic caching and advanced compaction: only if a test beats a simpler baseline.
-- Skills from a catalog or GitHub, each pinned to a reviewed commit with its files checked and scripts held back (ADR-039).
+- Skills from a catalog or GitHub, each pinned to a reviewed commit, files checked, scripts held back (ADR-039).
 
 Withdrawn: Auto Chat and app-owned memory (ADR-028); bridging subscription sign-ins or another product's OAuth (ADR-026).
 
 ## Product rules
 
-- **Billing tier, sign-in method and capability tier are different things.** Free, Subscription, API Paid, Local and Unknown are per account-model, with a source.
-- **No model switch inside an agent's attempt, tool call or partial stream.** Pinned clients keep their prompt and cache.
-- **Native passthrough over translation.** A translated route must pass the streaming, tools, images, cache and citation contract tests and name what it drops.
-- **No account cycling to evade bans, rate limits or provider terms.** Quota groups are hard limits; key rings and pools need accounts confirmed as separate.
-- **Free plan or subscription tokens are not counted as money saved.** Money, tokens, local running cost and human rework are kept apart.
-- **Metrics never invent precision.** An unknown price or usage is Unknown; a saving needs a valid baseline.
-
-## Owner decisions in force
-
-- MIT licence (ADR-028).
-- Benchmark paid traffic: the budget in ADR-028. More needs the owner's approval.
-- No Auto Chat in the app (ADR-028).
-- No code signing during development; a certificate is bought for release.
+- Billing tier, sign-in method and capability tier are different things; Free, Subscription, API Paid, Local and Unknown are per account-model, with a source.
+- No model switch inside an agent's attempt, tool call or partial stream; pinned clients keep their prompt and cache.
+- Native passthrough over translation; a translated route must pass the streaming, tools, images, cache and citation contract tests and name what it drops.
+- No account cycling to evade bans, rate limits or provider terms; quota groups are hard limits; key rings and pools need accounts confirmed as separate.
+- Free-plan or subscription tokens are not money saved; money, tokens, local running cost and human rework are kept apart.
+- Metrics never invent precision: unknown price or usage is Unknown; a saving needs a valid baseline.
