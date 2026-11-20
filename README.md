@@ -243,7 +243,7 @@ python scripts/model-facts.py selftest                # the model facts builder 
 
 ## Sponsors
 
-- **[MixAICloud](https://us.mixaicloud.com)** ([TheoZhang3321 on X](https://x.com/TheoZhang3321)), the project's first sponsor: $30 of API credit, given on 2026-11-20 for a benchmark of how Pygg routes the work MixAICloud's users send to DeepSeek and Qwen (coding) and to GLM and Kimi (lighter and conversation tasks).
+- **[MixAICloud](https://us.mixaicloud.com)** ([TheoZhang3321 on X](https://x.com/TheoZhang3321)), the project's first sponsor: API credit, given on 2026-11-20 for a benchmark of how Pygg routes the work MixAICloud's users send to DeepSeek and Qwen (coding) and to GLM and Kimi (lighter and conversation tasks).
 
 A sponsor's credit pays for traffic, not for results. A sponsored run is published like any other, with its method, raw results, spend and every route where Pygg's choice lost ([BENCHMARKS.md](docs/BENCHMARKS.md)), and its report names who paid for it.
 
