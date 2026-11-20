@@ -934,7 +934,8 @@ export function demoApi(): GatewayApi {
     },
     modelFactsRole: async role => touch(models.filter(m => m.enabled).slice(0, 40).map((m, i): RoleLine => ({
       model: `${m.providerId}/${m.modelId}`, providerId: m.providerId, modelId: m.modelId, billing: m.billing, tier: m.capabilities.tier, tierSource: m.capabilities.tierSource ?? null,
-      layer: i === 1 ? 'own' : i % 3 === 0 ? 'feed' : m.capabilities.tier ? 'tier' : 'none', own: i === 1 ? {attempts: 14, checksPassed: 11, kept: 9, ranks: true} : i === 4 ? {attempts: 3, checksPassed: 2, kept: 2, ranks: false} : null, others: [], outputMicroPerMtok: m.price?.outputMicroPerMtok ?? null,
+      layer: i === 1 ? 'own' : i % 3 === 0 ? 'feed' : m.capabilities.tier ? 'tier' : 'none', own: i === 1 ? {attempts: 14, checksPassed: 11, kept: 9, ranks: true, knownMicroUsd: 640_000, unknownRequests: 0} : i === 4 ? {attempts: 3, checksPassed: 2, kept: 2, ranks: false, knownMicroUsd: 90_000, unknownRequests: 1} : null, others: [], outputMicroPerMtok: m.price?.outputMicroPerMtok ?? null,
+      turnMicroUsd: m.billing === 'free' || m.billing === 'local' || m.billing === 'subscription' ? 0 : m.price ? Math.round((1600 * m.price.inputMicroPerMtok + 6400 * (m.price.cachedInputMicroPerMtok ?? m.price.inputMicroPerMtok) + 1000 * m.price.outputMicroPerMtok) / 1e6) : null,
       fact: i % 3 === 0 ? {source: 'terminal-bench', sourceName: 'Terminal-Bench 4.x', licence: 'Apache-2.0', url: null, name: m.modelId, place: 3 + i, of: 71, rank: 0.9, score: 64.85, unit: '% resolved',
         ci: 3.11, date: '2026-09-22', derived: role !== 'code', agent: 'claude-code', effort: 'max', votes: null, ranks: true, measures: 'tasks solved in a terminal by an agent with the model'} : null}))),
     removeModel: async (providerId, modelId) => {

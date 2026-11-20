@@ -62,7 +62,7 @@ export function RoleSheet({role, brainstormId, current, exclude = [], savedPick,
             return <li key={l.model} className={`role-row${out ? ' out' : ''}${l.model === current ? ' current' : ''}`}>
               <div className="role-main">
                 <div className="brain-head"><span className="brain-id">{l.model}</span>
-                  <span className="brain-meta">{l.tier ?? t('no tier')} · {l.billing}{r ? ` · ≈${usd(r.estimateMicroUsd / 1e6)} ${t('per run')}` : l.outputMicroPerMtok != null ? ` · ${usd(l.outputMicroPerMtok / 1e6)}/Mtok ${t('out')}` : ` · ${t('price unknown')}`}</span>
+                  <span className="brain-meta">{l.tier ?? t('no tier')} · {l.billing}{r ? ` · ≈${usd(r.estimateMicroUsd / 1e6)} ${t('per run')}` : l.turnMicroUsd != null ? ` · ${l.turnMicroUsd === 0 ? t('nothing a request') : `≈${usd(l.turnMicroUsd / 1e6)} ${t('a typical turn')}`}` : ` · ${t('price unknown')}`}</span>
                   {l.model === current && <Badge tone="info">{t('current')}</Badge>}
                   {savedPick === l.model && <Badge tone="ok">{t('your saved pick')}</Badge>}</div>
                 <div className="brain-evidence">{evidenceLine(l)}{l.layer === 'feed' && l.fact?.url && <> · <a href={l.fact.url} target="_blank" rel="noreferrer">{l.fact.sourceName}</a></>}</div>

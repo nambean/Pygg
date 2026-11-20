@@ -202,14 +202,20 @@ export type FactView = {
   votes: number | null; ranks: boolean; measures: string;
 };
 /** The user's own runs on cards of a role with this model (ADR-029); ranks from ten attempts on. */
-export type OwnEvidence = { attempts: number; checksPassed: number; kept: number; ranks: boolean };
+export type OwnEvidence = { attempts: number; checksPassed: number; kept: number; ranks: boolean; knownMicroUsd: number; unknownRequests: number };
 export type RoleLine = {
   model: string; providerId: string; modelId: string; billing: Billing; tier: string | null; tierSource: string | null;
   layer: 'own' | 'feed' | 'tier' | 'none'; own: OwnEvidence | null; fact: FactView | null; others: FactView[]; outputMicroPerMtok: number | null;
+  /** A typical agent turn at list price (8,000 in, 1,000 out, cache reads priced), micro-USD: what orders a band; 0 on a plan, free or local model. */
+  turnMicroUsd: number | null;
 };
 /** The layer that won, in one line with its source and date (BRAIN.md 4.5). */
 export function evidenceLine(l: RoleLine): string {
-  if (l.own?.ranks) return `your runs ${l.own.kept}/${l.own.attempts} kept · ${l.own.checksPassed}/${l.own.attempts} checks passed`;
+  if (l.own?.ranks) {
+    const per = l.own.kept ? l.own.knownMicroUsd / l.own.kept / 1e6 : null;
+    const money = per == null ? '' : per === 0 ? (l.own.unknownRequests ? '' : ' · no metered money') : ` · ≈$${per.toFixed(per < 0.1 ? 3 : 2)}${l.own.unknownRequests ? '+' : ''} per kept result`;
+    return `your runs ${l.own.kept}/${l.own.attempts} kept · ${l.own.checksPassed}/${l.own.attempts} checks passed${money}`;
+  }
   if (l.fact) return factLine(l.fact);
   return l.tier ? `tier ${l.tier} only` : 'no tier';
 }

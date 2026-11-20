@@ -228,7 +228,9 @@ impl Plan {
         let order = match self.strategy {
             Strategy::Tier => "lowest eligible tier first".to_string(),
             Strategy::Cheap => "lowest estimated cost first".to_string(),
-            Strategy::Role(role) => format!("best fact for {} first", role.as_str()),
+            Strategy::Role(role) => {
+                format!("your runs, then facts for {} in bands, cheapest first in a band", role.as_str())
+            }
         };
         let held: Vec<String> = self
             .excluded
@@ -381,6 +383,8 @@ pub fn plan_with(
     let providers = store::list_providers(conn)?;
     let min_tier = (strategy != Strategy::Cheap).then(|| client.auto_min_tier.clone());
     let mut ranked: Vec<(Ranked, (u64, u64, u64))> = Vec::new();
+    // For a role alias, what the role order compares (facts.rs `order_for_role`), one per ranked model.
+    let mut standings: Vec<super::facts::Standing> = Vec::new();
     let mut excluded = Vec::new();
     // The user's own evidence for the role (BRAIN.md §1, the first layer): from ten finished attempts on cards of
     // the role, a model ranks by its kept results, above every fact of the feed.
@@ -472,6 +476,19 @@ pub fn plan_with(
                         (None, None) => (100_000_000 + (4 - t) * 1_000, b, estimate),
                     },
                 };
+                if let Strategy::Role(_) = strategy {
+                    standings.push(super::facts::Standing {
+                        own: own_line.clone(),
+                        rank: fact
+                            .as_ref()
+                            .map(|f| f.rank)
+                            .or_else(|| tier.as_deref().map(super::facts::tier_standing)),
+                        from_fact: fact.is_some(),
+                        billing: super::facts::billing_order(&model.billing),
+                        turn_micro: super::facts::turn_cost(&model.billing, model.price.as_ref()),
+                        id: format!("{}/{}", model.provider_id, model.model_id),
+                    });
+                }
                 ranked.push((
                     Ranked {
                         provider_id: model.provider_id.clone(),
@@ -492,10 +509,33 @@ pub fn plan_with(
             }),
         }
     }
-    ranked.sort_by(|(a, ka), (b, kb)| {
-        ka.cmp(kb).then_with(|| (&a.provider_id, &a.model_id).cmp(&(&b.provider_id, &b.model_id)))
-    });
-    let ranked: Vec<Ranked> = ranked.into_iter().map(|(r, _)| r).collect();
+    let ranked: Vec<Ranked> = if let Strategy::Role(role) = strategy {
+        // The role order (BRAIN.md §1): own evidence, then facts and tiers in bands, cheapest first within a band. A
+        // model that ranks ahead of its band's leader says so.
+        let order = super::facts::order_for_role(&standings);
+        let names: Vec<String> = standings.iter().map(|s| s.id.clone()).collect();
+        let mut slots: Vec<Option<Ranked>> = ranked.into_iter().map(|(r, _)| Some(r)).collect();
+        order
+            .into_iter()
+            .filter_map(|(i, leader)| {
+                let mut r = slots[i].take()?;
+                if let Some(l) = leader {
+                    r.reason.push_str(&format!(
+                        "; cheaper than {} in the same band for {} (ranks within {})",
+                        names[l],
+                        role.as_str(),
+                        super::facts::BAND
+                    ));
+                }
+                Some(r)
+            })
+            .collect()
+    } else {
+        ranked.sort_by(|(a, ka), (b, kb)| {
+            ka.cmp(kb).then_with(|| (&a.provider_id, &a.model_id).cmp(&(&b.provider_id, &b.model_id)))
+        });
+        ranked.into_iter().map(|(r, _)| r).collect()
+    };
     Ok(Plan { alias: alias.to_string(), strategy, min_tier, route: route(&ranked), ranked, excluded })
 }
 
@@ -1373,7 +1413,10 @@ mod tests {
             plan_with(&w.conn, &w.client, "auto/code", Strategy::Role(Role::Code), &needs, Some(&the_feed)).unwrap();
         // Facts first, best rank first (small is below the client's minimum tier, so its rank 1.0 does not count);
         // then models with no ranking fact by tier, free before paid: gift's fact is from 2024 and only shows.
-        assert_eq!(names(&plan), ["paid/mid", "paid/big", "paid/untiered", "free/gift", "paid/notools"]);
+        // mid (0.9) is a band of its own. big's fact (0.6) shares a band with the T2 models that have no ranking fact
+        // (gift's is from 2024; a T2 stands at 0.5), and they are cheaper: free gift, then notools at its low price,
+        // then big. untiered (0.3) comes last.
+        assert_eq!(names(&plan), ["paid/mid", "free/gift", "paid/notools", "paid/big", "paid/untiered"]);
         assert_eq!(reason(&plan, "unpriced"), "price unknown");
         assert_eq!(reason(&plan, "small"), "tier T1 is below this client's minimum T2");
         let mid = &plan.ranked[0];
@@ -1382,8 +1425,23 @@ mod tests {
             "Terminal-Bench 4.x #2 of 10 (50% +/-2.5) dated 2026-06-30, run with claude-code at max for code; paid; \
              about $0.0052 at your price"
         );
-        assert!(plan.ranked[3].reason.starts_with("no fact for code; tier T2"), "{}", plan.ranked[3].reason);
-        assert!(plan.header(mid).contains("(best fact for code first)"), "{}", plan.header(mid));
+        let gift = &plan.ranked[1];
+        assert!(gift.reason.starts_with("no fact for code; tier T2"), "{}", gift.reason);
+        assert!(
+            gift.reason.ends_with("; cheaper than paid/big in the same band for code (ranks within 0.15)"),
+            "{}",
+            gift.reason
+        );
+        assert!(
+            !plan.ranked[3].reason.contains("cheaper than"),
+            "the band's leader says nothing: {}",
+            plan.ranked[3].reason
+        );
+        assert!(
+            plan.header(mid).contains("(your runs, then facts for code in bands, cheapest first in a band)"),
+            "{}",
+            plan.header(mid)
+        );
         // A model with neither a fact nor a tier is out, and says so.
         let none = plan_with(&w.conn, &w.client, "auto/code", Strategy::Role(Role::Code), &needs, None).unwrap();
         assert_eq!(reason(&none, "untiered"), "no fact for code and no tier set");

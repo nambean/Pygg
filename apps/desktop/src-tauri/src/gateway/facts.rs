@@ -406,6 +406,17 @@ pub struct Own {
     pub kept: u32,
     /// True from `OWN_MIN_ATTEMPTS` attempts on: then this layer wins over the feed.
     pub ranks: bool,
+    /// What those attempts' priced requests cost through the gateway (actual or estimated), micro-USD.
+    pub known_micro_usd: u64,
+    /// Their requests with no price: the known money is then a floor.
+    pub unknown_requests: u32,
+}
+
+impl Own {
+    /// Known money per kept result; `None` with nothing kept.
+    pub fn micro_usd_per_kept(&self) -> Option<u64> {
+        (self.kept > 0).then(|| self.known_micro_usd / self.kept as u64)
+    }
 }
 
 /// Own evidence ranks from this many attempts (BRAIN.md §1).
@@ -418,7 +429,7 @@ pub const OWN_MIN_ATTEMPTS: u32 = 10;
 pub fn own_evidence(conn: &Connection, role: &str) -> Result<std::collections::HashMap<String, Own>> {
     let mut stmt = conn
         .prepare(
-            "SELECT a.model_ref, a.state, t.result, a.number, (SELECT MAX(number) FROM attempts x JOIN task_stages y ON x.stage_id = y.id WHERE y.task_id = t.id)              FROM attempts a JOIN task_stages s ON a.stage_id = s.id JOIN tasks t ON s.task_id = t.id              WHERE t.card_role = ?1 AND a.state IN ('passed', 'failed', 'done')",
+            "SELECT a.model_ref, a.state, t.result, a.number, (SELECT MAX(number) FROM attempts x JOIN task_stages y ON x.stage_id = y.id WHERE y.task_id = t.id), (SELECT COALESCE(SUM(CASE WHEN u.cost_status <> 'unknown' THEN u.cost_micro_usd END), 0) FROM usage_events u WHERE u.attempt_id = a.id), (SELECT COUNT(*) FROM usage_events u WHERE u.attempt_id = a.id AND u.cost_status = 'unknown') FROM attempts a JOIN task_stages s ON a.stage_id = s.id JOIN tasks t ON s.task_id = t.id WHERE t.card_role = ?1 AND a.state IN ('passed', 'failed', 'done')",
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt
@@ -429,16 +440,20 @@ pub fn own_evidence(conn: &Connection, role: &str) -> Result<std::collections::H
                 r.get::<_, Option<String>>(2)?,
                 r.get::<_, i64>(3)?,
                 r.get::<_, Option<i64>>(4)?,
+                r.get::<_, i64>(5)?,
+                r.get::<_, i64>(6)?,
             ))
         })
         .map_err(|e| e.to_string())?;
     let mut out: std::collections::HashMap<String, Own> = std::collections::HashMap::new();
     for row in rows {
-        let (model_ref, state, result, number, last) = row.map_err(|e| e.to_string())?;
+        let (model_ref, state, result, number, last, known, unknown) = row.map_err(|e| e.to_string())?;
         let model = model_ref.rsplit(" · ").next().unwrap_or(&model_ref);
         let model = model.strip_prefix("pygg/").unwrap_or(model).to_string();
         let own = out.entry(model).or_default();
         own.attempts += 1;
+        own.known_micro_usd += known.max(0) as u64;
+        own.unknown_requests += unknown.max(0) as u32;
         if state == "passed" {
             own.checks_passed += 1;
         }
@@ -469,8 +484,11 @@ pub struct Line {
     pub fact: Option<FactView>,
     /// Every other fact for this model and role, the ones too old to rank included.
     pub others: Vec<FactView>,
-    /// The list price per million output tokens, micro-dollars, for the order within a layer.
+    /// The list price per million output tokens, micro-dollars.
     pub output_micro_per_mtok: Option<u64>,
+    /// A typical agent turn at list price (`typical_turn_micro`); 0 on a local, free or subscription model, `None`
+    /// unpriced. The cheaper of two models in one band ranks first.
+    pub turn_micro_usd: Option<u64>,
 }
 
 fn view(fact: &Fact, sources: &[Source], today: i64) -> FactView {
@@ -523,33 +541,19 @@ fn rank_role_on(conn: &Connection, feed: Option<&Feed>, role: &str, today: i64) 
         }
         lines.push(line);
     }
-    lines.sort_by(|a, b| {
-        let layer = |l: &Line| match l.layer.as_str() {
-            "own" => 0,
-            "feed" => 1,
-            "tier" => 2,
-            _ => 3,
-        };
-        // Within own evidence: the kept rate, then the checks-passed rate (BRAIN.md §1).
-        let rate = |l: &Line| {
-            l.own
-                .as_ref()
-                .filter(|o| o.ranks)
-                .map(|o| (o.kept as f64 / o.attempts as f64, o.checks_passed as f64 / o.attempts as f64))
-                .unwrap_or((0.0, 0.0))
-        };
-        layer(a)
-            .cmp(&layer(b))
-            .then_with(|| rate(b).partial_cmp(&rate(a)).unwrap_or(std::cmp::Ordering::Equal))
-            .then_with(|| {
-                let rank = |l: &Line| l.fact.as_ref().map(|f| f.rank).unwrap_or(0.0);
-                rank(b).partial_cmp(&rank(a)).unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .then_with(|| b.tier.cmp(&a.tier))
-            .then_with(|| a.output_micro_per_mtok.unwrap_or(u64::MAX).cmp(&b.output_micro_per_mtok.unwrap_or(u64::MAX)))
-            .then_with(|| a.model.cmp(&b.model))
-    });
-    Ok(lines)
+    let standings: Vec<Standing> = lines
+        .iter()
+        .map(|l| Standing {
+            own: l.own.clone().filter(|o| o.ranks),
+            rank: l.fact.as_ref().map(|f| f.rank).or_else(|| l.tier.as_deref().map(tier_standing)),
+            from_fact: l.fact.is_some(),
+            billing: billing_order(&l.billing),
+            turn_micro: l.turn_micro_usd,
+            id: l.model.clone(),
+        })
+        .collect();
+    let mut slots: Vec<Option<Line>> = lines.into_iter().map(Some).collect();
+    Ok(order_for_role(&standings).into_iter().filter_map(|(i, _)| slots[i].take()).collect())
 }
 
 impl FactView {
@@ -636,7 +640,137 @@ fn line_for(m: &Model, feed: Option<&Feed>, role: &str, today: i64) -> Line {
         fact,
         others,
         output_micro_per_mtok: m.price.as_ref().map(|p| p.output_micro_per_mtok),
+        turn_micro_usd: turn_cost(&m.billing, m.price.as_ref()),
     }
+}
+
+// ---------- the order within a role (BRAIN.md §1) ----------
+
+/// Facts whose ranks lie this close are one band: within a band the cheaper model ranks first. A place on a public
+/// benchmark, run with another agent on other tasks, does not order two models this close for the user's own work:
+/// on 2026-11-20, Terminal-Bench's #4 for code lost to its #12 on every count with OpenCode on Pygg's 36 cases
+/// (benchmark/reports/2026-11-20-all-models.md), and the two were 0.11 apart.
+pub const BAND: f64 = 0.15;
+
+/// Kept rates this close are one band within the user's own evidence: ten attempts do not tell 9 of 10 from 10.
+pub const KEPT_BAND: f64 = 0.1;
+
+/// Where a tier stands among the facts' ranks, for a model the feed does not name: the middle of the tier's band, so
+/// a tiered model can share a band with a weak fact and win it on price, but not one with a strong fact.
+pub fn tier_standing(tier: &str) -> f64 {
+    match tier {
+        "T4" => 0.9,
+        "T3" => 0.7,
+        "T2" => 0.5,
+        "T1" => 0.3,
+        _ => 0.1,
+    }
+}
+
+/// A typical agent turn at list price, micro-USD: 8,000 tokens in, four in five of them read from the cache where the
+/// model prices cache reads, and 1,000 out. Only to order models by price; it is not an estimate of a request.
+pub fn typical_turn_micro(price: &super::pricing::Price) -> u64 {
+    let per = |tokens: u64, micro: u64| (tokens as u128 * micro as u128 / 1_000_000) as u64;
+    let input = match price.cached_input_micro_per_mtok {
+        Some(cached) => per(1_600, price.input_micro_per_mtok) + per(6_400, cached),
+        None => per(8_000, price.input_micro_per_mtok),
+    };
+    input + per(1_000, price.output_micro_per_mtok)
+}
+
+/// A model's typical turn by its billing: nothing per request on a local, free or subscription model.
+pub fn turn_cost(billing: &str, price: Option<&super::pricing::Price>) -> Option<u64> {
+    match billing {
+        "local" | "free" | "subscription" => Some(0),
+        _ => price.map(typical_turn_micro),
+    }
+}
+
+/// Local, free, subscription, then paid and unknown: who pays per request, least first.
+pub fn billing_order(billing: &str) -> u8 {
+    match billing {
+        "local" => 0,
+        "free" => 1,
+        "subscription" => 2,
+        _ => 3,
+    }
+}
+
+/// What the role order compares about one model.
+#[derive(Clone, Debug, Default)]
+pub struct Standing {
+    /// The user's own evidence, when it ranks (ten attempts or more).
+    pub own: Option<Own>,
+    /// The fact's rank, or the tier's standing for a model with no fact.
+    pub rank: Option<f64>,
+    pub from_fact: bool,
+    pub billing: u8,
+    /// A typical turn's price; `None` unpriced (last within a band).
+    pub turn_micro: Option<u64>,
+    /// `connection/model`, the last tie-break.
+    pub id: String,
+}
+
+/// The order of a role (BRAIN.md §1), as indices into `items`. First the models with the user's own evidence: by kept
+/// rate in bands of `KEPT_BAND`, within a band by known money per kept result (a model with unpriced requests after
+/// those fully priced), then checks passed. Then the models with a fact or a tier: by rank in bands of `BAND`, within a
+/// band cheapest first (billing, then a typical turn's price). Then the rest, cheapest first. Each index comes with
+/// its band's leader when it ranks ahead of that leader, so a route can say why.
+pub fn order_for_role(items: &[Standing]) -> Vec<(usize, Option<usize>)> {
+    use std::cmp::Ordering;
+    let cheaper = |a: &Standing, b: &Standing| {
+        a.billing.cmp(&b.billing).then_with(|| a.turn_micro.unwrap_or(u64::MAX).cmp(&b.turn_micro.unwrap_or(u64::MAX)))
+    };
+    let kept = |s: &Standing| s.own.as_ref().map(|o| o.kept as f64 / o.attempts.max(1) as f64).unwrap_or(0.0);
+    let checks =
+        |s: &Standing| s.own.as_ref().map(|o| o.checks_passed as f64 / o.attempts.max(1) as f64).unwrap_or(0.0);
+    let money = |s: &Standing| {
+        s.own
+            .as_ref()
+            .map(|o| (o.unknown_requests > 0, o.micro_usd_per_kept().unwrap_or(u64::MAX)))
+            .unwrap_or((true, u64::MAX))
+    };
+    let desc = |x: f64, y: f64| y.partial_cmp(&x).unwrap_or(Ordering::Equal);
+    let mut own: Vec<usize> = (0..items.len()).filter(|&i| items[i].own.as_ref().is_some_and(|o| o.ranks)).collect();
+    let mut ranked: Vec<usize> = (0..items.len()).filter(|&i| !own.contains(&i) && items[i].rank.is_some()).collect();
+    let mut rest: Vec<usize> = (0..items.len()).filter(|&i| !own.contains(&i) && !ranked.contains(&i)).collect();
+    own.sort_by(|&a, &b| desc(kept(&items[a]), kept(&items[b])).then_with(|| items[a].id.cmp(&items[b].id)));
+    ranked.sort_by(|&a, &b| {
+        desc(items[a].rank.unwrap_or(0.0), items[b].rank.unwrap_or(0.0))
+            .then_with(|| items[b].from_fact.cmp(&items[a].from_fact))
+            .then_with(|| items[a].id.cmp(&items[b].id))
+    });
+    rest.sort_by(|&a, &b| cheaper(&items[a], &items[b]).then_with(|| items[a].id.cmp(&items[b].id)));
+    let mut out = Vec::with_capacity(items.len());
+    let mut banded = |sorted: &[usize],
+                      value: &dyn Fn(&Standing) -> f64,
+                      width: f64,
+                      within: &dyn Fn(&Standing, &Standing) -> Ordering| {
+        let mut start = 0;
+        while start < sorted.len() {
+            let leader = sorted[start];
+            let top = value(&items[leader]);
+            let mut end = start + 1;
+            while end < sorted.len() && top - value(&items[sorted[end]]) <= width + 1e-9 {
+                end += 1;
+            }
+            let mut band = sorted[start..end].to_vec();
+            band.sort_by(|&a, &b| within(&items[a], &items[b]).then_with(|| items[a].id.cmp(&items[b].id)));
+            let at = band.iter().position(|&i| i == leader).unwrap_or(0);
+            for (n, &i) in band.iter().enumerate() {
+                out.push((i, (n < at).then_some(leader)));
+            }
+            start = end;
+        }
+    };
+    banded(&own, &kept, KEPT_BAND, &|a, b| {
+        money(a).cmp(&money(b)).then_with(|| desc(checks(a), checks(b))).then_with(|| cheaper(a, b))
+    });
+    banded(&ranked, &|s| s.rank.unwrap_or(0.0), BAND, &|a, b| {
+        cheaper(a, b).then_with(|| desc(a.rank.unwrap_or(0.0), b.rank.unwrap_or(0.0)))
+    });
+    out.extend(rest.into_iter().map(|i| (i, None)));
+    out
 }
 
 // ---------- dates ----------
@@ -786,12 +920,15 @@ mod tests {
         .unwrap();
         let lines = rank_role_on(&conn, Some(&the_feed), "code", today).unwrap();
         let names: Vec<&str> = lines.iter().map(|l| l.model.as_str()).collect();
+        // opus (rank 1.0) is a band of its own. gemini-3-pro has no fact; its tier T3 stands at 0.7 and shares a band
+        // with glm's fact (0.56); neither is priced here, so the higher stands first. haiku's only fact is too old to
+        // rank, and its T1 (0.3) comes last.
         assert_eq!(
             names,
             [
                 "openrouter/anthropic/claude-opus-4.5",
-                "openrouter/z-ai/glm-4.7-flash:free",
                 "openrouter/google/gemini-3-pro",
+                "openrouter/z-ai/glm-4.7-flash:free",
                 "openrouter/anthropic/claude-haiku-4.5"
             ]
         );
@@ -810,7 +947,7 @@ mod tests {
             haiku.fact.is_none() && haiku.others.len() == 1 && !haiku.others[0].ranks,
             "older than a year: shown, not ranked"
         );
-        assert_eq!((lines[2].layer.as_str(), lines[2].tier.as_deref()), ("tier", Some("T3")));
+        assert_eq!((lines[1].layer.as_str(), lines[1].tier.as_deref()), ("tier", Some("T3")));
         let plan = rank_role_on(&conn, Some(&the_feed), "plan", today).unwrap();
         assert!(plan[0].fact.as_ref().unwrap().derived);
         assert!(rank_role_on(&conn, None, "code", today).unwrap().iter().all(|l| l.layer != "feed"));
@@ -896,6 +1033,74 @@ mod tests {
             ("none", 3, 1, false),
             "under ten attempts: shown, not ranked"
         );
+    }
+
+    fn standing(id: &str, rank: Option<f64>, billing: u8, turn: Option<u64>) -> Standing {
+        Standing { own: None, rank, from_fact: rank.is_some(), billing, turn_micro: turn, id: id.into() }
+    }
+
+    #[test]
+    fn a_band_of_close_facts_goes_to_the_cheaper_model_and_says_whose_band() {
+        // The 2026-11-20 case: Terminal-Bench #4 (rank 0.957) and #12 (0.843) of 71, the second 25% cheaper a turn;
+        // a third at #30 (0.586) is a band below; a model with neither fact nor tier comes last.
+        let items = vec![
+            standing("g/carbon", Some(0.957), 3, Some(13_840)),
+            standing("g/hydrogen", Some(0.843), 3, Some(10_380)),
+            standing("g/flash", Some(0.586), 3, Some(5_000)),
+            standing("x/none", None, 1, Some(0)),
+        ];
+        let order = order_for_role(&items);
+        let ids: Vec<&str> = order.iter().map(|(i, _)| items[*i].id.as_str()).collect();
+        assert_eq!(ids, ["g/hydrogen", "g/carbon", "g/flash", "x/none"]);
+        assert_eq!(order[0].1, Some(0), "hydrogen ranks ahead of carbon, its band's leader");
+        assert_eq!(order[1].1, None);
+        // A plan model with a tier only (T3 stands at 0.7) leads the next band; flash (0.586) joins it, and the plan
+        // model, costing nothing a request, stays first.
+        let mut items = items;
+        items.push(Standing { from_fact: false, ..standing("q/max", Some(tier_standing("T3")), 2, Some(0)) });
+        let ids: Vec<String> = order_for_role(&items).into_iter().map(|(i, _)| items[i].id.clone()).collect();
+        assert_eq!(ids, ["g/hydrogen", "g/carbon", "q/max", "g/flash", "x/none"]);
+    }
+
+    #[test]
+    fn own_evidence_ranks_by_kept_rate_in_bands_then_by_money_per_kept_result() {
+        let own = |attempts: u32, kept: u32, money: u64, unknown: u32| Own {
+            attempts,
+            checks_passed: kept,
+            kept,
+            ranks: attempts >= OWN_MIN_ATTEMPTS,
+            known_micro_usd: money,
+            unknown_requests: unknown,
+        };
+        let with = |id: &str, o: Own| Standing { own: Some(o), ..standing(id, Some(0.5), 3, Some(1_000)) };
+        let items = vec![
+            with("a/dear", own(10, 10, 900_000, 0)), // 10/10 kept, $0.09 a kept result
+            with("b/cheap", own(10, 9, 180_000, 0)), // 9/10, $0.02: one band with a/dear, and cheaper
+            with("c/floor", own(10, 10, 50_000, 3)), // 10/10, cheapest known, but 3 requests unpriced: after
+            with("d/weak", own(10, 6, 0, 0)),        // 6/10: a band below, though it costs nothing
+            with("e/few", own(4, 4, 0, 0)),          // under ten attempts: ranks by its fact (0.5), after own
+        ];
+        let ids: Vec<String> = order_for_role(&items).into_iter().map(|(i, _)| items[i].id.clone()).collect();
+        assert_eq!(ids, ["b/cheap", "a/dear", "c/floor", "d/weak", "e/few"]);
+        assert_eq!(own(10, 9, 180_000, 0).micro_usd_per_kept(), Some(20_000));
+    }
+
+    #[test]
+    fn a_typical_turn_reads_four_fifths_from_the_cache_where_it_is_priced() {
+        let price = |input: u64, cached: Option<u64>, output: u64| super::super::pricing::Price {
+            input_micro_per_mtok: input,
+            output_micro_per_mtok: output,
+            cached_input_micro_per_mtok: cached,
+            cache_write_micro_per_mtok: None,
+            source: "t".into(),
+            observed_at: 0,
+        };
+        // Gemini 4 Carbon and Hydrogen at their 2026-11 list prices.
+        assert_eq!(typical_turn_micro(&price(2_000_000, Some(100_000), 10_000_000)), 13_840);
+        assert_eq!(typical_turn_micro(&price(1_500_000, Some(75_000), 7_500_000)), 10_380);
+        assert_eq!(typical_turn_micro(&price(1_000_000, None, 1_000_000)), 9_000);
+        assert_eq!(turn_cost("subscription", None), Some(0));
+        assert_eq!(turn_cost("paid", None), None);
     }
 
     #[test]

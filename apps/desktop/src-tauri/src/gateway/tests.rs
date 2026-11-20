@@ -2658,7 +2658,7 @@ fn a_role_alias_routes_and_the_ledger_names_the_role() {
         let why = response.headers()["x-pygg-auto"].to_str().unwrap().to_string();
         assert!(
             why.starts_with(
-                "auto/code; backup/steady ranked 1 of 2 (best fact for code first): no fact for code; tier T3"
+                "auto/code; backup/steady ranked 1 of 2 (your runs, then facts for code in bands, cheapest first in a band): no fact for code; tier T3"
             ),
             "{why}"
         );
