@@ -159,7 +159,7 @@ Each `setup` takes `--dry-run` to show what would change and `--remove` to undo 
 
 ## Measured, not claimed
 
-Every run below is the maintainer's own check: real agents, real models, checks the agent cannot edit, about $16.7 of a $20 budget for the runs to 2026-11-16 and $16.10 of the $50 set for the larger benchmark. Each report gives its method, raw results and what it does not show; read it before quoting a number. Summary: [BENCHMARKS.md](docs/BENCHMARKS.md).
+Every run below is the maintainer's own check: real agents, real models, checks the agent cannot edit, about $16.7 of a $20 budget for the runs to 2026-11-16 and $23.31 of the $50 set for the larger benchmark. Each report gives its method, raw results and what it does not show; read it before quoting a number. Summary: [BENCHMARKS.md](docs/BENCHMARKS.md).
 
 | What was measured | Result | Report |
 | --- | --- | --- |
@@ -170,6 +170,7 @@ Every run below is the maintainer's own check: real agents, real models, checks 
 | An OpenAI-format agent on Claude Haiku 5.5 through OpenRouter, with Pygg's cache marker | After each session's first turn, **99.7% of every prompt read from cache**; $0.0066 in all | [OpenRouter cache](benchmark/reports/2026-11-16-openrouter-cache-live.md) |
 | The gateway's own overhead, against a local fake provider | **About 4 ms** per short request, 5 ms per 400 kB prompt; about 230 requests/s with 16 clients | [Overhead](benchmark/reports/2026-11-14-gateway-overhead.md) |
 | OpenCode on all 36 fixture cases, one attempt each, on 15 routes: four Gemini models, five Alibaba plan models, two local 8B models, `auto`, `auto/cheap`, `auto/code` | **36/36 on four routes**: DeepSeek V4.1 Flash, Qwen 3.8 Max and `auto/cheap` on a monthly plan (quota, no metered money), and Gemini 4 Hydrogen at **$0.072 per solved task**; `auto/code` picked Gemini 4 Carbon, 33/36 at $0.115; local 8B models 3/36 and 0/36; nearly every miss a `hard-*` feature | [Every model](benchmark/reports/2026-11-20-all-models.md) |
+| OpenCode on the 17 hardest cases, three attempts each, five routes | **DeepSeek V4.1 Flash 51/51** on a plan; Gemini 4 Hydrogen 50/51 at **$0.106 per solved run**; `auto/cheap` 49/51 on quota; `auto/code` on Hydrogen 18/20, then on GLM 5.3 (21/31) after the Gemini credit ran out mid-run, with no error reaching the agent | [Hard × 3](benchmark/reports/2026-11-20-hard-repeat.md) |
 | Web sessions on five sites, 48 short tasks | **47/48 correct**, about 18 s each, $0 | [Web sessions](benchmark/reports/2026-11-13-web-sessions.md) |
 
 Not claimed: a quality ranking of models (a handful of tasks each, or one attempt per task in the largest run), a provider's bill (costs are the ledger at list prices), "60–95% fewer tokens", or savings on large refactors, database migrations or other languages, which no run has measured yet. The 88% is the whole session pinned to a cheaper model on small tasks; on the real repository the saving narrowed to about 40%, and a cost-first `auto/cheap` over free models solved 2 of 6. A longer web-session run on coding tasks got the owner's DeepSeek account suspended for three days ([report](benchmark/reports/2026-11-13-web-coding.md)); the guard has been stricter since.
