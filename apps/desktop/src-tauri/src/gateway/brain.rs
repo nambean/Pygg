@@ -281,10 +281,10 @@ fn planner_needs() -> Needs {
     Needs { input_tokens: 3_000, max_tokens: Some(6_000), ..Needs::default() }
 }
 
-/// The output a planner call asks for: the board is a few thousand tokens, but a reasoning model thinks first, and at
-/// 6,000 DeepSeek V4 Pro spent them all thinking on a one-page specification and wrote nothing (2026-11-21). Up to
-/// the model's own maximum.
-const PLANNER_MAX_TOKENS: u64 = 16_000;
+/// The output a planner call asks for: the board is a few thousand tokens, but a reasoning model thinks first. On a
+/// one-page specification DeepSeek V4 Pro spent all of 6,000 thinking and wrote nothing, and with brain-v2's longer
+/// rules twice all of 16,000 (2026-11-21). Up to the model's own maximum.
+const PLANNER_MAX_TOKENS: u64 = 32_000;
 
 fn planner_max_tokens(conn: &Connection, planner: &str) -> u64 {
     let most = planner.split_once('/').and_then(|(provider, model)| {
@@ -1080,7 +1080,7 @@ mod tests {
             store::set_capabilities(&conn, &p.id, model, &caps).unwrap();
         }
         let at = |m: &str| planner_max_tokens(&conn, &format!("{}/{m}", p.id));
-        assert_eq!((at("small"), at("big"), at("unknown"), at("gone")), (8_000, 16_000, 16_000, 16_000));
+        assert_eq!((at("small"), at("big"), at("unknown"), at("gone")), (8_000, 32_000, 32_000, 32_000));
     }
 
     #[test]
