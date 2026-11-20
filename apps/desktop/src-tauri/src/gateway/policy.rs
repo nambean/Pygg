@@ -30,11 +30,14 @@ pub struct ProviderError {
     pub retry_after: Option<Duration>,
     /// The provider's message, for the few cases where only it says what happened.
     pub message: Option<String>,
+    /// An aggregator said the failure came from the provider behind it (new-api and one-api: `error.type` is
+    /// `upstream_error`), so it is not about this connection's key or account.
+    pub upstream: bool,
 }
 
 impl ProviderError {
     pub fn new(status: u16) -> ProviderError {
-        ProviderError { status, code: None, retry_after: None, message: None }
+        ProviderError { status, code: None, retry_after: None, message: None, upstream: false }
     }
 
     /// Reads the status, the reset time and the provider's error code from an error response.
@@ -56,7 +59,8 @@ impl ProviderError {
         let retry_after = retry_after(headers, now)
             .or_else(|| error.and_then(gemini_retry_delay))
             .or_else(|| message.as_deref().and_then(|m| regain_access_in(m, reference)));
-        ProviderError { status, code, retry_after, message }
+        let upstream = error.is_some_and(|e| e["type"].as_str() == Some("upstream_error"));
+        ProviderError { status, code, retry_after, message, upstream }
     }
 
     /// A rejected key sent as 400: Gemini answers an invalid key with `400 INVALID_ARGUMENT` and `Please pass a valid
@@ -155,6 +159,12 @@ pub fn decide(failure: &Failure) -> Decision {
         Failure::Http(e) => {
             let wait = |default: Duration| Some(e.retry_after.unwrap_or(default).min(COOLDOWN_CAP));
             match e.status {
+                // An aggregator's own provider refused it (MixAICloud's GLM 5.3, 2026-11-20: "401 身份验证失败" as an
+                // `upstream_error`, while the same key answered GLM 5.2): one model is out of reach for a while; the key,
+                // the connection and its siblings are fine.
+                401 if e.upstream => {
+                    decision(Next::Any, mark(true, "model_unavailable", wait(Duration::from_secs(600))), false)
+                }
                 401 => decision(Next::OtherGroups, mark(false, "invalid_credentials", None), false),
                 400 if e.is_rejected_key() => {
                     decision(Next::OtherGroups, mark(false, "invalid_credentials", None), false)
@@ -288,6 +298,26 @@ mod tests {
             assert_eq!(decide(&http(status)).next, Next::OtherGroups, "{status}");
         }
         assert_eq!(decide(&http(401)).mark.unwrap().cooldown, None);
+    }
+
+    #[test]
+    fn an_aggregators_upstream_401_cools_one_model_and_moves_on() {
+        let body = br#"{"error":{"message":"\u8eab\u4efd\u9a8c\u8bc1\u5931\u8d25\u3002","type":"upstream_error","param":"","code":"1000"}}"#;
+        let e = ProviderError::from_response(401, &HeaderMap::new(), body);
+        assert!(e.upstream);
+        let decision = decide(&Failure::Http(e));
+        assert_eq!(decision.next, Next::Any);
+        let mark = decision.mark.unwrap();
+        assert_eq!(
+            (mark.model_scope, mark.state, mark.cooldown),
+            (true, "model_unavailable", Some(Duration::from_secs(600)))
+        );
+        // The aggregator's own refusal of the key is still the key's.
+        let own = br#"{"error":{"message":"invalid token","type":"new_api_error","code":""}}"#;
+        assert_eq!(
+            decide(&Failure::Http(ProviderError::from_response(401, &HeaderMap::new(), own))).next,
+            Next::OtherGroups
+        );
     }
 
     #[test]

@@ -38,7 +38,7 @@ Each preset in `apps/desktop/src-tauri/src/gateway/presets.rs` fills in a provid
 | Nebius Token Factory | `https://api.tokenfactory.nebius.com/v1` | OpenAI | context (verbose) | not stated | no | https://docs.tokenfactory.nebius.com/ |
 | Meta (Muse API) | `https://api.meta.ai/v1` | OpenAI (also Anthropic Messages and Responses) | yes | pay as you go; no free tier stated | no | https://dev.meta.ai/docs/ |
 
-An Anthropic-format endpoint is written as the base an Anthropic SDK takes plus `/v1`, because the gateway appends `/messages`. Presets for one provider in both formats (DeepSeek, Kimi, Z.AI, MiniMax) share a quota group by default, since they take the same key.
+An Anthropic-format endpoint is written as the base an Anthropic SDK takes plus `/v1`, because the gateway appends `/messages`. Presets for one provider in both formats (DeepSeek, Kimi, Z.AI, MiniMax) share a quota group by default, since they take the same key. Custom connections share one with the same host only.
 
 **Several accounts on one connection.** A connection can hold API keys of several separate accounts, used in turn: in order, round robin, least used, or by the room each account's stated rate limits leave (ADR-038). A key that is rate-limited or out of credit cools down and the next key answers in the same request; a rejected key is blocked until you replace or remove it. Usage names the key that answered. Add keys in Providers → a connection → API keys, or with `pygg gateway key --id CONNECTION --label NAME --key-env VAR --separate-account yes`. Add only keys of separate accounts: several keys of one account share its limits. Web sessions, subscription sign-ins and local runtimes have no key ring.
 

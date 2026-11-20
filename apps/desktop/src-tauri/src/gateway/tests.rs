@@ -2951,6 +2951,22 @@ fn one_providers_two_api_formats_share_a_quota_group() {
     );
     store::update_provider(&conn, &anthropic.id, None, None, Some(true)).unwrap();
     assert_eq!(store::get_provider(&conn, &anthropic.id).unwrap().unwrap().quota_group, anthropic.id);
+    // Custom connections share a group with the same host only: two keys of one service, not two services.
+    let (a, b) = (add("custom", "openai"), add("custom", "openai"));
+    assert_eq!((a.quota_group.as_str(), b.quota_group.as_str()), ("custom:x.test", "custom:x.test"));
+    let elsewhere = store::add_provider(
+        &conn,
+        &NewProvider {
+            kind: "custom",
+            label: "local",
+            endpoint: "http://127.0.0.1:8080/v1",
+            credential_ref: None,
+            default_billing: "local",
+            wire: "openai",
+        },
+    )
+    .unwrap();
+    assert_eq!(elsewhere.quota_group, "custom:127.0.0.1:8080");
 }
 
 // ---------- ADR-033: the Responses API surface ----------

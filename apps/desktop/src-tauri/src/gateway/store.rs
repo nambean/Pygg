@@ -73,8 +73,17 @@ fn provider_row(row: &rusqlite::Row) -> rusqlite::Result<Provider> {
     let kind: String = row.get(1)?;
     let separate = row.get::<_, i64>(11)? == 1;
     // Without the user's own group, connections of one provider family share limits (DeepSeek's OpenAI and
-    // Anthropic endpoints take the same key).
-    let quota_group = if separate { row.get(10)? } else { super::presets::quota_family(&kind).to_string() };
+    // Anthropic endpoints take the same key). Custom connections are one family per host: two keys of one service may
+    // be one account, two services are not.
+    let quota_group = if separate {
+        row.get(10)?
+    } else if kind == "custom" {
+        let endpoint: String = row.get(3)?;
+        let host = endpoint.split("://").last().unwrap_or("").split(['/', '?']).next().unwrap_or("");
+        format!("custom:{}", host.to_ascii_lowercase())
+    } else {
+        super::presets::quota_family(&kind).to_string()
+    };
     Ok(Provider {
         id: row.get(0)?,
         kind,

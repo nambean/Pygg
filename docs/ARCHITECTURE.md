@@ -54,7 +54,7 @@ Pygg is one program: a Rust core inside a Tauri 2 window, with the same core als
 7. **On failure**, `policy.rs` decides by error class: whether another target may answer, and what to mark. Fallback happens only before any byte reached the client.
    - An ambiguous failure (dropped connection, read timeout, 408, 504, 524) stops: the provider may have run it.
    - A 5xx may go on only if the client allows paid retries.
-   - 401, 402, 403 and 429 go on only to other quota groups. With a key ring, a 401 blocks the key and a 402 or 429 cools it; the next key is tried.
+   - 401, 402, 403 and 429 go on only to other quota groups. With a key ring, a 401 blocks the key and a 402 or 429 cools it; the next key is tried. An aggregator's 401 marked as its upstream provider's (`error.type` `upstream_error`, new-api and one-api) cools only that model for ten minutes and goes on to any target.
    - Cooldowns follow the provider's `Retry-After`, `retry-after-ms` or Gemini's `RetryInfo`. A rejected key stays blocked until the user replaces it.
 8. **Settle.** The ledger entry (tokens, cost with its source: actual, estimated or unknown, never a guessed $0; the key that answered; the request id, `x-pygg-request-id`) and the journal removal are one transaction (`pricing.rs`, `store.rs`). An attempt left in the journal by a crash becomes an interrupted entry for the next owner of the store.
 
