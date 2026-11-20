@@ -281,6 +281,22 @@ fn planner_needs() -> Needs {
     Needs { input_tokens: 3_000, max_tokens: Some(6_000), ..Needs::default() }
 }
 
+/// The output a planner call asks for: the board is a few thousand tokens, but a reasoning model thinks first, and at
+/// 6,000 DeepSeek V4 Pro spent them all thinking on a one-page specification and wrote nothing (2026-11-21). Up to
+/// the model's own maximum.
+const PLANNER_MAX_TOKENS: u64 = 16_000;
+
+fn planner_max_tokens(conn: &Connection, planner: &str) -> u64 {
+    let most = planner.split_once('/').and_then(|(provider, model)| {
+        super::store::list_models(conn, Some(provider))
+            .ok()?
+            .into_iter()
+            .find(|m| m.model_id == model)
+            .and_then(|m| m.capabilities.max_output_tokens)
+    });
+    most.map_or(PLANNER_MAX_TOKENS, |m| m.clamp(6_000, PLANNER_MAX_TOKENS))
+}
+
 /// The models eligible as a planner, ranked for the `plan` role under the client's policy (auto's filters).
 pub fn candidates(conn: &Connection, client: &Client) -> Result<auto::Plan> {
     let feed = super::facts::for_conn(conn);
@@ -369,7 +385,8 @@ pub async fn run_planner(
     let Some(planner) = b.planner.clone() else { return Err("no planner is set".into()) };
     b.state = "thinking".into();
     shared.with_db(|db| save(db, b))?;
-    let body = json!({ "model": planner, "messages": planner_messages(b, answers), "stream": false, "max_tokens": 6000, "temperature": 0.2 });
+    let max_tokens = shared.with_db(|db| planner_max_tokens(db, &planner));
+    let body = json!({ "model": planner, "messages": planner_messages(b, answers), "stream": false, "max_tokens": max_tokens, "temperature": 0.2 });
     let mut headers = HeaderMap::new();
     if let Ok(v) = HeaderValue::from_str(&b.session) {
         headers.insert(super::SESSION_HEADER, v);
@@ -417,7 +434,7 @@ pub async fn run_planner(
                     }
                     let ok = proposal.dropped_cards == 0;
                     shared.with_db(|db| -> std::result::Result<(), String> {
-                        pick_models(db, client, &mut proposal)?;
+                        pick_models(db, client, b.workspace_id.as_deref(), &mut proposal)?;
                         signal(db, &b.id, ok);
                         Ok(())
                     })?;
@@ -463,11 +480,22 @@ async fn call(shared: &Shared, client: &Client, incoming: &Incoming<'_>) -> std:
     if !status.is_success() {
         return Err(format!("{model} answered HTTP {}", status.as_u16()));
     }
-    reply_text(&chat).filter(|t| !t.trim().is_empty()).ok_or_else(|| format!("{model} answered with no text"))
+    reply_text(&chat).filter(|t| !t.trim().is_empty()).ok_or_else(|| {
+        if chat["choices"][0]["finish_reason"].as_str() == Some("length") {
+            format!("{model} used its whole output limit before writing the board (a thinking model can); pick another planner")
+        } else {
+            format!("{model} answered with no text")
+        }
+    })
 }
 
 /// The model for each card, by rule: the role alias's ranking under the client's policy (never the planner's).
-pub fn pick_models(conn: &Connection, client: &Client, proposal: &mut Proposal) -> std::result::Result<(), String> {
+/// Picks each card's model: the pick the user saved for the card's role on Brain Storming (the workspace's own when
+/// the brainstorm has one, else the default), when it is eligible under the client's policy; otherwise the rule's,
+/// the first of the role's route. The suggested fallbacks are the route's next models either way.
+pub fn pick_models(
+    conn: &Connection, client: &Client, workspace: Option<&str>, proposal: &mut Proposal,
+) -> std::result::Result<(), String> {
     let feed = super::facts::for_conn(conn);
     let mut per_role: HashMap<String, Option<(String, String, Option<u64>, Vec<Fallback>)>> = HashMap::new();
     for card in &mut proposal.cards {
@@ -491,10 +519,30 @@ pub fn pick_models(conn: &Connection, client: &Client, proposal: &mut Proposal) 
                 )?;
                 // The route as auto would try it (at most two models of one connection while others are eligible):
                 // the first is the card's model, the next ones its suggested fallbacks.
-                let mut route = plan.route.iter().map(|r| {
-                    (format!("{}/{}", r.provider_id, r.model_id), r.reason.clone(), Some(r.estimate_micro_usd))
+                let saved = match workspace {
+                    Some(ws) => saved_pick(conn, ws, role.as_str())?,
+                    None => None,
+                }
+                .or(saved_pick(conn, GLOBAL, role.as_str())?);
+                let saved = saved.and_then(|(provider, model)| {
+                    plan.ranked.iter().find(|r| r.provider_id == provider && r.model_id == model).map(|r| {
+                        (
+                            format!("{provider}/{model}"),
+                            format!("your pick for {} on Brain Storming; {}", role.as_str(), r.reason),
+                            Some(r.estimate_micro_usd),
+                        )
+                    })
                 });
-                let best = route.next().map(|(model, reason, estimate)| {
+                let saved_id = saved.as_ref().map(|(model, _, _)| model.clone());
+                let mut route = plan
+                    .route
+                    .iter()
+                    .map(|r| {
+                        (format!("{}/{}", r.provider_id, r.model_id), r.reason.clone(), Some(r.estimate_micro_usd))
+                    })
+                    .filter(|(model, _, _)| saved_id.as_deref() != Some(model.as_str()));
+                let first = saved.or_else(|| route.next());
+                let best = first.map(|(model, reason, estimate)| {
                     let fallbacks =
                         route.take(SUGGESTED_FALLBACKS).map(|(model, reason, _)| Fallback { model, reason }).collect();
                     (model, reason, estimate, fallbacks)
@@ -934,6 +982,105 @@ mod tests {
 
     fn board(cards: &str) -> String {
         format!(r#"{{"questions": [{{"id": "q1", "text": "Which payment providers?"}}], "cards": [{cards}]}}"#)
+    }
+
+    #[test]
+    fn a_cards_model_is_the_pick_saved_for_its_role_when_eligible() {
+        use crate::gateway::pricing::Price;
+        use crate::gateway::store::{self, Capabilities, NewProvider};
+        let conn = crate::db::open_in_memory().unwrap();
+        let p = store::add_provider(
+            &conn,
+            &NewProvider {
+                kind: "custom",
+                label: "x",
+                endpoint: "https://x.test/v1",
+                credential_ref: None,
+                default_billing: "paid",
+                wire: "openai",
+            },
+        )
+        .unwrap();
+        for (model, tier, cost) in [("strong", "T3", 3_000_000), ("cheap", "T2", 200_000), ("other", "T2", 300_000)] {
+            store::add_model(&conn, &p.id, model).unwrap();
+            let price = Price {
+                input_micro_per_mtok: cost,
+                output_micro_per_mtok: cost * 4,
+                cached_input_micro_per_mtok: None,
+                cache_write_micro_per_mtok: None,
+                source: "user".into(),
+                observed_at: 0,
+            };
+            store::update_model(&conn, &p.id, model, None, None, Some(Some(price))).unwrap();
+            let caps = Capabilities {
+                tier: Some(tier.into()),
+                context_tokens: Some(128_000),
+                max_output_tokens: Some(16_000),
+                supports_tools: Some(true),
+                supports_vision: Some(false),
+                ..Capabilities::default()
+            };
+            store::set_capabilities(&conn, &p.id, model, &caps).unwrap();
+        }
+        let client = store::create_client(&conn, "Tests", None).unwrap().0;
+        let fresh = || {
+            parse_reply(&board(
+                r#"{"id": "c1", "title": "Build it", "role": "code", "done": "tests pass", "dependsOn": []}"#,
+            ))
+            .unwrap()
+        };
+        let id = |m: &str| format!("{}/{m}", p.id);
+        // Nothing saved: the rule's pick.
+        let mut by_rule = fresh();
+        pick_models(&conn, &client, None, &mut by_rule).unwrap();
+        let rule = by_rule.cards[0].model.clone().unwrap();
+        // The default pick wins over the rule, and is not also a fallback.
+        save_pick(&conn, GLOBAL, "code", &p.id, "cheap").unwrap();
+        let mut saved = fresh();
+        pick_models(&conn, &client, None, &mut saved).unwrap();
+        let card = &saved.cards[0];
+        assert_eq!(card.model.as_deref(), Some(id("cheap").as_str()), "rule picked {rule}");
+        assert!(
+            card.reason.as_deref().unwrap().starts_with("your pick for code on Brain Storming"),
+            "{:?}",
+            card.reason
+        );
+        assert!(card.fallbacks.iter().all(|f| f.model != id("cheap")));
+        // A workspace's own pick wins over the default.
+        save_pick(&conn, "ws1", "code", &p.id, "other").unwrap();
+        let mut own = fresh();
+        pick_models(&conn, &client, Some("ws1"), &mut own).unwrap();
+        assert_eq!(own.cards[0].model.as_deref(), Some(id("other").as_str()));
+        // A saved model that is no longer eligible gives way to the rule.
+        save_pick(&conn, GLOBAL, "code", &p.id, "gone").unwrap();
+        let mut stale = fresh();
+        pick_models(&conn, &client, None, &mut stale).unwrap();
+        assert_eq!(stale.cards[0].model.as_deref(), Some(rule.as_str()));
+    }
+
+    #[test]
+    fn a_planner_gets_room_to_think_up_to_its_own_maximum() {
+        use crate::gateway::store::{self, Capabilities, NewProvider};
+        let conn = crate::db::open_in_memory().unwrap();
+        let p = store::add_provider(
+            &conn,
+            &NewProvider {
+                kind: "custom",
+                label: "x",
+                endpoint: "https://x.test/v1",
+                credential_ref: None,
+                default_billing: "paid",
+                wire: "openai",
+            },
+        )
+        .unwrap();
+        for (model, most) in [("small", Some(8_000)), ("big", Some(64_000)), ("unknown", None)] {
+            store::add_model(&conn, &p.id, model).unwrap();
+            let caps = Capabilities { max_output_tokens: most, ..Capabilities::default() };
+            store::set_capabilities(&conn, &p.id, model, &caps).unwrap();
+        }
+        let at = |m: &str| planner_max_tokens(&conn, &format!("{}/{m}", p.id));
+        assert_eq!((at("small"), at("big"), at("unknown"), at("gone")), (8_000, 16_000, 16_000, 16_000));
     }
 
     #[test]
