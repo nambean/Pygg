@@ -51,6 +51,8 @@ Each record says what Pygg decided, why, and what it costs. Numbers never change
 
 **Amended by ADR-041:** `pygg/brain` lets a model classify the work into cards and roles; the model for each card is still picked by rule, from the per-role facts of ADR-040, and the user approves before money is spent.
 
+**Amended 2026-11-20 (measured length and cache):** `auto/cheap` ranks by the expected cost of the request, not by list price at the request's output limit. From a model's own answers in the last 30 days to prompts within four times this one's size (at least 20 of them), it takes their mean output and the share of their prompt read from cache. A model with fewer is taken at the median output of the others, within the limit, with no cache. The estimate shown, the holds and strict limits stay at the limit. **Why:** on the MixAICloud benchmark the cheapest model by list (Qwen 3.5 Flash) wrote about nine times DeepSeek V4 Flash's output on the same short tasks, past the request's limit, and cost seven times as much per correct answer.
+
 ## ADR-007 — Deterministic checks gate the cascade
 
 **Decision:**

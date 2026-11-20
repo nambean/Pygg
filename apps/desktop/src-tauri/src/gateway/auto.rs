@@ -12,8 +12,10 @@
 //!    - `auto`: the lowest eligible tier at or above the client's minimum, then Local, Free, Subscription and
 //!      Paid in that order, then the lower estimated cost. This is "the lowest eligible tier under your
 //!      policy", not "the cheapest" (ADR-006).
-//!    - `auto/cheap`: the lowest estimated cost of this request among the eligible models, free and local
-//!      first. Tier breaks ties upwards. Tier is not required.
+//!    - `auto/cheap`: the lowest expected cost of this request among the eligible models, free and local
+//!      first: each model's own answers to prompts of about this size say how long its answer will be and how
+//!      much of the prompt its provider's cache will read (`usual_output`). Tier breaks ties upwards. Tier is
+//!      not required.
 //! 4. The first few ranked models become the route, tried in order with the usual error-scoped fallback,
 //!    quota groups, budget holds and retry policy. An explicit session stays on the model that answered it.
 //!
@@ -170,6 +172,78 @@ impl Needs {
         let per = |tokens: u64, micro: u64| ((tokens as u128 * micro as u128).div_ceil(1_000_000)) as u64;
         per(self.input_tokens, input_price) + per(self.output_tokens(), price.output_micro_per_mtok)
     }
+
+    /// What this request is expected to cost at `price` when `cached` of each prompt token (0 to 1) is read from the
+    /// provider's cache, and the answer is `output` tokens long.
+    fn expected_micro(&self, price: &crate::gateway::pricing::Price, cached: f64, output: u64) -> u64 {
+        let per = |tokens: u64, micro: u64| ((tokens as u128 * micro as u128).div_ceil(1_000_000)) as u64;
+        let read = (self.input_tokens as f64 * cached.clamp(0.0, 1.0)).round() as u64;
+        let read_price = price.cached_input_micro_per_mtok.unwrap_or(price.input_micro_per_mtok);
+        per(self.input_tokens - read, price.input_micro_per_mtok)
+            + per(read, read_price)
+            + per(output, price.output_micro_per_mtok)
+    }
+}
+
+/// How many answers a model needs before `auto/cheap` takes its own record over the request's limit, the window they
+/// are taken from, and how far their prompts' size may be from this request's (either way).
+const USUAL_MIN_ANSWERS: i64 = 20;
+const USUAL_WINDOW_MS: i64 = 30 * 86_400_000;
+const USUAL_SIZE_FACTOR: u64 = 4;
+
+/// A model's answers here to prompts about this request's size: how many, their mean output tokens, and the share of
+/// their prompt tokens read from the provider's cache.
+#[derive(Clone, Copy)]
+struct Record {
+    answers: u64,
+    output: u64,
+    cached: f64,
+}
+
+/// What the ledger says about a request like this one, per model, and the usual output length across those models
+/// (the median of their means), for a model with too few answers. A list price says what a token costs, not how many
+/// a model writes or how many it reads from cache: on the MixAICloud benchmark (2026-11-20) Qwen 3.5 Flash, the
+/// cheapest by list, wrote about nine times DeepSeek V4 Flash's tokens for the same short tasks, thinking past the
+/// request's limit, while DeepSeek read most of an agent's prompts from cache.
+#[derive(Default)]
+struct Usual {
+    per_model: std::collections::HashMap<String, Record>,
+    typical: Option<u64>,
+}
+
+fn usual_output(conn: &Connection, now: i64, input_tokens: u64) -> store::Result<Usual> {
+    let mut statement = conn
+        .prepare(
+            "SELECT provider, model, COUNT(*), AVG(output_tokens), SUM(input_tokens), SUM(COALESCE(cache_tokens, 0)) \
+             FROM usage_events WHERE created_at >= ?1 AND outcome = 'ok' AND output_tokens IS NOT NULL \
+             AND input_tokens BETWEEN ?3 AND ?4 GROUP BY provider, model HAVING COUNT(*) >= ?2",
+        )
+        .map_err(|e| e.to_string())?;
+    let low = (input_tokens / USUAL_SIZE_FACTOR) as i64;
+    let high = input_tokens.saturating_mul(USUAL_SIZE_FACTOR).max(1) as i64;
+    let rows = statement
+        .query_map(rusqlite::params![now - USUAL_WINDOW_MS, USUAL_MIN_ANSWERS, low, high], |r| {
+            let input = r.get::<_, i64>(4)?.max(0) as f64;
+            let cache = r.get::<_, i64>(5)?.max(0) as f64;
+            Ok((
+                format!("{}/{}", r.get::<_, String>(0)?, r.get::<_, String>(1)?),
+                Record {
+                    answers: r.get::<_, i64>(2)?.max(0) as u64,
+                    output: r.get::<_, f64>(3)?.max(0.0).round() as u64,
+                    cached: if input > 0.0 { (cache / input).min(1.0) } else { 0.0 },
+                },
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    let mut usual = Usual::default();
+    for row in rows {
+        let (id, record) = row.map_err(|e| e.to_string())?;
+        usual.per_model.insert(id, record);
+    }
+    let mut means: Vec<u64> = usual.per_model.values().map(|r| r.output).collect();
+    means.sort_unstable();
+    usual.typical = means.get(means.len() / 2).copied();
+    Ok(usual)
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -386,6 +460,11 @@ pub fn plan_with(
     // For a role alias, what the role order compares (facts.rs `order_for_role`), one per ranked model.
     let mut standings: Vec<super::facts::Standing> = Vec::new();
     let mut excluded = Vec::new();
+    // For auto/cheap, how long each model's answers are here, from the ledger.
+    let usual = match strategy {
+        Strategy::Cheap => usual_output(conn, crate::db::now_ms(), needs.input_tokens)?,
+        _ => Usual::default(),
+    };
     // The user's own evidence for the role (BRAIN.md §1, the first layer): from ten finished attempts on cards of
     // the role, a model ranks by its kept results, above every fact of the feed.
     let own = match strategy {
@@ -458,14 +537,47 @@ pub fn plan_with(
                         model.billing
                     ),
                 };
+                // Cheap ranks by what the request is expected to cost, from the model's own answers here to prompts
+                // of about this size: its share of the prompt read from cache, and its usual output rather than the
+                // request's limit (a thinking model may write far past it; a terse one stops far short). Without
+                // enough answers of its own, a model is taken at the usual length of the others, within the limit,
+                // and no cache. The estimate shown and every hold stay at the limit.
+                let mut reason = reason;
+                let expected = match (strategy, &model.price) {
+                    (Strategy::Cheap, Some(price)) if estimate > 0 => {
+                        let id = format!("{}/{}", model.provider_id, model.model_id);
+                        match (usual.per_model.get(&id), usual.typical) {
+                            (Some(r), _) => {
+                                let expected = needs.expected_micro(price, r.cached, r.output);
+                                reason.push_str(&format!(
+                                    "; its {} answers here to prompts this size in 30 days average {} output tokens and read {:.0}% of the prompt from cache, so about {} a request",
+                                    r.answers,
+                                    r.output,
+                                    r.cached * 100.0,
+                                    money(expected)
+                                ));
+                                expected
+                            }
+                            (None, Some(typical)) => {
+                                let expected = needs.expected_micro(price, 0.0, typical.min(needs.output_tokens()));
+                                reason.push_str(&format!(
+                                    "; too few answers here to know its length, taken at the usual {typical} output tokens"
+                                ));
+                                expected
+                            }
+                            (None, None) => estimate,
+                        }
+                    }
+                    _ => estimate,
+                };
                 // Tier: lowest tier, then billing (local, free, subscription, paid), then estimated cost.
-                // Cheap: estimated cost, then billing, then the higher tier.
+                // Cheap: expected cost, then billing, then the higher tier.
                 // Role: the user's own evidence (kept rate, then checks passed) first, then the feed's rank (best
                 // first), then the higher tier for models with no fact, then billing, then estimated cost (BRAIN.md
                 // section 1).
                 let key = match strategy {
                     Strategy::Tier => (t, b, estimate),
-                    Strategy::Cheap => (estimate, b, 4 - t),
+                    Strategy::Cheap => (expected, b, 4 - t),
                     Strategy::Role(_) => match (&own_line, &fact) {
                         (Some(o), _) => {
                             let kept = 1.0 - o.kept as f64 / o.attempts as f64;
@@ -1359,6 +1471,47 @@ mod tests {
         assert_eq!(names(&plan), ["free/gift", "paid/untiered", "paid/small", "paid/notools", "paid/mid", "paid/big"]);
         assert_eq!(plan.ranked[0].estimate_micro_usd, 0);
         assert!(plan.ranked[1].estimate_micro_usd < plan.ranked[2].estimate_micro_usd);
+    }
+
+    #[test]
+    fn auto_cheap_learns_how_long_each_models_answers_are() {
+        let w = world();
+        let needs = Needs { input_tokens: 2000, max_tokens: Some(500), ..Needs::default() };
+        // The cheapest by list price writes 20,000 tokens an answer here, past the limit, as a thinking model may.
+        let now = crate::db::now_ms();
+        for i in 0..20 {
+            w.conn
+                .execute(
+                    "INSERT INTO usage_events (id, provider, model, input_tokens, cache_tokens, output_tokens, cost_micro_usd, \
+                     cost_status, source, created_at, outcome) \
+                     VALUES (?1, 'paid', 'untiered', 2000, 0, 20000, 800, 'actual', 'gateway', ?2, 'ok')",
+                    rusqlite::params![format!("u{i}"), now - 1000],
+                )
+                .unwrap();
+        }
+        let plan = plan(&w.conn, &w.client, "auto/cheap", Strategy::Cheap, &needs).unwrap();
+        assert_eq!(names(&plan), ["free/gift", "paid/small", "paid/notools", "paid/untiered", "paid/mid", "paid/big"]);
+        let untiered = plan.ranked.iter().find(|r| r.model_id == "untiered").unwrap();
+        assert!(
+            untiered.reason.contains("its 20 answers here to prompts this size in 30 days average 20000 output tokens"),
+            "{}",
+            untiered.reason
+        );
+        // The estimate shown is still the request's limit.
+        assert_eq!(untiered.estimate_micro_usd, needs.estimate_micro(&price(10_000, 40_000)));
+        let small = plan.ranked.iter().find(|r| r.model_id == "small").unwrap();
+        assert!(small.reason.contains("taken at the usual 20000 output tokens"), "{}", small.reason);
+        // Answers to prompts of another size teach nothing about this one, nor do answers older than the window.
+        let big_prompt = Needs { input_tokens: 20_000, ..needs.clone() };
+        let plan = super::plan(&w.conn, &w.client, "auto/cheap", Strategy::Cheap, &big_prompt).unwrap();
+        assert!(plan.ranked.iter().all(|r| !r.reason.contains("answers here")), "{:?}", plan.ranked);
+        w.conn.execute("UPDATE usage_events SET created_at = ?1", [now - USUAL_WINDOW_MS - 1]).unwrap();
+        let plan = super::plan(&w.conn, &w.client, "auto/cheap", Strategy::Cheap, &needs).unwrap();
+        assert_eq!(names(&plan)[1], "paid/untiered");
+        // A prompt read mostly from cache costs what the cache costs.
+        let cached = Price { cached_input_micro_per_mtok: Some(1_000), ..price(10_000, 40_000) };
+        let long = Needs { input_tokens: 1_000_000, ..needs.clone() };
+        assert_eq!((long.expected_micro(&cached, 0.9, 0), long.expected_micro(&cached, 0.0, 0)), (1_900, 10_000));
     }
 
     #[test]
