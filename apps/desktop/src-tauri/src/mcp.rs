@@ -4,7 +4,7 @@
 //! touched; a result becomes a branch only when kept.
 //!
 //! Configuration (environment):
-//!   PYGG_TOKEN  a client token from Pygg → Clients, allowed to start tasks (Limits… → Smart tasks)
+//!   PYGG_TOKEN  a client token from Pygg → Endpoint → API Keys, allowed to start tasks (Limits… → May start tasks)
 //!   PYGG_URL    the gateway, default http://127.0.0.1:8741
 //!
 //! Example: claude mcp add pygg -e PYGG_TOKEN=str-… -- "C:\path\to\Pygg.exe" mcp
@@ -32,7 +32,7 @@ struct Gateway {
 impl Gateway {
     async fn call(&self, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Value, String> {
         let token = self.token.as_deref().ok_or(
-            "PYGG_TOKEN is not set. Create a client token in Pygg → Clients, allow it to start tasks (Limits… → Smart tasks), \
+            "PYGG_TOKEN is not set. Create a client token in Pygg → Endpoint → API Keys, allow it to start tasks (Limits… → May start tasks), \
              and register this server with it, e.g. `claude mcp add pygg -e PYGG_TOKEN=… -- pygg-mcp`.")?;
         let mut request = self.http.request(method, format!("{}{path}", self.base)).bearer_auth(token);
         if let Some(body) = body {

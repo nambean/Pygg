@@ -584,7 +584,7 @@ pub fn authenticate(shared: &Shared, headers: &HeaderMap) -> Result<Client, Refu
         return Err(Refusal::new(
             StatusCode::UNAUTHORIZED,
             "authentication_error",
-            "Missing client token. Create one in Pygg → Clients.",
+            "Missing client token. Create one in Pygg → Endpoint → API Keys.",
         ));
     };
     let client = shared

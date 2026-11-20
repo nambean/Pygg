@@ -39,6 +39,13 @@ function locate(env = process.env) {
   return null;
 }
 
+// A setting the user left unset may arrive empty or as its unreplaced `${user_config.…}` reference; the server then
+// falls back to its own default (the gateway on 127.0.0.1:8741) or names the missing token.
+for (const key of ['PYGG_URL', 'PYGG_TOKEN']) {
+  const value = process.env[key];
+  if (value !== undefined && (!value.trim() || value.includes('${'))) delete process.env[key];
+}
+
 const found = locate();
 if (!found) {
   process.stderr.write(

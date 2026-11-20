@@ -1,7 +1,7 @@
 //! The task API: smart tasks started from where people already work (an IDE agent through `pygg-mcp`, a
 //! script), run by the app's task engine (tasks.rs) and watched in the app.
 //!
-//! - A client needs a token and the user's permission to start tasks (Clients → Limits… → Smart tasks).
+//! - A client needs a token and the user's permission to start tasks (Endpoint → API Keys → Limits… → May start tasks).
 //! - A client sees and acts on only the tasks it started.
 //! - A paid step's approval belongs to the user, in the app: there is no API for it.
 //! - The folder an agent names is resolved to its Git repository, which becomes a workspace if it is not one.
@@ -190,7 +190,7 @@ fn permitted(shared: &Shared, headers: &HeaderMap) -> Result<(Client, tasks::Run
             StatusCode::FORBIDDEN,
             "permission_error",
             &format!(
-                "Client \"{}\" may not start tasks. Allow it in Pygg → Clients → Limits… → Smart tasks.",
+                "Client \"{}\" may not start tasks. Allow it in Pygg → Endpoint → API Keys → Limits… → May start tasks.",
                 client.name
             ),
         ));
