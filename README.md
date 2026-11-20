@@ -241,6 +241,12 @@ python scripts/model-facts.py selftest                # the model facts builder 
 
 `PYGG_DATA_DIR` points the app at another store, for trying it without touching your own; that app runs beside the installed one, with its own window profile, and needs a gateway port of its own (Endpoint → Configure…).
 
+## Sponsors
+
+- **[MixAICloud](https://us.mixaicloud.com)** ([TheoZhang3321 on X](https://x.com/TheoZhang3321)), the project's first sponsor: $30 of API credit, given on 2026-11-20 for a benchmark of how Pygg routes the work MixAICloud's users send to DeepSeek and Qwen (coding) and to GLM and Kimi (lighter and conversation tasks).
+
+A sponsor's credit pays for traffic, not for results. A sponsored run is published like any other, with its method, raw results, spend and every route where Pygg's choice lost ([BENCHMARKS.md](docs/BENCHMARKS.md)), and its report names who paid for it.
+
 ## Licence
 
 MIT, see [LICENSE](LICENSE). Third-party code and data are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
