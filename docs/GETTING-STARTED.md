@@ -1,6 +1,6 @@
 # Getting started
 
-> **Status:** Current · install Pygg, connect a provider and point a coding tool at it · reviewed 2026-11-14
+> **Status:** Current · install Pygg, connect a provider and point a coding tool at it · reviewed 2026-11-20
 
 This page goes from the installer to "my coding tool uses the model `auto`". Where a step has not been verified, the page says so. The in-app **Guide** repeats these steps with every command ready to copy. What is built and how each part was verified is in [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md).
 
@@ -35,7 +35,7 @@ Not verified yet: installing on a clean machine.
 
 ### The command line only (Windows, macOS and Linux)
 
-The `pygg` command line is published on npm as a developer preview, version `0.1.0-dev.2`, for Windows x64, macOS (Apple silicon and Intel) and Linux x64, glibc (ADR-037).
+The `pygg` command line is published on npm as a developer preview for Windows x64, macOS (Apple silicon and Intel) and Linux x64, glibc (ADR-037); [PUBLISHING](../packages/npm/PUBLISHING.md) lists each version.
 
 ```bash
 npm install -g @pygg/cli@dev
@@ -163,7 +163,7 @@ The model names you can use:
 
 - `auto`: an eligible model at or above the key's minimum tier (T2 unless changed); local, free and subscription models before paid ones, then the lowest estimated cost. It chooses within your rules; it does not judge how hard a prompt is.
 - `auto/cheap`: the lowest estimated cost among the models that can take the request.
-- `auto/plan`, `auto/code`, `auto/test`, `auto/review`: the model with the best public benchmark fact for that role first (the response names the benchmark and its date), then the rest by tier. The facts come from a feed Pygg publishes and the app fetches daily; with none kept, or facts turned off, the alias ranks by tier alone. Not measured yet against `auto` or a named model: no claim is made about it.
+- `auto/plan`, `auto/code`, `auto/test`, `auto/review`: your own runs of that role first, then public benchmark facts in close bands, the cheaper model first within a band; the response names the reason. The facts come from a feed Pygg publishes and the app fetches daily; with none kept, or facts turned off, the alias ranks by tier alone. No claim is made about them yet: one benchmark run measured `auto/code` before its current order ([BENCHMARKS](BENCHMARKS.md)).
 - `coding`, or any combo's name: your own ordered list, from **Combos**. The next model answers when one is out of quota or unavailable. Templates build a combo from rules (Free first, Use my plans first, Local only, and others); they never fill a gap with a paid model by themselves.
 - `gemini/gemini-2.5-flash`, or any `connection/model`: one model by name.
 

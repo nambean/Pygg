@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Status:** Authoritative · delivery order and release gates · reviewed 2026-11-19
+> **Status:** Authoritative · delivery order and release gates · reviewed 2026-11-20
 
 What comes next, in order, and what must be true before a public release. What is already built, and how it was verified, is in [Implementation Status](IMPLEMENTATION-STATUS.md). Why, in [DECISIONS](DECISIONS.md). Nothing here is a claim that code exists.
 
@@ -8,23 +8,10 @@ What comes next, in order, and what must be true before a public release. What i
 
 ## Next, in order
 
-1. **Close the live-evidence gaps.** Each needs a key, an account or the owner's time; paid traffic stays inside the benchmark budget (ADR-028).
-   - The `v0.1.0-dev.2` installer (2026-11-19, schema v40) installed over `v0.1.0-dev.1` from Explorer, its store moved from v31, and the app clicked through. Each later prerelease is the owner's decision; the npm packages follow it ([PUBLISHING](../packages/npm/PUBLISHING.md)).
-   - Session and day limits in the installed app (so far checked live through the headless gateway on a copy of the store).
-   - Launch receipts and Claude Code's request kinds read from a real session; `pygg chat` and `pygg ask` on the owner's own connections.
-   - Skills installed into real agents and used from them, globally and in a project.
-   - Pictures, videos and files from web sessions other than Muse.
-   - Successful API requests to OpenAI, Groq, DeepSeek and Mistral; DeepSeek's thinking mode with tools across the Anthropic translation.
-   - OpenRouter's `cache_control` on translated requests, measured.
-   - An Anthropic-compatible endpoint other than Anthropic's own.
-   - Gemini's quota answer (429 `RESOURCE_EXHAUSTED`) as a fixture; the 429 hold and the prefill fallback in a live `auto/cheap` run.
-   - Claude Code in an interactive terminal, through the launcher, answered by a real provider.
-   - `pygg run codex` and `pygg run opencode` against the installed tools; `pygg setup` against a real tool's configuration.
-   - Key rings, cheapest-first combos and combo tests with real providers.
-   - Estimated savings and the token mix read against a real ledger.
+1. **Close the live-evidence gaps** listed under [Not verified yet](IMPLEMENTATION-STATUS.md#not-verified-yet) in Implementation Status. Each needs a key, an account or the owner's time; paid traffic stays inside the budget in ADR-028. Each later prerelease is the owner's decision; the npm packages follow it ([PUBLISHING](../packages/npm/PUBLISHING.md)).
 2. **The native window, clicked through.** Every screen in the installed app, not only the browser preview. The D12 checks (ADR-012): scaling, snap layouts above 100%, Narrator and NVDA, contrast themes.
 3. **Install on a clean Windows machine.** NSIS install, first run, gateway, a coding tool set up, uninstall leaving nothing behind.
-4. **Token and cost work, in the order ADR-036 sets.** Built: the token mix, launch sessions and their receipts, the way home after a fallback, why each answer missed the cache, routing diagnostics, the always-on context of each agent's global files (Skills & Prompts, ADR-039), the cache marker for Anthropic's models through OpenRouter, the session passed on to OpenRouter and OpenAI, the meter for each session's tools and system prompt, Claude Code's request kinds, session and day limits on a key that refuse the next request (402) without cutting one that runs, and two shadows (clearing old tool results, a longer cache lifetime). All are proved on the fake provider; live checks are listed in [Implementation Status](IMPLEMENTATION-STATUS.md). Next:
+4. **Token and cost work, in the order ADR-036 sets.** What is built, and which parts were checked live, is in [Implementation Status](IMPLEMENTATION-STATUS.md). Next:
    - **The way home after a fallback, live.** The cache marker on OpenRouter, the cache-miss causes and the meter were checked live on 2026-11-16 ([report](../benchmark/reports/2026-11-16-openrouter-cache-live.md)); the way home needs a real failure, and OpenAI's `prompt_cache_key` an OpenAI key.
    - **Read the clearing shadow on real sessions** (Usage → Clearing Old Tool Results). Only if its net stays above zero over long Codex sessions does clearing become an opt-in, and then with a check that answers stay as good; it would be Anthropic's own `context_management` edit, never Pygg rewriting the history, which newer models check.
    - **Read session receipts on real work.** `pygg run` now records each launch with what changed in Git (schema v38), and Claude Code's requests by class with their subagents (schema v39). `pygg launches --by-repo` already sums cost per repository and week, per commit and for launches that changed nothing; after a few weeks of the owner's own use, read it, and by tool and model, as observations; nothing is claimed about productivity.
@@ -35,15 +22,13 @@ What comes next, in order, and what must be true before a public release. What i
 7. **Housekeeping.** Demo data that replays recorded snapshots instead of copying the core's rules.
 8. **The Vietnamese translation**, last, once the interface's English text is final.
 
-**A larger benchmark, once the work above is done** (owner, 2026-11-19). The published runs are the maintainer's own, on 12 small Node tasks and six tasks from one private repository: too few to stand behind a headline. The rerun covers:
-- **More and harder cases:** large refactors across modules, database schema changes and migrations, other languages than JavaScript, and tasks cut from real repositories, beside the existing 36 cases.
+**A larger benchmark, once the work above is done** (owner, 2026-11-19). The published runs are the maintainer's own, on the small fixture cases in `benchmark/cases` and six tasks from one private repository: too few to stand behind a headline. The rerun covers:
+- **More and harder cases:** large refactors across modules, more database migrations and more languages, and tasks cut from real repositories, beside the 41 cases in `benchmark/cases` (five harder ones, a schema migration and two Python cases among them, were added on 2026-11-20).
 - **Every provider and model connected to the owner's store** that can serve a coding agent: API keys, coding plans and local models. Web sessions stay out: the guard refuses benchmark-sized prompts, and a long-prompt run got an account suspended (ADR-035).
 - **Claude Code, Codex and OpenCode**, at least three repeats per case and arm, with `auto`, `auto/cheap` and the role aliases next to pinned models.
 - **Reported per task category:** pass rate on the first attempt and across all repeats, cost per solved task and time, with confidence intervals, and every arm where the cheaper route lost.
 
-Its results replace the README's figures. Its paid traffic is capped at **$50** (owner, 2026-11-19, ADR-028), apart from the $20 the earlier runs used. Anthropic's Claude models are left out while the owner's Anthropic usage limit is reached, and join within the same $50 later; Claude Code still runs, through Pygg on other models. Runs contributed by others ([CONTRIBUTING](../CONTRIBUTING.md#benchmark-runs)) are added beside it.
-
-Smart tasks' next shape is decided and built in ADR-041's order (owner, 2026-11-19): the model facts feed (ADR-040), the role aliases (not yet measured with the harness), `pygg/brain` proposals (run live with a real planner), and the board (ADR-042) with the Brain Storming screen (run live once in the dev build: one card through approval, fallback, review and keep). Still to come: the image role. Design: [design/BRAIN.md](design/BRAIN.md).
+Its results replace the README's figures. Its paid traffic stays within the budget in [ADR-028](DECISIONS.md#adr-028--mit-licence-a-20-benchmark-budget-and-no-auto-chat), which also says when Claude models join. Runs contributed by others ([CONTRIBUTING](../CONTRIBUTING.md#benchmark-runs)) are added beside it.
 
 ## Release gates
 
@@ -61,8 +46,9 @@ A public release needs all of these:
 
 Unordered. Each moves up only when data or a user request justifies it.
 
-- The Setup Assistant ([SCREENS](design/SCREENS.md)).
 - Quota tracking for subscriptions, if a provider or agent ever states it.
+- The `image` role, once the gateway has an images path (ADR-041).
+- A root `SECURITY.md` for GitHub's Security tab, and `CHANGELOG.md` from the first tagged release.
 - Billing-tier views with per account-model entitlements (ADR-020).
 - Minimum-tier rules by task category, and a measured ranking above a minimum sample (ADR-006).
 - Idempotency keys; provider-verified organization and quota scope; reconciliation against a provider's own usage. Held until a provider adapter can fill them.
@@ -70,7 +56,7 @@ Unordered. Each moves up only when data or a user request justifies it.
 - Running the benchmark from the app.
 - Client verification beyond Claude Code, Codex and OpenCode (Aider, Cursor).
 - A signed updater.
-- `auto/fast`, `auto/local` and `auto/quality`: not planned until the benchmark shows `auto` and `auto/cheap` are not enough. The role aliases `auto/plan`, `auto/code`, `auto/test` and `auto/review` are decided (ADR-041) and ranked by the facts feed, not by hand; they are measured with the harness before any claim.
+- `auto/fast`, `auto/local` and `auto/quality`: not planned until the benchmark shows `auto` and `auto/cheap` are not enough. The role aliases `auto/plan`, `auto/code`, `auto/test` and `auto/review` are built (ADR-041) and ranked by the facts feed, not by hand; they are measured with the harness before any claim.
 - Semantic caching and advanced compaction: only if a test beats a simpler baseline.
 - Skills from a catalog or GitHub, each pinned to a reviewed commit with its files checked and scripts held back (ADR-039).
 
@@ -88,6 +74,6 @@ Withdrawn: Auto Chat and app-owned memory (ADR-028); bridging subscription sign-
 ## Owner decisions in force
 
 - MIT licence (ADR-028).
-- Benchmark paid traffic: $20 for the runs published so far, and $50 for the larger benchmark, Claude models paused while the Anthropic limit is reached (ADR-028). More needs the owner's approval.
+- Benchmark paid traffic: the budget in ADR-028. More needs the owner's approval.
 - No Auto Chat in the app (ADR-028).
 - No code signing during development; a certificate is bought for release.

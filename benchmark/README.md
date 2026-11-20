@@ -2,7 +2,7 @@
 
 > **Status:** Current · the benchmark harness, its cases and how to run it · reviewed 2026-11-14
 
-The harness runs real coding agents on fixed tasks and judges each attempt only by checks the agent cannot edit. It measures pass rate and cost per solved task for each arm: a pinned model, a combo, `auto`, or a cascade that climbs model tiers when a check fails (ADR-013). Paid traffic is capped at **$20** for the runs published so far and **$50** for the larger benchmark in the ROADMAP (ADR-028).
+The harness runs real coding agents on fixed tasks and judges each attempt only by checks the agent cannot edit. It measures pass rate and cost per solved task for each arm: a pinned model, a combo, `auto`, or a cascade that climbs model tiers when a check fails (ADR-013). Paid traffic stays within the budget in [ADR-028](../docs/DECISIONS.md#adr-028--mit-licence-a-20-benchmark-budget-and-no-auto-chat).
 
 The published results, with what each one does not claim, are summarised in [docs/BENCHMARKS.md](../docs/BENCHMARKS.md). Each run has a report in [reports/](reports) with its method, cost and raw results.
 
@@ -129,4 +129,4 @@ For a provider that takes no tools, `--agent "python -I scripts/bench-web-agent.
 
 Costs are estimates at list price (the gateway's prices, or the agent's catalog), not provider bills. An agent run through its own sign-in, or an attempt whose cost could not be read, is recorded as `unknown`, never as $0.
 
-**Running against paid models costs money.** The runs published so far stayed under $20; the larger benchmark has $50 of its own (ADR-028). Anything beyond that needs a new decision.
+**Running against paid models costs money.** Published runs stay within the budget in ADR-028; anything beyond it needs a new decision.

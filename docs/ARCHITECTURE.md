@@ -1,6 +1,6 @@
 # Architecture
 
-> **Status:** Current · how the parts fit together · reviewed 2026-11-14 · built: [Implementation Status](IMPLEMENTATION-STATUS.md) · why: [DECISIONS](DECISIONS.md)
+> **Status:** Current · how the parts fit together · reviewed 2026-11-20 · built: [Implementation Status](IMPLEMENTATION-STATUS.md) · why: [DECISIONS](DECISIONS.md)
 
 Pygg is one program: a Rust core inside a Tauri 2 window, with the same core also built as headless console programs. Everything runs on the user's computer (ADR-002). This page says where each responsibility lives.
 
@@ -20,7 +20,7 @@ Pygg is one program: a Rust core inside a Tauri 2 window, with the same core als
                         ┌─────────────────┼──────────────┐                │ provider APIs (keys from
                         ▼                 ▼              ▼                ▼ the OS credential store)
                    Task engine       SQLite store    OS credential   OpenAI-compatible and Anthropic
-                   (tasks.rs,        (db.rs, v39)    store           endpoints, local runtimes, and
+                   (tasks.rs,        (db.rs, v44)    store           endpoints, local runtimes, and
                     on hold)                         (vault.rs)      web sessions (websession/: a
                         │                                            loopback endpoint → a Pygg window)
                         ▼  one Git worktree per attempt (isolation.rs)
@@ -33,7 +33,7 @@ Pygg is one program: a Rust core inside a Tauri 2 window, with the same core als
 - **One crate** (`apps/desktop/src-tauri`, ADR-005). The app is the default binary. `pygg-cli`, `gateway`, `agent`, `bench` and `pygg-mcp` (`src/bin/`) run the same library without a window. The window is the Cargo feature `app`, so `pygg-cli` also builds with `--no-default-features` for macOS and Linux.
 - **The interface** is React 19 and Vite in `apps/desktop/src`. It talks to the core only through Tauri commands (`commands.rs`, `src/lib/native.ts`).
 - **Skills & Prompts** (`skills.rs`, ADR-039) reads the agents' global instruction files and skill, command and prompt folders, and the same at the root of each project folder the user added, and writes one `SKILL.md` per install into `~/.claude/skills` or `~/.agents/skills` or a project's `.claude/skills` or `.agents/skills`, with Codex's `agents/openai.yaml` beside a prompt in an `.agents/skills` folder. It never downloads or runs anything.
-- **One store**: `store.sqlite3` in the app data folder (`%APPDATA%\app.smarttaskrouter.desktop` on Windows, `~/Library/Application Support/…` on macOS, `$XDG_DATA_HOME` or `~/.local/share/…` on Linux, or `PYGG_DATA_DIR`). Migrations in `migrations/` run in one transaction when it opens; the schema version is the number of migrations (v39). Reference: [SCHEMA.md](SCHEMA.md).
+- **One store**: `store.sqlite3` in the app data folder (`%APPDATA%\app.smarttaskrouter.desktop` on Windows, `~/Library/Application Support/…` on macOS, `$XDG_DATA_HOME` or `~/.local/share/…` on Linux, or `PYGG_DATA_DIR`). Migrations in `migrations/` run in one transaction when it opens; the schema version is the number of migrations (v44). Reference: [SCHEMA.md](SCHEMA.md).
 - **Secrets** live in the OS credential store (`vault.rs`: Windows Credential Manager, macOS Keychain, Linux Secret Service). The store keeps only a reference. Client tokens are stored hashed.
 - **Backups and logs**: a copy of the store goes to `backups/` at start-up and about once a day, newest three kept (`backup.rs`). The app's log is `logs/pygg.log`, redacted, rotated at 1 MB (`applog.rs`). A store that cannot be opened at start-up is explained, with an offer to restore the latest copy (`startup.rs`).
 - **One gateway per store**: `gateway::start` takes an OS lock on `<store>.gateway-lock` and holds it until every attempt it sent is settled.
@@ -54,8 +54,8 @@ Pygg is one program: a Rust core inside a Tauri 2 window, with the same core als
 7. **On failure**, `policy.rs` decides by error class: whether another target may answer, and what to mark. Fallback happens only before any byte reached the client.
    - An ambiguous failure (dropped connection, read timeout, 408, 504, 524) stops: the provider may have run it.
    - A 5xx may go on only if the client allows paid retries.
-   - 401, 402, 403 and 429 go on only to other quota groups. With a key ring, a 401 blocks the key and a 402 or 429 cools it; the next key is tried. An aggregator's 401, 402, 403 or 429 marked as its upstream provider's (`error.type` `upstream_error`, new-api and one-api) cools only that model (ten minutes, or the 429's reset) and goes on to any target.
-   - Cooldowns follow the provider's `Retry-After`, `retry-after-ms` or Gemini's `RetryInfo`. A rejected key stays blocked until the user replaces it.
+   - 401, 402, 403 and 429 go on only to other quota groups. With a key ring, a 401 blocks the key and a 402 or 429 cools it; the next key is tried. An aggregator's 401, 402, 403 or 429 marked as its upstream provider's (`error.type` `upstream_error`, new-api and one-api) cools only that model (401, 402 or 403: ten minutes; 429: the reset it gives, else 30 s) and goes on to any target.
+   - Cooldowns follow the provider's `Retry-After`, `retry-after-ms` or Gemini's `RetryInfo`; a 429 without one cools for 30 s. A rejected key stays blocked until the user replaces it.
 8. **Settle.** The ledger entry (tokens, cost with its source: actual, estimated or unknown, never a guessed $0; the key that answered; the request id, `x-pygg-request-id`) and the journal removal are one transaction (`pricing.rs`, `store.rs`). An attempt left in the journal by a crash becomes an interrupted entry for the next owner of the store.
 
 Background work while the gateway runs: `checker.rs` reads each API connection's model list every 30 minutes (free, no prompt); `probe.rs` re-reads an unreachable connection's list about once a minute and lifts the outage when it answers. **Estimated savings** (`savings.rs`) price the answered requests again at one model the user chose, with the same tokens; unknown costs and subscription requests are counted apart, never as $0.
@@ -65,7 +65,7 @@ Background work while the gateway runs: `checker.rs` reads each API connection's
 A site with no API, used through a window the user signs in to, and served to the gateway as an ordinary OpenAI-format provider. Only the app runs them; `gateway serve` has no window and skips them with the reason.
 
 - **The service** (`websession/mod.rs`): a Chat Completions endpoint on a random loopback port (`/web/<connection>/v1/chat/completions`), behind a token kept only in memory. Per request it refuses tools, asks the guard, waits its turn (one request at a time per connection), flattens the conversation into one prompt, opens a new chat, types, presses Send and streams the reply. Errors carry Pygg's own wording and a status the policy reads (401 needs the user, 429 busy or limit reached, 503 page changed, 504 timeout).
-- **The guard** (`websession/guard.rs`), always on: each request is weighed by its size; prompts over about 12,000 characters are refused; an account has caps per hour, per 10 minutes and per UTC day; after a reply it rests as long as a person would take to read it; after a sign of trouble (timeout, usage notice, challenge, changed page) it backs off from 5 minutes up to 6 hours. It decides from what is recorded in the store, so it holds across restarts. Some sites have lower limits. The only setting is a site's daily request limit, held under a ceiling.
+- **The guard** (`websession/guard.rs`), always on: each request is weighed by its size; long prompts are refused; an account has caps per 10 minutes, per hour and per UTC day; after a reply it rests as long as a person would take to read it; after a sign of trouble (timeout, usage notice, challenge, changed page) it backs off. [PROVIDERS](PROVIDERS.md#the-guard) gives the numbers, and some sites have lower ones. It decides from what is recorded in the store, so it holds across restarts. The only setting is a site's daily request limit, held under a ceiling.
 - **The window** (`websession/window.rs`): one Tauri webview per connection with its own WebView2 profile, no Tauri capability, hidden while Pygg drives it and closed after 10 minutes unused.
 - **The recipes** (`RECIPES`, one per preset): the site's hosts and selectors. The page scripts fill the prompt, press Send and read the reply; they never read cookies or storage.
 - `auto` never picks a web session; it is used only when named, in a pool or in a combo. Its cost is $0 on a free plan, unknown on a subscription.
@@ -79,7 +79,7 @@ A site with no API, used through a window the user signs in to, and served to th
 
 `tasks.rs`, `agents.rs`, `isolation.rs`, `checks.rs`, `handoff.rs`, the task API (`gateway/task_api.rs`) and the MCP server (`mcp.rs`). A task is a ladder of agent steps fixed at creation, run in a fresh Git worktree of the base commit, judged by the workspace's approved checks (ADR-007, ADR-008). A paid step waits for the user's approval in the app; there is no API to approve (ADR-010, ADR-027). Each agent runs its own CLI with its own sign-in (ADR-026). Details: [AGENTS.md](AGENTS.md).
 
-Built: the model facts feed with per-role scores (`gateway/facts.rs`, ADR-040), the role aliases `auto/plan|code|test|review` ranked by it (`gateway/auto.rs`), and the virtual model `pygg/brain` (`gateway/brain.rs`, ADR-041) that turns a requirement into a proposed board with a model per card picked by rule, approved in the app into tasks. Decided, not built: the Kanban board with WIP limits on the task engine and the Brain Storming screen (ADR-042). Design: [design/BRAIN.md](design/BRAIN.md).
+Built: the model facts feed with per-role scores (`gateway/facts.rs`, ADR-040), the role aliases `auto/plan|code|test|review` ranked by it (`gateway/auto.rs`), the virtual model `pygg/brain` (`gateway/brain.rs`, ADR-041) that turns a requirement into a proposed board with a model per card picked by rule, approved in the app, and the board (`board.rs`, ADR-042) that pulls approved cards into tasks under WIP limits, with the Brain Storming screen. Design: [design/BRAIN.md](design/BRAIN.md).
 
 ## Boundaries
 

@@ -1,6 +1,6 @@
 # Providers
 
-> **Status:** Current · connection presets, their endpoints and free tiers, which have answered live, and web sessions · reviewed 2026-11-14
+> **Status:** Current · connection presets, their endpoints and free tiers, which have answered live, and web sessions · reviewed 2026-11-20
 
 Each preset in `apps/desktop/src-tauri/src/gateway/presets.rs` fills in a provider's endpoint, API format and default billing type. You can change any of them when connecting, for example to use a token plan's or a regional endpoint. Every endpoint below comes from the provider's own documentation.
 
@@ -96,7 +96,7 @@ DeepSeek suspended an account after a run of 24 prompts of 2,000 to 6,000 tokens
 - **Per hour and per 10 minutes.** At most 20 units and 15 requests in any hour, and 5 requests in any 10 minutes.
 - **Per day.** A daily request limit, 50 by default, which you can set from 1 to 100, and twice that limit in units. Days start at 00:00 UTC.
 - **One request at a time** per connection. A request waits in line at most 30 s; beyond that, or when a limit is reached, the gateway answers 429 with Retry-After and Pygg's reason, and nothing reaches the site.
-- **Signs of trouble.** No reply in time, a usage-limit notice, a request to slow down, a check or a changed page rests the account: 5 minutes, doubled for each one in a row, at most 6 hours. A request to slow down rests it for at least half an hour. A clean reply clears it.
+- **Signs of trouble.** No reply in time, a usage-limit notice, a request to slow down, a check or a changed page rests the account: 5 minutes, doubled for each one in a row, at most 6 hours. A request to slow down or a check rests it for at least half an hour, a usage-limit notice for at least an hour. A clean reply clears it.
 - **Suspension.** When the site says the account is suspended or restricted, Pygg turns the connection off and sends it nothing until you turn it back on.
 - **DeepSeek** has lower ceilings: prompts of at most 4,000 characters, 8 units and 6 requests an hour, 3 requests in 10 minutes, at most 30 requests a day, and a rest that starts at 30 s.
 
@@ -121,7 +121,7 @@ While you have the window open to sign in, it may go to any https address, like 
 - **Visitor chats.** ChatGPT, Perplexity and Grok also chat with visitors. Their recipes treat a page that shows "Log in" or "Sign in" buttons as signed out, even when the prompt box is there.
 - **Cloudflare.** Grok's site sits behind Cloudflare. Any check it shows stops the connection until you clear it in the window.
 - **Official APIs.** Meta's Muse models (Meta (Muse API), above), OpenAI's, DeepSeek's and xAI's models all have official APIs, and Pygg has a preset for each. The muse.ai agent app has no API.
-- **Not offered as web sessions:** Gemini (Google's API has a free tier, and Google may refuse sign-in in embedded windows); image- and video-only sites; scrapers that need no sign-in.
+- **Not offered as web sessions:** image- and video-only sites; scrapers that need no sign-in.
 
 ## Left out
 

@@ -1,6 +1,6 @@
 # Decisions
 
-> **Status:** Current · architecture decision records (ADR-001 to ADR-042) · reviewed 2026-11-19
+> **Status:** Current · architecture decision records (ADR-001 to ADR-042) · reviewed 2026-11-20
 
 Each record says what Pygg decided, why, and what it costs. Numbers never change, because code and other documents cite them; a record that was superseded or withdrawn keeps one line that points to what replaced it. Delivery order is in [ROADMAP](ROADMAP.md), what is built in [Implementation Status](IMPLEMENTATION-STATUS.md), and the screens in [design/SCREENS.md](design/SCREENS.md).
 
@@ -43,7 +43,7 @@ Each record says what Pygg decided, why, and what it costs. Numbers never change
 
 ## ADR-006 — Rule-based routing
 
-**Decision:** `auto` ranks models with fixed rules: a curated tier table T0–T4 (`curated:v1`, `gateway/tiers.rs`), a tier from the list price for models the table does not know (`price-band:v1`, ADR-031), a minimum tier per client, and hard eligibility filters. Minimum tiers per task category and complexity are not built. Ranking by measured cost per success comes later, and only above a minimum sample size.
+**Decision:** `auto` ranks models with fixed rules: a curated tier table T0–T4 (`curated:v2`, `gateway/tiers.rs`), a tier from the list price for models the table does not know (`price-band:v1`, ADR-031), a minimum tier per client, and hard eligibility filters. Minimum tiers per task category and complexity are not built. Ranking by measured cost per success comes later, and only above a minimum sample size.
 
 **Why:** There is no measured quality data to start from, and invented quality scores would mislead.
 
@@ -101,7 +101,7 @@ Each record says what Pygg decided, why, and what it costs. Numbers never change
 
 **Why:** Consistency across the team's apps.
 
-**Cost:** A departure from Windows conventions. The release checks for it (snap layouts, scaling, keyboard use, screen readers) are listed as D12 in [design/SCREENS.md](design/SCREENS.md); scaling and screen readers are still open.
+**Cost:** A departure from Windows conventions. The release checks for it (snap layouts, scaling, keyboard use, screen readers) are the D12 checks in the [ROADMAP](ROADMAP.md#next-in-order); scaling and screen readers are still open.
 
 ## ADR-013 — Benchmark before claiming savings
 
@@ -241,7 +241,7 @@ This replaces the parts of [design/SCREENS.md](design/SCREENS.md) that assume ta
 **Decision:**
 - **A reference catalog fills what a provider's own list leaves out.** Pygg reads [models.dev](https://models.dev), keyed by each provider's own model ids, and fills context, maximum output, tool and image support and the list price only where they are unknown. The provider's list comes first, and what the user set is never touched. A connection is matched to the catalog by its API address first, then by its kind; local runtimes are never matched. Every fact names its source, and a price reads "models.dev list price".
 - **A catalog list price is a list price** (ADR-011): it gives estimated costs, and the user's own price replaces it.
-- **Every model gets a tier.** `curated:v1` comes first; otherwise the list price band (`price-band:v1`: output under $1 per million tokens is T1, under $5 T2, under $20 T3, above T4), and `auto` says "from its list price". A $0 price gives no tier. A tier the user set stays theirs.
+- **Every model gets a tier.** `curated:v2` comes first; otherwise the list price band (`price-band:v1`: output under $1 per million tokens is T1, under $5 T2, under $20 T3, above T4), and `auto` says "from its list price". A $0 price gives no tier. A tier the user set stays theirs.
 - **Claude models take tools** (`curated:v1`), since Anthropic's list does not say so.
 - **A connection set as free does not make a priced model free** (ADR-032).
 - **When nothing is eligible, the refusal groups its reasons** by connection and reason.
@@ -289,7 +289,7 @@ This replaces the parts of [design/SCREENS.md](design/SCREENS.md) that assume ta
 
 ## ADR-035 — Web-session connections for AI sites with no API
 
-**Decision:** A connection kind, **Web session (unofficial)**, for AI sites that offer no API. It is a provider like any other: chosen in Connect, with models, health, limits and ledger entries, listed in `GET /v1/models`, and reached on all three surfaces as `<connection>/<model>` or through a combo. Only the transport (a signed-in web page) and the safeguards differ. Recipes exist for Muse, ChatGPT, Perplexity, DeepSeek and Grok. It narrows ADR-026 for this kind only: no cookie import, no other products' OAuth tokens, no TLS impersonation, no limit evasion.
+**Decision:** A connection kind, **Web session (unofficial)**, for AI sites that offer no API. It is a provider like any other: chosen in Connect, with models, health, limits and ledger entries, listed in `GET /v1/models`, and reached on all three surfaces as `<connection>/<model>` or through a combo. Only the transport (a signed-in web page) and the safeguards differ. Recipes exist for Muse, ChatGPT, Perplexity, DeepSeek, Grok and Gemini. It narrows ADR-026 for this kind only: no cookie import, no other products' OAuth tokens, no TLS impersonation, no limit evasion.
 
 **Why:** Some services exist only behind a website sign-in. The user carries the account risk, knowingly and per connection; the sign-in never leaves the machine.
 
@@ -297,7 +297,7 @@ This replaces the parts of [design/SCREENS.md](design/SCREENS.md) that assume ta
 - **One Pygg-owned webview per connection** (label `web-<connection id>`), with its own WebView2 profile folder (`websessions/<connection id>`). The user signs in on the site's own page; the profile keeps the session like a browser. Nobody copies cookies, and Pygg never holds them. The window opens hidden when needed and closes after 10 minutes unused. It has no Tauri capability, so the site's scripts cannot call Pygg.
 - **Its own profile, never its own fingerprint.** Pygg never spoofs or randomises the user agent, client hints, canvas, fonts, screen or similar, and never hides that a page is driven. Every window is the Edge WebView2 it is.
 - **Navigation.** While the user has the sign-in window open, it may go to any https address, like a browser. Whenever Pygg types or presses Send, the page must be the site's own host; otherwise nothing is sent and the connection is marked Needs you. Otherwise the window follows the recipe's hosts, and a refused address is named on the connection.
-- **A recipe per site** (`gateway/websession.rs`, data in Rust, reviewed like code): start URL, hosts, and selectors for the prompt box, Send, the reply, a "still answering" signal, a sign-in page and a challenge. Scripts only read and fill the page; they never read `document.cookie` or storage. A recipe that no longer matches fails closed as "the page has changed".
+- **A recipe per site** (`RECIPES` in `websession/mod.rs`, data in Rust, reviewed like code): start URL, hosts, and selectors for the prompt box, Send, the reply, a "still answering" signal, a sign-in page and a challenge. Scripts only read and fill the page; they never read `document.cookie` or storage. A recipe that no longer matches fails closed as "the page has changed".
 - **An OpenAI-format adapter.** Each web session is served as a Chat Completions endpoint on loopback, reachable only with an in-memory token, so the gateway's translators, limits, sessions, combos and ledger apply unchanged. A request is flattened into one prompt and sent in a new chat each time; a stream reads the page every 300 ms.
 - **Waiting for a reply** follows the request: the first word is awaited 60 s plus 1 s per 100 estimated prompt tokens, up to 240 s; a page that shows it is answering gets the whole-reply limit, 300 s plus the same extra.
 - **Not in the headless gateway** (`pygg gateway serve`): there is no webview, so these connections are skipped with that reason.
@@ -323,7 +323,7 @@ This replaces the parts of [design/SCREENS.md](design/SCREENS.md) that assume ta
 8. Challenges stop the connection. On a CAPTCHA, a sign-in page or a bot check, Pygg marks the connection Needs you (or Not signed in), answers 401 with the reason, and tells the user to deal with it in the window. Pygg never solves, skips or hides from such a check.
 9. An API comes first: where a site has an official API (Meta's at `api.meta.ai`), Connect offers it as an API-key preset, and the web-session preset says so.
 
-10. **What the site makes comes back (2026-11-18).** Pictures, videos and sounds the site shows with its reply are taken by address (a `blob:` one copied out of the page's memory), and returned after the reply's words as Markdown links. A file or sound with no address on the page (Muse's PDF card, its audio player before Play) is taken from what the page receives: the window listens to WebView2's response events and keeps, until the reply takes them, the responses that are a sound or a document (2026-11-18, the owner's call for another way than the page's markup, after pressing the site's Download control was tried and dropped). The site's API answers are not searched for addresses: on 2026-11-19 ChatGPT's page received JSON naming zips of its own tools, and taking those as the reply's files was wrong. WebView2 gives no body for a download (`Content-Disposition: attachment`), which is how ChatGPT sends a file it made (a signed `chatgpt.com/backend-api/estuary/content` address, seen live 2026-11-19); such a sound or document on the site's own host is read again by the page from the same address, as the page itself just did, and nothing on another origin is. No cookie or header is kept; the app log says what was received by type, host and size. A site that sends its content over a WebSocket (Muse does) leaves nothing to read there, so the window also lists the Blobs in its page's memory through the DevTools protocol on its own WebView2 (`Runtime.queryObjects` on `Blob.prototype`; no port is opened and nothing outside the app attaches): those that are a sound or a document, 1 KB to 100 MB, and were not there before the prompt are read with the page's FileReader and returned as data URLs, and the handles are released (owner's choice, 2026-11-18). Muse fetches a sound only when its player's Play is pressed, so for Muse (`Recipe::play_audio`) Pygg presses Play once on each audio player in the reply just received, the window always muted, pauses it as soon as a sound player has a new address, and copies the sound from that `blob:` address (Muse drops the Blob itself and keeps only the player's address, seen in the live page on 2026-11-19); nothing else is clicked and no request is changed or made.
+10. **What the site makes comes back.** Pictures, videos, sounds and documents that come with a reply are returned after its text as Markdown links: by address, copied out of the page's memory for a `blob:` address, or read from the responses and Blobs the page received. No cookie or header is kept, the site's API answers are not searched for addresses, nothing on another origin is fetched again, and the only click beyond Send and **deny** is Muse's Play, in a muted window. How each kind is read and what is logged: [SECURITY](SECURITY.md#web-sessions).
 
 **What it cannot do:** tool calls, files sent to the site, token counts, system-prompt guarantees or choice of the model behind the site. A request with tools is refused with 400. Muse can act on the user's connected apps; Pygg clicks only Send and the site's own **deny** on any approval Muse asks for.
 
@@ -411,7 +411,7 @@ Each `pygg run` launch is kept with what changed in Git (`launches`, schema v38)
 
 **Cost:** The mapping from leaderboard names to provider ids is manual work that lags new models; `plan` has no direct measure and the interface must say so (ADR-013); a feed is only as fresh as its job.
 
-**Status:** Decided, not built. Design: [design/BRAIN.md](design/BRAIN.md).
+**Status:** Built. Design and as-built: [design/BRAIN.md](design/BRAIN.md).
 
 ## ADR-041 — `pygg/brain`: the router is the brain
 
@@ -419,14 +419,14 @@ Each `pygg run` launch is kept with what changed in Git (`launches`, schema v38)
 
 - **Steps.**
   1. The **planner** is picked by rule from the user's connected models for the role `plan` (ADR-040). A pick the user saved wins. The first use of a paid planner waits for the user's pick in the app; a free or local planner runs at once. No LLM runs before this pick.
-  2. The gateway sends the requirement with **Pygg's brain prompt**, a versioned prompt in the Skills & Prompts library (ADR-039) the user can read, and the user's connected models with their role ranks.
+  2. The gateway sends the requirement with **Pygg's brain prompt**, a versioned prompt in the Skills & Prompts library (ADR-039) the user can read, and nothing else: the planner never names a model, so it gets no list of the user's connections.
   3. The reply must fit the **board schema**; a card that does not is dropped, never guessed. Whether the planner fit the schema is a metric, `brain_schema_ok`, per planner model (ADR-029).
   4. **Rules pick the model for each card**: the card's role, the role's ranking, then `auto`'s own filters under the client's policy.
   5. The proposal is stored as a **brainstorm** with an id and shown in the app, where the user changes models, drops cards and approves. The client receives a summary with the brainstorm's id and the questions. A later call in the same session refines that brainstorm; it never starts another.
 - **What keeps ADR-025.** Only a request that names `pygg/brain` runs Pygg's own prompt or fans out; a real model or `auto` never does. Every call the brain makes is a ledger entry under the client's request id, key and session, with `route_kind` `brain`, so budgets and limits apply. Nothing from a brainstorm is kept as memory or sent with any later request (ADR-030).
 - **Role aliases.** `auto/plan`, `auto/code`, `auto/test` and `auto/review`: `auto`'s filters, then the role's ranking; `x-pygg-auto` names the fact's source and date. They exist because the brain needs them, and they are measured with the benchmark harness before any claim.
 - **The LLM classifies the work; rules pick the model; the user approves before money.** This amends ADR-006 by exactly that much.
-- **Amended 2026-11-20: facts rank in bands, and price decides within a band.** The overnight benchmark showed the best fact for code losing to a model eight places below it and to two models with no fact, on pass rate and on money. A role's order is now the user's own evidence (kept rate in bands, then money per kept result), then facts and tiers on one scale in bands, the cheaper first within a band ([BRAIN.md](design/BRAIN.md) §1).
+- **Amended 2026-11-20: facts rank in bands, and price decides within a band.** In the overnight benchmark ([report](../benchmark/reports/2026-11-20-all-models.md)), `auto/code` ranked by the best fact took Gemini 4 Carbon (Terminal-Bench #4 of 71, rank 0.96) and solved 33 of 36 at $0.115 a solved task, while Gemini 4 Hydrogen (#12, rank 0.84, a quarter cheaper a token) solved 36 of 36 at $0.072, and two plan models without any fact solved 36 of 36 at no metered money. A place on a public leaderboard, run with another agent on other tasks, does not order two models this close for the user's work; their prices do. A role's order is now the user's own evidence (kept rate in bands of 0.1, since ten attempts do not tell 9 of 10 from 10, then money per kept result), then facts and tiers on one scale in bands of 0.15, the cheaper first within a band ([BRAIN.md](design/BRAIN.md) §1). The band widths are a judgment, to be checked by the next run, not a measurement.
 - **Who runs a card.** Either Pygg's task engine (an agent CLI with its own sign-in, ADR-026, on the card's model when the agent is pointed at the gateway) or the user's own IDE agent, calling the role alias. Chosen per card.
 - **No chat in the app** (ADR-028). The questions go back to the client and are answered there; the app shows proposals, approvals and the board, never a reply box.
 
@@ -434,7 +434,7 @@ Each `pygg run` launch is kept with what changed in Git (`launches`, schema v38)
 
 **Cost:** The planner call is the first request Pygg starts on its own, which is why it waits for the pick. The brain prompt is part of the product and needs its own benchmark. Parsing a model's structured reply is work that fails on some models, and the metric says which.
 
-**Status:** Decided, not built. Order: the feed (ADR-040), the role aliases, `pygg/brain` proposals run as ordinary tasks, then the board (ADR-042), then the `image` role once the gateway has an images path. Design: [design/BRAIN.md](design/BRAIN.md).
+**Status:** Built. Design and as-built: [design/BRAIN.md](design/BRAIN.md). Still to come: the `image` role, once the gateway has an images path.
 
 ## ADR-042 — Smart tasks run as a Kanban board
 
@@ -452,8 +452,8 @@ Each `pygg run` launch is kept with what changed in Git (`launches`, schema v38)
 
 **Cost:** One card at a time is slow; a user who wants more raises the limit and pays for it.
 
-**Status:** Decided, not built. Design: [design/BRAIN.md](design/BRAIN.md).
+**Status:** Built. Design and as-built: [design/BRAIN.md](design/BRAIN.md).
 
 ## Open decisions
 
-- A code-signing certificate (ROADMAP D3), before distribution.
+- A code-signing certificate ([ROADMAP, Release gates: Install](ROADMAP.md#release-gates)), before distribution.

@@ -1,6 +1,6 @@
 # Contributing to Pygg
 
-> **Status:** Current · how to change Pygg: order, documents, tests, schema, money, writing, commits · reviewed 2026-11-14
+> **Status:** Current · how to change Pygg: order, documents, tests, schema, money, writing, commits · reviewed 2026-11-20
 
 Pygg is MIT-licensed ([LICENSE](LICENSE)). Start with [docs/README.md](docs/README.md), which lists every document, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -15,9 +15,9 @@ Pygg is MIT-licensed ([LICENSE](LICENSE)). Start with [docs/README.md](docs/READ
 `docs/` holds final documents only. Each one describes Pygg as it is now, for its reader.
 
 - **Change the document in place** to the new truth when the code changes. Do not append a dated note, an "Update" paragraph or a history of how it got there.
-- **No dated logs, review records or progress reports in `docs/`.** Reviews, answers to them and progress notes belong in issues, pull requests and commit messages. Benchmark results are the exception: each run is a report in `benchmark/reports/`, with its raw results in `benchmark/results/`.
+- **No dated logs, review records or progress reports in `docs/`.** Reviews, answers to them, consultations and progress notes belong in issues, pull requests, commit messages or the chat. Benchmark results are the exception: each run is a report in `benchmark/reports/`, with its raw results in `benchmark/results/`.
 - **Delete what is superseded.** Do not move it to an archive; Git keeps the history. Update or remove every link to it.
-- **One status line** under each title: `> **Status:** Current · <what it is> · reviewed <date>`.
+- **One status line** under each title: `> **Status:** Current · <what it is> · reviewed <date>` (IMPLEMENTATION-STATUS and ROADMAP say Authoritative).
 - **User documents** (GETTING-STARTED, PROVIDERS, SECURITY, BENCHMARKS) say only what IMPLEMENTATION-STATUS says is built, and say "Not verified yet" where a reader would otherwise assume something works.
 
 ## Building and testing
@@ -53,7 +53,7 @@ CI runs all of these on Windows, and the layout check below. A separate workflow
 ## Live tests and money
 
 - **Never commit a key or token.** Keys come from environment variables; test keys put in the OS credential store are removed afterwards.
-- **A live run on the project's budget** needs the maintainer's approval and fits the benchmark budget ($50 for the larger benchmark, after the first $20; ADR-028). Record what it verified, the model, the date and what it cost in IMPLEMENTATION-STATUS.
+- **A live run on the project's budget** needs the maintainer's approval and fits the budget in ADR-028. Name the provider and model in IMPLEMENTATION-STATUS's Verified-by column; the date and cost go in the commit message.
 - **Web sessions** are real accounts on sites that may ban them. Live checks are short questions only, with the guard on; never point a benchmark of long prompts at a web session.
 - **Say what was not verified.** "Built" names its code; "verified" says how (unit test, fake provider, live run).
 

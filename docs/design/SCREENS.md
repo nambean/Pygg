@@ -1,6 +1,6 @@
 # Pygg — Screens
 
-> **Status:** Current · the app's screens as built · reviewed 2026-11-14
+> **Status:** Current · the app's screens as built · reviewed 2026-11-20
 
 How Pygg's interface is laid out and how each screen behaves. Code: `apps/desktop/src/main.tsx` (the shell), `apps/desktop/src/components` and `apps/desktop/src/components/gateway` (the screens), `apps/desktop/src/styles.css` (tokens and layout). Code comments cite the section numbers below.
 
@@ -39,7 +39,7 @@ The navigation:
 
 | Group | Screens | Shortcut |
 | --- | --- | --- |
-| **Gateway** | Home, Providers, Endpoint, CLI Tools, Combos, Usage, Policies | `Ctrl+1` … `Ctrl+6` for Home to Usage |
+| **Gateway** | Home, Providers, Endpoint, CLI Tools, Combos, Usage, Policies, Skills & Prompts | `Ctrl+1` … `Ctrl+6` for Home to Usage |
 | **Smart Tasks · Experimental** | Tasks, Workspaces, Agents, Brain Storming | `Ctrl+7` Tasks, `Ctrl+8` Agents |
 | **App** | Guide, Settings | `Ctrl+/` Guide, `Ctrl+,` Settings |
 
@@ -120,6 +120,16 @@ Every rule the gateway applies, in one place (`Policies.tsx`):
   - There is no telemetry.
 - **Smart Tasks (on hold):** the daily limit for paid steps (changed in Settings), and a link to Workspaces.
 
+#### Skills & Prompts
+
+A library of skills in the Agent Skills format, installed into each agent's own skills folder (`Skills.tsx`, `skills.rs`, ADR-039). The toolbar's primary action is **New Skill…**, also in the command palette.
+
+- **Sent With Every Request:** for Claude Code, Codex and OpenCode, what the agent's global files add to every request: instruction files counted whole, listed skills and commands by name and description, with the estimated tokens (a warning badge above 5,000). A skill found there offers **Add to Library**.
+- **Library:** Pygg's starter skills and the user's own, each marked **Pygg** or **Yours** and **Prompt** or **Skill**, with what it costs: a prompt nothing until `/name` is typed, a skill its name and description on every request where it is installed. **Install for Claude Code**, **Install for Codex and OpenCode** or **Install for All**; each target's state (Installed, Older version, Edited there); a More menu with Update and Remove per target, **View…** (a starter) or **Edit…**, **Duplicate…** and **Delete…** (the user's own, confirmed).
+- **Projects:** repositories added with **Add Project…**, each with what its root files add per agent, how many of Pygg's skills it holds, **Install Skills…** (a sheet with Install, Update and Remove per skill and target) and **Remove from Pygg…**, which changes nothing in the folder. A missing folder is marked.
+- **The skill sheet:** name (typed as `/name`), description (all the agent reads to choose a skill), instructions (`$ARGUMENTS` is what follows the name), and **Run only when I type its name (a prompt)**. A starter opens read-only with **Duplicate…**.
+- **States:** loading, a load error, no skills yet, no projects yet with **Add Project…**.
+
 #### Agents
 
 The official agent CLIs on this computer (`Agents.tsx`), each with its own sign-in, which Pygg never reads:
@@ -130,13 +140,14 @@ The official agent CLIs on this computer (`Agents.tsx`), each with its own sign-
 
 #### Brain Storming
 
-The one-time set-up for `pygg/brain` applied to every project (`BrainStorming.tsx`, ADR-042, [BRAIN.md](BRAIN.md) §4.7b). Settings only: nothing on it sends anything to a model.
+The one-time set-up for `pygg/brain` applied to every project (`BrainStorming.tsx`, settings keys `brain.*`, ADR-042, [BRAIN.md](BRAIN.md) §4). Settings only: nothing on it sends anything to a model.
 
-- **Models by role:** plan, code, test and review, each with the saved pick (`connection/model`, tier, billing, the evidence that ranks it: your runs, a fact with its source and date, or the tier), **Change…** (the role sheet, §6) and **Clear**; a cleared role reads "By the rules today" with the model the rules would pick now.
-- **Defaults for a new brainstorm:** the runner, the WIP limits for Running and Checking, whether a planner picked inside a brainstorm is saved as the plan role, and what **Change…** on a card offers first.
+- **Models by role:** plan, code, test and review, each with the saved pick (`connection/model`, tier, billing, the evidence that ranks it: your runs, a fact with its source and date, or the tier), **Change…** (the role sheet, §6) and **Clear**; a cleared role reads "By the rules today" with the model the rules would pick now, or that nothing is eligible. A saved model no longer eligible is kept and marked, to pick again or clear.
+- **Defaults for a new brainstorm:** the runner, the WIP limits for Running and Checking (never below 1), whether a planner picked inside a brainstorm is saved as the plan role (the pick's checkbox starts from it), and what **Change…** on a card offers first: ask (this card or all of its role), this card only, or all cards of its role.
 - **Facts and prompt:** the model facts switch, its build date, when it was fetched, **Refresh**, the sources with their licences, row counts and dates, and the brain prompt `brain-v1` with **Open** into Skills & Prompts.
-- **Projects that differ:** every workspace with what differs from the defaults (a role's pick, the WIP limits), **Override…** or **Edit…** opening the project's sheet (§6), and **Use defaults**; **Workspaces** in the heading.
+- **Projects that differ:** every workspace with what differs from the defaults (`role → model`, `Running 2 · Checking 1`), **Override…** or **Edit…** opening the project's sheet (§6), and **Use defaults**, which clears the project's picks and limits; **Workspaces** in the heading. An override holds only what differs: picks are `brain_picks` rows scoped to the workspace, limits its `board_settings` row. A brainstorm's **Change…** and the board's **Limit…** write the same rows.
 - **How it starts:** the command per agent that starts a brainstorm; there is no text box.
+- **Which level wins:** for picks, WIP limits and the runner, the workspace's override, then this screen's default, then the rules (your runs, the facts feed, the tier). A value says which level it came from.
 
 #### Guide
 
@@ -158,10 +169,6 @@ Clicking the subtitle opens the popover **Today's budget for paid steps**. It sh
 - A run that reported no cost counts at its cap.
 - Free, local and subscription steps are not included.
 - The budget resets at 00:00 UTC.
-
-### 2.4 Banners
-
-Replaced. The desktop app shows no banners. Gateway state is on Home and in the sidebar footer, and problems appear next to what they affect.
 
 ### 2.5 Tray and notifications
 
@@ -305,13 +312,14 @@ The task list (`TaskList.tsx`).
 
 #### 5.1.1 Board
 
-The cards of a workspace's approved brainstorms as Kanban columns (`Board.tsx`, ADR-042, [BRAIN.md](BRAIN.md) §4.6). It reloads every three seconds; the app's tick pulls cards into Running under the limit.
+The cards of a workspace's approved brainstorms as Kanban columns (`Board.tsx`, ADR-042, [BRAIN.md](BRAIN.md) §3). It reloads every three seconds; the app's tick pulls cards into Running under the limit.
 
 - **Header:** the workspace, or a switcher when several have cards; `Running 1/1 · Blocked 2 · Ready 6 · Review 1 · Done 3`; **Measures** as a disclosure (cycle time median, with how many done cards it covers when not all; cards done today; time blocked today; known money per kept result by role with the count of unpriced requests) once five cards are done, before that how many are; **Use the default limits** when the workspace has its own.
 - **Columns:** Discovery, Ready, Running, Checking, Blocked, Review, Done. Running and Checking show `count / limit` and **Limit…**, which edits the number in place (focused at once; Enter saves, Escape keeps the old value; never below 1). Blocked is named in orange. An empty column says **Nothing here**.
 - **Card:** the title (▲ when expedited), the role chip, the task's attempt chips, the first model of the ladder and how many follow, the Blocked reason and `blocked 2 h 10 min` (hours and days when long), the phase and time while it runs (*Waiting for Checking* when the run is held by Checking's limit), "held by you" or what it waits for in Discovery, "next in line" in Ready, "checks passed" or "finished" in Review and Done.
-- **Buttons:** **Review** (Blocked, Review) or **Open** (elsewhere) opens the task detail with **‹ Board**; in Ready, **Expedite** / **Standard** and **Back to Discovery**; in Discovery on a held card, **Move to Ready**; **Drop** (a sheet naming the card) on a card without a task; **Hand to the engine** on a card waiting for the IDE agent. Running, Checking, Review and Done are the engine's; there is no drag.
-- **Width:** a single list grouped by column, Blocked first, when the board is narrower than 980 px.
+- **Buttons:** **Review** (Blocked, Review) or **Open** (elsewhere) opens the task detail with **‹ Board**; in Ready, **Expedite** / **Standard** and **Back to Discovery**; in Discovery on a held card, **Move to Ready**; **Drop** (a sheet naming the card) on a card without a task; **Hand to the engine** on a card waiting for the IDE agent. Running, Checking, Review and Done are the engine's. There is no drag: the buttons name exactly what is allowed, where a drag target the engine refuses would teach the wrong model.
+- **The workspace's rules:** its approved checks are every card's definition of Done (none sends a card to Review unverified), and its paid steps per day and privacy apply to every card.
+- **Width:** a single list grouped by column when the board is narrower than 980 px, in the order Blocked, Review, Running, Checking, Ready, Discovery, Done. The switch is a container query on the board's own width, so it holds with the sidebar open and at Windows text scaling.
 - **States:** loading; a load error with **Try Again**; no cards yet, with how a brainstorm starts; no workspace yet; the gateway stopped or failed (its state and **Start** in the header; Ready waits, since cards run through it).
 
 ### 5.2 Task detail
@@ -337,11 +345,11 @@ What the task is waiting on, its result, and every attempt (`TaskDetail.tsx`). I
 
 #### 5.2.2 Brainstorm
 
-A brainstorm from `pygg/brain` (`BrainstormDetail.tsx`, ADR-041, [BRAIN.md](BRAIN.md) §4.4). It is a row under Tasks (a lightbulb, the requirement's first line, the session, the planner, open questions and cards), pinned under Needs Attention while it waits for a pick, is proposed, or failed; it reloads every two seconds while it waits or thinks.
+A brainstorm from `pygg/brain` (`BrainstormDetail.tsx`, ADR-041, [BRAIN.md](BRAIN.md) §2). It is a row under Tasks (a lightbulb, the requirement's first line, the session, the state, the planner or "no planner yet", open questions and cards), pinned under Needs Attention while it waits for a pick, is proposed, or failed; it reloads every two seconds while it waits or thinks. The states read **Waits for your pick**, **Thinking**, **Proposed · revision <n>**, **Approved · board**, **Declined** and **Planner failed**. The header holds the requirement, the state, whether a coding agent sent it, the session, and the planner with the prompt's version (`brain-v1`).
 
-- **Waits for your pick.** Inline, like a paid step: the plan role's ranking under the client's policy as radio rows (`connection/model`, tier, billing, the reason), the rule's pick first, **Remember this planner for every project** on by default, **Decline** and **Use <model>**. With nothing eligible, the reasons and only **Decline**.
-- **Questions.** Read-only: each open or answered. The caption says answers come from the coding agent.
-- **Cards**, grouped by wave, a role chip each: the title, `connection/model` (selectable, wraps), the reason the rule gave, and a disclosure with the done criterion, the dependencies, the runner (Pygg engine, or My IDE agent) and the class. **Change…** opens the role sheet (§6, Models for a role); a chosen model is applied to **This card** or **All <role> cards**, or **Cancel** changes nothing, unless Brain Storming's setting answers that question; **Drop** strikes a card through and offers **Restore**. A card whose model has no price reads *unpriced* after its reason. Questions carry their ids (`q3`), the ids cards and the board name. Under the model, the card's **fallbacks** ("then …", each with its reason): the two the rule suggested from the role's route, **Remove** on each, and **Add a fallback…**, the same sheet without the models already in the ladder, up to five. On approval each model is a step of the card's task, tried in order when an attempt fails.
+- **Waits for your pick.** Inline, like a paid step, saying this is the first paid request Pygg would start on its own: the plan role's ranking under the client's policy as radio rows (`connection/model`, tier, billing, the reason), the rule's pick first, **Remember this planner for every project** on by default, **Decline** and **Use <model>**. With nothing eligible, the reasons and only **Decline**.
+- **Questions.** Read-only: each open or answered. The caption says answers come from the coding agent. A card that waits on an open question says which.
+- **Cards**, grouped by wave, a role chip each, under a heading with the cards kept and how many the schema rejected: the title, `connection/model` (selectable, wraps), the reason the rule gave, and a disclosure with the done criterion, the dependencies, the runner (Pygg engine, or My IDE agent) and the class. **Change…** opens the role sheet (§6, Models for a role); a chosen model is applied to **This card** or **All <role> cards**, or **Cancel** changes nothing, unless Brain Storming's setting answers that question; **Drop** strikes a card through and offers **Restore**. A card whose model has no price reads *unpriced* after its reason. Questions carry their ids (`q3`), the ids cards and the board name. Under the model, the card's **fallbacks** ("then …", each with its reason): the two the rule suggested from the role's route, **Remove** on each, and **Add a fallback…**, the same sheet without the models already in the ladder, up to five. On approval each model is a step of the card's task, tried in order when an attempt fails.
 - **Approve.** A bar that stays in view under a long proposal: `Known estimate ≈$1.20 for one run of every card · unpriced cards: 2 · today's task budget left $1.52 · Running limit 1` (or *Estimate: Unknown* when no card is priced, *no daily task limit* when none is set), the count of kept cards, a workspace, an agent (installed ones; OpenCode first, since only OpenCode through Pygg runs a card on the model Pygg picked), **Decline brainstorm**, and **Approve <n> cards…**, which confirms with the same line and words that fit the agent, then says the cards are on the board with **Open Board**. The button waits while a card has no eligible model; with no workspace yet the bar says to add the repository on Workspaces first. An approved brainstorm keeps **Open Board** in its header.
 - **Planner failed:** the reason, what the planner answered behind a disclosure, **Retry with <planner>**, and the pick to choose another planner and run again, with **Decline**. A load error shows **Try Again**, never a spinner.
 
@@ -397,10 +405,6 @@ The connections (`Connections.tsx`). The toolbar's primary action is **Connect P
   - Each model line shows its billing, its auto facts, and whether auto would choose it (or why not). Once measured, it also shows its answer rate and median latency over 30 days, with the sample size.
   - **Test** is Test Model (§6.2). **Edit Price…** (or **Set Price…**), **Auto Routing Facts…** and **Remove Model** are in a More menu.
 - **Empty state:** No Connections Yet, with **Connect Provider…**. After the first connection, a note offers **Open CLI Tools**.
-
-### 5.5 Policies
-
-Replaced. Policies is a gateway screen now, described in §2.2.
 
 ### 5.6 Usage
 
@@ -460,11 +464,11 @@ Where tools send their requests, and the keys they use (`Endpoint.tsx`, `Clients
 
 ### Models for a role
 
-The role sheet (`RoleSheet.tsx`, [BRAIN.md](BRAIN.md) §4.5), opened by a card's **Change…** and **Add a fallback…**, by the planner pick's "Why these models?", and by **Change…** on Brain Storming.
+The role sheet (`RoleSheet.tsx`, ADR-040), opened by a card's **Change…** and **Add a fallback…**, by the planner pick's "Why these models?", and by **Change…** on Brain Storming.
 
-- **Header:** `Models for code · facts as of 2026-11-18`; *ranked by tier; facts off* with **Turn facts on** in the footer; *could not refresh* when the kept feed is stale.
+- **Header:** `Models for code · facts as of 2026-11-18`; *ranked by tier; facts off* with **Turn facts on** in the footer; *no facts yet; ranked by tier*; *could not refresh* when the kept feed is stale.
 - **Bar:** a search field; with a brainstorm, **Eligible under my policy** / **All connections**.
-- **Row:** `connection/model · tier · billing · ≈$0.05 per run` (the route's estimate; without a brainstorm, the output price per Mtok or *price unknown*), the evidence line that ranks it (your runs, a fact with its source linked, or the tier), *current* and *your saved pick*, **Not eligible: <reason>** when the client's policy rules it out, **Why this model?** (the chain saved pick › your runs › facts feed › tier with the winner marked, then every source line with what it measures and its licence; a fact older than a year is marked as not ranking), and **Use**.
+- **Row:** `connection/model · tier · billing · ≈$0.05 per run` (the route's estimate; without a brainstorm, the output price per Mtok or *price unknown*), the evidence line that ranks it (your runs, a fact with its source linked, or the tier), *current* and *your saved pick*, **Not eligible: <reason>** when the client's policy rules it out, **Why this model?** (the chain saved pick › your runs › facts feed › tier with the winner marked, then every source line with what it measures, its agent, effort, votes, licence and link; a fact older than a year is marked as not ranking), and **Use**. Rows follow the role's order ([BRAIN.md](BRAIN.md) §1).
 - **States:** loading; a load error; no match for the search; nothing eligible (with the hint to look at All connections); no enabled model.
 - **Footer:** **Refresh facts**, **Cancel**. Escape closes; focus returns to the opener.
 
@@ -478,10 +482,6 @@ A sheet (`Sheet` in `ui.tsx`) is a modal dialog:
 - Focus moves into the sheet, Tab stays inside it, and focus returns to where it was when the sheet closes.
 - `Esc` closes it unless it is busy. Clicking the backdrop does not.
 - `ConfirmSheet` asks before a destructive or costly action, and names what will happen.
-
-### 6.1 Setup Assistant
-
-Replaced by Home's **Get Started** steps (§2.2).
 
 ### 6.2 Connect Provider and Test Model
 
@@ -499,10 +499,6 @@ Then:
 
 - A paid or unpriced model asks first, saying it may cost a little.
 - The result shows the answer and the time taken, and the request appears in Usage.
-
-### 6.3 Approve Paid Attempt
-
-Replaced. A paid step is approved inline in task detail (§5.2).
 
 ## 7. Components
 

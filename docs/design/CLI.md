@@ -1,6 +1,6 @@
 # The `pygg` command line
 
-> **Status:** Current · the `pygg` command and its npm launcher, as built · reviewed 2026-11-14 · built: [Implementation Status](../IMPLEMENTATION-STATUS.md) · npm: [packages/npm](../../packages/npm/pygg/README.md) · platforms: ADR-037 in [DECISIONS](../DECISIONS.md)
+> **Status:** Current · the `pygg` command and its npm launcher, as built · reviewed 2026-11-20 · built: [Implementation Status](../IMPLEMENTATION-STATUS.md) · npm: [packages/npm](../../packages/npm/pygg/README.md) · platforms: ADR-037 in [DECISIONS](../DECISIONS.md)
 
 `pygg` is the console program `pygg-cli` (`apps/desktop/src-tauri/src/cli/`), installed from npm as `@pygg/cli`. It runs the same Rust core and store as the app. On Windows the desktop app runs the gateway and is where providers are connected; on macOS and Linux, where there is no app yet, `pygg gateway add-connection` and `pygg gateway serve` do it from the terminal.
 
@@ -30,7 +30,7 @@ pygg chat [options]                   a conversation in the terminal; /model, /s
 pygg ask [options] QUESTION…          one question, the answer on stdout (also from a pipe)   [--json] [-x]
       options: -m MODEL, -s SYSTEM, -t TEMPERATURE, --max-tokens N, -f FILE…, --no-stream, -r (raw), --no-input,
                --save-dir DIR, --no-save (pictures, videos and files in an answer)
-pygg default [MODEL | --clear]        the model chat and ask use without -m
+pygg default [MODEL | --clear]        the model chat and ask use without -m (a model, a combo, auto or an alias)
 
 Providers and models
 pygg providers                        connections: on, last check, health over 24 hours, models enabled/total
@@ -44,7 +44,8 @@ pygg models test CONNECTION/MODEL     one short question through the gateway
 pygg models facts [ROLE]              your models ranked for a role from the model facts feed, each with its
                                       source and date, or its tier   [--all] [--json]
 pygg models enable | disable CONNECTION/MODEL…
-pygg route [auto|auto/cheap]          the models the router would try, best first, and why the rest are left out
+pygg route [auto|auto/cheap|auto/ROLE]
+                                      the models the router would try, best first, and why the rest are left out
                                       [--key NAME] [--tools] [--images] [--prompt N]
 pygg combos                           combos and their models
 pygg keys [--all]                     API keys: start of the key, last used, spend this month, limit
@@ -64,7 +65,7 @@ pygg gateway <command> …              the gateway without the window (below)
 pygg diagnostics --out PATH           the redacted diagnostics bundle (a zip)   [--port N]
 pygg completion powershell|bash|zsh   Tab completion for the shell
 pygg help COMMAND                     the same as pygg COMMAND --help
-pygg --version                        the npm package's version, such as 0.1.0-dev.3
+pygg --version                        the npm package's version
 
 Experimental task integration (on hold)
 pygg mcp setup [claude-code|codex|opencode]   register Pygg's MCP server in the tool   [--dry-run | --remove]
@@ -84,7 +85,7 @@ Every command takes `--db PATH`; `pygg <command> --help` says more.
 
 - Both send Chat Completions requests to the gateway's `/v1/chat/completions` with `stream: true`, so the answer is printed as it arrives, then a line on stderr: the model that answered (`x-pygg-route`), the time, a fallback if there was one, and the cost the ledger knows (`cost unknown` or `on a plan` where there is no price per request).
 - They use an API key of their own, "Pygg CLI (ask)", made at first use and kept in the OS credential store (`cli.ask` in settings names it); a key missing from the credential store is revoked and made again. Its limits are set like any client's.
-- `--model` takes `connection/model`, a combo, `auto` or `auto/cheap` (default `auto`). A chat is one routing session (`chat-<uuid>`), so it stays on the model that first answered; `/model M` starts a new session for the next messages and sends the conversation so far with them. `/new` forgets the conversation.
+- `--model` takes `connection/model`, a combo, `auto`, `auto/cheap` or a role alias (`auto/plan`, `auto/code`, `auto/test`, `auto/review`); without it, the model set by `pygg default`, else `auto`. A chat is one routing session (`chat-<uuid>`), so it stays on the model that first answered; `/model M` starts a new session for the next messages and sends the conversation so far with them. `/new` forgets the conversation.
 - The conversation is held in memory only (ADR-028). A message the gateway refused is taken out of it, so it can be changed and sent again. Every turn sends the whole conversation, so a web session such as Muse refuses a chat once it passes the site's prompt limit.
 - `ask` reads the question from its arguments, or from stdin when there are none and stdin is not a terminal. Exit codes: 0 answered, 1 no answer, 2 wrong usage.
 - **Pictures, videos and files.** A web session's answer carries what the site made as Markdown links after the text: `![image 1](URL)`, `[video 1](URL)`, `[file 1](URL)` (an https address, or a picture's `data:` URL). They are not printed (a picture's data URL is long): `chat` and `ask` save each into the current folder (`--save-dir DIR` elsewhere) as `pygg-image1-<id>.<ext>`, the extension from the address or the type the server gives, at most 500 MB each, and say where; `--no-save` prints the addresses instead. They are downloaded without the site's cookies, so an address that needs the signed-in session is reported as not saved.
@@ -150,12 +151,14 @@ Tables with aligned columns and no colour. A bare `pygg` answers in about a seco
 
 `@pygg/cli` is a Node launcher (`bin/pygg.js`, Node 18 or later) that runs the native `pygg-cli` with the same arguments, standard input and output, and exits with its code. Its own errors go to stderr only, so `pygg mcp` keeps a clean stdout. The native program is one of four optional dependencies, of which npm installs only the one matching the computer (ADR-037):
 
-| Package | Platform | Published |
-| --- | --- | --- |
-| `@pygg/win32-x64` | Windows x64 | `0.1.0-dev.2`, tag `dev` |
-| `@pygg/linux-x64` | Linux x64, glibc | `0.1.0-dev.2`, tag `dev` |
-| `@pygg/darwin-arm64` | macOS, Apple silicon | `0.1.0-dev.2`, tag `dev` |
-| `@pygg/darwin-x64` | macOS, Intel | `0.1.0-dev.2`, tag `dev` |
+| Package | Platform |
+| --- | --- |
+| `@pygg/win32-x64` | Windows x64 |
+| `@pygg/linux-x64` | Linux x64, glibc |
+| `@pygg/darwin-arm64` | macOS, Apple silicon |
+| `@pygg/darwin-x64` | macOS, Intel |
+
+All four are published under the tags `dev` and `latest`; [PUBLISHING.md](../../packages/npm/PUBLISHING.md) lists each version.
 
 ```text
 npm install -g @pygg/cli@dev
@@ -169,10 +172,9 @@ npx --yes --package=@pygg/cli@dev pygg doctor
 - Where nothing can run, the launcher says why and what to do: musl Linux (Alpine) needs a glibc image; Windows on Arm needs the x64 build of Node; a package skipped by `--omit=optional` needs a reinstall; or set `PYGG_CLI` to a program built with `cargo build --release --no-default-features --bin pygg-cli`.
 - On macOS and Linux, a program unpacked without its execute bit gets it back.
 - It is a developer preview and unsigned: Windows SmartScreen, macOS Gatekeeper or an antivirus may warn.
-- Publishing: [packages/npm/PUBLISHING.md](../../packages/npm/PUBLISHING.md).
 
-Verified: unit tests in `cli/mod.rs`, `cli/read.rs`, `cli/setup.rs`, `cli/run.rs` and the launcher's `node --test`; `0.1.0-dev.2` installed back from the registry and run on Windows x64 and Linux x64 (Debian bookworm); the macOS packages installed back from their tarballs and run by CI on macOS. Not yet installed from the registry on a real Mac.
+Verified: unit tests in `cli/mod.rs`, `cli/read.rs`, `cli/setup.rs`, `cli/run.rs` and the launcher's `node --test`; the published packages installed back from the registry and run on Windows x64 and Linux x64 (Debian bookworm); the macOS packages installed back from their tarballs and run by CI on macOS. Not yet installed from the registry on a real Mac.
 
 ## Not built yet
 
-`providers check|add|remove`, `models refresh|test` and `keys` outside `pygg gateway`, `logs --follow`, shell completion, colour, and a set-up wizard.
+`providers check`, `models refresh`, `logs --follow`, colour, and a set-up wizard.
