@@ -73,7 +73,7 @@ OpenCode 1.18.4 through Pygg on the 12 `hard-*` cases and the 5 added on 2026-11
 - **One provider route each.** Every model was reached through MixAICloud; the same model elsewhere may cache, think or fail differently.
 - **GLM**, for the reasons above.
 - **Own evidence.** Bench runs are tasks without a card role, so the role order's first layer, the user's kept results, had nothing to read.
-- **Costs are list prices from the ledger**, not MixAICloud's bill.
+- **Costs are list prices from the ledger**, not MixAICloud's bill. MixAICloud's own usage counters for the four keys, read after the run, came to 11,058,888 quota units: about $22.12 at new-api's default of 500,000 units a dollar (an assumption; the instance's rate is not published), 7.5% above the ledger's $20.57. Per key: DeepSeek 5.2% above, Qwen 9.2%, Kimi 0.8%.
 
 ## Reproducing
 
