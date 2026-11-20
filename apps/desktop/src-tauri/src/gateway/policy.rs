@@ -159,10 +159,12 @@ pub fn decide(failure: &Failure) -> Decision {
         Failure::Http(e) => {
             let wait = |default: Duration| Some(e.retry_after.unwrap_or(default).min(COOLDOWN_CAP));
             match e.status {
-                // An aggregator's own provider refused it (MixAICloud's GLM 5.3, 2026-11-20: "401 身份验证失败" as an
-                // `upstream_error`, while the same key answered GLM 5.2): one model is out of reach for a while; the key,
-                // the connection and its siblings are fine.
-                401 if e.upstream => {
+                // The provider behind an aggregator refused it, not the aggregator: one model is out of reach for a
+                // while, and the key, the connection and its siblings are fine. Seen at MixAICloud on 2026-11-20: GLM
+                // 5.3's "401 身份验证失败", and a 402 from the OpenRouter account behind its GLM models, both
+                // `upstream_error`, while the same key answered DeepSeek, Qwen and Kimi.
+                429 if e.upstream => decision(Next::Any, mark(true, "rate_limited", wait(RATE_LIMIT_DEFAULT)), false),
+                401..=403 if e.upstream => {
                     decision(Next::Any, mark(true, "model_unavailable", wait(Duration::from_secs(600))), false)
                 }
                 401 => decision(Next::OtherGroups, mark(false, "invalid_credentials", None), false),
@@ -301,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn an_aggregators_upstream_401_cools_one_model_and_moves_on() {
+    fn an_aggregators_upstream_refusal_cools_one_model_and_moves_on() {
         let body = br#"{"error":{"message":"\u8eab\u4efd\u9a8c\u8bc1\u5931\u8d25\u3002","type":"upstream_error","param":"","code":"1000"}}"#;
         let e = ProviderError::from_response(401, &HeaderMap::new(), body);
         assert!(e.upstream);
@@ -312,6 +314,12 @@ mod tests {
             (mark.model_scope, mark.state, mark.cooldown),
             (true, "model_unavailable", Some(Duration::from_secs(600)))
         );
+        // Its provider's 402 and 429 too.
+        for status in [402, 403, 429] {
+            let e = ProviderError { upstream: true, ..ProviderError::new(status) };
+            let decision = decide(&Failure::Http(e));
+            assert_eq!((decision.next, decision.mark.unwrap().model_scope), (Next::Any, true), "{status}");
+        }
         // The aggregator's own refusal of the key is still the key's.
         let own = br#"{"error":{"message":"invalid token","type":"new_api_error","code":""}}"#;
         assert_eq!(
