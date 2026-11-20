@@ -45,6 +45,13 @@ function checkVersions() {
   for (const [name, version] of Object.entries(launcher.optionalDependencies)) {
     if (version !== launcher.version) die(`@pygg/cli ${launcher.version} wants ${name} ${version}; both must be the same version.`);
   }
+  // The MCP Registry entry (server.json) names this package by version and is verified by its `mcpName`.
+  const server = JSON.parse(readFileSync(join(launcherDir, 'server.json'), 'utf8'));
+  const versions = [server.version, ...server.packages.map(p => p.version)];
+  if (versions.some(v => v !== launcher.version)) {
+    die(`server.json names version ${versions.join(', ')}; it must be @pygg/cli's ${launcher.version}.`);
+  }
+  if (launcher.mcpName !== server.name) die(`package.json mcpName ${launcher.mcpName} must be server.json's name ${server.name}.`);
 }
 
 function pack(dir) {

@@ -139,6 +139,14 @@ pygg ask --model auto/cheap "Explain git worktree in two sentences"
 
 **Editors and SDKs** (Cline, Continue, Roo Code, the OpenAI or Anthropic SDKs): base URL `http://127.0.0.1:8741/v1`, a key from **Endpoint → API Keys**, model `auto`.
 
+**Claude Code plugin** (experimental): Pygg's MCP server and two skills, for handing subtasks to cheaper agents from inside Claude Code. It asks for a key with **May start tasks** on, and needs the app (or `pygg gateway serve --tasks yes`) running.
+
+```text
+/plugin install pygg --marketplace nambean/Pygg
+```
+
+On Claude Code before 2.1.275: `/plugin marketplace add nambean/Pygg`, then `/plugin install pygg@pygg`.
+
 **Keep spending in bounds** and see where it went:
 
 ```bash

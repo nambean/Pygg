@@ -3,6 +3,7 @@
   "version": "0.1.0-dev.7",
   "description": "Route Claude Code, Codex and OpenCode through Pygg, a local AI gateway: set them up, start them through it, and see providers, models, requests and cost. Windows, macOS and Linux. Developer preview, unsigned.",
   "license": "MIT",
+  "mcpName": "io.github.nambean/pygg",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/nambean/Pygg.git",

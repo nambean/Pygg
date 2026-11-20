@@ -1,0 +1,36 @@
+{
+  "name": "pygg",
+  "displayName": "Pygg",
+  "version": "0.1.0",
+  "description": "Hand coding subtasks from Claude Code to cheaper agents through Pygg, a local AI gateway: each runs in its own Git worktree, is checked by the checks you approved, and becomes a branch only when you keep it. Needs the Pygg app (Windows) or its command line running.",
+  "author": { "name": "nambean", "url": "https://github.com/nambean" },
+  "homepage": "https://github.com/nambean/Pygg#readme",
+  "repository": "https://github.com/nambean/Pygg",
+  "license": "MIT",
+  "keywords": ["gateway", "router", "mcp", "coding-agent", "worktree", "cost"],
+  "userConfig": {
+    "pygg_token": {
+      "type": "string",
+      "title": "Pygg client token",
+      "description": "A Pygg API key allowed to start tasks: in the Pygg app, Endpoint → API Keys, then Limits… → May start tasks (or `pygg gateway create-client --name claude-code` and `pygg gateway client --name claude-code --tasks yes`). It starts tasks only; it reaches no model connection.",
+      "sensitive": true,
+      "required": true
+    },
+    "pygg_url": {
+      "type": "string",
+      "title": "Pygg gateway address",
+      "description": "Where Pygg's gateway answers.",
+      "default": "http://127.0.0.1:8741"
+    }
+  },
+  "mcpServers": {
+    "pygg": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/mcp.mjs"],
+      "env": {
+        "PYGG_TOKEN": "${user_config.pygg_token}",
+        "PYGG_URL": "${user_config.pygg_url}"
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "pygg",
+  "description": "Pygg's own plugins: delegate coding subtasks to cheaper agents and route coding agents through Pygg's local gateway.",
+  "owner": { "name": "nambean", "url": "https://github.com/nambean" },
+  "plugins": [
+    {
+      "name": "pygg",
+      "source": "./plugins/pygg",
+      "description": "Delegate coding subtasks to cheaper agents in their own Git worktrees, checked before you keep them; route Claude Code, Codex and OpenCode through Pygg's local gateway.",
+      "category": "development",
+      "tags": ["gateway", "router", "mcp", "worktree", "cost"]
+    }
+  ]
+}

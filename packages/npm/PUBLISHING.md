@@ -31,6 +31,15 @@ npm publish pygg-cli-0.1.0-dev.2.tgz --access public --tag dev
 
 4. Check from a clean folder on each system you have: `npm install -g @pygg/cli@dev`, `pygg --launcher-info` (names the platform package it runs), `pygg --version`, `pygg doctor`.
 
+5. **The MCP Registry** (once the new version is on npm). `server.json` names the package at the launcher's version, and npm-pack refuses a version that differs or a `mcpName` that is not its `name`; the registry checks that the published package carries that `mcpName`, so a version published before 2026-11-20 (`0.1.0-dev.7` and older) cannot be listed. From `packages/npm/pygg`, with `mcp-publisher` from the [registry's releases](https://github.com/modelcontextprotocol/registry/releases):
+
+```powershell
+mcp-publisher login github     # as nambean: the name io.github.nambean/pygg needs that account
+mcp-publisher publish
+```
+
+   Check: `https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.nambean/pygg`.
+
 A Windows-only package can still be made locally after a release build: `node scripts/npm-pack.mjs` packs this computer's platform package and the launcher into `dist/npm`. Publishing that alone leaves the other platforms' optional dependencies missing, which the launcher reports on those systems.
 
 ## Published

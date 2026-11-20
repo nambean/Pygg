@@ -1,0 +1,42 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.nambean/pygg",
+  "title": "Pygg",
+  "description": "Hand coding subtasks to cheaper agents in Git worktrees, checked before you keep them.",
+  "version": "0.1.0-dev.7",
+  "websiteUrl": "https://github.com/nambean/Pygg#readme",
+  "repository": {
+    "url": "https://github.com/nambean/Pygg",
+    "source": "github",
+    "subfolder": "packages/npm/pygg"
+  },
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/nambean/Pygg/main/branding/pygg-icon-512.png",
+      "mimeType": "image/png",
+      "sizes": ["512x512"]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@pygg/cli",
+      "version": "0.1.0-dev.7",
+      "transport": { "type": "stdio" },
+      "packageArguments": [{ "type": "positional", "value": "mcp" }],
+      "environmentVariables": [
+        {
+          "name": "PYGG_TOKEN",
+          "description": "A Pygg API key allowed to start tasks (Endpoint → API Keys → Limits… → May start tasks). It reaches no model connection.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "PYGG_URL",
+          "description": "Where Pygg's gateway answers. The Pygg app (Windows) or `pygg gateway serve --tasks yes` must be running.",
+          "default": "http://127.0.0.1:8741"
+        }
+      ]
+    }
+  ]
+}
