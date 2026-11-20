@@ -166,20 +166,33 @@ Every run below is the maintainer's own check: real agents, real models, checks 
 
 Not claimed: a quality ranking of models (a handful of tasks each, or one attempt per task in the largest run), a provider's bill (costs are the ledger at list prices), "60–95% fewer tokens", or savings on large refactors, database migrations or other languages, which no run has measured yet. The 88% is the whole session pinned to a cheaper model on small tasks; on the real repository the saving narrowed to about 40%, and a cost-first `auto/cheap` over free models solved 2 of 6. A longer web-session run on coding tasks got the owner's DeepSeek account suspended for three days ([report](benchmark/reports/2026-11-13-web-coding.md)); the guard has been stricter since.
 
-**Next to LiteLLM**, measured with the same fake provider and requests (LiteLLM 1.106.2, defaults plus fallbacks; other projects compared from their docs in [BENCHMARKS.md](docs/BENCHMARKS.md#pygg-next-to-other-gateways)):
-
-| When the primary provider… | Pygg | LiteLLM proxy |
-| --- | --- | --- |
-| is rate-limited, out of credit or unreachable | 100% served, **1.04** provider requests each, ~70 ms | 100% served, 4 provider requests each, ~4.6 s (88 s with `Retry-After: 30`) |
-| fails with 500 or drops the connection | 96% / 0% served: never re-sent unless you allow it (100% for a 500 with one retry allowed) | 100% served, after 3 attempts at the failing provider each |
-| is Claude, reached by an OpenAI-format agent | **89.5%** of the prompt read from cache, automatically | 0% by default; 89.5% (Chat Completions) or 39.7% (Codex's Responses API) with injection points configured |
-| sits behind a key ring of several accounts | sessions stay on one key: 60 / 60 | 0 / 60 by default, 60 / 60 with affinity on |
-
-Where Pygg is worse: about 230 requests/s on one PC (LiteLLM publishes 1,170 on four instances), no timeout fallback for a hung provider, and a 5xx or dropped connection reaches your agent as an error by default. Reports: [resilience](benchmark/reports/2026-11-14-resilience.md), [tokens and cost](benchmark/reports/2026-11-14-token-savings.md), [web guard](benchmark/reports/2026-11-14-web-guard.md).
-
 ### Benchmark it on your work
 
 One person's runs on a few dozen tasks are a start, not proof. The benchmark needs the community: run the [harness](benchmark/README.md) on the cases here or on your own repositories (they can stay private; only the result lines are published, as in [CCHT](benchmark/reports/2026-11-13-ccht-real-repository.md)), add cases the runs above lack, such as large refactors, database migrations and other languages, and open a pull request with the report and its raw results ([how](CONTRIBUTING.md#benchmark-runs)). A run where the cheaper model loses is as welcome as one where it wins.
+
+## Compared with other routers
+
+All five sit between your coding tools and the model providers. Pygg and LiteLLM were run against the same fake provider and requests (**M**); the others are read from their own documentation and source (**D**: 9router and OmniRoute on 2026-11-14 and again on 2026-11-20, LiteLLM 1.106.2 and OpenRouter on 2026-11-14). ✅ yes · ⚠️ partly, opt-in, or with a catch · ❌ no · — not documented where we looked, which is not proof it is absent.
+
+| Feature | **Pygg** (this project) | [9router](https://github.com/decolua/9router) | [OmniRoute](https://github.com/diegosouzapw/OmniRoute) | [LiteLLM](https://github.com/BerriAI/litellm) proxy | [OpenRouter](https://openrouter.ai) |
+| --- | --- | --- | --- | --- | --- |
+| Runs on your computer, open source | ✅ desktop app (Windows) and headless gateway; MIT | ✅ Node.js server; MIT | ✅ Node.js or Electron; MIT | ✅ Python or Docker; MIT except `enterprise/` | ❌ hosted service |
+| Falls back when a provider is rate-limited, out of credit or rejects the key | ✅ 100% served, **1.04** provider requests each, ~70 ms (M) | ✅ on 401, 402, 403, 429 and 5xx (D) | ⚠️ on rate limits, 5xx and timeouts, not on auth errors (D) | ✅ 100% served, 4 provider requests each, ~4.6 s (M) | ✅ with a `models` list (D) |
+| Never re-sends a request the provider may already have run (5xx, dropped connection, timeout) | ✅ by default; one 5xx retry can be allowed (M) | ❌ moves to the next model (D) | ❌ up to 3 attempts (D) | ❌ 3 attempts at the failing provider (M) | — |
+| Waits as long as `Retry-After` says | ✅ up to 7 days (M) | ❌ fixed cooldowns (D) | ✅ on 429 (D) | ⚠️ between retries, up to 60 s (M) | ⚠️ passes it to the client (D) |
+| Keys of several accounts, each cooling down on its own | ✅ key ring, each key confirmed as another account (M) | ✅ round robin or priority (D) | ✅ key pools with fair-share quotas (D) | ⚠️ one deployment per key, no account concept (M) | ⚠️ your own keys in priority order (D) |
+| A session stays on one key, so the provider's cache keeps working | ✅ by default, 60 / 60 sessions (M) | ⚠️ with its `smart` strategy (D) | ⚠️ with its `cache-optimized` strategy (D) | ⚠️ opt-in; 0 / 60 by default (M) | ✅ by default (D) |
+| Prompt cache for OpenAI-format agents (Codex) on Claude | ✅ automatic, **89.5%** of the prompt read from cache (M) | — | — | ⚠️ once configured: 89.5% Chat Completions, 39.7% Responses; 0% by default (M) | ⚠️ the client must send `cache_control` (D) |
+| Every attempt in a ledger, with where its cost came from | ✅ fallbacks and failures included; unknown never shown as $0 (M) | ⚠️ cost "for tracking only" (D) | ✅ audit trail and cost headers (D) | ⚠️ spend logs; per-attempt rows not documented (D) | ⚠️ usage per key (D) |
+| Spending limits | ✅ per key and month, session or day; strict limits hold each request's maximum, so concurrent requests cannot pass them (M) | ⚠️ "per provider" in its FAQ, mechanism not described (D) | ✅ per-key USD quotas (D) | ✅ budgets per key, user and team (D) | ✅ a credit limit per key (D) |
+| Choosing the model for you | ✅ `auto` (tier floor), `auto/cheap` (expected cost learned from your own answers), `auto/code` and other roles (benchmark facts, then your kept results), each choice explained (M) | ⚠️ ordered combos you build (D) | ✅ `auto` with 16-factor scoring, `auto/cheap`, `auto/coding` (D) | ⚠️ cost-based routing; a complexity router in beta (D) | ✅ `openrouter/auto` (D) |
+| One-command setup of coding tools | ✅ Claude Code, Codex, OpenCode; backed up first, `--remove` restores (M) | ⚠️ OpenClaw from its dashboard; others by hand (D) | ✅ `run` and `configure` for 15 tools (D) | — | — |
+| AI chat websites as providers | ✅ 6 sites, opt-in, behind a per-site guard that cannot be switched off (M) | ⚠️ 6 sites; no pacing or prompt cap found in its code (D) | ⚠️ 3 sites; pacing not documented (D) | ❌ | ❌ |
+| Throughput | ⚠️ about 230 requests/s on one PC, 4 ms added per request (M) | — | — | ✅ 1,170 requests/s on 4 instances, its own test (D) | — |
+
+**Where Pygg is worse:** throughput is for one person's tools, not a team's traffic; a provider that hangs gets no timeout fallback; by default a 5xx or a dropped connection reaches your agent as an error, where LiteLLM served 100% after re-sending; and a strict limit assumes the provider honours the request's output limit (a thinking model that writes past it can pass the limit by what it overran). Details, sources and the measured runs: [BENCHMARKS.md](docs/BENCHMARKS.md#pygg-next-to-other-gateways), [resilience](benchmark/reports/2026-11-14-resilience.md), [tokens and cost](benchmark/reports/2026-11-14-token-savings.md), [web guard](benchmark/reports/2026-11-14-web-guard.md).
+
+**Is Pygg a fork of 9router?** No. 9router, a local router for the providers you already have, was one of the inspirations for building the gateway first (ADR-016). Pygg is written from scratch in Rust; the one part that follows 9router is the Muse web-session recipe, credited under MIT in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md).
 
 ## What's inside
 
@@ -197,20 +210,6 @@ Coding agents ──HTTP──► Gateway 127.0.0.1:8741 (axum) ──► OpenAI
 - **Skills & Prompts:** one library of skills in the Agent Skills format, installed into Claude Code's, Codex's and OpenCode's own skills folders, and a count of what each agent sends with every request from its global files (ADR-039).
 - **[`@pygg/cli` on npm](https://www.npmjs.com/package/@pygg/cli):** a Node launcher with one optional package per platform (ADR-037).
 - **Smart tasks** (experimental): IDE agents hand subtasks to Pygg over MCP, or send a requirement to `pygg/brain`; agent CLIs run the tasks in Git worktrees against the repository's approved checks, paid steps wait for your approval, and the board (ADR-042) runs an approved brainstorm's cards under WIP limits with the Brain Storming screen holding the picks and defaults for every project ([AGENTS.md](docs/AGENTS.md), [BRAIN.md](docs/design/BRAIN.md)). The model facts feed behind the role ranks is built weekly by [`scripts/model-facts.py`](scripts/model-facts.py) from sources with open licences, signed, and verified by the app before use (ADR-040). Each part has run live once on the maintainer's store, not under the benchmark harness.
-
-## Is Pygg a fork of 9router?
-
-No. Pygg is the same kind of tool as [9router](https://github.com/decolua/9router): a local router that points your coding agents at the providers you already have. 9router was one of the inspirations for building the gateway first (ADR-016). Pygg's code is written from scratch in Rust; the one part that follows 9router is the Muse web-session recipe, credited under MIT in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md).
-
-Where they differ, read from 9router's documentation and source (not run here):
-
-- **Re-sending.** 9router moves to the next model on a 5xx or a timeout; Pygg does not re-send a request the provider may already have run, unless you allow one retry.
-- **`Retry-After`.** 9router uses fixed cooldowns; Pygg waits as long as the provider says.
-- **Prompt cache.** Pygg keeps each session on one key by default (9router with its `smart` strategy) and adds Anthropic's cache marker for OpenAI-format agents such as Codex.
-- **Cost.** 9router's cost is "for tracking only"; Pygg records every attempt, fallbacks included, with where its cost came from.
-- **Web sessions.** Both drive AI websites; Pygg holds each site behind a guard (one request at a time, rests, a daily cap) that cannot be switched off.
-
-The full table, with LiteLLM, OpenRouter, OmniRoute and claude-code-router: [BENCHMARKS.md](docs/BENCHMARKS.md#pygg-next-to-other-gateways).
 
 ## Documentation
 
