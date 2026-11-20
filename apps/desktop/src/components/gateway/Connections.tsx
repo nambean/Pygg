@@ -957,7 +957,8 @@ function WebSessionRows({connection: c}: {connection: Connection}) {
   return <>
     <div className="group-row">
       <span className="group-label">{t('Sign-in')}
-        <small>{state === 'signed_in' && c.webAccount ? t('Signed in as {account}.', {account: c.webAccount}) : c.webStateReason ?? t('Not checked yet.')}{c.webStateAt ? ` · ${ago(c.webStateAt)}` : ''}</small></span>
+        {/* An account name or a site's reason can be one long word (an email): it wraps inside the label. */}
+        <small style={{overflowWrap: 'anywhere'}}>{state === 'signed_in' && c.webAccount ? t('Signed in as {account}.', {account: c.webAccount}) : c.webStateReason ?? t('Not checked yet.')}{c.webStateAt ? ` · ${ago(c.webStateAt)}` : ''}</small></span>
       <span className="group-control web-actions">
         <Badge tone={state === 'signed_in' ? 'ok' : state === 'signed_out' ? 'warn' : 'error'}>{webStateLabel(state)}</Badge>
         <button type="button" className="button small" onClick={() => run('open')} disabled={busy !== null}>
