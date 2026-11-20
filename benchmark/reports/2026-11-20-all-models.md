@@ -1,6 +1,6 @@
 # Every connected model on every task kind, 2026-11-20
 
-> **Status:** Record · run overnight 2026-11-19 21:56 to 2026-11-20 06:11 (UTC+7) by the maintainer's order · ROADMAP "A larger benchmark" (first part: every connected model, every task kind) · **not yet approved for publication**: the figures in the README stay as they are until the owner says so.
+> **Status:** Record · run overnight 2026-11-19 21:56 to 2026-11-20 06:11 (UTC+7) by the maintainer's order · ROADMAP "A larger benchmark" (first part: every connected model, every task kind) · **published by the owner's order on 2026-11-20**; the README's figures are not replaced by it, since each case ran once (the ROADMAP asks for three).
 
 **In one line:** on all 36 fixture cases, one attempt each, OpenCode through Pygg solved **36/36 on four routes that cost no metered money** (DeepSeek V4.1 Flash and Qwen 3.8 Max on a monthly plan, and `auto/cheap`, which chose Qwen 3.7 Max on that plan) and on **Gemini 4 Hydrogen at $0.072 per solved task**; the dearest route, `auto/code` on Gemini 4 Carbon, solved 33/36 at $0.115, and the two local 8B models solved 3/36 and 0/36.
 
