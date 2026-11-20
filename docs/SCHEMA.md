@@ -8,630 +8,136 @@ SHA-256 hashes.
 
 ## `approvals`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0001_init |
-| `attempt_id` | TEXT | no |  |  | 0001_init |
-| `cap_micro_usd` | INTEGER | no |  |  | 0001_init |
-| `estimate_low_micro` | INTEGER | yes |  |  | 0001_init |
-| `estimate_high_micro` | INTEGER | yes |  |  | 0001_init |
-| `policy_version` | TEXT | no |  |  | 0001_init |
-| `state` | TEXT | no |  |  | 0001_init |
-| `created_at` | INTEGER | no |  |  | 0001_init |
-| `decided_at` | INTEGER | yes |  |  | 0001_init |
-
-References: `attempt_id` → `attempts.id` (on delete cascade).
-
-1 CHECK constraint (see the migrations).
+Added in 0001_init. Columns: `id` (PK), `attempt_id` (FK `attempts`), `cap_micro_usd`, `estimate_low_micro`, `estimate_high_micro`, `policy_version`, `state`, `created_at`, `decided_at`.
 
 ## `attempts`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0001_init |
-| `stage_id` | TEXT | no |  |  | 0001_init |
-| `number` | INTEGER | no |  |  | 0001_init |
-| `agent` | TEXT | no |  |  | 0001_init |
-| `model_ref` | TEXT | no |  |  | 0001_init |
-| `tier` | INTEGER | no |  |  | 0001_init |
-| `billing` | TEXT | no |  |  | 0001_init |
-| `worktree_path` | TEXT | yes |  |  | 0001_init |
-| `state` | TEXT | no |  |  | 0001_init |
-| `check_results_json` | TEXT | yes |  |  | 0001_init |
-| `escalation_reason` | TEXT | yes |  |  | 0001_init |
-| `started_at` | INTEGER | yes |  |  | 0001_init |
-| `finished_at` | INTEGER | yes |  |  | 0001_init |
-| `rung` | INTEGER | no | `0` |  | 0008_task_engine |
-| `base_revision` | TEXT | yes |  |  | 0008_task_engine |
-| `agent_model` | TEXT | yes |  |  | 0008_task_engine |
-| `detail` | TEXT | yes |  |  | 0008_task_engine |
-| `files_changed` | INTEGER | yes |  |  | 0008_task_engine |
-| `insertions` | INTEGER | yes |  |  | 0008_task_engine |
-| `deletions` | INTEGER | yes |  |  | 0008_task_engine |
-| `summary` | TEXT | yes |  |  | 0008_task_engine |
-| `log_tail` | TEXT | yes |  |  | 0008_task_engine |
-| `agent_estimate_micro_usd` | INTEGER | yes |  |  | 0010_approval_estimates |
-| `handoff_sent` | TEXT | yes |  |  | 0017_task_handoff |
-| `changed_paths_json` | TEXT | yes |  |  | 0017_task_handoff |
-| `cost_source` | TEXT | yes |  |  | 0019_step_cost_source |
-
-References: `stage_id` → `task_stages.id` (on delete cascade).
-
-1 CHECK constraint (see the migrations).
+Added in 0001_init. Columns: `id` (PK), `stage_id` (FK `task_stages`), `number`, `agent`, `model_ref`, `tier`, `billing`, `worktree_path`, `state`, `check_results_json`, `escalation_reason`, `started_at`, `finished_at`, `rung`, `base_revision`, `agent_model`, `detail`, `files_changed`, `insertions`, `deletions`, `summary`, `log_tail`, `agent_estimate_micro_usd`, `handoff_sent`, `changed_paths_json`, `cost_source`.
 
 ## `audit_events`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0001_init |
-| `actor` | TEXT | no |  |  | 0001_init |
-| `action` | TEXT | no |  |  | 0001_init |
-| `entity` | TEXT | no |  |  | 0001_init |
-| `metadata_json` | TEXT | no | `'{}'` |  | 0001_init |
-| `created_at` | INTEGER | no |  |  | 0001_init |
+Added in 0001_init. Columns: `id` (PK), `actor`, `action`, `entity`, `metadata_json`, `created_at`.
 
 ## `board_cards`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0044_board |
-| `workspace_id` | TEXT | no |  |  | 0044_board |
-| `brainstorm_id` | TEXT | yes |  |  | 0044_board |
-| `card_id` | TEXT | no |  |  | 0044_board |
-| `title` | TEXT | no |  |  | 0044_board |
-| `role` | TEXT | no |  |  | 0044_board |
-| `done` | TEXT | no |  |  | 0044_board |
-| `prompt` | TEXT | no |  |  | 0044_board |
-| `depends_on_json` | TEXT | no | `'[]'` |  | 0044_board |
-| `ladder_json` | TEXT | no | `'[]'` |  | 0044_board |
-| `agent` | TEXT | no |  |  | 0044_board |
-| `runner` | TEXT | no | `'engine'` |  | 0044_board |
-| `class` | TEXT | no | `'standard'` |  | 0044_board |
-| `lane` | TEXT | no | `'discovery'` |  | 0044_board |
-| `held` | INTEGER | no | `0` |  | 0044_board |
-| `task_id` | TEXT | yes |  |  | 0044_board |
-| `blocked_reason` | TEXT | yes |  |  | 0044_board |
-| `blocked_since` | INTEGER | yes |  |  | 0044_board |
-| `blocked_ms` | INTEGER | no | `0` |  | 0044_board |
-| `ready_at` | INTEGER | yes |  |  | 0044_board |
-| `started_at` | INTEGER | yes |  |  | 0044_board |
-| `done_at` | INTEGER | yes |  |  | 0044_board |
-| `position` | INTEGER | no | `0` |  | 0044_board |
-| `created_at` | INTEGER | no |  |  | 0044_board |
-| `updated_at` | INTEGER | no |  |  | 0044_board |
-
-References: `task_id` → `tasks.id` (on delete set null); `brainstorm_id` → `brainstorms.id` (on delete set null); `workspace_id` → `workspaces.id` (on delete cascade).
-
-Indexes: `board_cards_by_brainstorm`, `board_cards_by_workspace`.
-
-5 CHECK constraints (see the migrations).
+Added in 0044_board. Columns: `id` (PK), `workspace_id` (FK `workspaces`), `brainstorm_id` (FK `brainstorms`), `card_id`, `title`, `role`, `done`, `prompt`, `depends_on_json`, `ladder_json`, `agent`, `runner`, `class`, `lane`, `held`, `task_id` (FK `tasks`), `blocked_reason`, `blocked_since`, `blocked_ms`, `ready_at`, `started_at`, `done_at`, `position`, `created_at`, `updated_at`.
 
 ## `board_settings`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `workspace_id` | TEXT | yes |  | primary | 0044_board |
-| `wip_running` | INTEGER | no | `1` |  | 0044_board |
-| `wip_checking` | INTEGER | no | `1` |  | 0044_board |
-| `updated_at` | INTEGER | no |  |  | 0044_board |
-
-References: `workspace_id` → `workspaces.id` (on delete cascade).
-
-2 CHECK constraints (see the migrations).
+Added in 0044_board. Columns: `workspace_id` (PK, FK `workspaces`), `wip_running`, `wip_checking`, `updated_at`.
 
 ## `brain_picks`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `scope` | TEXT | no |  | primary | 0042_brainstorms |
-| `role` | TEXT | no |  | primary | 0042_brainstorms |
-| `provider_id` | TEXT | no |  |  | 0042_brainstorms |
-| `model_id` | TEXT | no |  |  | 0042_brainstorms |
-| `saved_at` | INTEGER | no |  |  | 0042_brainstorms |
-
-1 CHECK constraint (see the migrations).
+Added in 0042_brainstorms. Columns: `scope` (PK), `role` (PK), `provider_id`, `model_id`, `saved_at`.
 
 ## `brainstorms`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0042_brainstorms |
-| `client_id` | TEXT | yes |  |  | 0042_brainstorms |
-| `session` | TEXT | no |  |  | 0042_brainstorms |
-| `workspace_id` | TEXT | yes |  |  | 0042_brainstorms |
-| `state` | TEXT | no |  |  | 0042_brainstorms |
-| `requirement` | TEXT | no |  |  | 0042_brainstorms |
-| `planner` | TEXT | yes |  |  | 0042_brainstorms |
-| `prompt_version` | TEXT | no | `'brain-v1'` |  | 0042_brainstorms |
-| `revision` | INTEGER | no | `0` |  | 0042_brainstorms |
-| `proposal_json` | TEXT | no | `'{}'` |  | 0042_brainstorms |
-| `raw_reply` | TEXT | yes |  |  | 0042_brainstorms |
-| `note` | TEXT | yes |  |  | 0042_brainstorms |
-| `error` | TEXT | yes |  |  | 0042_brainstorms |
-| `created_at` | INTEGER | no |  |  | 0042_brainstorms |
-| `updated_at` | INTEGER | no |  |  | 0042_brainstorms |
-| `branch` | TEXT | yes |  |  | 0045_brainstorm_branch |
-
-References: `workspace_id` → `workspaces.id` (on delete set null).
-
-Indexes: `brainstorms_by_session`.
-
-1 CHECK constraint (see the migrations).
+Added in 0042_brainstorms. Columns: `id` (PK), `client_id`, `session`, `workspace_id` (FK `workspaces`), `state`, `requirement`, `planner`, `prompt_version`, `revision`, `proposal_json`, `raw_reply`, `note`, `error`, `created_at`, `updated_at`, `branch`.
 
 ## `budget_reservations`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0003_cost_safe_gateway |
-| `client_id` | TEXT | no |  |  | 0003_cost_safe_gateway |
-| `reserved_micro` | INTEGER | no |  |  | 0003_cost_safe_gateway |
-| `created_at` | INTEGER | no |  |  | 0003_cost_safe_gateway |
-| `provider_id` | TEXT | yes |  |  | 0004_counter_review |
-| `model_id` | TEXT | yes |  |  | 0004_counter_review |
-| `requested_model` | TEXT | yes |  |  | 0004_counter_review |
-| `session_key` | TEXT | yes |  |  | 0004_counter_review |
-| `route_mode` | TEXT | yes |  |  | 0004_counter_review |
-| `owner_generation` | TEXT | yes |  |  | 0006_owner_generation |
-
-References: `client_id` → `gateway_clients.id` (on delete cascade).
-
-Indexes: `reservations_by_client`.
-
-1 CHECK constraint (see the migrations).
+Added in 0003_cost_safe_gateway. Columns: `id` (PK), `client_id` (FK `gateway_clients`), `reserved_micro`, `created_at`, `provider_id`, `model_id`, `requested_model`, `session_key`, `route_mode`, `owner_generation`.
 
 ## `combo_members`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `combo_id` | TEXT | no |  | primary | 0002_gateway |
-| `position` | INTEGER | no |  | primary | 0002_gateway |
-| `provider_id` | TEXT | no |  |  | 0002_gateway |
-| `model_id` | TEXT | no |  |  | 0002_gateway |
-
-References: `provider_id` → `providers.id` (on delete cascade); `combo_id` → `combos.id` (on delete cascade).
+Added in 0002_gateway. Columns: `combo_id` (PK, FK `combos`), `position` (PK), `provider_id` (FK `providers`), `model_id`.
 
 ## `combos`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0002_gateway |
-| `name` | TEXT | no |  |  | 0002_gateway |
-| `created_at` | INTEGER | no |  |  | 0002_gateway |
-| `strategy` | TEXT | no | `'order'` |  | 0025_combo_strategy |
-
-1 CHECK constraint (see the migrations).
+Added in 0002_gateway. Columns: `id` (PK), `name`, `created_at`, `strategy`.
 
 ## `connection_checks`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `provider_id` | TEXT | no |  |  | 0029_connection_checks |
-| `at` | INTEGER | no |  |  | 0029_connection_checks |
-| `ok` | INTEGER | no |  |  | 0029_connection_checks |
-| `kind` | TEXT | no |  |  | 0029_connection_checks |
-| `detail` | TEXT | no |  |  | 0029_connection_checks |
-
-References: `provider_id` → `providers.id` (on delete cascade).
-
-Indexes: `connection_checks_by_provider`.
-
-1 CHECK constraint (see the migrations).
+Added in 0029_connection_checks. Columns: `provider_id` (FK `providers`), `at`, `ok`, `kind`, `detail`.
 
 ## `connection_health`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `provider_id` | TEXT | no |  | primary | 0003_cost_safe_gateway |
-| `model_id` | TEXT | no | `''` | primary | 0003_cost_safe_gateway |
-| `state` | TEXT | no |  |  | 0003_cost_safe_gateway |
-| `reason` | TEXT | no |  |  | 0003_cost_safe_gateway |
-| `http_status` | INTEGER | yes |  |  | 0003_cost_safe_gateway |
-| `until_ms` | INTEGER | yes |  |  | 0003_cost_safe_gateway |
-| `updated_at` | INTEGER | no |  |  | 0003_cost_safe_gateway |
-| `strikes` | INTEGER | no | `1` |  | 0014_strict_budget_and_probes |
-
-References: `provider_id` → `providers.id` (on delete cascade).
+Added in 0003_cost_safe_gateway. Columns: `provider_id` (PK, FK `providers`), `model_id` (PK), `state`, `reason`, `http_status`, `until_ms`, `updated_at`, `strikes`.
 
 ## `feedback`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0015_quality_signals |
-| `metric_name` | TEXT | no |  |  | 0015_quality_signals |
-| `target_kind` | TEXT | no |  |  | 0015_quality_signals |
-| `target_id` | TEXT | no |  |  | 0015_quality_signals |
-| `value_bool` | INTEGER | yes |  |  | 0015_quality_signals |
-| `value_float` | REAL | yes |  |  | 0015_quality_signals |
-| `source` | TEXT | no |  |  | 0015_quality_signals |
-| `tags_json` | TEXT | yes |  |  | 0015_quality_signals |
-| `created_at` | INTEGER | no |  |  | 0015_quality_signals |
-
-References: `metric_name` → `metrics.name`.
-
-Indexes: `feedback_by_metric`, `feedback_by_target`.
-
-4 CHECK constraints (see the migrations).
+Added in 0015_quality_signals. Columns: `id` (PK), `metric_name` (FK `metrics`), `target_kind`, `target_id`, `value_bool`, `value_float`, `source`, `tags_json`, `created_at`.
 
 ## `gateway_clients`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0002_gateway |
-| `name` | TEXT | no |  |  | 0002_gateway |
-| `token_hash` | TEXT | no |  |  | 0002_gateway |
-| `token_prefix` | TEXT | no |  |  | 0002_gateway |
-| `monthly_budget_micro_usd` | INTEGER | yes |  |  | 0002_gateway |
-| `created_at` | INTEGER | no |  |  | 0002_gateway |
-| `last_used_at` | INTEGER | yes |  |  | 0002_gateway |
-| `revoked_at` | INTEGER | yes |  |  | 0002_gateway |
-| `max_concurrency` | INTEGER | no | `8` |  | 0003_cost_safe_gateway |
-| `unknown_cost_policy` | TEXT | no | `'block'` |  | 0003_cost_safe_gateway |
-| `allowed_connections` | TEXT | yes |  |  | 0005_client_scope |
-| `paid_retries` | INTEGER | no | `0` |  | 0005_client_scope |
-| `auto_min_tier` | TEXT | no | `'T2'` |  | 0007_auto_routing |
-| `may_run_tasks` | INTEGER | no | `0` |  | 0009_tasks_from_clients |
-| `require_no_training` | INTEGER | no | `0` |  | 0013_data_use_terms |
-| `strict_budget` | INTEGER | no | `0` |  | 0014_strict_budget_and_probes |
-| `token_ref` | TEXT | yes |  |  | 0023_client_token_copies |
-| `deleted_at` | INTEGER | yes |  |  | 0023_client_token_copies |
-| `session_budget_micro_usd` | INTEGER | yes |  |  | 0040_session_day_limits |
-| `day_budget_micro_usd` | INTEGER | yes |  |  | 0040_session_day_limits |
-
-8 CHECK constraints (see the migrations).
+Added in 0002_gateway. Columns: `id` (PK), `name`, `token_hash`, `token_prefix`, `monthly_budget_micro_usd`, `created_at`, `last_used_at`, `revoked_at`, `max_concurrency`, `unknown_cost_policy`, `allowed_connections`, `paid_retries`, `auto_min_tier`, `may_run_tasks`, `require_no_training`, `strict_budget`, `token_ref`, `deleted_at`, `session_budget_micro_usd`, `day_budget_micro_usd`.
 
 ## `key_health`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `key_id` | TEXT | no |  | primary | 0031_key_rings |
-| `model_id` | TEXT | no |  | primary | 0031_key_rings |
-| `state` | TEXT | no |  |  | 0031_key_rings |
-| `reason` | TEXT | no |  |  | 0031_key_rings |
-| `http_status` | INTEGER | yes |  |  | 0031_key_rings |
-| `until_ms` | INTEGER | yes |  |  | 0031_key_rings |
-| `updated_at` | INTEGER | no |  |  | 0031_key_rings |
-
-References: `key_id` → `provider_keys.id` (on delete cascade).
+Added in 0031_key_rings. Columns: `key_id` (PK, FK `provider_keys`), `model_id` (PK), `state`, `reason`, `http_status`, `until_ms`, `updated_at`.
 
 ## `key_limits`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `key_id` | TEXT | no |  | primary | 0031_key_rings |
-| `model_id` | TEXT | no |  | primary | 0031_key_rings |
-| `headers_json` | TEXT | no |  |  | 0031_key_rings |
-| `http_status` | INTEGER | yes |  |  | 0031_key_rings |
-| `observed_at` | INTEGER | no |  |  | 0031_key_rings |
-
-References: `key_id` → `provider_keys.id` (on delete cascade).
+Added in 0031_key_rings. Columns: `key_id` (PK, FK `provider_keys`), `model_id` (PK), `headers_json`, `http_status`, `observed_at`.
 
 ## `launches`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `session_key` | TEXT | yes |  | primary | 0038_launches |
-| `tool` | TEXT | no |  |  | 0038_launches |
-| `model` | TEXT | yes |  |  | 0038_launches |
-| `started_at` | INTEGER | no |  |  | 0038_launches |
-| `finished_at` | INTEGER | yes |  |  | 0038_launches |
-| `exit_code` | INTEGER | yes |  |  | 0038_launches |
-| `repo` | TEXT | yes |  |  | 0038_launches |
-| `branch` | TEXT | yes |  |  | 0038_launches |
-| `head_before` | TEXT | yes |  |  | 0038_launches |
-| `head_after` | TEXT | yes |  |  | 0038_launches |
-| `dirty_before` | INTEGER | yes |  |  | 0038_launches |
-| `dirty_after` | INTEGER | yes |  |  | 0038_launches |
-| `commits` | INTEGER | yes |  |  | 0038_launches |
-| `files_changed` | INTEGER | yes |  |  | 0038_launches |
-| `insertions` | INTEGER | yes |  |  | 0038_launches |
-| `deletions` | INTEGER | yes |  |  | 0038_launches |
-
-Indexes: `launches_by_repo`.
+Added in 0038_launches. Columns: `session_key` (PK), `tool`, `model`, `started_at`, `finished_at`, `exit_code`, `repo`, `branch`, `head_before`, `head_after`, `dirty_before`, `dirty_after`, `commits`, `files_changed`, `insertions`, `deletions`.
 
 ## `metrics`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `name` | TEXT | yes |  | primary | 0015_quality_signals |
-| `type` | TEXT | no |  |  | 0015_quality_signals |
-| `level` | TEXT | no |  |  | 0015_quality_signals |
-| `optimize` | TEXT | no |  |  | 0015_quality_signals |
-| `description` | TEXT | no |  |  | 0015_quality_signals |
-
-3 CHECK constraints (see the migrations).
+Added in 0015_quality_signals. Columns: `name` (PK), `type`, `level`, `optimize`, `description`.
 
 ## `models`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0001_init |
-| `provider_id` | TEXT | no |  |  | 0001_init |
-| `model_id` | TEXT | no |  |  | 0001_init |
-| `billing` | TEXT | no | `'unknown'` |  | 0001_init |
-| `tier` | INTEGER | yes |  |  | 0001_init |
-| `tier_source` | TEXT | yes |  |  | 0001_init |
-| `capabilities_json` | TEXT | no | `'{}'` |  | 0001_init |
-| `price_json` | TEXT | yes |  |  | 0001_init |
-| `observed_at` | INTEGER | yes |  |  | 0001_init |
-| `enabled` | INTEGER | no | `1` |  | 0001_init |
-| `context_tokens` | INTEGER | yes |  |  | 0007_auto_routing |
-| `max_output_tokens` | INTEGER | yes |  |  | 0007_auto_routing |
-| `supports_tools` | INTEGER | yes |  |  | 0007_auto_routing |
-| `supports_vision` | INTEGER | yes |  |  | 0007_auto_routing |
-| `caps_source` | TEXT | yes |  |  | 0007_auto_routing |
-| `caps_observed_at` | INTEGER | yes |  |  | 0007_auto_routing |
-| `thinking_types` | TEXT | yes |  |  | 0012_request_features |
-| `effort_levels` | TEXT | yes |  |  | 0012_request_features |
-| `enabled_source` | TEXT | yes |  |  | 0020_model_enabled_source |
-
-References: `provider_id` → `providers.id` (on delete cascade).
-
-7 CHECK constraints (see the migrations).
+Added in 0001_init. Columns: `id` (PK), `provider_id` (FK `providers`), `model_id`, `billing`, `tier`, `tier_source`, `capabilities_json`, `price_json`, `observed_at`, `enabled`, `context_tokens`, `max_output_tokens`, `supports_tools`, `supports_vision`, `caps_source`, `caps_observed_at`, `thinking_types`, `effort_levels`, `enabled_source`.
 
 ## `provider_keys`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0031_key_rings |
-| `provider_id` | TEXT | no |  |  | 0031_key_rings |
-| `label` | TEXT | no |  |  | 0031_key_rings |
-| `credential_ref` | TEXT | no |  |  | 0031_key_rings |
-| `rank` | INTEGER | no |  |  | 0031_key_rings |
-| `enabled` | INTEGER | no | `1` |  | 0031_key_rings |
-| `separate_account_at` | INTEGER | yes |  |  | 0031_key_rings |
-| `created_at` | INTEGER | no |  |  | 0031_key_rings |
-
-References: `provider_id` → `providers.id` (on delete cascade).
-
-Indexes: `provider_keys_by_provider`.
+Added in 0031_key_rings. Columns: `id` (PK), `provider_id` (FK `providers`), `label`, `credential_ref`, `rank`, `enabled`, `separate_account_at`, `created_at`.
 
 ## `providers`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0001_init |
-| `kind` | TEXT | no |  |  | 0001_init |
-| `account_label` | TEXT | no |  |  | 0001_init |
-| `endpoint` | TEXT | yes |  |  | 0001_init |
-| `enabled` | INTEGER | no | `1` |  | 0001_init |
-| `credential_ref` | TEXT | yes |  |  | 0001_init |
-| `data_use_terms` | TEXT | no | `'unknown'` |  | 0001_init |
-| `terms_source` | TEXT | yes |  |  | 0001_init |
-| `terms_checked_at` | INTEGER | yes |  |  | 0001_init |
-| `created_at` | INTEGER | no |  |  | 0001_init |
-| `default_billing` | TEXT | no | `'unknown'` |  | 0002_gateway |
-| `wire` | TEXT | no | `'openai'` |  | 0003_cost_safe_gateway |
-| `quota_group` | TEXT | yes |  |  | 0003_cost_safe_gateway |
-| `quota_confirmed_at` | INTEGER | yes |  |  | 0004_counter_review |
-| `pool` | TEXT | yes |  |  | 0022_connection_pools |
-| `pool_rank` | INTEGER | yes |  |  | 0022_connection_pools |
-| `web_profile` | TEXT | yes |  |  | 0024_web_sessions |
-| `web_ack_at` | INTEGER | yes |  |  | 0024_web_sessions |
-| `web_ack_version` | INTEGER | yes |  |  | 0024_web_sessions |
-| `web_state` | TEXT | yes |  |  | 0024_web_sessions |
-| `web_state_reason` | TEXT | yes |  |  | 0024_web_sessions |
-| `web_state_at` | INTEGER | yes |  |  | 0024_web_sessions |
-| `web_daily_limit` | INTEGER | yes |  |  | 0026_web_daily_limit |
-| `web_next_at` | INTEGER | yes |  |  | 0028_web_guard |
-| `web_backoff_until` | INTEGER | yes |  |  | 0028_web_guard |
-| `web_backoff_reason` | TEXT | yes |  |  | 0028_web_guard |
-| `web_strikes` | INTEGER | no | `0` |  | 0028_web_guard |
-| `key_strategy` | TEXT | no | `'in_order'` |  | 0031_key_rings |
-| `key_cursor` | INTEGER | no | `0` |  | 0031_key_rings |
-| `web_account` | TEXT | yes |  |  | 0041_web_account |
-
-5 CHECK constraints (see the migrations).
+Added in 0001_init. Columns: `id` (PK), `kind`, `account_label`, `endpoint`, `enabled`, `credential_ref`, `data_use_terms`, `terms_source`, `terms_checked_at`, `created_at`, `default_billing`, `wire`, `quota_group`, `quota_confirmed_at`, `pool`, `pool_rank`, `web_profile`, `web_ack_at`, `web_ack_version`, `web_state`, `web_state_reason`, `web_state_at`, `web_daily_limit`, `web_next_at`, `web_backoff_until`, `web_backoff_reason`, `web_strikes`, `key_strategy`, `key_cursor`, `web_account`.
 
 ## `rate_limits`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `provider_id` | TEXT | no |  | primary | 0018_rate_limits |
-| `model_id` | TEXT | no |  | primary | 0018_rate_limits |
-| `headers_json` | TEXT | no |  |  | 0018_rate_limits |
-| `http_status` | INTEGER | yes |  |  | 0018_rate_limits |
-| `observed_at` | INTEGER | no |  |  | 0018_rate_limits |
+Added in 0018_rate_limits. Columns: `provider_id` (PK), `model_id` (PK), `headers_json`, `http_status`, `observed_at`.
 
 ## `route_decisions`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0001_init |
-| `stage_id` | TEXT | no |  |  | 0001_init |
-| `eligible_json` | TEXT | no |  |  | 0001_init |
-| `excluded_json` | TEXT | no |  |  | 0001_init |
-| `deciding_rule` | TEXT | yes |  |  | 0001_init |
-| `chosen` | TEXT | yes |  |  | 0001_init |
-| `created_at` | INTEGER | no |  |  | 0001_init |
-
-References: `stage_id` → `task_stages.id` (on delete cascade).
+Added in 0001_init. Columns: `id` (PK), `stage_id` (FK `task_stages`), `eligible_json`, `excluded_json`, `deciding_rule`, `chosen`, `created_at`.
 
 ## `session_affinity`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `client_id` | TEXT | no |  | primary | 0003_cost_safe_gateway |
-| `session_key` | TEXT | no |  | primary | 0003_cost_safe_gateway |
-| `requested_model` | TEXT | no |  | primary | 0003_cost_safe_gateway |
-| `provider_id` | TEXT | no |  |  | 0003_cost_safe_gateway |
-| `model_id` | TEXT | no |  |  | 0003_cost_safe_gateway |
-| `created_at` | INTEGER | no |  |  | 0003_cost_safe_gateway |
-| `last_used_at` | INTEGER | no |  |  | 0003_cost_safe_gateway |
-| `home_provider_id` | TEXT | yes |  |  | 0033_session_home |
-| `home_model_id` | TEXT | yes |  |  | 0033_session_home |
-| `home_used_at` | INTEGER | yes |  |  | 0033_session_home |
-
-References: `provider_id` → `providers.id` (on delete cascade); `client_id` → `gateway_clients.id` (on delete cascade).
-
-Indexes: `sessions_by_last_use`.
+Added in 0003_cost_safe_gateway. Columns: `client_id` (PK, FK `gateway_clients`), `session_key` (PK), `requested_model` (PK), `provider_id` (FK `providers`), `model_id`, `created_at`, `last_used_at`, `home_provider_id`, `home_model_id`, `home_used_at`.
 
 ## `settings`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `key` | TEXT | yes |  | primary | 0001_init |
-| `value` | TEXT | no |  |  | 0001_init |
+Added in 0001_init. Columns: `key` (PK), `value`.
 
 ## `skill_projects`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `path` | TEXT | yes |  | primary | 0035_skill_projects |
-| `added_at` | INTEGER | no |  |  | 0035_skill_projects |
+Added in 0035_skill_projects. Columns: `path` (PK), `added_at`.
 
 ## `skills`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0032_skills |
-| `description` | TEXT | no |  |  | 0032_skills |
-| `body` | TEXT | no |  |  | 0032_skills |
-| `manual` | INTEGER | no | `1` |  | 0032_skills |
-| `created_at` | INTEGER | no |  |  | 0032_skills |
-| `updated_at` | INTEGER | no |  |  | 0032_skills |
+Added in 0032_skills. Columns: `id` (PK), `description`, `body`, `manual`, `created_at`, `updated_at`.
 
 ## `task_stages`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0001_init |
-| `task_id` | TEXT | no |  |  | 0001_init |
-| `position` | INTEGER | no |  |  | 0001_init |
-| `name` | TEXT | no |  |  | 0001_init |
-| `check_spec` | TEXT | yes |  |  | 0001_init |
-| `state` | TEXT | no |  |  | 0001_init |
-
-References: `task_id` → `tasks.id` (on delete cascade).
+Added in 0001_init. Columns: `id` (PK), `task_id` (FK `tasks`), `position`, `name`, `check_spec`, `state`.
 
 ## `tasks`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0001_init |
-| `workspace_id` | TEXT | no |  |  | 0001_init |
-| `title` | TEXT | no |  |  | 0001_init |
-| `prompt` | TEXT | no |  |  | 0001_init |
-| `strategy` | TEXT | no |  |  | 0001_init |
-| `state` | TEXT | no |  |  | 0001_init |
-| `base_revision` | TEXT | yes |  |  | 0001_init |
-| `policy_snapshot_json` | TEXT | no | `'{}'` |  | 0001_init |
-| `created_at` | INTEGER | no |  |  | 0001_init |
-| `updated_at` | INTEGER | no |  |  | 0001_init |
-| `phase` | TEXT | yes |  |  | 0008_task_engine |
-| `reason` | TEXT | yes |  |  | 0008_task_engine |
-| `result` | TEXT | yes |  |  | 0008_task_engine |
-| `result_branch` | TEXT | yes |  |  | 0008_task_engine |
-| `client_id` | TEXT | yes |  |  | 0009_tasks_from_clients |
-| `brainstorm_id` | TEXT | yes |  |  | 0042_brainstorms |
-| `card_id` | TEXT | yes |  |  | 0042_brainstorms |
-| `card_role` | TEXT | yes |  |  | 0042_brainstorms |
-
-References: `workspace_id` → `workspaces.id`.
-
-Indexes: `tasks_by_client`, `tasks_by_workspace`.
-
-1 CHECK constraint (see the migrations).
+Added in 0001_init. Columns: `id` (PK), `workspace_id` (FK `workspaces`), `title`, `prompt`, `strategy`, `state`, `base_revision`, `policy_snapshot_json`, `created_at`, `updated_at`, `phase`, `reason`, `result`, `result_branch`, `client_id`, `brainstorm_id`, `card_id`, `card_role`.
 
 ## `tool_signatures`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `call_id` | TEXT | yes |  | primary | 0016_tool_signatures |
-| `signature` | TEXT | no |  |  | 0016_tool_signatures |
-| `created_at` | INTEGER | no |  |  | 0016_tool_signatures |
-
-Indexes: `tool_signatures_by_age`.
+Added in 0016_tool_signatures. Columns: `call_id` (PK), `signature`, `created_at`.
 
 ## `usage_events`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0001_init |
-| `attempt_id` | TEXT | yes |  |  | 0001_init |
-| `client_id` | TEXT | yes |  |  | 0001_init |
-| `provider` | TEXT | no |  |  | 0001_init |
-| `model` | TEXT | no |  |  | 0001_init |
-| `input_tokens` | INTEGER | yes |  |  | 0001_init |
-| `output_tokens` | INTEGER | yes |  |  | 0001_init |
-| `cache_tokens` | INTEGER | yes |  |  | 0001_init |
-| `cost_micro_usd` | INTEGER | yes |  |  | 0001_init |
-| `cost_status` | TEXT | no |  |  | 0001_init |
-| `source` | TEXT | no |  |  | 0001_init |
-| `created_at` | INTEGER | no |  |  | 0001_init |
-| `outcome` | TEXT | no | `'ok'` |  | 0002_gateway |
-| `http_status` | INTEGER | yes |  |  | 0002_gateway |
-| `latency_ms` | INTEGER | yes |  |  | 0002_gateway |
-| `requested_model` | TEXT | yes |  |  | 0002_gateway |
-| `error` | TEXT | yes |  |  | 0002_gateway |
-| `cache_write_tokens` | INTEGER | yes |  |  | 0003_cost_safe_gateway |
-| `session_key` | TEXT | yes |  |  | 0003_cost_safe_gateway |
-| `route_mode` | TEXT | yes |  |  | 0003_cost_safe_gateway |
-| `at_risk_micro_usd` | INTEGER | yes |  |  | 0004_counter_review |
-| `route_reason` | TEXT | yes |  |  | 0007_auto_routing |
-| `repeated_tokens` | INTEGER | yes |  |  | 0021_repeated_tokens |
-| `request_id` | TEXT | yes |  |  | 0030_request_facts |
-| `attempt` | INTEGER | yes |  |  | 0030_request_facts |
-| `billing` | TEXT | yes |  |  | 0030_request_facts |
-| `route_kind` | TEXT | yes |  |  | 0030_request_facts |
-| `cache_hint` | TEXT | yes |  |  | 0030_request_facts |
-| `key_id` | TEXT | yes |  |  | 0031_key_rings |
-| `cache_miss` | TEXT | yes |  |  | 0034_cache_miss |
-| `tools_tokens` | INTEGER | yes |  |  | 0036_prefix_meter |
-| `system_tokens` | INTEGER | yes |  |  | 0036_prefix_meter |
-| `prefix_hash` | INTEGER | yes |  |  | 0036_prefix_meter |
-| `clear_count` | INTEGER | yes |  |  | 0037_clearing_shadow |
-| `clear_tokens` | INTEGER | yes |  |  | 0037_clearing_shadow |
-| `clear_tail_tokens` | INTEGER | yes |  |  | 0037_clearing_shadow |
-| `request_class` | TEXT | yes |  |  | 0039_request_class |
-| `agent_type` | TEXT | yes |  |  | 0039_request_class |
-| `agent_id` | TEXT | yes |  |  | 0039_request_class |
-| `prompt_id` | TEXT | yes |  |  | 0039_request_class |
-
-References: `attempt_id` → `attempts.id`.
-
-Indexes: `usage_by_attempt`, `usage_by_client`, `usage_by_session`, `usage_by_session_key`, `usage_by_time`, `usage_events_by_key`, `usage_events_by_request`.
-
-3 CHECK constraints (see the migrations).
+Added in 0001_init. Columns: `id` (PK), `attempt_id` (FK `attempts`), `client_id`, `provider`, `model`, `input_tokens`, `output_tokens`, `cache_tokens`, `cost_micro_usd`, `cost_status`, `source`, `created_at`, `outcome`, `http_status`, `latency_ms`, `requested_model`, `error`, `cache_write_tokens`, `session_key`, `route_mode`, `at_risk_micro_usd`, `route_reason`, `repeated_tokens`, `request_id`, `attempt`, `billing`, `route_kind`, `cache_hint`, `key_id`, `cache_miss`, `tools_tokens`, `system_tokens`, `prefix_hash`, `clear_count`, `clear_tokens`, `clear_tail_tokens`, `request_class`, `agent_type`, `agent_id`, `prompt_id`.
 
 ## `web_pace`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `provider_id` | TEXT | no |  |  | 0028_web_guard |
-| `at` | INTEGER | no |  |  | 0028_web_guard |
-| `weight` | INTEGER | no |  |  | 0028_web_guard |
-| `outcome` | TEXT | no |  |  | 0028_web_guard |
-
-References: `provider_id` → `providers.id` (on delete cascade).
-
-Indexes: `web_pace_by_provider`.
-
-1 CHECK constraint (see the migrations).
+Added in 0028_web_guard. Columns: `provider_id` (FK `providers`), `at`, `weight`, `outcome`.
 
 ## `workspace_checks`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0001_init |
-| `workspace_id` | TEXT | no |  |  | 0001_init |
-| `command` | TEXT | no |  |  | 0001_init |
-| `source` | TEXT | no |  |  | 0001_init |
-| `approved` | INTEGER | no | `0` |  | 0001_init |
-
-References: `workspace_id` → `workspaces.id` (on delete cascade).
-
-1 CHECK constraint (see the migrations).
+Added in 0001_init. Columns: `id` (PK), `workspace_id` (FK `workspaces`), `command`, `source`, `approved`.
 
 ## `workspaces`
 
-| Column | Type | Null | Default | Key | Added in |
-| --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | yes |  | primary | 0001_init |
-| `name` | TEXT | no |  |  | 0001_init |
-| `path` | TEXT | no |  |  | 0001_init |
-| `privacy_class` | TEXT | no | `'standard'` |  | 0001_init |
-| `isolation` | TEXT | no | `'git_worktree'` |  | 0001_init |
-| `created_at` | INTEGER | no |  |  | 0001_init |
-| `daily_budget_micro_usd` | INTEGER | yes |  |  | 0011_task_budgets |
-
-2 CHECK constraints (see the migrations).
+Added in 0001_init. Columns: `id` (PK), `name`, `path`, `privacy_class`, `isolation`, `created_at`, `daily_budget_micro_usd`.

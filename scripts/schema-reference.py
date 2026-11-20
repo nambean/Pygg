@@ -4,9 +4,9 @@
     python scripts/schema-reference.py --check  # exit 1 if docs/SCHEMA.md is out of date
 
 The migrations in apps/desktop/src-tauri/migrations are applied in order to an empty in-memory SQLite database, as
-db.rs does, and every table is listed with its columns, defaults, keys and the migration that added each column.
+db.rs does, and every table is listed with the migration that added it and its columns with their key markers.
 """
-import pathlib, re, sqlite3, sys
+import pathlib, sqlite3, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MIGRATIONS = ROOT / "apps" / "desktop" / "src-tauri" / "migrations"
@@ -35,21 +35,14 @@ def build():
         "",
     ]
     for t in tables(conn):
-        sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = ?", (t,)).fetchone()[0] or ""
-        lines += [f"## `{t}`", "", "| Column | Type | Null | Default | Key | Added in |", "| --- | --- | --- | --- | --- | --- |"]
-        for cid, name, ctype, notnull, default, pk in conn.execute(f'PRAGMA table_info("{t}")'):
-            key = "primary" if pk else ""
-            lines.append(f"| `{name}` | {ctype or ''} | {'no' if notnull else 'yes'} | {'' if default is None else '`' + str(default) + '`'} | {key} | {added.get((t, name), '')} |")
-        fks = list(conn.execute(f'PRAGMA foreign_key_list("{t}")'))
-        if fks:
-            lines += ["", "References: " + "; ".join(f"`{f[3]}` → `{f[2]}.{f[4]}`" + (f" (on delete {f[6].lower()})" if f[6] and f[6] != "NO ACTION" else "") for f in fks) + "."]
-        idx = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL ORDER BY name", (t,))]
-        if idx:
-            lines += ["", "Indexes: " + ", ".join(f"`{i}`" for i in idx) + "."]
-        checks = re.findall(r"CHECK\s*\((.*?)\)\s*(?:,|\n|\))", sql)
-        if checks:
-            lines += ["", f"{len(checks)} CHECK constraint{'s' if len(checks) != 1 else ''} (see the migrations)."]
-        lines.append("")
+        cols = list(conn.execute(f'PRAGMA table_info("{t}")'))
+        fks = {f[3]: f[2] for f in conn.execute(f'PRAGMA foreign_key_list("{t}")')}
+        parts = []
+        for cid, name, ctype, notnull, default, pk in cols:
+            marks = (["PK"] if pk else []) + ([f"FK `{fks[name]}`"] if name in fks else [])
+            parts.append(f"`{name}`" + (f" ({', '.join(marks)})" if marks else ""))
+        first = min((added.get((t, c[1]), "") for c in cols), default="")
+        lines += [f"## `{t}`", "", f"Added in {first}. Columns: " + ", ".join(parts) + ".", ""]
     return "\n".join(lines)
 
 
