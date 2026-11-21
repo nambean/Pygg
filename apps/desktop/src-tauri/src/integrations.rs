@@ -238,6 +238,7 @@ async fn run(launch: &Launch, args: Vec<String>) -> process::Outcome {
         raw_tail: None,
         cwd: std::env::temp_dir(),
         env: Vec::new(),
+        remove_env: Vec::new(),
         timeout: TIMEOUT,
         output_limit: 256 * 1024,
     };

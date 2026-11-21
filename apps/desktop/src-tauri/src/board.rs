@@ -384,6 +384,8 @@ fn task_for(conn: &Connection, card: &Card) -> Result<NewTask> {
         timeout_secs: None,
         handoff: None,
         answer: false,
+        cap_usd: None,
+        allow_web: false,
     })
 }
 

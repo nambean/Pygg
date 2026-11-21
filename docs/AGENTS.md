@@ -42,14 +42,14 @@ Printed when a tool started by `pygg run` exits: cost (unknown and subscription 
 
 | Agent | Headless command | Status |
 | --- | --- | --- |
-| Claude Code | `claude -p … --permission-mode acceptEdits` (file tools; Bash only on **Allow**) | Live through the MCP server |
-| Codex CLI | `codex exec --json --sandbox workspace-write --ephemeral` | Live (ChatGPT plan) |
+| Claude Code | `claude -p … --permission-mode acceptEdits` (file tools; Bash, WebFetch and WebSearch only on **Allow**) | Live through the MCP server |
+| Codex CLI | `codex exec --json --sandbox workspace-write --ephemeral` (network only on **Allow** web) | Live (ChatGPT plan) |
 | Gemini CLI | `gemini -p … --approval-mode auto_edit` (`yolo` only on **Allow**) | Refused by Google for personal accounts; API key untested |
-| OpenCode | `opencode run --format json` | Live (free model) |
+| OpenCode | `opencode run --format json`, permissions set per run: `bash` and `webfetch` as allowed, `external_directory` denied | Live (free model) |
 
 - **Sign-in stays with the agent;** Pygg shows only the CLI's status, key-shaped text redacted.
 - **One worktree per run** (ADR-008); user files and branch untouched; kept as a branch or discarded.
-- **Least permission:** shell needs **Allow**; 15-minute limit; the whole process tree ends on timeout or cancel.
+- **Least permission (the safety profile):** shell and web each need **Allow**; nothing outside the copy; secrets in Pygg's environment that the agent's own sign-in does not use (cloud, GitHub, database keys) are withheld; New work shows per agent what is enforced, and Gemini CLI's files and web as not enforced. 15-minute limit; the whole process tree ends on timeout or cancel.
 - **Honest cost:** subscription cost is unknown, never $0.
 - Where: `agents.rs`; app **Agents**; headless `pygg agent`.
 
@@ -58,7 +58,7 @@ Printed when a tool started by `pygg run` exits: cost (unknown and subscription 
 Tasks start from the user's coding agent (ADR-027; a plan may also start on a project's page); the app runs them, approves paid steps and keeps history.
 
 - **Server:** `<app> mcp`, `pygg mcp` or `pygg-mcp` (stdio); config `PYGG_TOKEN`, optional `PYGG_URL` (default `http://127.0.0.1:8741`).
-- **MCP tools:** `pygg_run_task`, `pygg_task_status`, `pygg_task_diff`, `pygg_keep_result`, `pygg_discard_result`, `pygg_stop_task`, `pygg_list_tasks`, `pygg_agents`, `pygg_brainstorm`, `pygg_model_facts`, `pygg_board`, `pygg_board_move`.
+- **MCP tools:** `pygg_run_task`, `pygg_task_status`, `pygg_task_diff`, `pygg_task_brief`, `pygg_keep_result`, `pygg_discard_result`, `pygg_stop_task`, `pygg_list_tasks`, `pygg_agents`, `pygg_brainstorm`, `pygg_model_facts`, `pygg_board`, `pygg_board_move`.
 - **Claude Code plugin:** `/plugin install pygg --marketplace nambean/Pygg` (MCP server plus skills `delegate-tasks`, `route-through-pygg`).
 - **One-click registration:** **Agents → Let Your Agent Delegate Tasks**, or `pygg mcp setup claude-code|codex|opencode`.
 - A tool call waits at most 50 s, then the agent asks `pygg_task_status` again.
@@ -67,7 +67,7 @@ Tasks start from the user's coding agent (ADR-027; a plan may also start on a pr
 | --- | --- |
 | `GET /pygg/v1/agents` | Agents found |
 | `GET\|POST /pygg/v1/tasks` | List or start tasks |
-| `GET /pygg/v1/tasks/{id}[/diff]` | Status (`?wait=S`) or diff |
+| `GET /pygg/v1/tasks/{id}[/diff\|/brief]` | Status (`?wait=S`), diff, or a brief to continue elsewhere |
 | `POST /pygg/v1/tasks/{id}/stop\|keep\|discard` | Stop, keep as branch, discard |
 | `GET /pygg/v1/brainstorms`, `/facts`, `/board` | Read-only |
 | `POST /pygg/v1/board/{card}/move` | Discovery ↔ Ready only |

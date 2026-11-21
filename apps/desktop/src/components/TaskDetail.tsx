@@ -47,6 +47,7 @@ export function TaskDetail({id, onBack, backTo}: {id: string; onBack: () => void
       </div>
 
       {tab === 'overview' && <>
+      <Evidence task={task}/>
       <Actions task={task} onChanged={() => { loaded.reload(); gatewayChanged(); }}/>
       {running && <section className="group">
         <h2>{t('Now')}</h2>
@@ -63,23 +64,29 @@ export function TaskDetail({id, onBack, backTo}: {id: string; onBack: () => void
               <span className={`attempt-number ${a.outcome}`}>{a.number}</span>
               <span className="step-summary-text"><span className="mono">{engineText(a.label)}</span>
                 {a.escalationReason && <small className="secondary">{engineText(a.escalationReason)}</small>}</span>
+              <span className="receipt-cost">{stepCost(a)}</span>
               <span className="value">{outcomeLabel(a.outcome)}</span>
             </li>)}
           </ol>}
-        <p className="group-footnote">{t('Cost so far: {cost}', {cost: taskCost(task.cost)})}
-          {task.cost.unknownCalls > 0 && ` · ${task.attemptDetails.some(a => (a.unpricedRequests ?? 0) > 0)
+        <p className="receipt-total"><strong>{t('Total: {cost}', {cost: taskCost(task.cost)})}</strong>
+          {task.policy.capMicroUsd ? ` · ${t('cap {usd}', {usd: `$${(task.policy.capMicroUsd / 1e6).toFixed(2)}`})}` : ''}
+          {task.result === 'kept' ? ` · ${t('for one kept result')}` : task.state === 'answered' ? ` · ${t('for one answer')}` : ''}</p>
+        <p className="group-footnote">
+          {task.cost.unknownCalls > 0 && `${task.attemptDetails.some(a => (a.unpricedRequests ?? 0) > 0)
             ? t('Some requests through Pygg used a model without a price: enter it in Connections.')
             : t('Agents run with their own sign-in, so their cost is unknown to Pygg.')}`}
           {' '}<button type="button" className="link-button" onClick={() => setTab('activity')}>{t('Every step in full')}</button></p>
       </section>
 
       <section className="group">
-        <h2>{t('Task')}</h2>
+        <div className="group-heading"><h2>{t('Task')}</h2><span className="spacer"/><BriefButton taskId={task.id}/></div>
         <div className="group-box">
           <Prompt text={task.prompt}/>
           <dl className="detail-list">
             <dt>{t('Steps')}</dt>
             <dd>{task.policy.steps.map((s, i) => `${i + 1}. ${AGENT_NAMES[s.agent] ?? s.agent}${s.model ? ` · ${s.model}` : ''} (T${s.tier}, ${billingLabel(s.billing)})`).join('  ')}</dd>
+            <dt>{t('Allowed')}</dt>
+            <dd>{[task.policy.allowShell ? t('shell') : null, task.policy.allowWeb ? t('web') : null].filter(Boolean).join(', ') || t('editing files in its copy only')}</dd>
             <dt>{t('Checks')}</dt>
             <dd className="mono">{task.policy.checks.length ? task.policy.checks.map(c => c.command).join(' → ') : t('None approved')}</dd>
             <dt>{t('Started from')}</dt><dd className="mono selectable">{task.baseRevision?.slice(0, 10) ?? '—'} · {task.workspacePath}</dd>
@@ -358,4 +365,63 @@ function Answer({task}: {task: Detail}) {
       {text && <CopyButton text={text} label={t('Copy')}/>}</div>
     {text ? <div className="answer-text selectable">{text}</div> : <p className="secondary">{t('The agent left no text.')}</p>}
   </div>;
+}
+
+/** A step's line on the receipt: what it cost by Pygg's ledger or the agent's estimate, or how it is paid. */
+function stepCost(a: AttemptView): string {
+  if (a.agentEstimateUsd !== null && a.agentEstimateUsd > 0) return `$${a.agentEstimateUsd.toFixed(a.agentEstimateUsd < 0.01 ? 4 : 2)}`;
+  if (a.billing === 'free' || a.billing === 'local') return t('free');
+  if (a.billing === 'subscription') return t('quota');
+  if (a.outcome === 'skipped' || a.outcome === 'waiting') return '—';
+  return a.agentEstimateUsd === 0 ? '$0.00' : t('unknown');
+}
+
+/** Paths that look like tests, so the card can say whether the change came with any. */
+const TEST_PATH = /(^|[\/_.-])(tests?|spec|__tests__)([\/_.-]|$)/i;
+
+/**
+ * The review evidence (the gap study): for a result to decide on, or one kept, what was asked, where it started, what
+ * changed, which checks ran on it, and what nothing checked, so a reviewer starts from facts instead of rebuilding them.
+ */
+function Evidence({task}: {task: Detail}) {
+  const result = [...task.attemptDetails].reverse().find(a => a.outcome === 'passed' || a.outcome === 'done' || a.open);
+  const plan = useGateway(api => task.brainstormId ? api.brainstorm(task.brainstormId) : Promise.resolve(null), [task.brainstormId ?? '']);
+  if (!result || task.answer || task.state === 'running' || task.state === 'waiting_approval') return null;
+  if (!(task.state === 'checks_passed' || task.state === 'needs_review' || task.result === 'kept' || task.state === 'manually_accepted')) return null;
+  const card = plan.data?.proposal.cards.find(c => c.id === task.cardId);
+  const paths = result.changedPaths ?? [];
+  const tests = paths.filter(p => TEST_PATH.test(p));
+  const failed = result.checks.filter(c => !c.passed);
+  const unchecked: string[] = [];
+  if (task.policy.checks.length === 0) unchecked.push(t('Nothing checked this result: the project has no approved checks.'));
+  else {
+    unchecked.push(t('The checks test only what their commands run; behaviour they do not cover is unchecked.'));
+    if (paths.length > 0 && tests.length === 0) unchecked.push(t('No test file changed: the checks ran the tests that were already there.'));
+  }
+  if (card) unchecked.push(t('The card’s done criterion, to confirm yourself: {done}', {done: card.done}));
+  const firstLine = task.prompt.split('\n').map(l => l.trim()).find(Boolean) ?? '';
+  return <section className="group" aria-labelledby="evidence-heading">
+    <h2 id="evidence-heading">{t('Evidence')}</h2>
+    <dl className="group-box evidence">
+      <dt>{t('Asked')}</dt><dd className="selectable">{firstLine.length > 240 ? `${firstLine.slice(0, 240)}…` : firstLine}</dd>
+      <dt>{t('Started from')}</dt><dd className="mono selectable">{task.baseRevision?.slice(0, 10) ?? '—'} · {task.workspaceName}</dd>
+      <dt>{t('Changed')}</dt><dd>{t('{files} files, +{ins} −{del}', {files: result.filesChanged ?? paths.length, ins: result.insertions ?? 0, del: result.deletions ?? 0})}
+        {tests.length > 0 && ` · ${t('{n} test files', {n: tests.length})}`}
+        {paths.length > 0 && <details><summary>{t('Files')}</summary><ul className="evidence-files mono">{paths.slice(0, 60).map(p => <li key={p}>{p}</li>)}</ul></details>}</dd>
+      <dt>{t('Checked by')}</dt><dd>{result.checks.length === 0 ? <span className="warn-text">{t('no check ran')}</span>
+        : <ul className="check-results">{result.checks.map(c => <li key={c.command} className={c.passed ? 'passed' : 'failed'}>
+            {c.passed ? <Check size={12} aria-hidden/> : <X size={12} aria-hidden/>}<span className="mono">{c.command}</span></li>)}</ul>}
+        {failed.length > 0 && <span className="warn-text">{t('{n} failed', {n: failed.length})}</span>}</dd>
+      <dt>{t('Not checked')}</dt><dd><ul className="evidence-unchecked">{unchecked.map(u => <li key={u}>{u}</li>)}</ul></dd>
+    </dl>
+  </section>;
+}
+
+/** Copies the task as a brief for another agent: goal, base, attempts and why they stopped, checks, where it stands. */
+function BriefButton({taskId}: {taskId: string}) {
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  return <button type="button" className="button" title={t('The goal, where it started, what was tried and why it stopped, the checks, where it stands; secrets removed')}
+    onClick={() => call(api => api.taskBrief(taskId)).then(text => navigator.clipboard?.writeText(text)).then(() => { setState('copied'); setTimeout(() => setState('idle'), 1800); },
+      () => setState('failed'))}>
+    {state === 'copied' ? t('Brief copied') : state === 'failed' ? t('Could not copy') : t('Copy brief for another agent')}</button>;
 }

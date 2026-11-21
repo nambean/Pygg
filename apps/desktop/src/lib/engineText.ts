@@ -15,6 +15,7 @@ const TEMPLATES: string[] = [
   "{0}. Pygg stopped before trying another step.",
   "Every step failed. Last: {0}",
   "no attempt ran",
+  "Stopped at this task's cap of {0}: it has cost {1} so far. No further step was started.",
   "Answered. Nothing was changed; the answer is below.",
   "The agent finished without an answer",
   "Skipped {0}: its account is {1} ({2}). Fix it under Providers to use this model again.",

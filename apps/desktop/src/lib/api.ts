@@ -6,7 +6,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { engineText } from './engineText';
 import { runningInDesktop } from './native';
-import type { PlanProgress, Activity, DayBudget, NewTask, TaskDetail, TaskSummary, WorkspaceView, Brainstorm, BrainRole, RoleLine, Board, BoardAction, BoardCard, BoardLimits, BoardSummary, BrainPick, BrainSettings, FactsStatus } from './tasks';
+import type { Sandbox, LadderEstimate, Step, PlanProgress, Activity, DayBudget, NewTask, TaskDetail, TaskSummary, WorkspaceView, Brainstorm, BrainRole, RoleLine, Board, BoardAction, BoardCard, BoardLimits, BoardSummary, BrainPick, BrainSettings, FactsStatus } from './tasks';
 
 export type Billing = 'free' | 'local' | 'subscription' | 'paid' | 'unknown';
 export const BILLINGS: Billing[] = ['free', 'local', 'subscription', 'paid', 'unknown'];
@@ -582,6 +582,12 @@ export interface GatewayApi {
   task(id: string): Promise<TaskDetail>;
   /** Creates a task and starts it; returns its id. */
   createTask(task: NewTask): Promise<string>;
+  /** What a ladder would cost before it runs. */
+  taskEstimate(steps: Step[]): Promise<LadderEstimate>;
+  /** The task as a brief to hand to another agent (Markdown, redacted). */
+  taskBrief(id: string): Promise<string>;
+  /** What each agent would be held to for a run with these choices. */
+  sandboxProfiles(agents: string[], allowShell: boolean, allowWeb: boolean): Promise<Sandbox[]>;
   cancelTask(id: string): Promise<void>;
   /** Approves or declines the paid step a task waits on. */
   decideTask(id: string, approve: boolean, capUsd: number | null): Promise<void>;
@@ -746,6 +752,9 @@ const native: GatewayApi = {
   tasks: () => invoke('tasks_list'),
   task: id => invoke('task_get', {id}),
   createTask: task => invoke('task_create', {task}),
+  taskEstimate: steps => invoke('task_estimate', {steps}),
+  taskBrief: id => invoke('task_brief', {id}),
+  sandboxProfiles: (agents, allowShell, allowWeb) => invoke('sandbox_profiles', {agents, allowShell, allowWeb}),
   brainstorms: () => invoke('brainstorms_list'),
   brainstorm: id => invoke('brainstorm_get', {id}),
   brainstormDiff: id => invoke('brainstorm_diff', {id}),

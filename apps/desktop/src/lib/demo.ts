@@ -1239,7 +1239,7 @@ const DEMO_DIFF = 'diff --git a/src/timeout.ts b/src/timeout.ts\n--- a/src/timeo
 
 /** Tasks for the browser preview: the sample tasks, and new ones that "run" for a few seconds. Nothing runs. */
 function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards' | 'board' | 'boardLimits' | 'boardAct' | 'boardSetLimits' | 'brainstorms' | 'brainstorm' | 'brainstormPickPlanner' | 'brainstormRetry' | 'brainstormSetModel' | 'brainstormSetCard' | 'brainstormDecline' | 'brainstormApprove' | 'workspaces' | 'addWorkspace' | 'removeWorkspace' | 'taskBudget' | 'setTaskBudget' | 'setWorkspaceBudget' | 'setWorkspacePrivacy' | 'pickFolder' | 'exportPatch'
-  | 'detectChecks' | 'workspaceCheck' | 'tasks' | 'task' | 'createTask' | 'cancelTask' | 'decideTask' | 'retryTask' | 'taskDiff' | 'taskActivity' | 'brainstormDiff' | 'plansProgress' | 'brainstormStart' | 'brainstormRefine'
+  | 'detectChecks' | 'workspaceCheck' | 'tasks' | 'task' | 'createTask' | 'cancelTask' | 'decideTask' | 'retryTask' | 'taskDiff' | 'taskActivity' | 'brainstormDiff' | 'plansProgress' | 'taskEstimate' | 'taskBrief' | 'sandboxProfiles' | 'brainstormStart' | 'brainstormRefine'
   | 'finishTask'> {
   let dailyLimit: number | null = 2;
   const workspaces: WorkspaceView[] = SAMPLE_WORKSPACES.map((w, i) => ({...w, tasks: 0, dailyBudgetUsd: null, privacyClass: i === 1 ? 'sensitive' as const : 'standard' as const, checks: i === 0
@@ -1503,6 +1503,23 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
       set(id, {state: 'running', phase: 'preparing', reason: null}); },
     taskDiff: () => touch(DEMO_DIFF),
     brainstormDiff: () => touch(DEMO_DIFF),
+    taskBrief: async id => { const d = get(id); return touch(`# Task brief: ${d.title}\n\n- Project: ${d.workspaceName}\n- State: ${d.state}\n\n## Goal\n\n${d.prompt}\n`); },
+    sandboxProfiles: async (agents, allowShell, allowWeb) => touch(agents.map(agent => {
+      const gemini = agent === 'gemini-cli';
+      return {agent, outsideFiles: gemini ? 'not_enforced' as const : 'enforced' as const,
+        shell: agent === 'codex' ? 'enforced' as const : allowShell ? 'allowed' as const : 'enforced' as const,
+        web: allowWeb ? 'allowed' as const : gemini ? 'not_enforced' as const : 'enforced' as const, secrets: 'enforced' as const,
+        note: gemini ? 'Gemini CLI has no sandbox here without Docker: it may read outside the copy and search the web.' : ''};
+    })),
+    taskEstimate: async steps => {
+      const est = steps.map((s, i) => s.billing === 'free' || s.billing === 'local' ? {kind: 'free' as const, runs: 0, lowMicroUsd: null, highMicroUsd: null}
+        : s.billing === 'subscription' ? {kind: 'quota' as const, runs: 0, lowMicroUsd: null, highMicroUsd: null}
+        : i % 2 === 0 ? {kind: 'money' as const, runs: 6, lowMicroUsd: 20_000, highMicroUsd: 90_000} : {kind: 'unknown' as const, runs: 0, lowMicroUsd: null, highMicroUsd: null});
+      const price = (e: typeof est[number]) => e.kind === 'money' ? e.highMicroUsd ?? 0 : e.kind === 'unknown' ? null : 0;
+      return touch({steps: est, firstLowMicroUsd: est[0]?.kind === 'money' ? est[0].lowMicroUsd : est[0]?.kind === 'unknown' ? null : 0,
+        firstHighMicroUsd: est[0] ? price(est[0]) : null, allHighMicroUsd: est.reduce((n, e) => n + (price(e) ?? 0), 0),
+        unknownSteps: est.filter(e => price(e) === null).length});
+    },
     plansProgress: async () => {
       const by = new Map<string, {brainstormId: string; total: number; done: number; running: number; waiting: number}>();
       for (const c of boardCards.filter(c => c.brainstormId && c.lane !== 'discarded')) {

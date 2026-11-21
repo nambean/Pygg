@@ -56,6 +56,8 @@ async fn task(db_path: PathBuf, flags: &HashMap<String, String>) {
         timeout_secs: flags.get("timeout").and_then(|t| t.parse().ok()),
         handoff: flags.get("handoff").cloned(),
         answer: false,
+        cap_usd: None,
+        allow_web: false,
     };
     let id = tasks::create_task(&conn, &new).unwrap_or_else(|e| fail(e));
     let db = Arc::new(Mutex::new(conn));
@@ -182,6 +184,7 @@ pub async fn run(mut args: Vec<String>) {
                 prompt: flags.get("prompt").cloned().unwrap_or_else(|| fail("--prompt is required")),
                 model: flags.get("model").cloned(),
                 allow_shell: flags.get("shell").map(String::as_str) == Some("yes"),
+                allow_web: flags.get("web").map(String::as_str) == Some("yes"),
                 timeout_secs: flags.get("timeout").and_then(|t| t.parse().ok()),
                 base: None,
                 max_budget_usd: None,

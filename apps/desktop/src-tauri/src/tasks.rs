@@ -286,6 +286,13 @@ pub struct Policy {
     /// final message is the result (an answer task).
     #[serde(default)]
     pub answer: bool,
+    /// The most this task may cost in all, by Pygg's ledger and the agents' own estimates; `None`: no task cap (the
+    /// day's and the project's budgets still hold). No new step starts once it is reached.
+    #[serde(default)]
+    pub cap_micro_usd: Option<u64>,
+    /// Lets the agents fetch from the web (`agents::TaskRequest::allow_web`); off by default.
+    #[serde(default)]
+    pub allow_web: bool,
 }
 
 fn default_handoff() -> String {
@@ -311,6 +318,12 @@ pub struct NewTask {
     /// An answer task: a question about the code; see `Policy::answer`.
     #[serde(default)]
     pub answer: bool,
+    /// The task's cap in USD; see `Policy::cap_micro_usd`.
+    #[serde(default)]
+    pub cap_usd: Option<f64>,
+    /// See `Policy::allow_web`.
+    #[serde(default)]
+    pub allow_web: bool,
 }
 
 fn title_of(prompt: &str) -> String {
@@ -388,6 +401,8 @@ pub fn create_task_at(conn: &Connection, new: &NewTask, client_id: Option<&str>,
         timeout_secs: new.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS).clamp(60, 3600),
         handoff: handoff.into(),
         answer: new.answer,
+        cap_micro_usd: new.cap_usd.filter(|c| c.is_finite() && *c > 0.0).map(|c| (c * 1e6).round() as u64),
+        allow_web: new.allow_web,
     };
     let title = new
         .title
@@ -573,7 +588,7 @@ fn task_row(conn: &Connection, id: &str) -> Result<TaskRow> {
             title: r.get(0)?, workspace_id: r.get(1)?, workspace_name: r.get(2)?, workspace_path: r.get(3)?, prompt: r.get(4)?,
             strategy: r.get(5)?, state: r.get(6)?, phase: r.get(7)?, reason: r.get(8)?, result: r.get(9)?,
             result_branch: r.get(10)?, base_revision: r.get(11)?,
-            policy: Policy { steps: vec![], checks: vec![], allow_shell: false, timeout_secs: DEFAULT_TIMEOUT_SECS, handoff: default_handoff(), answer: false },
+            policy: Policy { steps: vec![], checks: vec![], allow_shell: false, timeout_secs: DEFAULT_TIMEOUT_SECS, handoff: default_handoff(), answer: false, cap_micro_usd: None, allow_web: false },
             stage_id: r.get(13)?, created_at: r.get(14)?, updated_at: r.get(15)?, client_id: r.get(16)?, client_name: r.get(17)?,
             brainstorm_id: r.get(18)?, card_id: r.get(19)?,
         }, r.get::<_, String>(12)?)),
@@ -726,7 +741,7 @@ pub fn task_detail_for(conn: &Connection, id: &str, client_id: Option<&str>) -> 
     }
     let attempts = attempts_of(conn, id)?;
     let summary = summary_of(conn, id, &row, &attempts)?;
-    let approval = approval_of(conn, &row, &attempts)?;
+    let approval = approval_of(conn, id, &row, &attempts)?;
     Ok(TaskDetail {
         summary,
         prompt: row.prompt,
@@ -743,7 +758,7 @@ pub fn task_detail_for(conn: &Connection, id: &str, client_id: Option<&str>) -> 
     })
 }
 
-fn approval_of(conn: &Connection, row: &TaskRow, attempts: &[AttemptView]) -> Result<Option<ApprovalView>> {
+fn approval_of(conn: &Connection, id: &str, row: &TaskRow, attempts: &[AttemptView]) -> Result<Option<ApprovalView>> {
     if row.state != "waiting_approval" {
         return Ok(None);
     }
@@ -756,7 +771,15 @@ fn approval_of(conn: &Connection, row: &TaskRow, attempts: &[AttemptView]) -> Re
     // The number of runs the estimate was made from, as recorded in its basis.
     let runs = asked_on.split('|').nth(5).and_then(|n| n.parse().ok()).unwrap_or(0);
     let estimate = Estimate { runs, low_micro_usd: low.map(|v| v as u64), high_micro_usd: high.map(|v| v as u64) };
-    let left = remaining(conn, &row.workspace_id).map_err(err)?;
+    let budget_left = remaining(conn, &row.workspace_id).map_err(err)?;
+    let task_left = match row.policy.cap_micro_usd {
+        Some(cap) => Some(cap.saturating_sub(spent_micro(conn, id)?)),
+        None => None,
+    };
+    let left = match (budget_left, task_left) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    };
     let suggested = match left {
         Some(left) if left > 0 => suggested_cap_micro(&estimate).min(left),
         _ => suggested_cap_micro(&estimate),
@@ -896,6 +919,68 @@ pub struct Estimate {
     pub runs: u32,
     pub low_micro_usd: Option<u64>,
     pub high_micro_usd: Option<u64>,
+}
+
+/// What a task has cost so far, in micro-USD: Pygg's ledger, actual and estimated (unknown entries count nothing).
+fn spent_micro(conn: &Connection, task_id: &str) -> Result<u64> {
+    let attempts = attempts_of(conn, task_id)?;
+    let cost = cost_of(conn, task_id, &attempts)?;
+    Ok(((cost.actual_usd + cost.estimated_usd) * 1e6).round().max(0.0) as u64)
+}
+
+fn money(micro: u64) -> String {
+    format!("${:.2}", micro as f64 / 1e6)
+}
+
+/// One step of a ladder before it runs: how it is paid, and what its agent and model cost on recent runs.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StepEstimate {
+    /// `free` (free or local: costs nothing), `quota` (a subscription: no money per run), `money` (paid or unknown
+    /// billing with a history), `unknown` (paid or unknown billing, never run).
+    pub kind: String,
+    #[serde(flatten)]
+    pub estimate: Estimate,
+}
+
+/// A ladder before it runs (ADR-010, the gap study's task budget): each step's estimate, what it costs if the first
+/// step passes, and the most if every step runs, from the steps with a history; `unknown_steps` have none.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LadderEstimate {
+    pub steps: Vec<StepEstimate>,
+    pub first_low_micro_usd: Option<u64>,
+    pub first_high_micro_usd: Option<u64>,
+    pub all_high_micro_usd: u64,
+    pub unknown_steps: u32,
+}
+
+pub fn ladder_estimate(conn: &Connection, steps: &[Step]) -> Result<LadderEstimate> {
+    let mut out = LadderEstimate::default();
+    for (i, step) in steps.iter().enumerate() {
+        let estimate = estimate_for(conn, step).map_err(err)?;
+        let kind = match step.billing.as_str() {
+            "free" | "local" => "free",
+            "subscription" => "quota",
+            _ if estimate.runs > 0 => "money",
+            _ => "unknown",
+        };
+        let (low, high) = match kind {
+            "money" => (estimate.low_micro_usd, estimate.high_micro_usd),
+            "free" | "quota" => (Some(0), Some(0)),
+            _ => (None, None),
+        };
+        if i == 0 {
+            out.first_low_micro_usd = low;
+            out.first_high_micro_usd = high;
+        }
+        match high {
+            Some(h) => out.all_high_micro_usd += h,
+            None => out.unknown_steps += 1,
+        }
+        out.steps.push(StepEstimate { kind: kind.into(), estimate });
+    }
+    Ok(out)
 }
 
 /// How many recent runs an estimate looks at.
@@ -1369,6 +1454,7 @@ pub struct ExecRequest {
     pub base: String,
     pub prompt: String,
     pub allow_shell: bool,
+    pub allow_web: bool,
     pub timeout_secs: u64,
     /// The cap the user approved for a paid step; the agent enforces it where it can (`agents::enforces_budget`).
     pub max_budget_usd: Option<f64>,
@@ -1389,6 +1475,7 @@ pub fn agent_executor() -> Executor {
                 prompt: request.prompt,
                 model: request.model,
                 allow_shell: request.allow_shell,
+                allow_web: request.allow_web,
                 timeout_secs: Some(request.timeout_secs),
                 base: Some(request.base),
                 max_budget_usd: request.max_budget_usd,
@@ -1602,6 +1689,14 @@ impl Runner {
                 let reason = fill(m::ALL_FAILED, &[&last_failure.as_deref().unwrap_or(m::NO_ATTEMPT)]);
                 return self.with_db(|c| set_task(c, id, "check_failed", None, Some(&reason))).map_err(err);
             };
+            // The task's cap: no new step once what it has cost reaches it.
+            if let Some(cap) = row.policy.cap_micro_usd {
+                let spent = self.with_db(|c| spent_micro(c, id))?;
+                if spent >= cap {
+                    let reason = fill(m::TASK_CAP, &[&money(cap), &money(spent)]);
+                    return self.with_db(|c| set_task(c, id, "blocked", None, Some(&reason))).map_err(err);
+                }
+            }
             // A step whose model's account is held for good (no credit, a rejected key) cannot run: it is skipped
             // before it asks for approval or starts the agent (the owner's run lost 10 minutes on such a step).
             if let Some(why) = self.with_db(|c| held_account(c, step)).map_err(err)? {
@@ -1645,6 +1740,7 @@ impl Runner {
                     given.as_deref(),
                 ),
                 allow_shell: row.policy.allow_shell,
+                allow_web: row.policy.allow_web,
                 timeout_secs: row.policy.timeout_secs,
                 max_budget_usd: cap.map(usd),
                 attempt_id: attempt.clone(),
@@ -1885,6 +1981,67 @@ fn result_attempt(conn: &Connection, id: &str) -> Result<(TaskRow, AttemptView, 
         base: attempt.base.clone().or_else(|| row.base_revision.clone()).unwrap_or_default(),
     };
     Ok((row, attempt, worktree))
+}
+
+/// A task as a brief another agent can start from (the gap study's portable brief): the goal, where it started, each
+/// attempt and why it stopped, the checks, and where it stands. Secrets are redacted; nothing from the repository but
+/// file names.
+pub fn task_brief(conn: &Connection, id: &str) -> Result<String> {
+    let row = task_row(conn, id)?;
+    let attempts = attempts_of(conn, id)?;
+    let cost = cost_of(conn, id, &attempts)?;
+    let mut out = format!("# Task brief: {}\n\n", row.title);
+    out.push_str(&format!(
+        "- Project: {} ({})\n- Started from commit: {}\n- State: {}{}\n- Cost so far: ${:.2} known{}\n\n",
+        row.workspace_name,
+        row.workspace_path,
+        row.base_revision.as_deref().unwrap_or("unknown"),
+        row.state.replace('_', " "),
+        row.result_branch.as_deref().map(|b| format!("; kept as branch `{b}`")).unwrap_or_default(),
+        cost.actual_usd + cost.estimated_usd,
+        if cost.unknown_calls > 0 {
+            format!(", {} entries of unknown cost", cost.unknown_calls)
+        } else {
+            String::new()
+        }
+    ));
+    out.push_str(&format!("## Goal\n\n{}\n\n", row.prompt.trim()));
+    if !attempts.is_empty() {
+        out.push_str("## What was tried\n\n");
+        for a in &attempts {
+            out.push_str(&format!("{}. {} ({}): {}", a.number, a.label, a.billing, a.outcome));
+            if let Some(why) = a.escalation_reason.as_deref().or(a.detail.as_deref()).filter(|w| !w.is_empty()) {
+                out.push_str(&format!(". {}", why.lines().next().unwrap_or("")));
+            }
+            if !a.changed_paths.is_empty() {
+                out.push_str(&format!(
+                    ". Changed: {}",
+                    a.changed_paths.iter().take(20).cloned().collect::<Vec<_>>().join(", ")
+                ));
+            }
+            out.push('\n');
+            for c in a.checks.iter().filter(|c| !c.passed) {
+                out.push_str(&format!("   - check `{}` {}\n", c.command, c.detail));
+            }
+        }
+        out.push('\n');
+    }
+    out.push_str("## Checks that define done\n\n");
+    if row.policy.checks.is_empty() {
+        out.push_str("None approved: say how you verified the result.\n\n");
+    } else {
+        for c in &row.policy.checks {
+            out.push_str(&format!("- `{}`\n", c.command));
+        }
+        out.push('\n');
+    }
+    out.push_str("## Where it stands\n\n");
+    out.push_str(row.reason.as_deref().unwrap_or("No note."));
+    out.push_str(&match row.result_branch.as_deref() {
+        Some(b) => format!("\n\nContinue from branch `{b}`.\n"),
+        None => format!("\n\nContinue from commit {}.\n", row.base_revision.as_deref().unwrap_or("HEAD")),
+    });
+    Ok(crate::redact::redact(&out, &[]))
 }
 
 pub fn result_diff(conn: &Connection, id: &str) -> Result<String> {
@@ -2301,6 +2458,8 @@ mod tests {
             timeout_secs: None,
             handoff: None,
             answer: false,
+            cap_usd: None,
+            allow_web: false,
         };
         create_task(&lock(&rig.db), &new).unwrap()
     }
@@ -2337,6 +2496,8 @@ mod tests {
             timeout_secs: None,
             handoff: None,
             answer: true,
+            cap_usd: None,
+            allow_web: false,
         };
         let id = create_task(&lock(&rig.db), &new).unwrap();
         runner.start(&id).unwrap().await.unwrap();
@@ -2401,6 +2562,74 @@ mod tests {
     }
 
     #[test]
+    fn a_ladder_is_estimated_from_its_steps_runs() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let e = ladder_estimate(
+            &conn,
+            &[step("opencode", "free", 1), step("codex", "subscription", 3), step("claude-code", "paid", 3)],
+        )
+        .unwrap();
+        assert_eq!(e.steps.iter().map(|s| s.kind.as_str()).collect::<Vec<_>>(), ["free", "quota", "unknown"]);
+        assert_eq!(
+            (e.first_low_micro_usd, e.first_high_micro_usd, e.all_high_micro_usd, e.unknown_steps),
+            (Some(0), Some(0), 0, 1)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_task_stops_at_its_cap() {
+        let rig = rig(&[good_check()]);
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(
+                vec![
+                    Act::ThroughPygg("result.txt", "bad\n", Some(300_000), rig.db.clone()),
+                    Act::Write("result.txt", "good\n"),
+                ],
+                rig.prompts.clone(),
+            ),
+        );
+        let new = NewTask {
+            workspace_id: rig.workspace.clone(),
+            title: None,
+            prompt: "Make result.txt say good".into(),
+            strategy: "free_first".into(),
+            steps: vec![step("opencode", "free", 1), step("codex", "subscription", 3)],
+            allow_shell: false,
+            timeout_secs: None,
+            handoff: None,
+            answer: false,
+            cap_usd: Some(0.25),
+            allow_web: false,
+        };
+        let id = create_task(&lock(&rig.db), &new).unwrap();
+        runner.start(&id).unwrap().await.unwrap();
+        let task = detail(&rig, &id);
+        assert_eq!(task.summary.state, "blocked", "{:?}", task.reason);
+        assert!(task.reason.as_deref().unwrap_or("").contains("$0.25"), "{:?}", task.reason);
+        assert_eq!(rig.prompts.lock().unwrap().len(), 1, "the second step never started");
+    }
+
+    #[tokio::test]
+    async fn a_task_brief_says_the_goal_what_was_tried_and_where_it_stands() {
+        let rig = rig(&[good_check()]);
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(vec![Act::Write("result.txt", "bad\n"), Act::Write("result.txt", "good\n")], rig.prompts.clone()),
+        );
+        let id = create(&rig, vec![step("opencode", "free", 1), step("codex", "subscription", 3)]);
+        runner.start(&id).unwrap().await.unwrap();
+        let brief = task_brief(&lock(&rig.db), &id).unwrap();
+        assert!(brief.starts_with("# Task brief: Make result.txt say good"), "{brief}");
+        assert!(brief.contains("## Goal\n\nMake result.txt say good"));
+        assert!(brief.contains("1. ") && brief.contains("2. "), "both attempts: {brief}");
+        assert!(brief.contains(&format!("- `{}`", good_check())));
+        assert!(brief.contains("Continue from commit"));
+    }
+
+    #[test]
     fn the_handoff_says_what_failed() {
         assert!(previous_attempt(NO_CHANGES_HANDOFF).contains("did not change any file"));
         assert!(!previous_attempt(NO_CHANGES_HANDOFF).contains("checks"));
@@ -2428,6 +2657,8 @@ mod tests {
                 timeout_secs: None,
                 handoff: Some(mode.into()),
                 answer: false,
+                cap_usd: None,
+                allow_web: false,
             };
             let id = create_task(&lock(&rig.db), &new).unwrap();
             runner.start(&id).unwrap().await.unwrap();
@@ -2467,6 +2698,8 @@ mod tests {
             timeout_secs: None,
             handoff: Some("memory".into()),
             answer: false,
+            cap_usd: None,
+            allow_web: false,
         };
         assert!(create_task(&lock(&rig.db), &bad).unwrap_err().contains("Unknown handoff"));
     }
@@ -2618,6 +2851,8 @@ mod tests {
                 timeout_secs: None,
                 handoff: None,
                 answer: false,
+                cap_usd: None,
+                allow_web: false,
             };
             let db = lock(&rig.db);
             let id = create_task_at(&db, &new, None, Some(branch)).unwrap();
@@ -3113,6 +3348,8 @@ mod tests {
             timeout_secs: None,
             handoff: None,
             answer: false,
+            cap_usd: None,
+            allow_web: false,
         };
         assert_eq!(create_task(&conn, &base).unwrap_err(), "Describe the task");
         let prompt = "Fix it".to_string();

@@ -81,6 +81,8 @@ fn tools() -> Value {
          "inputSchema": {"type": "object", "required": ["task_id"], "properties": {"task_id": id.clone(), "wait_seconds": wait}}},
         {"name": "pygg_task_diff", "description": "The changes of a finished task's result, as a unified diff.",
          "inputSchema": {"type": "object", "required": ["task_id"], "properties": {"task_id": id.clone()}}},
+        {"name": "pygg_task_brief", "description": "A task as a brief to continue it elsewhere: the goal, where it started, each attempt and why it stopped, the checks that define done, and where it stands.",
+         "inputSchema": {"type": "object", "required": ["task_id"], "properties": {"task_id": id.clone()}}},
         {"name": "pygg_keep_result", "description": "Keep a finished task's result as a new branch of the repository (your checkout is not changed). Returns the branch name, which you can merge or check out.",
          "inputSchema": {"type": "object", "required": ["task_id"], "properties": {"task_id": id.clone(),
             "title": {"type": "string", "description": "Commit message and branch title. Default: the task's title."}}}},
@@ -207,6 +209,10 @@ async fn call_tool(gateway: &Gateway, name: &str, args: &Value) -> Result<String
                 .call(Method::GET, &format!("/pygg/v1/tasks/{}?wait={}", task_id(args)?, wait_of(args)), None)
                 .await?;
             Ok(describe(&task))
+        }
+        "pygg_task_brief" => {
+            let brief = gateway.call(Method::GET, &format!("/pygg/v1/tasks/{}/brief", task_id(args)?), None).await?;
+            Ok(brief["brief"].as_str().unwrap_or("").to_string())
         }
         "pygg_task_diff" => {
             let diff = gateway.call(Method::GET, &format!("/pygg/v1/tasks/{}/diff", task_id(args)?), None).await?;

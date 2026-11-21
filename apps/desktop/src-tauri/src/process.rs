@@ -17,6 +17,8 @@ pub struct Spec {
     pub raw_tail: Option<String>,
     pub cwd: PathBuf,
     pub env: Vec<(String, String)>,
+    /// Variables of Pygg's own environment the program does not get (an agent's sandbox: secrets it does not need).
+    pub remove_env: Vec<String>,
     pub timeout: Duration,
     /// Bytes kept per stream; output beyond it is dropped from the middle (head and tail are kept).
     pub output_limit: usize,
@@ -32,7 +34,16 @@ impl Spec {
         } else {
             ("sh".to_string(), vec!["-c".into(), command.to_string()], None)
         };
-        Spec { program, args, raw_tail, cwd: cwd.into(), env: Vec::new(), timeout, output_limit: 256 * 1024 }
+        Spec {
+            program,
+            args,
+            raw_tail,
+            cwd: cwd.into(),
+            env: Vec::new(),
+            remove_env: Vec::new(),
+            timeout,
+            output_limit: 256 * 1024,
+        }
     }
 }
 
@@ -111,6 +122,9 @@ pub async fn run_with(spec: &Spec, cancel: impl std::future::Future<Output = ()>
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    for name in &spec.remove_env {
+        command.env_remove(name);
+    }
     for name in HOST_SESSION_VARS {
         if !spec.env.iter().any(|(k, _)| k == name) {
             command.env_remove(name);
@@ -323,6 +337,7 @@ mod tests {
             raw_tail: None,
             cwd: std::env::temp_dir(),
             env: vec![],
+            remove_env: vec![],
             timeout: Duration::from_secs(5),
             output_limit: 1024,
         };

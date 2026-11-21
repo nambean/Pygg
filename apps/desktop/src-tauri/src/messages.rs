@@ -18,6 +18,7 @@ pub const DECLINED_TASK: &str = "You declined the step it was waiting on";
 pub const HALTED: &str = "{0}. Pygg stopped before trying another step.";
 pub const ALL_FAILED: &str = "Every step failed. Last: {0}";
 pub const NO_ATTEMPT: &str = "no attempt ran";
+pub const TASK_CAP: &str = "Stopped at this task's cap of {0}: it has cost {1} so far. No further step was started.";
 pub const ANSWERED: &str = "Answered. Nothing was changed; the answer is below.";
 pub const NO_ANSWER: &str = "The agent finished without an answer";
 pub const ACCOUNT_HELD: &str = "Skipped {0}: its account is {1} ({2}). Fix it under Providers to use this model again.";
@@ -111,6 +112,7 @@ pub const ALL: &[&str] = &[
     HALTED,
     ALL_FAILED,
     NO_ATTEMPT,
+    TASK_CAP,
     ANSWERED,
     NO_ANSWER,
     ACCOUNT_HELD,

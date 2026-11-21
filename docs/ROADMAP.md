@@ -31,6 +31,8 @@ From public evidence (an analysis of 66,320 Reddit complaint posts about AI codi
 
 ### Smart Tasks next, from the gap study
 
+Built 2026-11-22, each with tests; the proofs are still to run.
+
 | # | Item | Effort | Proof |
 | --- | --- | --- | --- |
 | 1 | **Task budget and receipt:** a range and a cap before, every attempt and the cost per kept result after | M | Estimate error and overshoot on replayed and interrupted runs |

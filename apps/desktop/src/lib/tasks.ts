@@ -88,7 +88,17 @@ export type NewTask = {
   allowShell: boolean; timeoutSecs: number | null;
   /** A question about the code, not a change: the agent answers and nothing is kept. */
   answer?: boolean;
+  /** The most the task may cost in all; no new step starts once reached. */
+  capUsd?: number | null;
+  /** Lets the agents fetch from the web; off by default. */
+  allowWeb?: boolean;
 };
+/** What an agent is held to for a run (agents.rs `sandbox_profile`): enforced, allowed by you, or not enforced. */
+export type Hold = 'enforced' | 'allowed' | 'not_enforced';
+export type Sandbox = { agent: string; outsideFiles: Hold; shell: Hold; web: Hold; secrets: Hold; note: string };
+/** One step before it runs (tasks.rs `ladder_estimate`): free, quota, money (with a history) or unknown. */
+export type StepEstimate = { kind: 'free' | 'quota' | 'money' | 'unknown'; runs: number; lowMicroUsd: number | null; highMicroUsd: number | null };
+export type LadderEstimate = { steps: StepEstimate[]; firstLowMicroUsd: number | null; firstHighMicroUsd: number | null; allHighMicroUsd: number; unknownSteps: number };
 
 export type CheckResult = { command: string; passed: boolean; detail: string; outputTail: string; durationMs: number };
 
@@ -136,7 +146,7 @@ export type ApprovalView = {
 export type TaskDetail = TaskSummary & {
   prompt: string; strategy: Strategy; reason: string | null; result: 'kept' | 'discarded' | null; resultBranch: string | null;
   baseRevision: string | null; workspaceName: string; workspacePath: string;
-  policy: { steps: Step[]; checks: { command: string; source: string }[]; allowShell: boolean; timeoutSecs: number; answer?: boolean };
+  policy: { steps: Step[]; checks: { command: string; source: string }[]; allowShell: boolean; timeoutSecs: number; answer?: boolean; capMicroUsd?: number | null; allowWeb?: boolean };
   /** Every attempt in full; `attempts` holds the chips. */
   attemptDetails: AttemptView[];
   approval: ApprovalView | null;

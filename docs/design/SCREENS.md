@@ -176,7 +176,7 @@ Code: `apps/desktop/src/main.tsx` (shell), `src/components` and `components/gate
 
 ### 5.1 New work
 
-`NewTaskView.tsx`. **What do you want?**: **Ask** (a question; nothing changes, ADR-043), **Task** (one change, checked, kept as a branch), **Plan** (Brain Storming); **Project** (with **Add…**); the text; for a task the project's checks; **Agent settings** folded (strategy, the ladder of agent steps, shell **Allow**); **Ask**, **Start task** or **Create plan**. Opens the task or the plan.
+`NewTaskView.tsx`. **What do you want?**: **Ask** (a question; nothing changes, ADR-043), **Task** (one change, checked, kept as a branch), **Plan** (Brain Storming); **Project** (with **Add…**); the text; for a task the project's checks; **Cost** (if the first step succeeds, up to what if every step runs, each step free, quota, its recent runs or unknown, the stop rules, **Stop the task at $**); **Safety** (per agent: files outside its copy, shell, web, your secrets: blocked, allowed by you, or not enforced); **Agent settings** folded (strategy, the ladder, **Web access** and shell **Allow**); **Ask**, **Start task** or **Create plan**. Opens the task or the plan.
 
 #### 5.1.1 Board
 
@@ -190,7 +190,7 @@ Code: `apps/desktop/src/main.tsx` (shell), `src/components` and `components/gate
 
 `TaskDetail.tsx`. Tabs **Overview · Activity · Changes**.
 
-- **Overview**, top to bottom: the reason line; **Answer** (an Ask: the answer with **Copy**); the **Output** box once kept (branch, git commands; for a plan's card whether it is on the plan's branch); the result to decide (**Review Changes** diff, **Keep as Branch**, **Discard…**, **Export Patch…**); a paid or sensitive step to approve (**Approve up to $…**, **Decline**, **Allow This Step**); **Stop Task**, **Retry**; **Now**: the running step's **Live activity** (files, commands, what the model said; OpenCode and Codex as it happens, Claude Code and Gemini CLI when they finish; `live.rs`, the last 500 lines); **Steps** (each attempt, its outcome and why it moved on); **Task** (text folded when long, steps, checks, base).
+- **Overview**, top to bottom: **Evidence** for a result (asked, started from, changed and test files, checked by, not checked: no checks, no test changed, a card's done criterion); the reason line; **Answer** (an Ask: the answer with **Copy**); the **Output** box once kept (branch, git commands; for a plan's card whether it is on the plan's branch); the result to decide (**Review Changes** diff, **Keep as Branch**, **Discard…**, **Export Patch…**); a paid or sensitive step to approve (**Approve up to $…**, **Decline**, **Allow This Step**); **Stop Task**, **Retry**; **Now**: the running step's **Live activity** (files, commands, what the model said; OpenCode and Codex as it happens, Claude Code and Gemini CLI when they finish; `live.rs`, the last 500 lines); **Steps** as a receipt (each attempt, its cost or how it is paid, its outcome and why it moved on; the total, the cap, per kept result); **Task** (text folded when long, steps, what is allowed, checks, base; **Copy brief for another agent**).
 - **Activity:** every attempt in full: checks, cost, tokens, what it was told, check output, the agent's output tail.
 - **Changes** (when an attempt changed files): the result's diff, or a kept solo branch against where it started.
 
@@ -224,7 +224,7 @@ Code: `apps/desktop/src/main.tsx` (shell), `src/components` and `components/gate
 `Usage.tsx`.
 
 - Tabs API Costs, Subscriptions, Local Runtime; period 24 Hours / 7 Days / 30 Days; **Export CSV…**.
-- Summary: savings, known cost with unknown count apart, chart, token mix, by model and client.
+- Summary: savings, known cost with unknown count apart, **What Pygg sees** (priced requests, requests without a price, agent runs with no cost, subscriptions that state limits or not, tools not pointed at Pygg), chart, token mix, by model and client.
 - Requests: each request with model asked and answered, cost source, route reason, attempts.
 
 ### 5.7 Endpoint

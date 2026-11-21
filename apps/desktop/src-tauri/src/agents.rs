@@ -133,6 +133,7 @@ fn command(launch: &Launch, args: Vec<String>, cwd: &Path, timeout: Duration) ->
         raw_tail: None,
         cwd: cwd.to_path_buf(),
         env: Vec::new(),
+        remove_env: Vec::new(),
         timeout,
         output_limit: 2 * 1024 * 1024,
     }
@@ -209,6 +210,10 @@ pub struct TaskRequest {
     /// its workspace-write sandbox.
     #[serde(default)]
     pub allow_shell: bool,
+    /// Lets the agent fetch from the web. Off: Claude Code gets no web tools, Codex's sandbox keeps the network off,
+    /// OpenCode's webfetch is denied; Gemini CLI cannot be held to it (`sandbox_profile`).
+    #[serde(default)]
+    pub allow_web: bool,
     pub timeout_secs: Option<u64>,
     /// The commit the worktree starts from. Empty: the workspace's current commit. A task fixes it when it is
     /// created, so every attempt starts from the same code.
@@ -263,12 +268,20 @@ pub struct TaskRun {
 }
 
 /// The command line for one agent run, without the program itself.
-pub fn arguments(agent: &str, prompt: &str, model: Option<&str>, allow_shell: bool) -> Result<Vec<String>, String> {
+pub fn arguments(
+    agent: &str, prompt: &str, model: Option<&str>, allow_shell: bool, allow_web: bool,
+) -> Result<Vec<String>, String> {
     let mut args: Vec<String> = Vec::new();
     let s = |v: &str| v.to_string();
     match agent {
         "claude-code" => {
-            let tools = if allow_shell { "Read,Write,Edit,Glob,Grep,Bash" } else { "Read,Write,Edit,Glob,Grep" };
+            let mut tools = String::from("Read,Write,Edit,Glob,Grep");
+            if allow_shell {
+                tools.push_str(",Bash");
+            }
+            if allow_web {
+                tools.push_str(",WebFetch,WebSearch");
+            }
             args.extend([
                 s("-p"),
                 s(prompt),
@@ -277,7 +290,7 @@ pub fn arguments(agent: &str, prompt: &str, model: Option<&str>, allow_shell: bo
                 s("--permission-mode"),
                 s("acceptEdits"),
                 s("--allowedTools"),
-                s(tools),
+                tools,
             ]);
         }
         "codex" => {
@@ -290,8 +303,11 @@ pub fn arguments(agent: &str, prompt: &str, model: Option<&str>, allow_shell: bo
                 s("--sandbox"),
                 s("workspace-write"),
                 s("--ephemeral"),
-                s(prompt),
-            ])
+            ]);
+            if allow_web {
+                args.extend([s("-c"), s("sandbox_workspace_write.network_access=true")]);
+            }
+            args.push(s(prompt));
         }
         "gemini-cli" => args.extend([
             s("-p"),
@@ -397,6 +413,63 @@ pub fn read_usage(agent: &str, stdout: &str) -> AgentUsage {
 }
 
 #[cfg(test)]
+mod sandbox_tests {
+    use super::*;
+
+    #[test]
+    fn secrets_an_agent_does_not_need_are_withheld() {
+        let names = [
+            "AWS_SECRET_ACCESS_KEY",
+            "GITHUB_TOKEN",
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "PATH",
+            "PYGG_ATTEMPT_ID",
+            "DB_PASSWORD",
+        ]
+        .map(String::from);
+        let claude = withheld_env("claude-code", names.clone().into_iter());
+        assert_eq!(claude, ["AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "OPENAI_API_KEY", "DB_PASSWORD"]);
+        let opencode = withheld_env("opencode", names.into_iter());
+        assert_eq!(
+            opencode,
+            ["AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "DB_PASSWORD"],
+            "OpenCode signs in to many providers"
+        );
+    }
+
+    #[test]
+    fn opencode_is_held_to_the_runs_permissions() {
+        let c: serde_json::Value = serde_json::from_str(&opencode_inline_config(None, false, false)).unwrap();
+        assert_eq!(
+            (
+                c["permission"]["bash"].as_str(),
+                c["permission"]["webfetch"].as_str(),
+                c["permission"]["external_directory"].as_str()
+            ),
+            (Some("deny"), Some("deny"), Some("deny"))
+        );
+        let c: serde_json::Value = serde_json::from_str(&opencode_inline_config(None, true, true)).unwrap();
+        assert_eq!(
+            (c["permission"]["bash"].as_str(), c["permission"]["webfetch"].as_str()),
+            (Some("allow"), Some("allow"))
+        );
+    }
+
+    #[test]
+    fn web_is_off_unless_allowed() {
+        let claude = arguments("claude-code", "x", None, false, false).unwrap();
+        assert!(!claude.iter().any(|a| a.contains("WebFetch")));
+        assert!(arguments("claude-code", "x", None, false, true).unwrap().iter().any(|a| a.contains("WebFetch")));
+        let codex = arguments("codex", "x", None, false, true).unwrap();
+        assert!(codex.contains(&"sandbox_workspace_write.network_access=true".to_string()));
+        assert_eq!(codex.last().map(String::as_str), Some("x"), "the prompt stays last");
+        assert_eq!(sandbox_profile("gemini-cli", false, false).web, "not_enforced");
+        assert_eq!(sandbox_profile("opencode", false, false).shell, "enforced");
+    }
+}
+
+#[cfg(test)]
 mod final_text_tests {
     #[test]
     fn opencodes_final_message_is_the_text_after_its_last_tool_call() {
@@ -469,14 +542,120 @@ pub fn claude_session_headers(agent: &str, attempt: &str, var: impl Fn(&str) -> 
 pub const NO_PYGG_MCP_CODEX: &str = "mcp_servers.pygg.enabled=false";
 
 /// OpenCode's inline configuration for a run Pygg starts: `extra` (an inline configuration the user already set, if
-/// any) with the `pygg` MCP server turned off.
-pub fn opencode_inline_config(extra: Option<&str>) -> String {
+/// any) with the `pygg` MCP server turned off and the run's permissions: shell and web as chosen, nothing outside its
+/// copy. Without them OpenCode's `run` allows every tool, so Shell off was not kept (the gap study).
+pub fn opencode_inline_config(extra: Option<&str>, allow_shell: bool, allow_web: bool) -> String {
     let mut config = extra
         .and_then(|e| serde_json::from_str::<serde_json::Value>(e).ok())
         .filter(serde_json::Value::is_object)
         .unwrap_or_else(|| serde_json::json!({}));
     config["mcp"]["pygg"]["enabled"] = serde_json::Value::Bool(false);
+    let rule = |allowed: bool| serde_json::Value::String(if allowed { "allow" } else { "deny" }.into());
+    config["permission"]["bash"] = rule(allow_shell);
+    config["permission"]["webfetch"] = rule(allow_web);
+    config["permission"]["external_directory"] = rule(false);
     config.to_string()
+}
+
+/// What an agent's own sign-in may read from the environment: its provider's variables (and, for OpenCode, which
+/// signs in to many providers, every model provider's). Anything else that looks like a secret is withheld.
+fn own_prefixes(agent: &str) -> &'static [&'static str] {
+    match agent {
+        "claude-code" => &["ANTHROPIC_", "CLAUDE_"],
+        "codex" => &["OPENAI_", "CODEX_", "AZURE_OPENAI_"],
+        "gemini-cli" => &["GEMINI_", "GOOGLE_"],
+        "opencode" => &[
+            "OPENCODE_",
+            "ANTHROPIC_",
+            "OPENAI_",
+            "OPENROUTER_",
+            "GEMINI_",
+            "GOOGLE_",
+            "GROQ_",
+            "DEEPSEEK_",
+            "MISTRAL_",
+            "XAI_",
+            "TOGETHER_",
+            "FIREWORKS_",
+            "CEREBRAS_",
+            "MOONSHOT_",
+            "DASHSCOPE_",
+            "ZHIPU_",
+        ],
+        _ => &[],
+    }
+}
+
+/// The variables of Pygg's environment an agent does not get: those named like a secret (a key, a token, a password,
+/// a credential) that its own sign-in does not use, such as cloud, GitHub or database credentials. Pygg's own
+/// (`PYGG_`) stay.
+pub fn withheld_env(agent: &str, names: impl Iterator<Item = String>) -> Vec<String> {
+    const SECRET: &[&str] = &["KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "PRIVATE", "AUTH"];
+    let own = own_prefixes(agent);
+    names
+        .filter(|name| {
+            let upper = name.to_ascii_uppercase();
+            SECRET.iter().any(|s| upper.contains(s))
+                && !upper.starts_with("PYGG_")
+                && !own.iter().any(|p| upper.starts_with(p))
+        })
+        .collect()
+}
+
+/// How far a run is held to its profile, per concern: `enforced` (the agent cannot do it), `not_enforced` (Pygg cannot
+/// hold this agent to it), `allowed` (the user allowed it).
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Sandbox {
+    pub agent: String,
+    pub outside_files: String,
+    pub shell: String,
+    pub web: String,
+    pub secrets: String,
+    /// One line on what the agent itself does, where it matters.
+    pub note: String,
+}
+
+pub fn sandbox_profile(agent: &str, allow_shell: bool, allow_web: bool) -> Sandbox {
+    let pick = |allowed: bool, enforced: bool| {
+        if allowed {
+            "allowed"
+        } else if enforced {
+            "enforced"
+        } else {
+            "not_enforced"
+        }
+        .to_string()
+    };
+    let (files, shell, web, note) = match agent {
+        "claude-code" => {
+            (true, true, true, "Edits outside the copy are refused in headless mode; tools are an allow-list.")
+        }
+        "codex" => (
+            true,
+            true,
+            true,
+            "Codex's workspace-write sandbox: writes and commands stay in the copy, network off unless allowed.",
+        ),
+        "opencode" => {
+            (true, true, true, "Pygg sets OpenCode's permissions for the run: shell, web, nothing outside the copy.")
+        }
+        "gemini-cli" => (
+            false,
+            true,
+            false,
+            "Gemini CLI has no sandbox here without Docker: it may read outside the copy and search the web.",
+        ),
+        _ => (false, false, false, ""),
+    };
+    Sandbox {
+        agent: agent.into(),
+        outside_files: pick(false, files),
+        shell: if agent == "codex" { "enforced".into() } else { pick(allow_shell, shell) },
+        web: pick(allow_web, web),
+        secrets: "enforced".into(),
+        note: note.into(),
+    }
 }
 
 /// Runs a task: a worktree of the workspace's current commit under `worktrees`, the agent started in it, and
@@ -507,13 +686,18 @@ pub async fn run(
     let worktree = isolation::create(&request.workspace, &base, &dir).map_err(|e| e.to_string())?;
 
     let mut args = launch.prefix.clone();
-    args.extend(arguments(spec.id, &request.prompt, request.model.as_deref(), request.allow_shell)?);
+    args.extend(arguments(spec.id, &request.prompt, request.model.as_deref(), request.allow_shell, request.allow_web)?);
     args.extend(budget_arguments(spec.id, request.max_budget_usd));
     let mut command = command(&launch, args, &worktree.path, Duration::from_secs(request.timeout_secs.unwrap_or(900)));
     if spec.id == "opencode" {
         let extra = std::env::var("OPENCODE_CONFIG_CONTENT").ok();
-        command.env.push(("OPENCODE_CONFIG_CONTENT".into(), opencode_inline_config(extra.as_deref())));
+        command.env.push((
+            "OPENCODE_CONFIG_CONTENT".into(),
+            opencode_inline_config(extra.as_deref(), request.allow_shell, request.allow_web),
+        ));
     }
+    // Secrets the agent does not need for its own sign-in stay out of its environment (the sandbox profile).
+    command.remove_env = withheld_env(spec.id, std::env::vars().map(|(k, _)| k));
     if spec.id == "gemini-cli" {
         // The worktree is a copy Pygg made for this task; Gemini CLI refuses an untrusted folder in headless mode
         // (geminicli.com/docs/cli/trusted-folders).
@@ -651,7 +835,7 @@ mod tests {
     #[test]
     fn builds_each_agents_headless_command() {
         assert_eq!(
-            arguments("claude-code", "fix it", None, false).unwrap(),
+            arguments("claude-code", "fix it", None, false, false).unwrap(),
             [
                 "-p",
                 "fix it",
@@ -664,7 +848,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            arguments("codex", "fix it", Some("gpt-x"), false).unwrap(),
+            arguments("codex", "fix it", Some("gpt-x"), false, false).unwrap(),
             [
                 "-c",
                 NO_PYGG_MCP_CODEX,
@@ -679,14 +863,14 @@ mod tests {
             ]
         );
         assert_eq!(
-            arguments("gemini-cli", "fix it", None, true).unwrap(),
+            arguments("gemini-cli", "fix it", None, true, false).unwrap(),
             ["-p", "fix it", "--output-format", "json", "--approval-mode", "yolo"]
         );
         assert_eq!(
-            arguments("opencode", "fix it", Some("p/m"), false).unwrap(),
+            arguments("opencode", "fix it", Some("p/m"), false, false).unwrap(),
             ["run", "--format", "json", "fix it", "--model", "p/m"]
         );
-        assert!(arguments("cursor", "x", None, false).is_err());
+        assert!(arguments("cursor", "x", None, false, false).is_err());
         assert_eq!(budget_arguments("claude-code", Some(0.5)), ["--max-budget-usd", "0.50"]);
         let env = |pairs: &'static [(&'static str, &'static str)]| {
             move |name: &str| pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| v.to_string())
@@ -769,10 +953,14 @@ mod pygg_mcp_tests {
 
     #[test]
     fn runs_pygg_starts_have_its_own_mcp_server_off() {
-        assert_eq!(opencode_inline_config(None), r#"{"mcp":{"pygg":{"enabled":false}}}"#);
-        let kept: serde_json::Value =
-            serde_json::from_str(&opencode_inline_config(Some(r#"{"theme":"x","mcp":{"other":{"enabled":true}}}"#)))
-                .unwrap();
+        let plain: serde_json::Value = serde_json::from_str(&opencode_inline_config(None, false, false)).unwrap();
+        assert_eq!(plain["mcp"], serde_json::json!({"pygg": {"enabled": false}}));
+        let kept: serde_json::Value = serde_json::from_str(&opencode_inline_config(
+            Some(r#"{"theme":"x","mcp":{"other":{"enabled":true}}}"#),
+            false,
+            false,
+        ))
+        .unwrap();
         assert_eq!(
             (
                 kept["theme"].as_str(),
@@ -781,9 +969,9 @@ mod pygg_mcp_tests {
             ),
             (Some("x"), Some(true), Some(false))
         );
-        assert_eq!(opencode_inline_config(Some("not json")), r#"{"mcp":{"pygg":{"enabled":false}}}"#);
+        assert_eq!(opencode_inline_config(Some("not json"), false, false), opencode_inline_config(None, false, false));
         assert_eq!(
-            arguments("codex", "p", None, false).unwrap()[..2],
+            arguments("codex", "p", None, false, false).unwrap()[..2],
             ["-c".to_string(), NO_PYGG_MCP_CODEX.to_string()]
         );
     }

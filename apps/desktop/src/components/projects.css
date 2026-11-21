@@ -120,3 +120,39 @@
 .plan-card-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .plan-card .warn-text { font-size: 12px; }
 .project-back { margin: 12px 20px 0; }
+
+/* Cost before (New work) and the receipt after (task page). */
+.cost-lines { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.ladder-list { margin: 0; padding: 4px 14px 6px; list-style: none; display: grid; gap: 3px; }
+.ladder-list li { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+.ladder-list li .mono { overflow-wrap: anywhere; min-width: 0; }
+.step-summary .group-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.receipt-cost { font-variant-numeric: tabular-nums; color: var(--secondary); font-size: 12px; }
+.receipt-total { margin: 8px 0 0; font-size: 13px; }
+
+/* The review evidence card. */
+.evidence { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; padding: 10px 14px; margin: 0; }
+.evidence dt { color: var(--secondary); font-size: 12px; }
+.evidence dd { margin: 0; overflow-wrap: anywhere; font-size: 13px; }
+.evidence ul { margin: 0; padding-left: 16px; }
+.evidence .check-results { padding-left: 0; }
+.evidence-files { font-size: 11px; max-height: 160px; overflow: auto; }
+.evidence-unchecked li { margin-bottom: 2px; }
+
+/* Safety: what each agent is held to. */
+.safety-table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+.safety-table th, .safety-table td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--separator); overflow-wrap: anywhere; }
+.safety-table thead th { color: var(--secondary); font-weight: 500; }
+.hold.enforced { color: var(--green); }
+.hold.allowed { color: var(--secondary); }
+.hold.not_enforced { color: var(--orange); font-weight: 600; }
+.safety-note { margin: 6px 8px; }
+
+/* Usage: what Pygg sees. */
+.coverage { margin: 0; padding: 4px 14px; }
+.coverage-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--separator); }
+.coverage-row:last-child { border-bottom: 0; }
+.coverage-row dt { font-size: 13px; }
+.coverage-row dd { margin: 0; font-size: 12px; color: var(--secondary); overflow-wrap: anywhere; }
+.coverage-row.warn dd { color: var(--orange); }
+.coverage-row.none dd { font-style: italic; }

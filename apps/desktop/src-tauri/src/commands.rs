@@ -1915,6 +1915,24 @@ pub fn boards_list(state: State<'_, AppState>) -> Res<Vec<crate::board::BoardSum
     state.shared.with_db(crate::board::list)
 }
 
+/// What each agent would be held to for a run with these choices (the sandbox profile).
+#[tauri::command]
+pub fn sandbox_profiles(agents: Vec<String>, allow_shell: bool, allow_web: bool) -> Vec<crate::agents::Sandbox> {
+    agents.iter().map(|a| crate::agents::sandbox_profile(a, allow_shell, allow_web)).collect()
+}
+
+/// A task as a brief to hand to another agent (Markdown, redacted).
+#[tauri::command]
+pub fn task_brief(state: State<'_, AppState>, id: String) -> Res<String> {
+    state.shared.with_db(|db| crate::tasks::task_brief(db, &id))
+}
+
+/// What a ladder of steps would cost before it runs: each step's recent runs, the first step, every step.
+#[tauri::command]
+pub fn task_estimate(state: State<'_, AppState>, steps: Vec<crate::tasks::Step>) -> Res<crate::tasks::LadderEstimate> {
+    state.shared.with_db(|db| crate::tasks::ladder_estimate(db, &steps))
+}
+
 /// Every approved plan's progress from its board cards (Work's rows).
 #[tauri::command]
 pub fn plans_progress(state: State<'_, AppState>) -> Res<Vec<crate::board::PlanProgress>> {

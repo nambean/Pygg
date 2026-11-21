@@ -182,6 +182,7 @@ export function Usage({onOpenTools, intent, onIntentDone}: {onOpenTools?: () => 
         </div>
       </section>
 
+      <Coverage days={Number(range)} total={data.total} quality={quality.data ?? null}/>
       {overTime.data && <CostOverTime days={Number(range)} buckets={overTime.data}
         comparison={savings.data?.baseline && savings.data.baselinePriced ? {model: savings.data.baseline, periods: savings.data.periods} : null}/>}
       <TokenMix days={Number(range)}/>
@@ -464,4 +465,32 @@ function LedgerRow({event: e, open, onToggle, chain}: {event: UsageEvent; open: 
       </dl>
     </td></tr>}
   </>;
+}
+
+/**
+ * What Pygg can see (the gap study's coverage-aware usage): requests through the gateway with a price, those without
+ * one, agent runs that reported no cost, subscriptions known only as quota, and what never passes through Pygg.
+ */
+function Coverage({days, total, quality}: {days: number; total: UsageGroup; quality: TaskQuality | null}) {
+  const subs = useGateway(api => api.usageSubscriptions(days), [days], 30_000);
+  const priced = total.requests - total.unknownRequests;
+  const subscriptions = subs.data ?? [];
+  const stated = subscriptions.filter(x => x.limits.length > 0).length;
+  const rows: {what: string; seen: string; tone: 'ok' | 'warn' | 'none'}[] = [
+    {what: t('Requests through Pygg with a price'), seen: t('{n} requests · {amount}', {n: priced, amount: microUsd(total.knownMicroUsd)}), tone: 'ok'},
+    {what: t('Requests through Pygg without a price'), seen: total.unknownRequests ? t('{n} requests: give their models a price in Providers', {n: total.unknownRequests}) : t('none'),
+      tone: total.unknownRequests ? 'warn' : 'ok'},
+    {what: t('Agent runs on their own sign-in'), seen: quality && quality.unknownEntries ? t('{n} runs reported no cost', {n: quality.unknownEntries}) : t('none without a cost'),
+      tone: quality && quality.unknownEntries ? 'warn' : 'ok'},
+    {what: t('Subscriptions'), seen: subscriptions.length === 0 ? t('none connected')
+      : t('{n} connected · {m} state their limits; the rest are Unknown', {n: subscriptions.length, m: stated}), tone: subscriptions.length && stated < subscriptions.length ? 'warn' : 'ok'},
+    {what: t('Tools not pointed at Pygg'), seen: t('not seen at all: their use and limits are in their own apps'), tone: 'none'},
+  ];
+  return <section className="group" aria-labelledby="coverage-heading">
+    <h2 id="coverage-heading">{t('What Pygg sees')}</h2>
+    <dl className="group-box coverage">
+      {rows.map(r => <div key={r.what} className={`coverage-row ${r.tone}`}><dt>{r.what}</dt><dd>{r.seen}</dd></div>)}
+    </dl>
+    <p className="group-footnote">{t('Totals above count only the first row. Pygg never guesses a price or a quota a provider has not stated.')}</p>
+  </section>;
 }

@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, Play, Plus, X } from 'lucide-react';
 import { call, errorText, gatewayChanged, type AgentInfo } from '../lib/api';
 import { t } from '../lib/i18n';
 import { MOD } from '../lib/platform';
-import { MAX_STEPS, type Billing, type Step, type Strategy, type Tier, type WorkspaceView } from '../lib/tasks';
+import { MAX_STEPS, type Billing, type Hold, type LadderEstimate, type Sandbox, type Step, type Strategy, type Tier, type WorkspaceView } from '../lib/tasks';
 import { useGateway } from '../hooks/useGateway';
 import { billingLabel } from './AttemptSequence';
 import { ErrorNote, rovingIndex, Spinner } from './ui';
@@ -44,9 +44,18 @@ export function NewTaskView({onCreated, onPlanCreated, workspaceId: initial, mod
   const [strategy, setStrategy] = useState<Strategy>('free_first');
   const [steps, setSteps] = useState<Step[] | null>(null);
   const [allowShell, setAllowShell] = useState(false);
+  const [allowWeb, setAllowWeb] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [capText, setCapText] = useState('');
   const answer = mode === 'ask';
+  const stepsKey = JSON.stringify(steps ?? []);
+  const estimate = useGateway(api => steps && steps.length && mode !== 'plan' ? api.taskEstimate(steps) : Promise.resolve(null), [stepsKey, mode]);
+  const agentIds = [...new Set((steps ?? []).map(s => s.agent))];
+  const sandbox = useGateway(api => agentIds.length && mode !== 'plan' ? api.sandboxProfiles(agentIds, allowShell && mode === 'task', allowWeb) : Promise.resolve(null),
+    [agentIds.join(','), allowShell, allowWeb, mode]);
+  const cap = capText.trim() === '' ? null : Number(capText.replace(',', '.'));
+  const capValid = cap === null || (Number.isFinite(cap) && cap > 0);
 
   const list = workspaces.data ?? [];
   const workspace = list.find(w => w.id === workspaceId);
@@ -54,7 +63,7 @@ export function NewTaskView({onCreated, onPlanCreated, workspaceId: initial, mod
   const installed = useMemo(() => (agents.data ?? []).filter(a => a.installed), [agents.data]);
   useEffect(() => { if (agents.data) setSteps(suggestedSteps(strategy, agents.data)); }, [agents.data, strategy]);
 
-  const canStart = !!workspace && text.trim() !== '' && (mode === 'plan' || (steps?.length ?? 0) > 0) && !busy;
+  const canStart = !!workspace && text.trim() !== '' && (mode === 'plan' || (steps?.length ?? 0) > 0) && capValid && !busy;
   const start = () => {
     if (!canStart || !workspace) return;
     setBusy(true);
@@ -65,7 +74,7 @@ export function NewTaskView({onCreated, onPlanCreated, workspaceId: initial, mod
       return;
     }
     if (!steps) return;
-    call(api => api.createTask({workspaceId: workspace.id, title: null, prompt: text.trim(), strategy, steps, allowShell, timeoutSecs: null, answer}))
+    call(api => api.createTask({workspaceId: workspace.id, title: null, prompt: text.trim(), strategy, steps, allowShell: allowShell && mode === 'task', timeoutSecs: null, answer, capUsd: cap, allowWeb}))
       .then(id => { gatewayChanged(); onCreated(id); }, e => { setError(errorText(e)); setBusy(false); });
   };
   useEffect(() => {
@@ -114,6 +123,11 @@ export function NewTaskView({onCreated, onPlanCreated, workspaceId: initial, mod
 
     {mode === 'task' && workspace && <WorkspaceChecks workspace={workspace} onChanged={workspaces.reload}/>}
 
+    {mode !== 'plan' && <CostPanel estimate={estimate.data ?? null} steps={steps ?? []} names={Object.fromEntries(installed.map(a => [a.id, a.name]))}
+      capText={capText} onCap={setCapText} capValid={capValid}/>}
+
+    {mode !== 'plan' && sandbox.data && <SafetyPanel profiles={sandbox.data} names={Object.fromEntries(installed.map(a => [a.id, a.name]))}/>}
+
     {mode !== 'plan' && <details className="form-disclosure agent-settings">
       <summary>{t('Agent settings')}<span className="secondary"> · {ladder || t('no agent installed')}</span></summary>
       <section className="group">
@@ -137,6 +151,12 @@ export function NewTaskView({onCreated, onPlanCreated, workspaceId: initial, mod
             : installed.length === 0 ? <div className="group-row"><span className="group-label">
               {t('No agent is installed. Install Claude Code, Codex CLI, Gemini CLI or OpenCode (see Agents) to run tasks.')}</span></div>
             : <StepEditor steps={steps ?? []} agents={installed} onChange={setSteps}/>}
+          <div className="group-row">
+            <span className="group-label"><label htmlFor="task-web">{t('Web access')}</label>
+              <small>{allowWeb ? t('Agents may fetch pages and search the web while they work.') : t('Off: agents work from the repository alone.')}</small></span>
+            <span className="group-control"><label className="check-row"><input id="task-web" type="checkbox" checked={allowWeb}
+              onChange={e => setAllowWeb(e.target.checked)}/>{t('Allow')}</label></span>
+          </div>
           {mode === 'task' && <div className="group-row">
             <span className="group-label"><label htmlFor="task-shell">{t('Shell commands')}</label>
               <small>{allowShell ? t('Agents may run commands in their copy, such as tests. Codex always runs in its own sandbox.')
@@ -228,4 +248,67 @@ function StepEditor({steps, agents, onChange}: {steps: Step[]; agents: AgentInfo
       {steps.some(s => s.billing === 'paid') && <small className="secondary">{t('Steps marked paid wait for your approval before they run.')}</small>}
     </div>}
   </>;
+}
+
+const dollars = (micro: number) => `$${(micro / 1e6).toFixed(micro > 0 && micro < 10_000 ? 3 : 2)}`;
+
+/**
+ * What the task may cost before it starts (the gap study's task budget): each step of the ladder with what its agent
+ * and model cost on recent runs, the stop rules, and an optional cap for the whole task.
+ */
+function CostPanel({estimate, steps, names, capText, onCap, capValid}: {estimate: LadderEstimate | null; steps: Step[];
+  names: Record<string, string>; capText: string; onCap: (v: string) => void; capValid: boolean}) {
+  const priced = (e: LadderEstimate['steps'][number]) => e.kind === 'free' ? t('free') : e.kind === 'quota' ? t('your plan’s quota')
+    : e.kind === 'unknown' ? t('unknown: never run') : e.lowMicroUsd === e.highMicroUsd ? t('≈{usd} ({n} runs)', {usd: dollars(e.highMicroUsd ?? 0), n: e.runs})
+    : t('{low}–{high} ({n} runs)', {low: dollars(e.lowMicroUsd ?? 0), high: dollars(e.highMicroUsd ?? 0), n: e.runs});
+  const first = !estimate ? null : estimate.firstHighMicroUsd === null ? t('unknown') : estimate.firstHighMicroUsd === 0 ? t('nothing')
+    : estimate.firstLowMicroUsd === estimate.firstHighMicroUsd ? `≈${dollars(estimate.firstHighMicroUsd)}`
+    : `${dollars(estimate.firstLowMicroUsd ?? 0)}–${dollars(estimate.firstHighMicroUsd)}`;
+  return <section className="group cost-panel">
+    <h2>{t('Cost')}</h2>
+    <div className="group-box">
+      {!estimate ? <div className="group-row"><Spinner label={t('Estimating…')}/></div> : <>
+        <div className="group-row cost-lines">
+          <span>{t('If the first step succeeds: {cost}', {cost: first ?? ''})}</span>
+          <span>{t('If every step runs: up to {cost}', {cost: dollars(estimate.allHighMicroUsd)})}
+            {estimate.unknownSteps > 0 && <span className="warn-text"> · {t('{n} steps never ran: their cost is unknown', {n: estimate.unknownSteps})}</span>}</span>
+        </div>
+        <ol className="ladder-list">
+          {estimate.steps.map((e, i) => <li key={i}><span className="mono">{i + 1}. {names[steps[i]?.agent] ?? steps[i]?.agent}{steps[i]?.model ? ` · ${steps[i].model}` : ''}</span>
+            <span className={e.kind === 'unknown' ? 'warn-text' : 'secondary'}>{priced(e)}</span></li>)}
+        </ol>
+        <p className="group-footnote">{t('The next step starts only when a step fails: the checks fail, it changes nothing, or the agent stops. A paid step asks you first. Estimates are past runs by the agent’s own report and Pygg’s ledger, not a quote.')}</p>
+      </>}
+      <div className="group-row">
+        <span className="group-label"><label htmlFor="task-cap">{t('Stop the task at')}</label>
+          <small>{t('Optional. No further step starts once the task has cost this much; a paid step’s cap is never set above what is left.')}</small></span>
+        <span className="group-control"><span className={capValid ? 'money-input' : 'money-input invalid'}><span aria-hidden>$</span>
+          <input id="task-cap" inputMode="decimal" placeholder={t('no cap')} value={capText} onChange={e => onCap(e.target.value)}/></span></span>
+      </div>
+    </div>
+  </section>;
+}
+
+const HOLD: Record<Hold, string> = {enforced: 'blocked', allowed: 'allowed by you', not_enforced: 'not enforced'};
+
+/**
+ * What the agents of this ladder are held to (the sandbox profile): files outside the copy, shell, web, and secrets
+ * in the environment, per agent, with what Pygg cannot enforce said plainly.
+ */
+function SafetyPanel({profiles, names}: {profiles: Sandbox[]; names: Record<string, string>}) {
+  const loose = profiles.some(p => [p.outsideFiles, p.shell, p.web, p.secrets].includes('not_enforced'));
+  return <section className="group safety-panel">
+    <h2>{t('Safety')}</h2>
+    <div className="group-box">
+      <table className="safety-table">
+        <thead><tr><th scope="col">{t('Agent')}</th><th scope="col">{t('Files outside its copy')}</th><th scope="col">{t('Shell')}</th>
+          <th scope="col">{t('Web')}</th><th scope="col">{t('Your secrets')}</th></tr></thead>
+        <tbody>{profiles.map(p => <tr key={p.agent}><th scope="row">{names[p.agent] ?? p.agent}</th>
+          {[p.outsideFiles, p.shell, p.web, p.secrets].map((h, i) => <td key={i} className={`hold ${h}`}>{t(HOLD[h])}</td>)}</tr>)}</tbody>
+      </table>
+      {profiles.filter(p => p.note).map(p => <p key={p.agent} className="group-footnote safety-note">{names[p.agent] ?? p.agent}: {p.note}</p>)}
+    </div>
+    <p className="group-footnote">{t('Every attempt works on its own copy of the repository; your checkout is never changed. Secrets in Pygg’s environment that an agent does not need for its own sign-in (cloud, GitHub, database keys) are not passed to it.')}
+      {loose && ` ${t('Where a cell says not enforced, Pygg cannot hold that agent to it: keep secrets out of the repository, or choose another agent.')}`}</p>
+  </section>;
 }

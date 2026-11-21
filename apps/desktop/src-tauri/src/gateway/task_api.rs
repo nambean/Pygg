@@ -13,6 +13,7 @@
 //!   POST /pygg/v1/tasks                       start one: {workspace, prompt, title?, strategy?, steps?, allowShell?}
 //!   GET  /pygg/v1/tasks/{id}?wait=SECONDS     its state; waits up to 600 s while it runs
 //!   GET  /pygg/v1/tasks/{id}/diff             the result's changes
+//!   GET  /pygg/v1/tasks/{id}/brief            the task as a brief for another agent
 //!   POST /pygg/v1/tasks/{id}/stop | keep {title?} | discard
 
 use super::{authenticate, openai_error, Shared};
@@ -34,6 +35,7 @@ pub fn routes() -> Router<Shared> {
         .route("/pygg/v1/tasks", get(list).post(start))
         .route("/pygg/v1/tasks/{id}", get(status))
         .route("/pygg/v1/tasks/{id}/diff", get(diff))
+        .route("/pygg/v1/tasks/{id}/brief", get(brief))
         .route("/pygg/v1/tasks/{id}/stop", post(stop))
         .route("/pygg/v1/tasks/{id}/keep", post(keep))
         .route("/pygg/v1/tasks/{id}/discard", post(discard))
@@ -315,6 +317,8 @@ async fn start(State(shared): State<Shared>, headers: HeaderMap, body: Bytes) ->
             timeout_secs: request.timeout_secs,
             handoff: request.handoff,
             answer: false,
+            cap_usd: None,
+            allow_web: false,
         };
         let id = tasks::create_task_for(db, &new, Some(&client_id))?;
         tasks::task_detail_for(db, &id, Some(&client_id))
@@ -370,6 +374,22 @@ async fn diff(State(shared): State<Shared>, headers: HeaderMap, Path(id): Path<S
     .await
     {
         Ok(diff) => Json(json!({ "diff": diff })).into_response(),
+        Err(r) => r,
+    }
+}
+
+async fn brief(State(shared): State<Shared>, headers: HeaderMap, Path(id): Path<String>) -> Response {
+    let (client, _) = match permitted(&shared, &headers) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    match blocking(&shared, move |db| {
+        tasks::check_owner(db, &id, &client.id)?;
+        tasks::task_brief(db, &id)
+    })
+    .await
+    {
+        Ok(brief) => Json(json!({ "brief": brief })).into_response(),
         Err(r) => r,
     }
 }
