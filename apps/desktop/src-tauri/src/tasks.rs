@@ -1228,7 +1228,8 @@ pub struct Quality {
     /// Known money of all tasks' ledger entries, and the entries whose cost is unknown (not counted).
     pub known_micro_usd: u64,
     pub unknown_entries: u64,
-    /// Finished attempts on a paid or unknown billing whose cost nothing recorded (no agent estimate, no priced entry).
+    /// Finished attempts on a paid or unknown billing whose cost is unknown in whole or in part (no recorded cost, or
+    /// an unpriced ledger entry).
     pub unknown_cost_runs: u64,
     /// Known money per kept result; `None` when nothing was kept.
     pub micro_usd_per_kept: Option<u64>,
@@ -1262,7 +1263,7 @@ pub fn quality(conn: &Connection, since_ms: i64) -> Result<Quality> {
             "SELECT COUNT(*) FROM attempts a JOIN task_stages s ON s.id = a.stage_id JOIN tasks t ON t.id = s.task_id \
              WHERE t.created_at >= ?1 AND a.billing IN ('paid', 'unknown') AND a.state IN ('passed', 'done', 'failed') \
              AND a.agent_estimate_micro_usd IS NULL \
-             AND NOT EXISTS (SELECT 1 FROM usage_events u WHERE u.attempt_id = a.id AND u.cost_status IN ('actual', 'estimated'))",
+             AND (NOT EXISTS (SELECT 1 FROM usage_events u WHERE u.attempt_id = a.id AND u.cost_status IN ('actual', 'estimated')) OR EXISTS (SELECT 1 FROM usage_events u WHERE u.attempt_id = a.id AND u.cost_status = 'unknown'))",
             [since_ms],
             |r| r.get::<_, i64>(0),
         )
@@ -2661,6 +2662,40 @@ mod tests {
         assert_eq!(unknown_paid_attempt(&conn, &id).unwrap(), Some(2), "a part of a cost is not the whole");
         conn.execute("DELETE FROM usage_events WHERE attempt_id = 'a2' AND cost_status = 'unknown'", []).unwrap();
         assert_eq!(unknown_paid_attempt(&conn, &id).unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn a_cap_stops_before_the_next_paid_step_after_a_partly_unknown_cost() {
+        let rig = rig(&[good_check()]);
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            // The first step sends one request through Pygg that has no price: its cost is unknown.
+            fake(
+                vec![Act::ThroughPygg("result.txt", "bad\n", None, rig.db.clone()), Act::Write("result.txt", "good\n")],
+                rig.prompts.clone(),
+            ),
+        );
+        let new = NewTask {
+            workspace_id: rig.workspace.clone(),
+            title: None,
+            prompt: "Make result.txt say good".into(),
+            strategy: "free_first".into(),
+            steps: vec![step("opencode", "unknown", 1), step("codex", "unknown", 3)],
+            allow_shell: false,
+            timeout_secs: None,
+            handoff: None,
+            answer: false,
+            cap_usd: Some(5.0),
+            allow_web: false,
+        };
+        let id = create_task(&lock(&rig.db), &new).unwrap();
+        runner.start(&id).unwrap().await.unwrap();
+        let task = detail(&rig, &id);
+        assert_eq!(task.summary.state, "blocked", "{:?}", task.reason);
+        assert!(task.reason.as_deref().unwrap_or("").contains("cannot be kept"), "{:?}", task.reason);
+        assert_eq!(rig.prompts.lock().unwrap().len(), 1, "the second step never started");
+        assert_eq!(quality(&lock(&rig.db), 0).unwrap().unknown_cost_runs, 1);
     }
 
     #[test]

@@ -182,7 +182,7 @@ export function Usage({onOpenTools, intent, onIntentDone}: {onOpenTools?: () => 
         </div>
       </section>
 
-      <Coverage days={Number(range)} total={data.total} quality={quality.data ?? null} qualityError={quality.data ? null : quality.error ?? null}/>
+      <Coverage days={Number(range)} total={data.total} quality={quality.data ?? null} qualityError={quality.error ?? null}/>
       {overTime.data && <CostOverTime days={Number(range)} buckets={overTime.data}
         comparison={savings.data?.baseline && savings.data.baselinePriced ? {model: savings.data.baseline, periods: savings.data.periods} : null}/>}
       <TokenMix days={Number(range)}/>
@@ -480,13 +480,14 @@ function Coverage({days, total, quality, qualityError}: {days: number; total: Us
     {what: t('Requests through Pygg with a price'), seen: t('{n} requests · {amount}', {n: priced, amount: microUsd(total.knownMicroUsd)}), tone: 'ok'},
     {what: t('Requests through Pygg without a price'), seen: total.unknownRequests ? t('{n} requests: give their models a price in Providers', {n: total.unknownRequests}) : t('none'),
       tone: total.unknownRequests ? 'warn' : 'ok'},
-    {what: t('Paid agent runs with no recorded cost'), seen: qualityError ? t('could not be read: {error}', {error: qualityError}) : !quality ? t('loading…')
-      : (quality.unknownCostRuns ?? 0) > 0 ? t('{n} runs', {n: quality.unknownCostRuns ?? 0}) : t('none'),
+    {what: t('Paid agent runs with an unknown cost, in whole or in part'), seen: !quality ? (qualityError ? t('could not be read: {error}', {error: qualityError}) : t('loading…'))
+      : ((quality.unknownCostRuns ?? 0) > 0 ? t('{n} runs', {n: quality.unknownCostRuns ?? 0}) : t('none')) + (qualityError ? ` · ${t('the last refresh failed; these are earlier figures')}` : ''),
       tone: qualityError || (quality?.unknownCostRuns ?? 0) > 0 ? 'warn' : 'ok'},
     {what: t('Subscriptions'), seen: subs.error && !subs.data ? t('could not be read: {error}', {error: subs.error}) : !subs.data ? t('loading…')
-      : subscriptions.length === 0 ? t('none connected')
-      : t('{n} connected · {m} state their limits; the rest are Unknown', {n: subscriptions.length, m: stated}),
-      tone: subs.error && !subs.data ? 'warn' : subscriptions.length && stated < subscriptions.length ? 'warn' : 'ok'},
+      : (subscriptions.length === 0 ? t('none connected')
+        : t('{n} connected · {m} state their limits; the rest are Unknown', {n: subscriptions.length, m: stated}))
+        + (subs.error ? ` · ${t('the last refresh failed; these are earlier figures')}` : ''),
+      tone: subs.error ? 'warn' : subscriptions.length && stated < subscriptions.length ? 'warn' : 'ok'},
     {what: t('Tools not pointed at Pygg'), seen: t('not seen at all: their use and limits are in their own apps'), tone: 'none'},
   ];
   return <section className="group" aria-labelledby="coverage-heading">
