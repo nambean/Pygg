@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Lightbulb, MessageSquareText, Plus, Search } from 'lucide-react';
 import { ago } from '../lib/format';
 import { t } from '../lib/i18n';
-import { brainstormNeedsAttention, needsAttention, type Brainstorm, type TaskSummary, type WorkspaceView } from '../lib/tasks';
+import { brainstormNeedsAttention, needsAttention, type Brainstorm, type PlanProgress, type TaskSummary, type WorkspaceView } from '../lib/tasks';
+import { useGateway } from '../hooks/useGateway';
 import { StateIcon, statusLine } from './TaskList';
 import { AttemptSequence } from './AttemptSequence';
 import { taskCost } from '../lib/format';
@@ -20,7 +21,7 @@ type Props = {
 };
 
 type Item =
-  | {kind: 'plan'; plan: Brainstorm; cards: TaskSummary[]; at: number; needsYou: boolean; running: boolean}
+  | {kind: 'plan'; plan: Brainstorm; progress: PlanProgress | null; at: number; needsYou: boolean; running: boolean}
   | {kind: 'task'; task: TaskSummary; at: number; needsYou: boolean; running: boolean};
 
 const RECENT = 25;
@@ -32,6 +33,8 @@ const RECENT = 25;
 export function WorkList({tasks, brainstorms, workspaces, project, onOpenTask, onOpenPlan, onNewWork}: Props) {
   const [query, setQuery] = useState('');
   const [all, setAll] = useState(false);
+  const progress = useGateway(api => api.plansProgress(), [], 5_000);
+  const progressOf = (id: string) => progress.data?.find(p => p.brainstormId === id) ?? null;
   const needle = query.trim().toLowerCase();
   const name = (id: string | null) => workspaces.find(w => w.id === id)?.name ?? '';
   const scoped = (workspaceId: string | null) => !project || workspaceId === project;
@@ -39,9 +42,10 @@ export function WorkList({tasks, brainstorms, workspaces, project, onOpenTask, o
   const items: Item[] = [
     ...brainstorms.filter(b => b.state !== 'declined' && scoped(b.workspaceId)).map((b): Item => {
       const cards = tasks.filter(task => task.brainstormId === b.id);
-      return {kind: 'plan', plan: b, cards, at: Math.max(b.updatedAt, ...cards.map(c => c.updatedAt)),
-        needsYou: brainstormNeedsAttention(b) || cards.some(needsAttention),
-        running: b.state === 'thinking' || cards.some(c => c.state === 'running')};
+      const p = progressOf(b.id);
+      return {kind: 'plan', plan: b, progress: p, at: Math.max(b.updatedAt, ...cards.map(c => c.updatedAt)),
+        needsYou: brainstormNeedsAttention(b) || cards.some(needsAttention) || (p?.waiting ?? 0) > 0,
+        running: b.state === 'thinking' || cards.some(c => c.state === 'running') || (p?.running ?? 0) > 0};
     }),
     ...tasks.filter(task => !task.brainstormId && scoped(task.workspaceId)).map((task): Item =>
       ({kind: 'task', task, at: task.updatedAt, needsYou: needsAttention(task), running: task.state === 'running'})),
@@ -91,16 +95,17 @@ export function WorkList({tasks, brainstorms, workspaces, project, onOpenTask, o
 /** A plan: its requirement, where it stands, and its cards' progress once approved. */
 function PlanRow({item, project, onOpen}: {item: Extract<Item, {kind: 'plan'}>; project: string | null; onOpen: () => void}) {
   const b = item.plan;
-  const cards = b.proposal.cards.filter(c => !c.dropped).length;
-  const done = item.cards.filter(c => c.result === 'kept').length;
-  const waiting = item.cards.filter(needsAttention).length;
+  const p = item.progress;
+  const cards = p?.total ?? b.proposal.cards.filter(c => !c.dropped).length;
+  const done = p?.done ?? 0;
+  const waiting = p?.waiting ?? 0;
   const status = b.state === 'waiting_pick' ? t('Choose a planner to start')
     : b.state === 'thinking' ? t('The planner is working')
     : b.state === 'failed' ? t('The planner failed')
     : b.state === 'proposed' ? t('Proposed · {n} cards to review', {n: cards})
-    : waiting > 0 ? t('{done} of {total} cards kept · {n} waiting for you', {done, total: cards, n: waiting})
-    : done >= cards && cards > 0 ? t('Every card kept · output ready')
-    : t('{done} of {total} cards kept', {done, total: cards});
+    : waiting > 0 ? t('{done} of {total} cards done · {n} waiting for you', {done, total: cards, n: waiting})
+    : done >= cards && cards > 0 ? t('Every card done · output ready')
+    : t('{done} of {total} cards done', {done, total: cards}) + (p?.running ? ` · ${t('{n} running', {n: p.running})}` : '');
   return <li className={`task-row${item.needsYou ? ' attention' : ''}`}>
     <span className={`state-icon ${b.state === 'failed' ? 'check_failed' : b.state === 'approved' ? 'checks_passed' : 'waiting_approval'}`}>
       <Lightbulb size={18} strokeWidth={1.9} aria-hidden/></span>

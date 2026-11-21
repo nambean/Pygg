@@ -1239,7 +1239,7 @@ const DEMO_DIFF = 'diff --git a/src/timeout.ts b/src/timeout.ts\n--- a/src/timeo
 
 /** Tasks for the browser preview: the sample tasks, and new ones that "run" for a few seconds. Nothing runs. */
 function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards' | 'board' | 'boardLimits' | 'boardAct' | 'boardSetLimits' | 'brainstorms' | 'brainstorm' | 'brainstormPickPlanner' | 'brainstormRetry' | 'brainstormSetModel' | 'brainstormSetCard' | 'brainstormDecline' | 'brainstormApprove' | 'workspaces' | 'addWorkspace' | 'removeWorkspace' | 'taskBudget' | 'setTaskBudget' | 'setWorkspaceBudget' | 'setWorkspacePrivacy' | 'pickFolder' | 'exportPatch'
-  | 'detectChecks' | 'workspaceCheck' | 'tasks' | 'task' | 'createTask' | 'cancelTask' | 'decideTask' | 'retryTask' | 'taskDiff' | 'taskActivity' | 'brainstormDiff' | 'brainstormStart' | 'brainstormRefine'
+  | 'detectChecks' | 'workspaceCheck' | 'tasks' | 'task' | 'createTask' | 'cancelTask' | 'decideTask' | 'retryTask' | 'taskDiff' | 'taskActivity' | 'brainstormDiff' | 'plansProgress' | 'brainstormStart' | 'brainstormRefine'
   | 'finishTask'> {
   let dailyLimit: number | null = 2;
   const workspaces: WorkspaceView[] = SAMPLE_WORKSPACES.map((w, i) => ({...w, tasks: 0, dailyBudgetUsd: null, privacyClass: i === 1 ? 'sensitive' as const : 'standard' as const, checks: i === 0
@@ -1503,6 +1503,18 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
       set(id, {state: 'running', phase: 'preparing', reason: null}); },
     taskDiff: () => touch(DEMO_DIFF),
     brainstormDiff: () => touch(DEMO_DIFF),
+    plansProgress: async () => {
+      const by = new Map<string, {brainstormId: string; total: number; done: number; running: number; waiting: number}>();
+      for (const c of boardCards.filter(c => c.brainstormId && c.lane !== 'discarded')) {
+        const p = by.get(c.brainstormId!) ?? {brainstormId: c.brainstormId!, total: 0, done: 0, running: 0, waiting: 0};
+        p.total += 1;
+        if (c.lane === 'done') p.done += 1;
+        else if (c.lane === 'review' || c.lane === 'blocked' || c.task?.state === 'waiting_approval') p.waiting += 1;
+        else if (c.lane === 'running' || c.lane === 'checking') p.running += 1;
+        by.set(c.brainstormId!, p);
+      }
+      return touch([...by.values()]);
+    },
     taskActivity: async (_attempt, after) => {
       const lines = DEMO_ACTIVITY.map((text, i) => ({seq: i + 1, atMs: Date.now() - (DEMO_ACTIVITY.length - i) * 4000, text})).filter(l => l.seq > after);
       return touch({known: true, lines, dropped: 0, done: false});

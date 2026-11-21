@@ -42,7 +42,7 @@ type View =
   | {kind: GatewayDestination}
   | {kind: 'work'}
   | {kind: 'projects'}
-  | {kind: 'project'; id: string; tab: ProjectTab; back?: View}
+  | {kind: 'project'; id: string; tab: ProjectTab; back?: View; plan?: string}
   | {kind: 'task'; id: string; back: View}
   | {kind: 'brainstorm'; id: string; back: View}
   | {kind: 'brain'}
@@ -342,6 +342,8 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
           ? <ProjectView workspace={openedProject} tasks={allTasks.filter(task => task.workspaceId === openedProject.id)}
               brainstorms={brainstorms.filter(b => b.workspaceId === openedProject.id)} board={(boardList.data ?? []).find(b => b.workspaceId === openedProject.id) ?? null}
               tab={view.tab} onTab={tab => setView({...view, id: openedProject.id, tab})}
+              plan={view.plan ? {id: view.plan, title: brainstorms.find(b => b.id === view.plan)?.requirement.split('\n')[0] ?? ''} : null}
+              onAllPlans={() => setView({...view, plan: undefined})}
               backTo={view.back ? backLabel(view.back) : t('Projects')} onBack={() => goBack(view.back ?? {kind: 'projects'})}
               onOpenTask={openTask} onOpenTaskId={openTaskId} onOpenPlan={openPlan} onNewWork={() => newWork()}
               onSettings={() => setView({kind: 'workspaces', back: view})}/>
@@ -351,7 +353,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         {view.kind === 'task' && <TaskDetail key={view.id} id={view.id} backTo={backLabel(view.back)} onBack={() => goBack(view.back)}/>}
         {view.kind === 'brainstorm' && <BrainstormDetail key={view.id} id={view.id} tasks={allTasks} backTo={backLabel(view.back)}
           onBack={() => goBack(view.back)} onOpenTask={openTaskId}
-          onOpenBoard={workspaceId => { boardList.reload(); taskList.reload(); setView({kind: 'project', id: workspaceId, tab: 'board', back: view}); }}/>}
+          onOpenBoard={workspaceId => { boardList.reload(); taskList.reload(); setView({kind: 'project', id: workspaceId, tab: 'board', back: view, plan: view.id}); }}/>}
         {view.kind === 'new' && <div className="detail-back-wrap">
           <button type="button" className="back-button" onClick={() => setView(view.back)}>
             <ChevronLeft size={15} strokeWidth={2} aria-hidden/>{backLabel(view.back)}</button>

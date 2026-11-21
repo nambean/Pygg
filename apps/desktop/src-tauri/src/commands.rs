@@ -1915,6 +1915,12 @@ pub fn boards_list(state: State<'_, AppState>) -> Res<Vec<crate::board::BoardSum
     state.shared.with_db(crate::board::list)
 }
 
+/// Every approved plan's progress from its board cards (Work's rows).
+#[tauri::command]
+pub fn plans_progress(state: State<'_, AppState>) -> Res<Vec<crate::board::PlanProgress>> {
+    state.shared.with_db(crate::board::plan_progress)
+}
+
 /// A workspace's WIP limits: its own, or the Brain Storming defaults (`own` says which).
 #[tauri::command]
 pub fn board_limits(state: State<'_, AppState>, workspace_id: String) -> Res<crate::board::Limits> {

@@ -22,6 +22,9 @@ type Props = {
   onSettings: () => void;
   backTo: string;
   onBack: () => void;
+  /** The plan the board shows alone, when opened from its page. */
+  plan?: {id: string; title: string} | null;
+  onAllPlans?: () => void;
 };
 
 /**
@@ -29,7 +32,7 @@ type Props = {
  * Kanban view of every approved plan's cards. A plan's own page carries its progress and output.
  */
 export function ProjectView({workspace: w, tasks, brainstorms, board, tab, onTab, onOpenTask, onOpenTaskId, onOpenPlan, onNewWork,
-  onSettings, backTo, onBack}: Props) {
+  onSettings, backTo, onBack, plan, onAllPlans}: Props) {
   return <div className="projects project">
     <button type="button" className="back-button project-back" onClick={onBack}><ChevronLeft size={15} strokeWidth={2} aria-hidden/>{backTo}</button>
     <div className="project-head">
@@ -46,7 +49,7 @@ export function ProjectView({workspace: w, tasks, brainstorms, board, tab, onTab
     {tab === 'work'
       ? <WorkList tasks={tasks} brainstorms={brainstorms} workspaces={[w]} project={w.id} onOpenTask={onOpenTask} onOpenPlan={onOpenPlan} onNewWork={onNewWork}/>
       : board && board.cards > 0
-        ? <Board workspaceId={w.id} workspaces={[{workspaceId: w.id, workspaceName: w.name}]} onWorkspace={() => {}} onOpenTask={onOpenTaskId}/>
+        ? <Board workspaceId={w.id} workspaces={[{workspaceId: w.id, workspaceName: w.name}]} onWorkspace={() => {}} onOpenTask={onOpenTaskId} plan={plan} onAllPlans={onAllPlans}/>
         : <div className="placeholder">
           <h2>{t('The board is empty')}</h2>
           <p>{t('An approved plan puts its cards here. Pygg runs them one at a time, each checked before the next starts.')}</p>

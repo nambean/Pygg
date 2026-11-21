@@ -6,7 +6,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { engineText } from './engineText';
 import { runningInDesktop } from './native';
-import type { Activity, DayBudget, NewTask, TaskDetail, TaskSummary, WorkspaceView, Brainstorm, BrainRole, RoleLine, Board, BoardAction, BoardCard, BoardLimits, BoardSummary, BrainPick, BrainSettings, FactsStatus } from './tasks';
+import type { PlanProgress, Activity, DayBudget, NewTask, TaskDetail, TaskSummary, WorkspaceView, Brainstorm, BrainRole, RoleLine, Board, BoardAction, BoardCard, BoardLimits, BoardSummary, BrainPick, BrainSettings, FactsStatus } from './tasks';
 
 export type Billing = 'free' | 'local' | 'subscription' | 'paid' | 'unknown';
 export const BILLINGS: Billing[] = ['free', 'local', 'subscription', 'paid', 'unknown'];
@@ -594,6 +594,7 @@ export interface GatewayApi {
   brainstorms(): Promise<Brainstorm[]>;
   brainstorm(id: string): Promise<Brainstorm>;
   brainstormDiff(id: string): Promise<string>;
+  plansProgress(): Promise<PlanProgress[]>;
   /** Starts a plan for a project from the app; the planner runs in the background (or waits for a pick). */
   brainstormStart(workspaceId: string, requirement: string): Promise<Brainstorm>;
   /** Sends the user's answers and changes to the planner for a new revision. */
@@ -748,6 +749,7 @@ const native: GatewayApi = {
   brainstorms: () => invoke('brainstorms_list'),
   brainstorm: id => invoke('brainstorm_get', {id}),
   brainstormDiff: id => invoke('brainstorm_diff', {id}),
+  plansProgress: () => invoke('plans_progress'),
   brainstormStart: (workspaceId, requirement) => invoke('brainstorm_start', {workspaceId, requirement}),
   brainstormRefine: (id, answers) => invoke('brainstorm_refine', {id, answers}),
   brainstormCandidates: (id, role) => invoke('brainstorm_candidates', {id, role: role ?? null}),

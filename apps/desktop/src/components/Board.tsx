@@ -21,8 +21,10 @@ const LIST_ORDER: BoardLane[] = ['blocked', 'review', 'running', 'checking', 're
  * and limits, Blocked pinned with its reasons and time, moves by button, and the measures once five cards are done.
  * It reloads every three seconds; the app's tick pulls cards under the limit.
  */
-export function Board({workspaceId, workspaces, onWorkspace, onOpenTask}: {
+export function Board({workspaceId, workspaces, onWorkspace, onOpenTask, plan, onAllPlans}: {
   workspaceId: string; workspaces: {workspaceId: string; workspaceName: string}[]; onWorkspace: (id: string) => void; onOpenTask: (taskId: string) => void;
+  /** Opened from a plan's page: only that plan's cards, with a way to see every card. The limits stay the board's. */
+  plan?: {id: string; title: string} | null; onAllPlans?: () => void;
 }) {
   const loaded = useGateway(api => api.board(workspaceId), [workspaceId], 3_000);
   const gateway = useGateway(api => api.gatewayStatus(), [], 5_000);
@@ -35,7 +37,7 @@ export function Board({workspaceId, workspaces, onWorkspace, onOpenTask}: {
   if (loaded.error && !board) return <div className="page"><ErrorNote>{loaded.error}</ErrorNote>
     <button type="button" className="link-button" onClick={loaded.reload}>{t('Try Again')}</button></div>;
   if (!board) return <div className="page"><Spinner label={t('Loading the board…')}/></div>;
-  const cards = board.cards.filter(c => c.lane !== 'discarded');
+  const cards = board.cards.filter(c => c.lane !== 'discarded' && (!plan || c.brainstormId === plan.id));
   const count = (lane: BoardLane) => cards.filter(c => c.lane === lane).length;
   const limitOf = (lane: BoardLane) => lane === 'running' ? board.limits.wipRunning : lane === 'checking' ? board.limits.wipChecking : null;
   const header = (lane: BoardLane, as: 'h3' | 'div') => {
@@ -54,6 +56,8 @@ export function Board({workspaceId, workspaces, onWorkspace, onOpenTask}: {
   };
   const m = board.measures;
   return <div className="board-page">
+    {plan && <p className="group-footnote board-plan-note">{t('Showing the cards of the plan “{title}”. The running limit counts every plan’s cards.', {title: plan.title})}{' '}
+      {onAllPlans && <button type="button" className="link-button" onClick={onAllPlans}>{t('Show every card')}</button>}</p>}
     <div className="board-head">
       {workspaces.length > 1
         ? <select className="popup-button" value={board.workspaceId} onChange={e => onWorkspace(e.target.value)} aria-label={t('Workspace')}>

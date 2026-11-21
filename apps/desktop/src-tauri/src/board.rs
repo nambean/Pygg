@@ -706,6 +706,52 @@ pub fn board(conn: &Connection, workspace_id: &str) -> Result<Board> {
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct PlanProgress {
+    pub brainstorm_id: String,
+    /// Cards not dropped.
+    pub total: u32,
+    pub done: u32,
+    /// Running or checking, not waiting for an approval.
+    pub running: u32,
+    /// A paid step to approve, a result to review, or blocked.
+    pub waiting: u32,
+}
+
+/// Every approved plan's cards by where they are, for Work's rows: from the board, so a card your coding agent does
+/// (no task) counts too.
+pub fn plan_progress(conn: &Connection) -> Result<Vec<PlanProgress>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT c.brainstorm_id, c.lane, t.state FROM board_cards c LEFT JOIN tasks t ON t.id = c.task_id \
+             WHERE c.brainstorm_id IS NOT NULL AND c.lane != 'discarded' ORDER BY c.brainstorm_id",
+        )
+        .map_err(err)?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?)))
+        .map_err(err)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(err)?;
+    let mut out: Vec<PlanProgress> = Vec::new();
+    for (id, lane, state) in rows {
+        if out.last().map(|p| p.brainstorm_id != id).unwrap_or(true) {
+            out.push(PlanProgress { brainstorm_id: id, total: 0, done: 0, running: 0, waiting: 0 });
+        }
+        let p = out.last_mut().expect("pushed above");
+        p.total += 1;
+        let approval = state.as_deref() == Some("waiting_approval");
+        match lane.as_str() {
+            "done" => p.done += 1,
+            "review" | "blocked" => p.waiting += 1,
+            "running" | "checking" if approval => p.waiting += 1,
+            "running" | "checking" => p.running += 1,
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct BoardSummary {
     pub workspace_id: String,
     pub workspace_name: String,
@@ -821,6 +867,20 @@ mod tests {
     fn lane(conn: &Connection, ws: &str, card_id: &str) -> (String, Option<String>) {
         let c = cards_of(conn, ws).unwrap().into_iter().find(|c| c.card_id == card_id).unwrap();
         (c.lane, c.blocked_reason)
+    }
+
+    #[test]
+    fn a_plans_progress_counts_its_cards_on_the_board() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let ws = workspace(&conn);
+        let b = brainstorm(vec![bcard("c1", &[], 1, "engine"), bcard("c2", &["c1"], 2, "ide")], vec![]);
+        insert_brainstorm(&conn, &b);
+        add_cards(&conn, &b, &ws, "opencode").unwrap();
+        let first = tick(&conn).unwrap().remove(0);
+        let p = plan_progress(&conn).unwrap();
+        assert_eq!((p.len(), p[0].total, p[0].done, p[0].running, p[0].waiting), (1, 2, 0, 1, 0));
+        conn.execute("UPDATE tasks SET state = 'waiting_approval' WHERE id = ?1", [&first]).unwrap();
+        assert_eq!(plan_progress(&conn).unwrap()[0].waiting, 1, "a step to approve waits for you");
     }
 
     #[test]

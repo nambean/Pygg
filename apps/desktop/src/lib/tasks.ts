@@ -246,6 +246,8 @@ export type BoardCard = {
   taskId: string | null; blockedReason: string | null; blockedSince: number | null; blockedMs: number; readyAt: number | null;
   startedAt: number | null; doneAt: number | null; position: number; createdAt: number; updatedAt: number; task: TaskSummary | null;
 };
+/** An approved plan's cards by where they are (board.rs `plan_progress`). */
+export type PlanProgress = { brainstormId: string; total: number; done: number; running: number; waiting: number };
 export type BoardLimits = { wipRunning: number; wipChecking: number; own: boolean };
 export type RoleMoney = { role: BrainRole; kept: number; knownUsd: number; unknownCalls: number; usdPerKept: number | null };
 export type BoardMeasures = { measured: boolean; done: number; doneToday: number; cycleTimeMedianMs: number | null; cycleTimed: number; leadTimeMedianMs: number | null; blockedTodayMs: number; money: RoleMoney[] };

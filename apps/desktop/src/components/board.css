@@ -39,3 +39,4 @@
 .board-head .engine-state { display: inline-flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .board-card .ide-note { font-size: 11px; color: var(--secondary); margin-top: 4px; overflow-wrap: anywhere; }
 .board-card .waits-you { color: var(--orange); font-weight: 600; }
+.board-plan-note { margin: 0 0 8px; }
