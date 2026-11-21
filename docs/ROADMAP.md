@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Status:** Authoritative · delivery order and release gates · reviewed 2026-11-21
+> **Status:** Authoritative · delivery order and release gates · reviewed 2026-11-22
 
 Built: [Implementation Status](IMPLEMENTATION-STATUS.md); why: [DECISIONS](DECISIONS.md).
 
@@ -17,6 +17,30 @@ Built: [Implementation Status](IMPLEMENTATION-STATUS.md); why: [DECISIONS](DECIS
 | 7 | Demo data replays recorded snapshots | next |
 | 8 | Vietnamese translation | next (last) |
 | 9 | A larger benchmark: more cases, every coding-capable model, three clients, three repeats, results per task category | later |
+
+## What users lack elsewhere (2026-11-22)
+
+From public evidence (an analysis of 66,320 Reddit complaint posts about AI coding tools, Aug 2025 to Sep 2026; Sonar's developer survey; vendor docs), worked through with Codex against Pygg's code. Directional: complaint shares, not user counts.
+
+| Gap | Evidence | Pygg today | Missing |
+| --- | --- | --- | --- |
+| Unpredictable cost, wasted work | Token consumption 9.1% → 13.7% of complaints, now third; pricing second | Ledger per attempt, limits, launch receipts | Cost per kept result before and after, on every path |
+| Verification eats the saving | 48% always check AI code; most spend more time reviewing than writing | Checks, worktrees, diff, keep or discard | One evidence card: requirement, diff, checks, what nothing checked |
+| Control and safety while it runs | Lack of control 4.8% → 6.9%; agent security risks 1.2% → 2.9% | Paid steps wait for approval; worktrees | A worktree guards the checkout, not the machine, keys or network |
+| Limits, switching, lost context | Independent reset clocks; context rebuilt when changing tools | Fallback, session affinity, shared skills, hand-off between attempts | A portable task brief; what Pygg cannot see marked unknown |
+
+### Smart Tasks next, from the gap study
+
+| # | Item | Effort | Proof |
+| --- | --- | --- | --- |
+| 1 | **Task budget and receipt:** a range and a cap before, every attempt and the cost per kept result after | M | Estimate error and overshoot on replayed and interrupted runs |
+| 2 | **Review evidence card:** requirement, diff, base, checks run and passed, criteria nothing checked | M | Blind reviewers find seeded defects faster; misses reported |
+| 3 | **Cheap-first ladder shown with its predicted total** and the stop rules; escalate only on a failed check | M | Paired tasks with hidden checks: pass rate and cost per solved task against strong-only |
+| 4 | **Sandbox profile** per attempt (files, keys, network), its enforcement shown before it runs | L | Adversarial fixtures per OS |
+| 5 | **Portable task brief** to export and import between agents | M | Hand-off completeness and recovery time; secrets redacted |
+| 6 | **Coverage-aware usage:** what the gateway saw, what a provider states, what is unknown | S | Reconciled against provider reports |
+
+Not to build: a quota scraper, cookie or OAuth bridges into subscriptions, estimates sold as bill guarantees, passing checks presented as proof of safety, or a promise that cheap routing always saves.
 
 ## Release gates
 
