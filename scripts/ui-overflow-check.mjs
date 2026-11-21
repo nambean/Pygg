@@ -69,14 +69,21 @@ const states = [
   {screen: 'brain', name: 'a role pick being changed: the role sheet', steps: `click('Change…', 0); await wait(1200);`, expect: '[role=dialog] .role-row'},
   {screen: 'brain', name: 'a project’s override sheet', steps: `click('Override…', 0); await wait(1200);`, expect: '[role=dialog] .group-box'},
   {screen: 'board', query: 'stress&gateway=stopped', name: 'the gateway stopped', steps: '', expect: '.board-head .engine-state'},
-  // Smart Tasks as projects: the list (what waits on you, projects, solo tasks), with long names, and a project's page
-  // (plan → tasks → output, the board inside it).
+  // Smart Tasks: Work (needs you, running, recent), Projects, a project's Work and Board, New work in its three kinds.
+  {screen: 'work', name: 'Work', steps: '', expect: '.work .task-list'},
+  {screen: 'work', query: 'stress', name: 'Work with long names', steps: '', expect: '.work .task-list'},
+  {screen: 'work', query: 'empty', name: 'Work, first run', steps: '', expect: '.placeholder'},
   {screen: 'projects', name: 'Projects', steps: '', expect: '.project-grid'},
   {screen: 'projects', query: 'stress', name: 'Projects with long names', steps: '', expect: '.project-grid'},
   {screen: 'projects', query: 'empty', name: 'Projects, first run', steps: '', expect: '.placeholder'},
   {screen: 'projects', name: 'a project being added', steps: `click('Add project…', 0); await wait(400);`, expect: '.project-add'},
-  {screen: 'project', name: 'a project’s page', steps: '', expect: '.project-steps'},
-  {screen: 'project', query: 'stress', name: 'a project’s page with long names', steps: '', expect: '.project-steps'},
+  {screen: 'project', name: 'a project’s work', steps: '', expect: '.work'},
+  {screen: 'project', query: 'stress', name: 'a project’s work with long names', steps: '', expect: '.work'},
+  {screen: 'new', name: 'New work: a task, agent settings open', steps: `document.querySelectorAll('.agent-settings').forEach(d => d.open = true); await wait(300);`, expect: '.work-kinds'},
+  {screen: 'new', name: 'New work: ask', steps: `click('Ask', 0); await wait(300);`, expect: '.work-kind.selected'},
+  {screen: 'new-plan', name: 'New work: a plan', steps: '', expect: '.work-kinds'},
+  {screen: 'plan-running', name: 'a plan running: steps, cards, output', steps: '', expect: '.plan-cards'},
+  {screen: 'plan-running', query: 'stress', name: 'a plan running, long names', steps: '', expect: '.plan-cards'},
   // First run: nothing connected, no keys, no requests.
   ...['overview', 'connections', 'endpoint', 'tools', 'combos', 'usage', 'skills'].map(screen => ({screen, query: 'empty', name: 'first run', steps: ''})),
   {screen: 'connections', query: 'empty', name: 'first run, Connect sheet', steps: `click('Connect Provider'); await wait(800);`, expect: '[role=dialog]'},

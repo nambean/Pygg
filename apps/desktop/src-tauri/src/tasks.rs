@@ -452,6 +452,8 @@ pub struct TaskSummary {
     pub result_branch: Option<String>,
     /// The gateway client that started it (an IDE agent through the MCP server); `None`: the app.
     pub source: Option<String>,
+    /// An answer task (Ask): a question about the code, nothing changed.
+    pub answer: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -684,6 +686,7 @@ fn summary_of(conn: &Connection, id: &str, row: &TaskRow, attempts: &[AttemptVie
         card_id: row.card_id.clone(),
         result: row.result.clone(),
         result_branch: row.result_branch.clone(),
+        answer: row.policy.answer,
     })
 }
 
@@ -1885,8 +1888,21 @@ fn result_attempt(conn: &Connection, id: &str) -> Result<(TaskRow, AttemptView, 
 }
 
 pub fn result_diff(conn: &Connection, id: &str) -> Result<String> {
-    let (_, _, worktree) = result_attempt(conn, id)?;
-    isolation::diff(&worktree).map_err(|e| e.to_string())
+    match result_attempt(conn, id) {
+        Ok((_, _, worktree)) => isolation::diff(&worktree).map_err(|e| e.to_string()),
+        // A solo result kept as its own branch: its changes are that branch against where the task started. A plan
+        // card's branch holds the other cards too, so it has no diff of its own here (the plan's page has the whole).
+        Err(e) => {
+            let row = task_row(conn, id)?;
+            match (row.result.as_deref(), row.result_branch.as_deref(), row.base_revision.as_deref()) {
+                (Some("kept"), Some(branch), Some(base)) if !branch.starts_with("str/brain-") => {
+                    isolation::branch_diff(Path::new(&row.workspace_path), branch, Some(base), 512 * 1024)
+                        .map_err(|e| e.to_string())
+                }
+                _ => Err(e),
+            }
+        }
+    }
 }
 
 /// The result as a patch file's name and text (ADR-009, Export Patch). A short header names the task and the commit it

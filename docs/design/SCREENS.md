@@ -36,12 +36,13 @@ Code: `apps/desktop/src/main.tsx` (shell), `src/components` and `components/gate
 | Usage | The ledger: cost, tokens, requests | Built | §5.6 |
 | Policies | Every rule the gateway applies | Built | below |
 | Skills & Prompts | Agent skills and what global files cost | Built | below |
-| **Smart Tasks:** Projects | A project is a repository: plan → tasks → output, or a solo task | Built · experimental | §5.0, §5.1 |
+| **Smart Tasks:** Work | Every plan, task and question: needs you, running, recent | Built · experimental | §5.0 |
+| Projects | The repositories; a project's work and board | Built · experimental | §5.0, §5.1.1 |
 | Agents & defaults | Agent CLIs, MCP set-up, and the Brain Storming defaults | Built · experimental | below |
 | **App:** Guide | How to use Pygg | Built | below |
 | Settings | Language, budgets, background, diagnostics, history | Built | §5.8 |
 
-- The app starts on Home; Projects shows a count of what needs attention (§5.0). All tasks, Project settings and the board stay reachable from Projects and the command palette.
+- The app starts on Home; Work shows a count of what needs you (§5.0). **New work** (`Ctrl+N`) is in the toolbar of every Smart Tasks page; `Ctrl+7` Work, `Ctrl+8` Projects, `Ctrl+9` Agents & defaults.
 - **Footer:** gateway status (opens Home) and version: `Gateway Running · <port>`, `Gateway Stopped`, `Gateway Couldn't Start`, `Connecting…`, `Core isn't responding`; a provider outage shows on that connection (§5.4), never as gateway offline.
 
 #### Home
@@ -163,19 +164,19 @@ Code: `apps/desktop/src/main.tsx` (shell), `src/components` and `components/gate
 
 ## 5. Screens
 
-### 5.0 Projects
+### 5.0 Work and Projects
 
-`ProjectsView.tsx`, `ProjectView.tsx`. The owner's model: **create a project → plan it with Brain Storming → the tasks run → take the output**, or **one solo task**.
+`WorkList.tsx`, `ProjectsView.tsx`, `ProjectView.tsx`. The owner's model: **a project → Brain Storming → the tasks run → the output**, or **one task**, or **a question**. Shaped after GitHub's agent sessions, Jules, Codex and Linear (one list of work with what needs you first; one page per piece of work that reads top to bottom; the board as a view).
 
-- **Projects:** **Needs your attention** (brainstorms to review, steps to approve), the projects as cards (path, plans, cards on the board, what runs or waits), **Add project…**, recent **Solo tasks**, **New solo task**, **All tasks**.
-- **A project:** the step bar **Plan → Tasks → Output** for the chosen plan (by default the one waiting on you, else the newest approved; progress counts its board cards: done, running, to review, blocked); **1 · Plan** (its brainstorms and **New plan**: **What should be built?**, **Start planning**; with none, the form is open, with how to start one from the coding agent with `pygg/brain` folded below); **2 · Tasks** (the project's board, folded once every card on it is done, and the project's solo tasks); **Waiting for you** under the steps (a paid step to approve, a result to review, a blocked card, each with its button); **Ask about this project** (an answer task, ADR-043) beside **New solo task**; **3 · Output** (the plan's branch with copyable git commands, **Review the changes** as one diff from where the plan started, results that could not join the plan's branch on branches of their own, kept solo results). **Project settings** opens §5.3.
+- **Work** (home): **Needs you** (a plan to review or pick a planner for, a paid step, a result to review, a failure), **Running**, **Recent** (25, **Show more**); search. Rows: **Plan**, **Task** or **Ask**, the project, the source (**from your coding agent**), status, **Review** or **Open**. A plan's cards are not rows: they are on the plan's page.
+- **Projects:** the repositories as cards (path, what waits, what runs), **Add project…**.
+- **A project:** path, **Project settings**, **New work**; **Work** (the same list, this project only) or **Board** (§5.1.1).
+- Each page opened from a list has a back link to that list (Work, a project, a plan).
+- Partial loads say which part failed, each with **Try Again**.
 
-### 5.1 Tasks
+### 5.1 New work
 
-`TaskList.tsx`, as **All tasks**. Experimental.
-
-- Filters with counts: All, Running, Needs Approval, Completed, Failed, Stopped, **Board** (§5.1.1).
-- **Needs Attention** pinned on top with **Review**; search (`Ctrl+F`); brainstorm rows (§5.2.2).
+`NewTaskView.tsx`. **What do you want?**: **Ask** (a question; nothing changes, ADR-043), **Task** (one change, checked, kept as a branch), **Plan** (Brain Storming); **Project** (with **Add…**); the text; for a task the project's checks; **Agent settings** folded (strategy, the ladder of agent steps, shell **Allow**); **Ask**, **Start task** or **Create plan**. Opens the task or the plan.
 
 #### 5.1.1 Board
 
@@ -187,29 +188,22 @@ Code: `apps/desktop/src/main.tsx` (shell), `src/components` and `components/gate
 
 ### 5.2 Task detail
 
-`TaskDetail.tsx`.
+`TaskDetail.tsx`. Tabs **Overview · Activity · Changes**.
 
-- **Waiting for approval** (inline): **Approve up to $…** with a cap, or **Decline**; a sensitive workspace asks **Allow This Step**.
-- **Answer** (an answer task): the agent's answer with **Copy**; nothing to keep.
-- **Result:** **Review Changes**, **Keep as Branch**, **Discard…**, **Export Patch…**; once kept, an **Output** box with the branch (copy), the git commands to review and merge, and, for a plan's card, whether its work is on the plan's branch or kept apart.
-- **Live activity** under a running attempt: what the agent does, line by line (files read and written, commands, what the model said), from OpenCode and Codex as it happens; Claude Code and Gemini CLI report when they finish. `live.rs`, in memory, the last 500 lines of an attempt.
-- Attempts with cost and checks; **Stop Task**, **Retry**; the task's text folded when long.
+- **Overview**, top to bottom: the reason line; **Answer** (an Ask: the answer with **Copy**); the **Output** box once kept (branch, git commands; for a plan's card whether it is on the plan's branch); the result to decide (**Review Changes** diff, **Keep as Branch**, **Discard…**, **Export Patch…**); a paid or sensitive step to approve (**Approve up to $…**, **Decline**, **Allow This Step**); **Stop Task**, **Retry**; **Now**: the running step's **Live activity** (files, commands, what the model said; OpenCode and Codex as it happens, Claude Code and Gemini CLI when they finish; `live.rs`, the last 500 lines); **Steps** (each attempt, its outcome and why it moved on); **Task** (text folded when long, steps, checks, base).
+- **Activity:** every attempt in full: checks, cost, tokens, what it was told, check output, the agent's output tail.
+- **Changes** (when an attempt changed files): the result's diff, or a kept solo branch against where it started.
 
-#### 5.2.1 New Task
+#### 5.2.2 Plan
 
-`NewTaskView.tsx`.
-
-- Description, workspace, a ladder of agent steps (Free First, Balanced, Quality), shell **Allow** switch; **Start Task**.
-
-#### 5.2.2 Brainstorm
-
-`BrainstormDetail.tsx`, ADR-041, [BRAIN.md](BRAIN.md) §2.
+`BrainstormDetail.tsx`, `planParts.tsx`, ADR-041, [BRAIN.md](BRAIN.md) §2. One page from requirement to output, with the steps **Plan → Tasks → Output** on top.
 
 - States: **Waits for your pick**, **Thinking**, **Proposed**, **Approved · board**, **Declined**, **Planner failed**.
 - A paid planner waits for **Use <model>** or **Decline**.
 - A plan started here (**started here**): an answer box under each open question, **Anything else to change in the plan**, **Send to the planner** (a new revision); one from a coding agent is answered there.
 - Cards: model, **Change…** (role sheet, §6), up to 5 fallbacks, **Drop** / **Restore**.
-- Approve bar: known estimate, budget left; **Approve <n> cards…** puts them on the board.
+- Approve bar: project (chosen explicitly), agent, known estimate, budget left; **Approve <n> cards…** puts them on the board.
+- Approved: **Cards** (attention first, each with its lane and reason and **Approve…**, **Review**, **Open**, **Run again**, **Hand to Pygg** or **Move to Ready**; **View board**), **Output** (the plan's branch, git commands, **Review the changes** as one diff from where it started, results on branches of their own; marked in progress until every card is done), the plan as approved folded.
 
 ### 5.3 Workspaces
 

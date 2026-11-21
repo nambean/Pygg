@@ -79,3 +79,44 @@
 .needs-you .needs-title { font-weight: 600; overflow-wrap: anywhere; }
 .needs-you .needs-what { color: var(--secondary); overflow-wrap: anywhere; }
 @media (max-width: 900px) { .needs-you li { grid-template-columns: minmax(0, 1fr) auto; } .needs-you .needs-what { grid-column: 1; } }
+
+/* New work: the three kinds side by side. */
+.work-kinds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.work-kind { display: grid; gap: 4px; align-content: start; text-align: left; padding: 10px 12px; border-radius: 8px;
+  border: 1px solid var(--separator); background: var(--surface); color: inherit; cursor: pointer; font: inherit; }
+.work-kind strong { font-size: 13px; }
+.work-kind small { color: var(--secondary); font-size: 12px; line-height: 1.4; }
+.work-kind.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.work-kind:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.agent-settings > summary { cursor: pointer; margin: 6px 0 10px; font-weight: 600; }
+/* Work: a row's kind. */
+.kind-chip { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 4px;
+  background: var(--field); color: var(--secondary); flex-shrink: 0; }
+.kind-chip.plan { color: var(--orange); }
+.kind-chip.ask { color: var(--accent-text); }
+
+/* The plan page: its steps and cards. */
+.plan-steps { padding: 4px 0 8px; }
+.plan-cards { list-style: none; margin: 0; padding: 0; }
+.plan-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.plan-card.attention { background: color-mix(in srgb, var(--orange) 8%, transparent); }
+.plan-card-text { display: flex; flex-direction: column; min-width: 0; }
+.plan-card-title { font-weight: 500; overflow-wrap: anywhere; }
+.plan-card .secondary { font-size: 12px; overflow-wrap: anywhere; }
+.lane-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--paused); }
+.lane-dot.running, .lane-dot.checking { background: var(--accent); }
+.lane-dot.review, .lane-dot.blocked { background: var(--orange); }
+.lane-dot.done { background: var(--green); }
+.plan-as-approved > summary { cursor: pointer; margin: 8px 0; }
+
+/* The task page: tabs, now, steps. */
+.detail-tabs { padding-left: 0; padding-right: 0; }
+.now-box { padding: 8px 12px; }
+.step-summary { list-style: none; margin: 0; padding: 0; }
+.step-summary .group-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.step-summary-text { display: flex; flex-direction: column; min-width: 0; }
+.step-summary-text .mono, .step-summary-text small { overflow-wrap: anywhere; }
+.detail-back-wrap > .back-button { display: flex; max-width: 780px; width: calc(100% - 48px); margin: 16px auto -8px; }
+.plan-card-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.plan-card .warn-text { font-size: 12px; }
+.project-back { margin: 12px 20px 0; }

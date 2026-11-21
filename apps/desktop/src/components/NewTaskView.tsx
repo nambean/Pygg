@@ -6,7 +6,7 @@ import { MOD } from '../lib/platform';
 import { MAX_STEPS, type Billing, type Step, type Strategy, type Tier, type WorkspaceView } from '../lib/tasks';
 import { useGateway } from '../hooks/useGateway';
 import { billingLabel } from './AttemptSequence';
-import { ErrorNote, Spinner } from './ui';
+import { ErrorNote, rovingIndex, Spinner } from './ui';
 import { AddWorkspaceForm, WorkspaceChecks } from './WorkspacesView';
 
 /** The order each strategy tries the installed agents in; the user can change every step. */
@@ -26,12 +26,17 @@ function suggestedSteps(strategy: Strategy, agents: AgentInfo[]): Step[] {
       billing: a.id === 'codex' && /chatgpt/i.test(a.login ?? '') ? 'subscription' : 'unknown'}));
 }
 
+export type WorkMode = 'ask' | 'task' | 'plan';
+
 /**
- * New Task (SCREENS.md §5.2.1): the workspace, its checks, and the ladder of agent steps the task climbs. Each
- * step runs with the agent's own sign-in in a fresh worktree; a step that fails the checks hands what failed to
- * the next one. A step marked paid waits for approval.
+ * New work (SCREENS.md §5.2.1): one form for the three kinds of work in a project. Ask: an agent reads the repository
+ * and answers. Task: one change by a ladder of agent steps, each in a fresh worktree, checked, kept as a branch.
+ * Plan: Brain Storming turns a larger requirement into cards to review and approve. A paid step waits for approval.
  */
-export function NewTaskView({onCreated, workspaceId: initial, answer = false}: {onCreated: (id: string) => void; workspaceId?: string | null; answer?: boolean}) {
+export function NewTaskView({onCreated, onPlanCreated, workspaceId: initial, mode, onMode}: {
+  onCreated: (id: string) => void; onPlanCreated: (id: string) => void; workspaceId?: string | null; mode: WorkMode;
+  onMode: (mode: WorkMode) => void;
+}) {
   const workspaces = useGateway(api => api.workspaces());
   const agents = useGateway(api => api.agents());
   const [workspaceId, setWorkspaceId] = useState(initial ?? '');
@@ -41,6 +46,7 @@ export function NewTaskView({onCreated, workspaceId: initial, answer = false}: {
   const [allowShell, setAllowShell] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const answer = mode === 'ask';
 
   const list = workspaces.data ?? [];
   const workspace = list.find(w => w.id === workspaceId);
@@ -48,11 +54,17 @@ export function NewTaskView({onCreated, workspaceId: initial, answer = false}: {
   const installed = useMemo(() => (agents.data ?? []).filter(a => a.installed), [agents.data]);
   useEffect(() => { if (agents.data) setSteps(suggestedSteps(strategy, agents.data)); }, [agents.data, strategy]);
 
-  const canStart = !!workspace && text.trim() !== '' && (steps?.length ?? 0) > 0 && !busy;
+  const canStart = !!workspace && text.trim() !== '' && (mode === 'plan' || (steps?.length ?? 0) > 0) && !busy;
   const start = () => {
-    if (!canStart || !workspace || !steps) return;
+    if (!canStart || !workspace) return;
     setBusy(true);
     setError(null);
+    if (mode === 'plan') {
+      call(api => api.brainstormStart(workspace.id, text)).then(b => { gatewayChanged(); onPlanCreated(b.id); },
+        e => { setError(errorText(e)); setBusy(false); });
+      return;
+    }
+    if (!steps) return;
     call(api => api.createTask({workspaceId: workspace.id, title: null, prompt: text.trim(), strategy, steps, allowShell, timeoutSecs: null, answer}))
       .then(id => { gatewayChanged(); onCreated(id); }, e => { setError(errorText(e)); setBusy(false); });
   };
@@ -63,59 +75,84 @@ export function NewTaskView({onCreated, workspaceId: initial, answer = false}: {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
+  const ladder = (steps ?? []).map((s, i) => `${i + 1}. ${installed.find(a => a.id === s.agent)?.name ?? s.agent}`).join(' → ');
+  const kinds: [WorkMode, string, string][] = [
+    ['ask', t('Ask'), t('A question about the code. An agent reads and answers; nothing changes.')],
+    ['task', t('Task'), t('One change. An agent makes it on a copy, the checks test it, you keep it as a branch.')],
+    ['plan', t('Plan'), t('A larger change. Brain Storming splits it into cards you review and approve, then runs them.')],
+  ];
 
   return <div className="settings new-task">
     <section className="group">
-      <h2><label htmlFor="task-text">{answer ? t('Question') : t('Task')}</label></h2>
-      <textarea id="task-text" className="task-input" autoFocus value={text} onChange={e => setText(e.target.value)}
-        placeholder={answer ? t('Ask about the code, e.g. “How does the app start, and where is the database opened?”')
-          : t('Describe the change, e.g. “Fix timeout handling and add regression tests.”')} rows={5}/>
-      {answer && <p className="group-footnote">{t('An agent reads the repository and answers. Nothing is changed, so nothing needs keeping; a paid step still asks first.')}</p>}
+      <h2 id="work-kind-label">{t('What do you want?')}</h2>
+      <div className="work-kinds" role="radiogroup" aria-labelledby="work-kind-label" onKeyDown={e => {
+        const next = rovingIndex(e.key, kinds.findIndex(k => k[0] === mode), kinds.length);
+        if (next === null) return;
+        e.preventDefault();
+        onMode(kinds[next][0]);
+        (e.currentTarget.children[next] as HTMLElement | undefined)?.focus();
+      }}>
+        {kinds.map(([value, label, hint]) => <button key={value} type="button" role="radio" aria-checked={mode === value} tabIndex={mode === value ? 0 : -1}
+          className={`work-kind${mode === value ? ' selected' : ''}`} onClick={() => onMode(value)}>
+          <strong>{label}</strong><small>{hint}</small></button>)}
+      </div>
     </section>
 
     {workspaces.error && !workspaces.data
-      ? <LoadFailed what={t('Workspaces could not be loaded: {error}', {error: workspaces.error})} retrying={workspaces.loading} onRetry={workspaces.reload}/>
+      ? <LoadFailed what={t('Projects could not be loaded: {error}', {error: workspaces.error})} retrying={workspaces.loading} onRetry={workspaces.reload}/>
       : <WorkspacePicker workspaces={list} loading={!workspaces.data} selected={workspaceId}
         onSelect={setWorkspaceId} onChanged={w => { workspaces.reload(); if (w) setWorkspaceId(w.id); }}/>}
-    {workspace && <WorkspaceChecks workspace={workspace} onChanged={workspaces.reload}/>}
 
     <section className="group">
-      <h2>{t('Steps')}</h2>
-      <div className="group-box">
-        <div className="group-row">
-          <span className="group-label"><label htmlFor="strategy">{t('Strategy')}</label>
-            <small>{strategy === 'free_first' ? t('Starts with the agents most likely to be free; a paid step asks first.')
-              : strategy === 'balanced' ? t('Starts with a capable agent and keeps cheaper ones as fallbacks.')
-              : t('Starts with the strongest agent for hard or risky work.')}</small></span>
-          <span className="group-control">
-            <select id="strategy" className="popup-button" value={strategy} onChange={e => setStrategy(e.target.value as Strategy)}>
-              <option value="free_first">{t('Free First')}</option>
-              <option value="balanced">{t('Balanced')}</option>
-              <option value="quality">{t('Quality')}</option>
-            </select>
-          </span>
-        </div>
-        {!agents.data && agents.error ? <div className="group-row">
-            <LoadFailed what={t('Agents could not be listed: {error}', {error: agents.error})} retrying={agents.loading} onRetry={agents.reload}/></div>
-          : !agents.data ? <div className="group-row"><Spinner label={t('Looking for agents…')}/></div>
-          : installed.length === 0 ? <div className="group-row"><span className="group-label">
-            {t('No agent is installed. Install Claude Code, Codex CLI, Gemini CLI or OpenCode (see Agents) to run tasks.')}</span></div>
-          : <StepEditor steps={steps ?? []} agents={installed} onChange={setSteps}/>}
-        <div className="group-row">
-          <span className="group-label"><label htmlFor="task-shell">{t('Shell commands')}</label>
-            <small>{allowShell ? t('Agents may run commands in their copy, such as tests. Codex always runs in its own sandbox.')
-              : t('Off: agents may read and edit files only. Codex always runs commands in its own sandbox.')}</small></span>
-          <span className="group-control"><label className="check-row"><input id="task-shell" type="checkbox" checked={allowShell}
-            onChange={e => setAllowShell(e.target.checked)}/>{t('Allow')}</label></span>
-        </div>
-      </div>
-      <p className="group-footnote">{t('Each step uses the agent’s own sign-in, in a fresh copy of the workspace’s current commit. Tier and billing are your classing: Pygg cannot see which plan an agent uses, so its cost is recorded as unknown.')}</p>
+      <h2><label htmlFor="task-text">{mode === 'ask' ? t('Question') : mode === 'task' ? t('Task') : t('What should be built?')}</label></h2>
+      <textarea id="task-text" className="task-input" autoFocus value={text} onChange={e => setText(e.target.value)} rows={5}
+        placeholder={mode === 'ask' ? t('Ask about the code, e.g. “How does the app start, and where is the database opened?”')
+          : mode === 'task' ? t('Describe the change, e.g. “Fix timeout handling and add regression tests.”')
+          : t('Describe the feature or change as you would to a colleague: what it does, for whom, what must not break.')}/>
+      {mode === 'plan' && <p className="group-footnote">{t('Pygg’s planner reads only what you write here, not your files. It may ask questions, then proposes cards with a role and a model each; nothing runs until you approve. A paid planner waits for your pick.')}</p>}
     </section>
+
+    {mode === 'task' && workspace && <WorkspaceChecks workspace={workspace} onChanged={workspaces.reload}/>}
+
+    {mode !== 'plan' && <details className="form-disclosure agent-settings">
+      <summary>{t('Agent settings')}<span className="secondary"> · {ladder || t('no agent installed')}</span></summary>
+      <section className="group">
+        <div className="group-box">
+          <div className="group-row">
+            <span className="group-label"><label htmlFor="strategy">{t('Strategy')}</label>
+              <small>{strategy === 'free_first' ? t('Starts with the agents most likely to be free; a paid step asks first.')
+                : strategy === 'balanced' ? t('Starts with a capable agent and keeps cheaper ones as fallbacks.')
+                : t('Starts with the strongest agent for hard or risky work.')}</small></span>
+            <span className="group-control">
+              <select id="strategy" className="popup-button" value={strategy} onChange={e => setStrategy(e.target.value as Strategy)}>
+                <option value="free_first">{t('Free First')}</option>
+                <option value="balanced">{t('Balanced')}</option>
+                <option value="quality">{t('Quality')}</option>
+              </select>
+            </span>
+          </div>
+          {!agents.data && agents.error ? <div className="group-row">
+              <LoadFailed what={t('Agents could not be listed: {error}', {error: agents.error})} retrying={agents.loading} onRetry={agents.reload}/></div>
+            : !agents.data ? <div className="group-row"><Spinner label={t('Looking for agents…')}/></div>
+            : installed.length === 0 ? <div className="group-row"><span className="group-label">
+              {t('No agent is installed. Install Claude Code, Codex CLI, Gemini CLI or OpenCode (see Agents) to run tasks.')}</span></div>
+            : <StepEditor steps={steps ?? []} agents={installed} onChange={setSteps}/>}
+          {mode === 'task' && <div className="group-row">
+            <span className="group-label"><label htmlFor="task-shell">{t('Shell commands')}</label>
+              <small>{allowShell ? t('Agents may run commands in their copy, such as tests. Codex always runs in its own sandbox.')
+                : t('Off: agents may read and edit files only. Codex always runs commands in its own sandbox.')}</small></span>
+            <span className="group-control"><label className="check-row"><input id="task-shell" type="checkbox" checked={allowShell}
+              onChange={e => setAllowShell(e.target.checked)}/>{t('Allow')}</label></span>
+          </div>}
+        </div>
+        <p className="group-footnote">{t('Each step uses the agent’s own sign-in, in a fresh copy of the project’s current commit. If a step fails, the next one tries. Tier and billing are your classing: Pygg cannot see which plan an agent uses.')}</p>
+      </section>
+    </details>}
 
     {error && <ErrorNote>{error}</ErrorNote>}
     <div className="form-actions">
       <button type="button" className="button prominent" disabled={!canStart} onClick={start}>
-        {busy ? <Spinner/> : <Play size={13} aria-hidden/>}{answer ? t('Ask') : t('Start Task')}</button>
+        {busy ? <Spinner/> : <Play size={13} aria-hidden/>}{mode === 'ask' ? t('Ask') : mode === 'task' ? t('Start task') : t('Create plan')}</button>
       <span className="shortcut-hint">{`${MOD}Enter`}</span>
     </div>
   </div>;
@@ -134,7 +171,7 @@ function WorkspacePicker({workspaces, loading, selected, onSelect, onChanged}: {
   const [adding, setAdding] = useState(false);
   const showForm = adding || (!loading && workspaces.length === 0);
   return <section className="group">
-    <h2>{t('Workspace')}</h2>
+    <h2>{t('Project')}</h2>
     <div className="group-box">
       {loading && <div className="group-row"><Spinner/></div>}
       {workspaces.length > 0 && <div className="group-row">

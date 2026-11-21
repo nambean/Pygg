@@ -56,6 +56,8 @@ export type TaskSummary = {
   updatedAt: number;
   /** The client that started it through the task API (an IDE agent via pygg-mcp); null: the app. */
   source?: string | null;
+  /** An answer task (Ask): a question about the code; nothing changes. */
+  answer?: boolean;
   /** The brainstorm and card it was made from; null for a solo task. */
   brainstormId?: string | null;
   cardId?: string | null;

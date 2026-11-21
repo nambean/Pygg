@@ -1281,6 +1281,9 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
     {id: 'bs-proposed', clientId: 'k-1', session: '9b1c', workspaceId: workspaces[0]?.id ?? null, state: 'proposed', requirement: 'Add CSV export to the orders report', planner: sonnet, promptVersion: 'brain-v1', revision: 2,
       proposal: {questions: brainQuestions(stress ? 12 : 4), cards: proposedCards(), droppedCards: stress ? 2 : 0}, rawReply: null,
       note: stress ? '2 card(s) the planner wrote did not fit the schema and were left out' : null, error: null, createdAt: Date.now() - 600_000, updatedAt: Date.now() - 60_000},
+    {id: 'bs-running', clientId: 'k-app', session: 'app-5d1e', workspaceId: workspaces[0]?.id ?? null, state: 'approved', requirement: 'Product catalogue and checkout for the shop', planner: sonnet, promptVersion: 'brain-v3', revision: 1,
+      proposal: {questions: brainQuestions(2).map(q => ({...q, answered: true})), cards: proposedCards(), droppedCards: 0}, rawReply: null, note: null, error: null,
+      createdAt: Date.now() - 7_300_000, updatedAt: Date.now() - 60_000, branch: 'str/brain-product-catalogue-and-checkout-bs5d1e00'},
     {id: 'bs-failed', clientId: 'k-1', session: '77aa', workspaceId: null, state: 'failed', requirement: 'Migrate the reports to the new schema', planner: 'ollama/qwen3:8b', promptVersion: 'brain-v1', revision: 0,
       proposal: {questions: [], cards: [], droppedCards: 0}, rawReply: 'Sure! Here is my plan:\n1. Look at the schema\n2. Write the migration', note: null,
       error: 'the planner did not answer in the board schema: no JSON object in the reply', createdAt: Date.now() - 3_600_000, updatedAt: Date.now() - 3_500_000},
@@ -1350,7 +1353,7 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
     return proposedCards().map((c, i): BoardCard => {
       const [lane, taskState, reason] = lanes[c.id] ?? [(['discovery', 'ready', 'blocked', 'done'] as BoardLane[])[i % 4], null, i % 4 === 2 ? 'Waiting for your agent' : null];
       const task = taskState ? byState(taskState) : null;
-      return {id: `bc-${c.id}`, workspaceId: ws, brainstormId: 'bs-proposed', cardId: c.id, title: c.title, role: c.role, done: c.done, prompt: c.done, dependsOn: c.dependsOn,
+      return {id: `bc-${c.id}`, workspaceId: ws, brainstormId: 'bs-running', cardId: c.id, title: c.title, role: c.role, done: c.done, prompt: c.done, dependsOn: c.dependsOn,
         ladder: [c.model ?? 'auto/code', ...c.fallbacks.map(f => f.model)], agent: 'opencode', runner: c.id === 'c8' ? 'ide' : 'engine', class: c.id === 'c4' ? 'expedite' : 'standard', lane,
         held: c.id === 'c6', taskId: task?.id ?? null, blockedReason: lane === 'blocked' ? reason : null, blockedSince: lane === 'blocked' ? now - 5_400_000 : null, blockedMs: lane === 'blocked' ? 1_200_000 : 0,
         readyAt: now - 7_200_000, startedAt: ['running', 'checking', 'review', 'done'].includes(lane) ? now - 3_600_000 : null, doneAt: lane === 'done' ? now - 1_800_000 : null,

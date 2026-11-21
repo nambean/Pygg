@@ -10,17 +10,22 @@ import { useGateway } from '../hooks/useGateway';
 import { billingLabel, outcomeLabel } from './AttemptSequence';
 import { DiffView } from './DiffView';
 import { StateIcon, statusLine } from './TaskList';
-import { Badge, ConfirmSheet, CopyButton, ErrorNote, FormRow, Spinner } from './ui';
+import { Badge, ConfirmSheet, CopyButton, ErrorNote, FormRow, Segmented, Spinner } from './ui';
 import './projects.css';
 
 /**
  * Task detail (SCREENS.md §5.2): what the task is waiting on, its result, and every attempt with its checks.
  * Reloads every two seconds while the task runs.
  */
+type Tab = 'overview' | 'activity' | 'changes';
+
 export function TaskDetail({id, onBack, backTo}: {id: string; onBack: () => void; backTo?: string}) {
   const [live, setLive] = useState(true);
-  const loaded = useGateway(api => api.task(id).then(d => { setLive(d.state === 'running'); return d; }), [id], live ? 2_000 : undefined);
+  const loaded = useGateway(api => api.task(id).then(d => { setLive(d.state === 'running'); return d; }), [id], live ? 2_000 : 10_000);
   const task = loaded.data;
+  const [tab, setTab] = useState<Tab>('overview');
+  const hasChanges = !!task && !task.answer && task.attemptDetails.some(a => (a.filesChanged ?? 0) > 0);
+  const running = task?.attemptDetails.find(a => a.outcome === 'running');
   return <div className="detail">
     <button type="button" className="back-button" onClick={onBack}>
       <ChevronLeft size={15} strokeWidth={2} aria-hidden/>{backTo ?? t('Tasks')}
@@ -31,21 +36,41 @@ export function TaskDetail({id, onBack, backTo}: {id: string; onBack: () => void
         <StateIcon state={task.state}/>
         <div>
           <h2 className="selectable">{task.title}</h2>
-          <p>{statusLine(task)} · {task.workspaceName}</p>
+          <p>{task.answer ? `${t('Ask')} · ` : ''}{statusLine(task)} · {task.workspaceName}{task.source ? ` · ${t('from {client}', {client: task.source})}` : ''}</p>
         </div>
       </header>
-      <Actions task={task} onChanged={() => { loaded.reload(); gatewayChanged(); }}/>
+      <div className="page-bar detail-tabs">
+        <Segmented<Tab> label={t('Show')} value={tab} onChange={setTab}
+          options={[{value: 'overview', label: t('Overview')},
+            {value: 'activity', label: `${t('Activity')}${task.attemptDetails.length ? ` ${task.attemptDetails.length}` : ''}`},
+            ...(hasChanges ? [{value: 'changes' as Tab, label: t('Changes')}] : [])]}/>
+      </div>
 
+      {tab === 'overview' && <>
+      <Actions task={task} onChanged={() => { loaded.reload(); gatewayChanged(); }}/>
+      {running && <section className="group">
+        <h2>{t('Now')}</h2>
+        <div className="group-box now-box">
+          <p className="secondary">{t('Step {n}', {n: running.step + 1})} · {engineText(running.label)}</p>
+          <LiveActivity attemptId={running.id} agent={running.agent}/>
+        </div>
+      </section>}
       <section className="group">
-        <h2>{t('Attempts')}</h2>
+        <h2>{t('Steps')}</h2>
         {task.attemptDetails.length === 0 ? <p className="group-footnote">{t('The first step is starting.')}</p>
-          : <ol className="group-box attempt-rows">
-            {task.attemptDetails.map(a => <AttemptRow key={a.id} attempt={a}/>)}
+          : <ol className="group-box step-summary">
+            {task.attemptDetails.map(a => <li key={a.id} className="group-row">
+              <span className={`attempt-number ${a.outcome}`}>{a.number}</span>
+              <span className="step-summary-text"><span className="mono">{engineText(a.label)}</span>
+                {a.escalationReason && <small className="secondary">{engineText(a.escalationReason)}</small>}</span>
+              <span className="value">{outcomeLabel(a.outcome)}</span>
+            </li>)}
           </ol>}
         <p className="group-footnote">{t('Cost so far: {cost}', {cost: taskCost(task.cost)})}
           {task.cost.unknownCalls > 0 && ` · ${task.attemptDetails.some(a => (a.unpricedRequests ?? 0) > 0)
             ? t('Some requests through Pygg used a model without a price: enter it in Connections.')
-            : t('Agents run with their own sign-in, so their cost is unknown to Pygg.')}`}</p>
+            : t('Agents run with their own sign-in, so their cost is unknown to Pygg.')}`}
+          {' '}<button type="button" className="link-button" onClick={() => setTab('activity')}>{t('Every step in full')}</button></p>
       </section>
 
       <section className="group">
@@ -61,8 +86,37 @@ export function TaskDetail({id, onBack, backTo}: {id: string; onBack: () => void
           </dl>
         </div>
       </section>
+      </>}
+
+      {tab === 'activity' && <section className="group">
+        <h2>{t('Every step, in full')}</h2>
+        {task.attemptDetails.length === 0 ? <p className="group-footnote">{t('The first step is starting.')}</p>
+          : <ol className="group-box attempt-rows">
+            {task.attemptDetails.map(a => <AttemptRow key={a.id} attempt={a}/>)}
+          </ol>}
+        <p className="group-footnote">{t('A finished step keeps the end of its agent’s output; the live lines last while the app runs.')}</p>
+      </section>}
+
+      {tab === 'changes' && <Changes taskId={task.id} kept={task.result === 'kept'} open={!task.result}/>}
     </>}
   </div>;
+}
+
+/** The task's changes as one diff: the result waiting for a decision, or the branch it was kept as. */
+function Changes({taskId, kept, open}: {taskId: string; kept: boolean; open: boolean}) {
+  const [diff, setDiff] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    call(api => api.taskDiff(taskId)).then(d => { if (live) setDiff(d); }, e => { if (live) setError(errorText(e)); });
+    return () => { live = false; };
+  }, [taskId]);
+  return <section className="group">
+    <div className="diff-section-head"><h2>{t('Changes')}</h2><span className="spacer"/>{diff !== null && diff !== '' && <CopyButton text={diff} label={t('Copy Diff')}/>}</div>
+    {error ? <p className="group-footnote">{kept ? t('This result was kept on its plan’s branch, which holds the other cards too: see the plan’s Output.') : open ? error
+        : t('Nothing to show: the result was discarded, or the copy it was made in is gone.')}</p>
+      : diff === null ? <Spinner label={t('Loading changes…')}/> : diff.trim() === '' ? <p className="group-footnote">{t('No changes.')}</p> : <DiffView diff={diff}/>}
+  </section>;
 }
 
 /** The task's text, folded to its first lines when long (a card's prompt carries the whole requirement). */

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { ChevronLeft, Lightbulb } from 'lucide-react';
+import { Check, ChevronLeft, Lightbulb } from 'lucide-react';
 import { call, errorText, gatewayChanged, type AutoPlan } from '../lib/api';
+import type { BoardAction } from '../lib/tasks';
 import { t } from '../lib/i18n';
-import { AGENT_NAMES, type Brainstorm, type BrainCard, type BrainRole } from '../lib/tasks';
+import { AGENT_NAMES, needsAttention, type BoardCard, type Brainstorm, type BrainCard, type BrainRole, type TaskSummary } from '../lib/tasks';
+import { planProgress, PlanOutput } from './planParts';
 import { useGateway } from '../hooks/useGateway';
 import { Badge, ConfirmSheet, ErrorNote, Spinner } from './ui';
 import { RoleSheet } from './RoleSheet';
@@ -14,16 +16,17 @@ import './brain.css';
  * a plan started in the app, in the coding agent for one started there), the cards by wave with the model Pygg picked
  * and why, and approval into tasks. Only the pick and the user's answers send anything to a model.
  */
-export function BrainstormDetail({id, onBack, onOpenBoard}: {id: string; onBack: () => void; onOpenBoard: (workspaceId: string) => void}) {
+export function BrainstormDetail({id, tasks, backTo, onBack, onOpenBoard, onOpenTask}: {id: string; tasks: TaskSummary[]; backTo: string;
+  onBack: () => void; onOpenBoard: (workspaceId: string) => void; onOpenTask: (taskId: string) => void}) {
   const settings = useGateway(api => api.brainSettings());
   const [live, setLive] = useState(true);
   const loaded = useGateway(api => api.brainstorm(id).then(b => { setLive(b.state === 'thinking' || b.state === 'waiting_pick'); return b; }),
-    [id], live ? 2_000 : undefined);
+    [id], live ? 2_000 : 10_000);
   const b = loaded.data;
   const changed = () => { loaded.reload(); gatewayChanged(); };
   return <div className="detail">
     <button type="button" className="back-button" onClick={onBack}>
-      <ChevronLeft size={15} strokeWidth={2} aria-hidden/>{t('Tasks')}
+      <ChevronLeft size={15} strokeWidth={2} aria-hidden/>{backTo}
     </button>
     {loaded.error && <ErrorNote>{loaded.error}{' '}<button type="button" className="link-button" onClick={loaded.reload} disabled={loaded.loading}>{loaded.loading ? t('Trying again…') : t('Try Again')}</button></ErrorNote>}
     {!b ? (loaded.error ? null : <Spinner/>) : <>
@@ -31,10 +34,11 @@ export function BrainstormDetail({id, onBack, onOpenBoard}: {id: string; onBack:
         <span className="state-icon waiting_approval"><Lightbulb size={18} strokeWidth={1.9} aria-hidden/></span>
         <div style={{minWidth: 0, flex: 1}}>
           <h2 className="selectable">{b.requirement.split('\n')[0]}</h2>
-          <p><StateBadge state={b.state} revision={b.revision}/>{b.session.startsWith('app-') ? ` · ${t('started here')}` : b.clientId ? ` · ${t('from a coding agent')}` : ''} · {t('session {session}', {session: b.session})}</p>
-          <p>{t('Planner')}: <span className="brain-id">{b.planner ?? t('no planner yet')}</span> · {b.promptVersion}</p>
+          <p><StateBadge state={b.state} revision={b.revision}/>{b.session.startsWith('app-') ? ` · ${t('started here')}` : b.clientId ? ` · ${t('from a coding agent')}` : ''}
+            {' · '}{t('Planner')}: <span className="brain-id">{b.planner ?? t('no planner yet')}</span></p>
         </div>
       </header>
+      <PlanBody b={b} tasks={tasks.filter(task => task.brainstormId === b.id)} onOpenBoard={onOpenBoard} onOpenTask={onOpenTask}>
 
       {b.state === 'waiting_pick' && <PickPlanner b={b} onChanged={changed} remember={settings.data?.rememberPlanner ?? true}/>}
       {b.state === 'thinking' && <p className="group-footnote"><Spinner label={t('The planner is reading the requirement…')}/></p>}
@@ -46,14 +50,17 @@ export function BrainstormDetail({id, onBack, onOpenBoard}: {id: string; onBack:
         <PickPlanner b={b} onChanged={changed} retry remember={settings.data?.rememberPlanner ?? true}/>
       </section>}
       {b.state === 'declined' && <p className="group-footnote">{t('Declined. Nothing was started.')}</p>}
-      {b.state === 'approved' && <div className="approve-bar"><span className="ok-note" style={{margin: 0}}>{t('Approved: its cards are on the workspace’s board. Paid steps still wait for your approval when they start.')}</span>
-        <span className="spacer"/>{b.workspaceId && <button type="button" className="button prominent" onClick={() => onOpenBoard(b.workspaceId!)}>{t('Open Board')}</button>}</div>}
-
-      {(b.state === 'proposed' || b.state === 'approved') && <>
+      {b.state === 'proposed' && <>
         <Questions b={b} onChanged={changed}/>
         <Cards b={b} onChanged={changed} changeScope={settings.data?.changeScope ?? 'ask'}/>
-        {b.state === 'proposed' && <Approve b={b} onChanged={changed} onOpenBoard={onOpenBoard}/>}
+        <Approve b={b} onChanged={changed}/>
       </>}
+      {b.state === 'approved' && <details className="form-disclosure plan-as-approved">
+        <summary>{t('The plan as approved: {q} questions, {c} cards', {q: b.proposal.questions.length, c: b.proposal.cards.filter(c => !c.dropped).length})}</summary>
+        <Questions b={b} onChanged={changed}/>
+        <Cards b={b} onChanged={changed} changeScope={settings.data?.changeScope ?? 'ask'}/>
+      </details>}
+      </PlanBody>
     </>}
   </div>;
 }
@@ -250,7 +257,7 @@ function CardRow({b, card, onChanged, changeScope}: {b: Brainstorm; card: BrainC
   </div>;
 }
 
-function Approve({b, onChanged, onOpenBoard}: {b: Brainstorm; onChanged: () => void; onOpenBoard: (workspaceId: string) => void}) {
+function Approve({b, onChanged}: {b: Brainstorm; onChanged: () => void}) {
   const workspaces = useGateway(api => api.workspaces());
   const agents = useGateway(api => api.agents());
   const budget = useGateway(api => api.taskBudget());
@@ -278,8 +285,6 @@ function Approve({b, onChanged, onOpenBoard}: {b: Brainstorm; onChanged: () => v
   const ready = kept.length > 0 && unpicked === 0 && !!workspace && !!agent;
   if (made) return <div className="approve-bar">
     <span>{t('{n} cards on the board; the first ready ones are being pulled into Running', {n: made.length})}</span>
-    <span className="spacer"/>
-    <button type="button" className="button prominent" onClick={() => onOpenBoard(workspace)}>{t('Open Board')}</button>
   </div>;
   return <>
     <div className="approve-bar sticky">
@@ -311,4 +316,83 @@ function Approve({b, onChanged, onOpenBoard}: {b: Brainstorm; onChanged: () => v
       onClose={() => setConfirming(false)}
       onConfirm={async () => { const ids = await call(api => api.brainstormApprove(b.id, workspace, agent)); setMade(ids); onChanged(); }}/>}
   </>;
+}
+
+/** The plan's three steps, what to do next, and once approved its cards' progress and its output; `children` is the
+ *  planning itself (pick, questions, cards, approval). */
+function PlanBody({b, tasks, onOpenBoard, onOpenTask, children}: {b: Brainstorm; tasks: TaskSummary[];
+  onOpenBoard: (workspaceId: string) => void; onOpenTask: (taskId: string) => void; children: React.ReactNode}) {
+  const approved = b.state === 'approved' && !!b.workspaceId;
+  const board = useGateway(api => approved ? api.board(b.workspaceId!) : Promise.resolve(null), [approved, b.workspaceId], approved ? 4_000 : undefined);
+  const cards: BoardCard[] = (board.data?.cards ?? []).filter(c => c.brainstormId === b.id);
+  const progress = planProgress(cards);
+  const finished = approved && progress.total > 0 && progress.done === progress.total;
+  const waiting = cards.filter(c => c.task?.state === 'waiting_approval' || c.lane === 'review' || c.lane === 'blocked').length;
+  const steps = [
+    {name: t('Plan'), state: b.state === 'approved' ? 'done' : 'now',
+      detail: b.state === 'waiting_pick' ? t('Choose a planner') : b.state === 'thinking' ? t('The planner is working')
+        : b.state === 'failed' ? t('The planner failed: retry or pick another') : b.state === 'proposed' ? t('Answer, adjust, then approve')
+        : b.state === 'declined' ? t('Declined') : t('Approved · {n} cards', {n: b.proposal.cards.filter(c => !c.dropped).length})},
+    {name: t('Tasks'), state: !approved ? 'todo' : finished ? 'done' : 'now',
+      detail: !approved ? t('After you approve the plan') : progress.total === 0 ? t('Loading the cards…')
+        : [t('{done} of {total} done', {done: progress.done, total: progress.total}),
+           progress.running ? t('{n} running', {n: progress.running}) : null,
+           waiting ? t('{n} waiting for you', {n: waiting}) : null].filter(Boolean).join(' · ')},
+    {name: t('Output'), state: finished ? 'done' : 'todo', detail: finished ? t('One branch to review and merge') : t('When every card is done')},
+  ];
+  // Attention first, then the rest in board order.
+  const rank = (c: BoardCard) => c.task?.state === 'waiting_approval' ? 0 : c.lane === 'review' ? 1 : c.lane === 'blocked' ? 2
+    : c.lane === 'running' || c.lane === 'checking' ? 3 : c.lane === 'done' ? 5 : 4;
+  const ordered = [...cards].filter(c => c.lane !== 'discarded').sort((x, y) => rank(x) - rank(y) || x.position - y.position);
+  return <>
+    <ol className="project-steps plan-steps" aria-label={t('Where this plan is')}>
+      {steps.map((s, i) => <li key={s.name} className={`step ${s.state}`} aria-current={s.state === 'now' ? 'step' : undefined}>
+        <span className="step-number">{s.state === 'done' ? <Check size={13} strokeWidth={2.6} aria-hidden/> : i + 1}</span>
+        <span className="step-text"><span className="step-name">{s.name}</span><span className="step-detail">{s.detail}</span></span>
+      </li>)}
+    </ol>
+    {children}
+    {approved && <section className="group" aria-labelledby="plan-cards">
+      <div className="group-heading"><h2 id="plan-cards">{t('Cards · {done} of {total} done', {done: progress.done, total: progress.total})}</h2>
+        <span className="spacer"/>
+        <button type="button" className="link-button" onClick={() => onOpenBoard(b.workspaceId!)}>{t('View board')}</button></div>
+      {ordered.length === 0 ? <p className="group-footnote">{board.error ?? t('Loading the cards…')}</p>
+        : <ul className="group-box plan-cards">{ordered.map(c => <PlanCardRow key={c.id} card={c} onOpenTask={onOpenTask} onChanged={board.reload}/>)}</ul>}
+      <p className="group-footnote">{t('The board runs the cards within its running limit ({n} at a time), each on the plan’s branch and checked before the next starts. A paid step waits for your approval.', {n: board.data?.limits.wipRunning ?? 1})}</p>
+    </section>}
+    {approved && b.branch && <section className="group" aria-labelledby="plan-output">
+      <h2 id="plan-output">{t('Output')}{!finished && <span className="brain-meta"> · {t('in progress')}</span>}</h2>
+      <PlanOutput plan={b} tasks={tasks} progress={progress}/>
+    </section>}
+  </>;
+}
+
+const LANE: Record<string, string> = {discovery: 'Waiting for earlier cards', ready: 'Next in line', running: 'Running', checking: 'Checking',
+  blocked: 'Blocked', review: 'Finished: review it', done: 'Done', discarded: 'Dropped'};
+
+function PlanCardRow({card: c, onOpenTask, onChanged}: {card: BoardCard; onOpenTask: (taskId: string) => void; onChanged: () => void}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const act = (action: BoardAction) => { setBusy(true); setError(null);
+    call(api => api.boardAct(c.id, action)).then(() => { setBusy(false); onChanged(); gatewayChanged(); }, e => { setError(errorText(e)); setBusy(false); }); };
+  const rerunnable = c.lane === 'blocked' && !!c.task && ['check_failed', 'blocked', 'canceled', 'interrupted'].includes(c.task.state);
+  const approval = c.task?.state === 'waiting_approval';
+  const attention = approval || c.lane === 'review' || (c.lane === 'blocked' && !!c.task && needsAttention(c.task));
+  const what = approval ? t('A paid step waits for your approval') : c.lane === 'blocked' ? (c.blockedReason ?? t(LANE.blocked)) : t(LANE[c.lane] ?? c.lane);
+  return <li className={`group-row plan-card${attention ? ' attention' : ''}`}>
+    <span className={`lane-dot ${c.lane}`} aria-hidden/>
+    <span className="plan-card-text"><span className="plan-card-title">{c.title}</span>
+      <span className="secondary">{c.role} · {c.runner === 'ide' && !c.taskId && c.lane !== 'done' ? t('Your coding agent does this card; Pygg does not see its progress') : what}</span>
+      {error && <span className="warn-text">{error}</span>}</span>
+    <span className="plan-card-actions">
+      {rerunnable && <button type="button" className="button" disabled={busy} aria-label={t('Run again: {title}', {title: c.title})} onClick={() => act('rerun')}>{t('Run again')}</button>}
+      {c.runner === 'ide' && !c.taskId && c.lane !== 'done' && <button type="button" className="button" disabled={busy}
+        aria-label={t('Hand {title} to Pygg', {title: c.title})} onClick={() => act('engine')}>{t('Hand to Pygg')}</button>}
+      {c.lane === 'discovery' && c.held && <button type="button" className="button" disabled={busy}
+        aria-label={t('Move {title} to Ready', {title: c.title})} onClick={() => act('release')}>{t('Move to Ready')}</button>}
+      {c.taskId && <button type="button" className={attention ? 'button prominent' : 'button'} onClick={() => onOpenTask(c.taskId!)}
+        aria-label={`${approval ? t('Approve…') : c.lane === 'review' ? t('Review') : t('Open')}: ${c.title}`}>
+        {approval ? t('Approve…') : c.lane === 'review' ? t('Review') : t('Open')}</button>}
+    </span>
+  </li>;
 }

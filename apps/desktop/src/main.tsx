@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BookMarked, BookOpen, Bot, ChartColumn, FolderGit2, House, Link2, ListOrdered, PanelLeft, Plug, Plus, Search, Settings as SettingsIcon,
+import { BookMarked, BookOpen, Bot, ChartColumn, ChevronLeft, FolderGit2, House, Inbox, Link2, ListOrdered, PanelLeft, Plug, Plus, Search, Settings as SettingsIcon,
   SlidersHorizontal, TerminalSquare } from 'lucide-react';
 import './styles.css';
 import brandMark from './assets/brand-mark.svg';
 import { applyLanguage, LanguageContext, loadLanguage, resolve, t, type Language, type LanguageChoice } from './lib/i18n';
 import { runningInDesktop, savedLanguage, saveLanguage } from './lib/native';
 import { isMac, MOD } from './lib/platform';
-import { FILTERS, matchesFilter, needsAttention, type TaskFilter, type TaskSummary, brainstormNeedsAttention } from './lib/tasks';
+import { FILTERS, matchesFilter, needsAttention, type Brainstorm, type TaskFilter, type TaskSummary, brainstormNeedsAttention } from './lib/tasks';
 import type { GatewayStatus as Status } from './lib/api';
 import { useGateway } from './hooks/useGateway';
 import { gatewayChanged } from './lib/api';
@@ -16,18 +16,17 @@ import { BudgetSubtitle } from './components/BudgetSubtitle';
 import { CommandPalette, type Command } from './components/CommandPalette';
 import { GatewayStatus } from './components/GatewayStatus';
 import { Guide } from './components/Guide';
-import { NewTaskView } from './components/NewTaskView';
+import { NewTaskView, type WorkMode } from './components/NewTaskView';
 import { SettingsView } from './components/SettingsView';
 import { TaskDetail } from './components/TaskDetail';
 import { BrainstormDetail } from './components/BrainstormDetail';
-import { Board } from './components/Board';
 import { BrainStorming } from './components/BrainStorming';
-import { TaskList } from './components/TaskList';
 import { ProjectsView } from './components/ProjectsView';
-import { ProjectView } from './components/ProjectView';
+import { ProjectView, type ProjectTab } from './components/ProjectView';
+import { WorkList } from './components/WorkList';
 import { needsChecks, WorkspacesView } from './components/WorkspacesView';
 import { WindowControls } from './components/WindowControls';
-import { ErrorNote, Segmented, Spinner, useRowHints } from './components/ui';
+import { ErrorNote, Spinner, useRowHints } from './components/ui';
 import { CliTools } from './components/gateway/CliTools';
 import { Combos } from './components/gateway/Combos';
 import { Endpoint } from './components/gateway/Endpoint';
@@ -38,19 +37,19 @@ import { Policies } from './components/gateway/Policies';
 import { Agents } from './components/gateway/Agents';
 import { Skills } from './components/gateway/Skills';
 
+// A task, a plan or the New work form remembers the page it was opened from, and its back link returns there.
 type View =
   | {kind: GatewayDestination}
+  | {kind: 'work'}
   | {kind: 'projects'}
-  | {kind: 'project'; id: string}
-  | {kind: 'tasks'; filter: TaskFilter}
-  | {kind: 'task'; id: string; from: TaskFilter | 'board'; project?: string}
-  | {kind: 'brainstorm'; id: string; from: TaskFilter; project?: string}
-  | {kind: 'board'; workspaceId: string | null}
+  | {kind: 'project'; id: string; tab: ProjectTab; back?: View}
+  | {kind: 'task'; id: string; back: View}
+  | {kind: 'brainstorm'; id: string; back: View}
   | {kind: 'brain'}
-  | {kind: 'new'; workspaceId?: string | null; answer?: boolean}
+  | {kind: 'new'; workspaceId: string | null; mode: WorkMode; back: View}
   | {kind: 'policies'}
   | {kind: 'skills'}
-  | {kind: 'workspaces'}
+  | {kind: 'workspaces'; back?: View}
   | {kind: 'agents'}
   | {kind: 'guide'}
   | {kind: 'settings'};
@@ -65,9 +64,6 @@ const GATEWAY: {kind: GatewayDestination; title: string; icon: React.ReactElemen
   {kind: 'combos', title: 'Combos', icon: <ListOrdered/>},
   {kind: 'usage', title: 'Usage', icon: <ChartColumn/>},
 ];
-const FILTER_TITLES: Record<TaskFilter, string> = {
-  all: 'All', running: 'Running', approval: 'Needs Approval', completed: 'Completed', failed: 'Failed', stopped: 'Stopped',
-};
 /** The toolbar's primary action on each gateway screen. */
 const PRIMARY: Partial<Record<GatewayDestination, {label: string; intent: Intent}>> = {
   connections: {label: 'Connect Provider…', intent: 'connect'},
@@ -87,13 +83,17 @@ function startView(): View {
   if (isGateway(screen as View['kind'])) return {kind: screen as GatewayDestination};
   if (screen === 'guide' || screen === 'settings' || screen === 'agents' || screen === 'policies' || screen === 'skills') return {kind: screen};
   // The demo's brainstorms (lib/demo.ts), for the layout check and screenshots of the pygg/brain screens.
-  if (screen === 'brainstorm') return {kind: 'brainstorm', id: 'bs-proposed', from: 'all'};
-  if (screen === 'brainstorm-pick') return {kind: 'brainstorm', id: 'bs-pick', from: 'all'};
-  if (screen === 'brainstorm-failed') return {kind: 'brainstorm', id: 'bs-failed', from: 'all'};
-  if (screen === 'board') return {kind: 'board', workspaceId: null};
+  if (screen === 'brainstorm') return {kind: 'brainstorm', id: 'bs-proposed', back: {kind: 'work'}};
+  if (screen === 'brainstorm-pick') return {kind: 'brainstorm', id: 'bs-pick', back: {kind: 'work'}};
+  if (screen === 'brainstorm-failed') return {kind: 'brainstorm', id: 'bs-failed', back: {kind: 'work'}};
+  if (screen === 'plan-running') return {kind: 'brainstorm', id: 'bs-running', back: {kind: 'work'}};
+  if (screen === 'board') return {kind: 'project', id: '', tab: 'board'};
   if (screen === 'brain') return {kind: 'brain'};
+  if (screen === 'work' || screen === 'tasks') return {kind: 'work'};
   if (screen === 'projects') return {kind: 'projects'};
-  if (screen === 'project') return {kind: 'project', id: ''};
+  if (screen === 'project') return {kind: 'project', id: '', tab: 'work'};
+  if (screen === 'new') return {kind: 'new', workspaceId: null, mode: 'task', back: {kind: 'work'}};
+  if (screen === 'new-plan') return {kind: 'new', workspaceId: null, mode: 'plan', back: {kind: 'work'}};
   return {kind: 'overview'};
 }
 
@@ -101,9 +101,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
   const [view, setView] = useState<View>(startView);
   const [intent, setIntent] = useState<Intent | undefined>();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [query, setQuery] = useState('');
   const [palette, setPalette] = useState(false);
-  const searchRef = useRef<HTMLInputElement>(null);
 
   const gateway = useGateway(api => api.gatewayStatus(), [], 5_000);
   const [status, setStatus] = useState<Status | null>(null);
@@ -127,7 +125,9 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
 
   const go = useCallback((kind: GatewayDestination, next?: Intent) => { setView({kind}); setIntent(next); }, []);
   const intentDone = useCallback(() => setIntent(undefined), []);
-  const newTask = useCallback((workspaceId?: string | null) => setView({kind: 'new', workspaceId: workspaceId ?? null}), []);
+  // New work opens from the page in view and returns there; on a project's page it starts in that project.
+  const newWork = useCallback((mode: WorkMode = 'task') => setView(current => ({kind: 'new', mode, back: current.kind === 'new' ? current.back : current,
+    workspaceId: current.kind === 'project' ? current.id || null : current.kind === 'new' ? current.workspaceId : null})), []);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -142,25 +142,25 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
       }
       const index = Number(key) - 1;
       if (index >= 0 && index < GATEWAY.length) { event.preventDefault(); go(GATEWAY[index].kind); }
-      else if (key === '7') { event.preventDefault(); setView({kind: 'projects'}); }
-      else if (key === '8') { event.preventDefault(); setView({kind: 'agents'}); }
-      else if (key === 'n' && (view.kind === 'tasks' || view.kind === 'task')) { event.preventDefault(); newTask(); }
+      else if (key === '7') { event.preventDefault(); setView({kind: 'work'}); }
+      else if (key === '8') { event.preventDefault(); setView({kind: 'projects'}); }
+      else if (key === '9') { event.preventDefault(); setView({kind: 'agents'}); }
+      else if (key === 'n') { event.preventDefault(); newWork(); }
       else if (key === ',') { event.preventDefault(); setView({kind: 'settings'}); }
       else if (key === '/') { event.preventDefault(); setView({kind: 'guide'}); }
-      else if (key === 'f' && view.kind === 'tasks') { event.preventDefault(); searchRef.current?.focus(); }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [go, newTask, view.kind]);
+  }, [go, newWork]);
 
   // The palette's commands (SCREENS.md §2.6). None spends money or deletes: those open the screen that asks.
   const commands = useMemo<Command[]>(() => {
     const nav = t('Go to');
     const list: Command[] = [
       ...GATEWAY.map((g, i) => ({id: `go-${g.kind}`, group: nav, label: t(g.title), hint: `${MOD}${i + 1}`, run: () => go(g.kind)})),
-      {id: 'go-projects', group: nav, label: t('Projects'), hint: `${MOD}7`, run: () => setView({kind: 'projects'})},
-      {id: 'go-tasks', group: nav, label: t('All tasks'), run: () => setView({kind: 'tasks', filter: 'all'})},
-      {id: 'go-agents', group: nav, label: t('Agents & defaults'), hint: `${MOD}8`, run: () => setView({kind: 'agents'})},
+      {id: 'go-work', group: nav, label: t('Work'), hint: `${MOD}7`, keywords: 'tasks plans questions', run: () => setView({kind: 'work'})},
+      {id: 'go-projects', group: nav, label: t('Projects'), hint: `${MOD}8`, keywords: 'repositories workspaces', run: () => setView({kind: 'projects'})},
+      {id: 'go-agents', group: nav, label: t('Agents & defaults'), hint: `${MOD}9`, run: () => setView({kind: 'agents'})},
       {id: 'go-workspaces', group: nav, label: t('Project settings'), run: () => setView({kind: 'workspaces'})},
       {id: 'go-policies', group: nav, label: t('Policies'), run: () => setView({kind: 'policies'})},
       {id: 'go-skills', group: nav, label: t('Skills & Prompts'), keywords: 'prompt hub library slash command claude.md agents.md context tokens',
@@ -180,11 +180,11 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
       {id: 'new-skill', group: gateway, label: t('New Skill…'), keywords: 'prompt slash command', run: () => { setView({kind: 'skills'}); setIntent('create'); }},
       {id: 'mcp', group: gateway, label: t('Let an IDE agent delegate tasks (MCP)'), keywords: 'mcp agent smart task', run: () => setView({kind: 'agents'})},
     );
-    const tasks = t('Tasks');
+    const work = t('Smart Tasks');
     list.push(
-      {id: 'new-task', group: tasks, label: t('New Task'), hint: `${MOD}N`, run: newTask},
-      ...FILTERS.filter(f => f !== 'all').map(f => ({id: `tasks-${f}`, group: tasks, label: t(FILTER_TITLES[f]),
-        hint: counts[f] ? String(counts[f]) : undefined, run: () => setView({kind: 'tasks', filter: f})})),
+      {id: 'new-task', group: work, label: t('New task'), hint: `${MOD}N`, keywords: 'change solo', run: () => newWork('task')},
+      {id: 'new-ask', group: work, label: t('Ask about a project'), keywords: 'question explain read architecture', run: () => newWork('ask')},
+      {id: 'new-plan', group: work, label: t('Plan a change (Brain Storming)'), keywords: 'brainstorm plan cards board', run: () => newWork('plan')},
     );
     const app = t('App');
     list.push(
@@ -194,35 +194,38 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
       {id: 'language', group: app, label: t('Language'), keywords: 'english tiếng việt', run: () => setView({kind: 'settings'})},
     );
     return list;
-  }, [go, newTask, counts, sidebarOpen]);
+  }, [go, newWork, sidebarOpen]);
 
-  // The board's workspaces: those with cards first, else every workspace (an empty board says how cards arrive).
-  const boardWorkspaces = useMemo(() => (boardList.data?.length ? boardList.data : workspaces.map(w => ({workspaceId: w.id, workspaceName: w.name, cards: 0, attention: 0}))), [boardList.data, workspaces]);
-  const boardAttention = useMemo(() => (boardList.data ?? []).reduce((n, b) => n + b.attention, 0), [boardList.data]);
-  const openTask = (task: TaskSummary) => setView({kind: 'task', id: task.id, from: view.kind === 'tasks' ? view.filter : 'all',
-    project: view.kind === 'project' ? view.id : undefined});
+  const openTaskId = (id: string) => { taskList.reload(); setView({kind: 'task', id, back: view}); };
+  const openTask = (task: TaskSummary) => openTaskId(task.id);
+  const openPlan = (plan: Brainstorm) => setView({kind: 'brainstorm', id: plan.id, back: view});
   const projectId = view.kind === 'project' ? (view.id || workspaces[0]?.id || '') : '';
   const openedProject = workspaces.find(w => w.id === projectId);
   const openedTask = view.kind === 'task' ? allTasks.find(task => task.id === view.id) : undefined;
-  // A task started from a project's page goes back there.
-  const created = (id: string) => { taskList.reload(); workspaceList.reload();
-    setView({kind: 'task', id, from: 'all', project: view.kind === 'new' ? view.workspaceId ?? undefined : undefined}); };
+  const openedPlan = view.kind === 'brainstorm' ? brainstorms.find(b => b.id === view.id) : undefined;
+  // What a back link says: the page it returns to.
+  const backLabel = (back: View): string => back.kind === 'work' ? t('Work') : back.kind === 'projects' ? t('Projects')
+    : back.kind === 'project' ? workspaces.find(w => w.id === back.id)?.name ?? t('Project')
+    : back.kind === 'brainstorm' ? t('Plan') : back.kind === 'task' ? t('Task') : t('Back');
+  const goBack = (back: View) => { taskList.reload(); brainList.reload(); boardList.reload(); setView(back); };
+  // New work opens what it made; its back link returns to where New work was opened from.
+  const created = (id: string) => { taskList.reload(); workspaceList.reload(); setView({kind: 'task', id, back: view.kind === 'new' ? view.back : view}); };
+  const planCreated = (id: string) => { brainList.reload(); setView({kind: 'brainstorm', id, back: view.kind === 'new' ? view.back : view}); };
   const title = isGateway(view.kind) ? t(GATEWAY.find(g => g.kind === view.kind)!.title)
+    : view.kind === 'work' ? t('Work')
     : view.kind === 'projects' ? t('Projects')
     : view.kind === 'project' ? openedProject?.name ?? t('Project')
-    : view.kind === 'tasks' ? t('All tasks')
     : view.kind === 'task' ? openedTask?.title ?? t('Task')
-    : view.kind === 'brainstorm' ? t('Brainstorm')
-    : view.kind === 'board' ? t('Tasks')
+    : view.kind === 'brainstorm' ? (openedPlan ? t('Plan: {title}', {title: openedPlan.requirement.split('\n')[0].slice(0, 80)}) : t('Plan'))
     : view.kind === 'brain' ? t('Agents & defaults')
-    : view.kind === 'new' ? (view.answer ? t('Ask about this project') : t('New solo task'))
+    : view.kind === 'new' ? t('New work')
     : view.kind === 'policies' ? t('Policies')
     : view.kind === 'skills' ? t('Skills & Prompts')
     : view.kind === 'workspaces' ? t('Project settings')
     : view.kind === 'agents' ? t('Agents & defaults')
     : view.kind === 'guide' ? t('Guide')
     : t('Settings');
-  const isTaskScreen = view.kind === 'projects' || view.kind === 'project' || view.kind === 'tasks' || view.kind === 'task' || view.kind === 'brainstorm' || view.kind === 'board' || view.kind === 'brain' || view.kind === 'new' || view.kind === 'workspaces';
+  const isTaskScreen = view.kind === 'work' || view.kind === 'projects' || view.kind === 'project' || view.kind === 'task' || view.kind === 'brainstorm' || view.kind === 'brain' || view.kind === 'new' || view.kind === 'workspaces';
   const primary = isGateway(view.kind) ? PRIMARY[view.kind] : undefined;
   useRowHints();
   // After moving to another page, focus goes to its heading so a screen reader says where it is and Tab starts at the
@@ -260,10 +263,11 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
             selected={view.kind === 'skills'} onSelect={() => setView({kind: 'skills'})}/>
         </SidebarGroup>
         <SidebarGroup title={t('Smart Tasks · Experimental')}>
-          <SidebarItem icon={<FolderGit2/>} label={t('Projects')} count={attention + workspaces.filter(needsChecks).length} emphasized shortcut={`${MOD}7`}
-            selected={view.kind === 'projects' || view.kind === 'project' || view.kind === 'tasks' || view.kind === 'task' || view.kind === 'new'
-              || view.kind === 'board' || view.kind === 'brainstorm' || view.kind === 'workspaces'} onSelect={() => setView({kind: 'projects'})}/>
-          <SidebarItem icon={<Bot/>} label={t('Agents & defaults')} shortcut={`${MOD}8`}
+          <SidebarItem icon={<Inbox/>} label={t('Work')} count={attention} emphasized shortcut={`${MOD}7`}
+            selected={view.kind === 'work' || view.kind === 'task' || view.kind === 'brainstorm' || view.kind === 'new'} onSelect={() => setView({kind: 'work'})}/>
+          <SidebarItem icon={<FolderGit2/>} label={t('Projects')} count={workspaces.filter(needsChecks).length} shortcut={`${MOD}8`}
+            selected={view.kind === 'projects' || view.kind === 'project' || view.kind === 'workspaces'} onSelect={() => setView({kind: 'projects'})}/>
+          <SidebarItem icon={<Bot/>} label={t('Agents & defaults')} shortcut={`${MOD}9`}
             selected={view.kind === 'agents' || view.kind === 'brain'} onSelect={() => setView({kind: 'agents'})}/>
         </SidebarGroup>
         <SidebarGroup title={t('App')}>
@@ -288,7 +292,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         </button>
         <div className="toolbar-title" data-tauri-drag-region>
           <h1 ref={heading} tabIndex={-1}>{title}</h1>
-          {(view.kind === 'tasks' || view.kind === 'task' || view.kind === 'board') &&
+          {(view.kind === 'work' || view.kind === 'task') &&
             <BudgetSubtitle running={counts.running} waiting={counts.approval} budget={budget.data ?? undefined}/>}
         </div>
         <span className="spacer" data-tauri-drag-region/>
@@ -300,9 +304,9 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         {view.kind === 'skills' && <button type="button" className="button prominent" onClick={() => setIntent('create')}>
           <Plus size={14} strokeWidth={2.4} aria-hidden/>{t('New Skill…')}
         </button>}
-        {(view.kind === 'projects' || view.kind === 'project' || view.kind === 'tasks' || view.kind === 'task') && <button type="button" className="button prominent"
-          onClick={() => newTask(view.kind === 'project' ? projectId : null)} title={`${t('New solo task')} (${MOD}N)`}>
-          <Plus size={14} strokeWidth={2.4} aria-hidden/>{t('New solo task')}
+        {(view.kind === 'work' || view.kind === 'projects' || view.kind === 'task' || view.kind === 'brainstorm') && <button type="button" className="button prominent"
+          onClick={() => newWork()} title={`${t('New work')} (${MOD}N)`}>
+          <Plus size={14} strokeWidth={2.4} aria-hidden/>{t('New work')}
         </button>}
       </header>
 
@@ -325,53 +329,38 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
           <Agents/>
           <BrainStorming onSkills={() => setView({kind: 'skills'})} onWorkspaces={() => setView({kind: 'workspaces'})}/>
         </>}
-        {view.kind === 'projects' && <ProjectsView tasks={allTasks} brainstorms={brainstorms} workspaces={workspaces} boards={boardList.data ?? []}
-          onOpenProject={id => setView({kind: 'project', id})} onOpenTask={openTask}
-          onOpenBrainstorm={b => setView({kind: 'brainstorm', id: b.id, from: 'all', project: b.workspaceId ?? undefined})}
-          onNewTask={() => newTask(null)} onAllTasks={() => setView({kind: 'tasks', filter: 'all'})}
-          onChanged={() => { workspaceList.reload(); taskList.reload(); }}/>}
+        {(view.kind === 'work' || view.kind === 'project') && <LoadErrors sources={[
+          {what: t('Tasks'), error: taskList.data ? null : taskList.error, loading: taskList.loading, retry: taskList.reload},
+          {what: t('Plans'), error: brainList.data ? null : brainList.error, loading: brainList.loading, retry: brainList.reload}]}/>}
+        {view.kind === 'work' && (!taskList.data || !brainList.data
+          ? (taskList.error || brainList.error ? null : <div className="page"><Spinner label={t('Loading work…')}/></div>)
+          : <WorkList tasks={allTasks} brainstorms={brainstorms} workspaces={workspaces} onOpenTask={openTask} onOpenPlan={openPlan}
+              onNewWork={() => newWork()}/>)}
+        {view.kind === 'projects' && <ProjectsView tasks={allTasks} brainstorms={brainstorms} workspaces={workspaces}
+          onOpenProject={id => setView({kind: 'project', id, tab: 'work'})} onChanged={() => { workspaceList.reload(); taskList.reload(); }}/>}
         {view.kind === 'project' && (openedProject
           ? <ProjectView workspace={openedProject} tasks={allTasks.filter(task => task.workspaceId === openedProject.id)}
               brainstorms={brainstorms.filter(b => b.workspaceId === openedProject.id)} board={(boardList.data ?? []).find(b => b.workspaceId === openedProject.id) ?? null}
-              onOpenTask={openTask} onOpenTaskId={id => { taskList.reload(); setView({kind: 'task', id, from: 'board', project: openedProject.id}); }}
-              onOpenBrainstorm={b => setView({kind: 'brainstorm', id: b.id, from: 'all', project: openedProject.id})}
-              onOpenBrainstormId={id => setView({kind: 'brainstorm', id, from: 'all', project: openedProject.id})}
-              onNewTask={() => newTask(openedProject.id)} onAsk={() => setView({kind: 'new', workspaceId: openedProject.id, answer: true})}
-              onSettings={() => setView({kind: 'workspaces'})}/>
+              tab={view.tab} onTab={tab => setView({...view, id: openedProject.id, tab})}
+              backTo={view.back ? backLabel(view.back) : t('Projects')} onBack={() => goBack(view.back ?? {kind: 'projects'})}
+              onOpenTask={openTask} onOpenTaskId={openTaskId} onOpenPlan={openPlan} onNewWork={() => newWork()}
+              onSettings={() => setView({kind: 'workspaces', back: view})}/>
           : <div className="page">{workspaceList.data ? <p className="group-footnote">{t('That project is no longer here.')}</p> : <Spinner/>}</div>)}
         {view.kind === 'skills' && <Skills intent={intent === 'create' ? 'create' : undefined} onIntentDone={intentDone}/>}
         {view.kind === 'guide' && <Guide go={go} base={status?.baseUrl ?? (status ? `http://127.0.0.1:${status.port}` : null)}/>}
-        {(view.kind === 'tasks' || view.kind === 'board') &&
-          <div className="page-bar task-filters">
-            {/* The board (ADR-042) is a view of the same tasks: one more option after the filters. */}
-            <Segmented<TaskFilter | 'board'> label={t('Show')} value={view.kind === 'board' ? 'board' : view.filter}
-              onChange={filter => setView(filter === 'board' ? {kind: 'board', workspaceId: null} : {kind: 'tasks', filter})}
-              options={[...FILTERS.map(f => ({value: f as TaskFilter | 'board', label: `${t(FILTER_TITLES[f])}${counts[f] ? ` ${counts[f]}` : ''}`})),
-                {value: 'board', label: `${t('Board')}${boardAttention ? ` ${boardAttention}` : ''}`}]}/>
-          </div>}
-        {view.kind === 'board' && (boardWorkspaces.length === 0
-          ? <div className="page"><p className="group-footnote">{t('No workspace yet. The board shows the cards of a workspace’s approved brainstorms; a brainstorm from your coding agent adds its repository by itself.')}</p></div>
-          : <Board workspaceId={view.workspaceId ?? boardWorkspaces[0].workspaceId} workspaces={boardWorkspaces}
-              onWorkspace={id => setView({kind: 'board', workspaceId: id})} onOpenTask={id => { taskList.reload(); setView({kind: 'task', id, from: 'board'}); }}/>)}
-        {view.kind === 'tasks' && <>
-          {/* Until the list has loaded once, an empty list would read as "no tasks yet". */}
-          {!taskList.data ? (taskList.error
-            ? <div className="page"><ErrorNote>{t('Tasks could not be loaded: {error}', {error: taskList.error})}{' '}
-                <button type="button" className="link-button" onClick={taskList.reload} disabled={taskList.loading}>
-                  {taskList.loading ? t('Trying again…') : t('Try Again')}</button></ErrorNote></div>
-            : <div className="page"><Spinner label={t('Loading tasks…')}/></div>)
-          : <TaskList tasks={allTasks} brainstorms={brainstorms} filter={view.filter} workspaces={workspaces} scoped={false} query={query} onQuery={setQuery}
-            searchRef={searchRef} onOpen={openTask} onOpenBrainstorm={b => setView({kind: 'brainstorm', id: b.id, from: view.filter})} onNewTask={newTask} onWorkspaceSettings={null}/>}
-        </>}
-        {view.kind === 'task' && <TaskDetail id={view.id}
-          backTo={view.project ? workspaces.find(w => w.id === view.project)?.name ?? t('Project') : view.from === 'board' ? t('Board') : t('All tasks')}
-          onBack={() => { taskList.reload(); setView(view.project ? {kind: 'project', id: view.project}
-            : view.from === 'board' ? {kind: 'board', workspaceId: null} : {kind: 'tasks', filter: view.from}); }}/>}
-        {view.kind === 'brainstorm' && <BrainstormDetail id={view.id}
-          onBack={() => { brainList.reload(); taskList.reload(); setView(view.project ? {kind: 'project', id: view.project} : {kind: 'projects'}); }}
-          onOpenBoard={workspaceId => { boardList.reload(); taskList.reload(); setView({kind: 'project', id: workspaceId}); }}/>}
-        {view.kind === 'new' && <NewTaskView key={view.answer ? 'ask' : 'task'} onCreated={created} workspaceId={view.workspaceId ?? null} answer={view.answer ?? false}/>}
-        {view.kind === 'workspaces' && <WorkspacesView/>}
+        {view.kind === 'task' && <TaskDetail key={view.id} id={view.id} backTo={backLabel(view.back)} onBack={() => goBack(view.back)}/>}
+        {view.kind === 'brainstorm' && <BrainstormDetail key={view.id} id={view.id} tasks={allTasks} backTo={backLabel(view.back)}
+          onBack={() => goBack(view.back)} onOpenTask={openTaskId}
+          onOpenBoard={workspaceId => { boardList.reload(); taskList.reload(); setView({kind: 'project', id: workspaceId, tab: 'board', back: view}); }}/>}
+        {view.kind === 'new' && <div className="detail-back-wrap">
+          <button type="button" className="back-button" onClick={() => setView(view.back)}>
+            <ChevronLeft size={15} strokeWidth={2} aria-hidden/>{backLabel(view.back)}</button>
+          <NewTaskView onCreated={created} onPlanCreated={planCreated} workspaceId={view.workspaceId} mode={view.mode}
+            onMode={mode => setView({...view, mode})}/></div>}
+        {view.kind === 'workspaces' && <>
+          {view.back && <div className="detail-back-wrap"><button type="button" className="back-button" onClick={() => setView(view.back!)}>
+            <ChevronLeft size={15} strokeWidth={2} aria-hidden/>{backLabel(view.back)}</button></div>}
+          <WorkspacesView/></>}
         {view.kind === 'policies' && <Policies go={go} onSettings={() => setView({kind: 'settings'})}
           onWorkspaces={() => setView({kind: 'workspaces'})}/>}
         {view.kind === 'settings' && <SettingsView language={language} onLanguage={onLanguage} onGateway={() => go('endpoint')}/>}
@@ -379,6 +368,14 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
     </main>
     {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)}/>}
   </div>;
+}
+
+/** A list that could not load, each with its own Try Again, so a failed part never reads as "nothing here". */
+function LoadErrors({sources}: {sources: {what: string; error: string | null | undefined; loading: boolean; retry: () => void}[]}) {
+  const failed = sources.filter(x => x.error);
+  if (failed.length === 0) return null;
+  return <div className="page">{failed.map(x => <ErrorNote key={x.what}>{t('{what} could not be loaded: {error}', {what: x.what, error: x.error ?? ''})}{' '}
+    <button type="button" className="link-button" onClick={x.retry} disabled={x.loading}>{x.loading ? t('Trying again…') : t('Try Again')}</button></ErrorNote>)}</div>;
 }
 
 function SidebarGroup({title, children}: {title: string; children: React.ReactNode}) {
