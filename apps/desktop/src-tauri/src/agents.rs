@@ -282,6 +282,14 @@ pub fn arguments(
             if allow_web {
                 tools.push_str(",WebFetch,WebSearch");
             }
+            // An allow-list only spares the prompt; what is not allowed is denied outright.
+            let mut denied: Vec<&str> = Vec::new();
+            if !allow_shell {
+                denied.push("Bash");
+            }
+            if !allow_web {
+                denied.extend(["WebFetch", "WebSearch"]);
+            }
             args.extend([
                 s("-p"),
                 s(prompt),
@@ -292,6 +300,9 @@ pub fn arguments(
                 s("--allowedTools"),
                 tools,
             ]);
+            if !denied.is_empty() {
+                args.extend([s("--disallowedTools"), denied.join(",")]);
+            }
         }
         "codex" => {
             // Pygg's own MCP server is off in the runs Pygg starts: with it, an agent handed its task back to Pygg.
@@ -418,23 +429,31 @@ mod sandbox_tests {
 
     #[test]
     fn secrets_an_agent_does_not_need_are_withheld() {
-        let names = [
-            "AWS_SECRET_ACCESS_KEY",
-            "GITHUB_TOKEN",
-            "ANTHROPIC_API_KEY",
-            "OPENAI_API_KEY",
-            "PATH",
-            "PYGG_ATTEMPT_ID",
-            "DB_PASSWORD",
+        let vars = [
+            ("AWS_SECRET_ACCESS_KEY", "x"),
+            ("GITHUB_TOKEN", "x"),
+            ("ANTHROPIC_API_KEY", "x"),
+            ("OPENAI_API_KEY", "x"),
+            ("PATH", "C:/bin"),
+            ("PYGG_ATTEMPT_ID", "a1"),
+            ("DB_PASSWORD", "x"),
+            ("DATABASE_URL", "postgres://app:s3cret@db:5432/app"),
+            ("HTTPS_PROXY", "http://me:pw@proxy:8080"),
+            ("HOMEPAGE", "https://example.com/a@b"),
         ]
-        .map(String::from);
-        let claude = withheld_env("claude-code", names.clone().into_iter());
-        assert_eq!(claude, ["AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "OPENAI_API_KEY", "DB_PASSWORD"]);
-        let opencode = withheld_env("opencode", names.into_iter());
+        .map(|(k, v)| (k.to_string(), v.to_string()));
+        let claude = withheld_env("claude-code", vars.clone().into_iter());
+        assert_eq!(claude, ["AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "OPENAI_API_KEY", "DB_PASSWORD", "DATABASE_URL"]);
+        let opencode = withheld_env("opencode", vars.into_iter());
         assert_eq!(
             opencode,
-            ["AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "DB_PASSWORD"],
+            ["AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "DB_PASSWORD", "DATABASE_URL"],
             "OpenCode signs in to many providers"
+        );
+        assert!(
+            has_url_credentials("https://u:p@host/x")
+                && !has_url_credentials("https://host/a@b")
+                && !has_url_credentials("plain")
         );
     }
 
@@ -459,13 +478,37 @@ mod sandbox_tests {
     #[test]
     fn web_is_off_unless_allowed() {
         let claude = arguments("claude-code", "x", None, false, false).unwrap();
-        assert!(!claude.iter().any(|a| a.contains("WebFetch")));
-        assert!(arguments("claude-code", "x", None, false, true).unwrap().iter().any(|a| a.contains("WebFetch")));
+        let allowed =
+            |args: &[String]| args.iter().position(|a| a == "--allowedTools").map(|i| args[i + 1].clone()).unwrap();
+        assert!(!allowed(&claude).contains("WebFetch"));
+        assert!(allowed(&arguments("claude-code", "x", None, false, true).unwrap()).contains("WebFetch"));
         let codex = arguments("codex", "x", None, false, true).unwrap();
         assert!(codex.contains(&"sandbox_workspace_write.network_access=true".to_string()));
         assert_eq!(codex.last().map(String::as_str), Some("x"), "the prompt stays last");
-        assert_eq!(sandbox_profile("gemini-cli", false, false).web, "not_enforced");
-        assert_eq!(sandbox_profile("opencode", false, false).shell, "enforced");
+        let claude = arguments("claude-code", "x", None, false, false).unwrap();
+        let denied = claude.iter().position(|a| a == "--disallowedTools").map(|i| claude[i + 1].clone());
+        assert_eq!(denied.as_deref(), Some("Bash,WebFetch,WebSearch"));
+        assert_eq!(sandbox_profile_on("gemini-cli", false, false, false).network, "not_guaranteed");
+        let open = sandbox_profile_on("opencode", false, false, false);
+        assert_eq!(
+            (open.shell.as_str(), open.writes_outside.as_str(), open.network.as_str()),
+            ("blocked", "blocked", "blocked")
+        );
+        let shell = sandbox_profile_on("opencode", true, false, false);
+        assert_eq!(
+            (shell.writes_outside.as_str(), shell.network.as_str()),
+            ("not_guaranteed", "not_guaranteed"),
+            "a shell reaches past tool rules"
+        );
+        assert_eq!(
+            sandbox_profile_on("codex", false, false, true).writes_outside,
+            "not_guaranteed",
+            "not relied on on Windows"
+        );
+        assert_eq!(sandbox_profile_on("codex", false, false, false).writes_outside, "blocked");
+        assert_eq!(sandbox_profile_on("claude-code", false, false, false).reads_outside, "not_guaranteed");
+        let c: serde_json::Value = serde_json::from_str(&opencode_inline_config(None, false, false)).unwrap();
+        assert_eq!(c["permission"]["websearch"].as_str(), Some("deny"));
     }
 }
 
@@ -553,6 +596,7 @@ pub fn opencode_inline_config(extra: Option<&str>, allow_shell: bool, allow_web:
     let rule = |allowed: bool| serde_json::Value::String(if allowed { "allow" } else { "deny" }.into());
     config["permission"]["bash"] = rule(allow_shell);
     config["permission"]["webfetch"] = rule(allow_web);
+    config["permission"]["websearch"] = rule(allow_web);
     config["permission"]["external_directory"] = rule(false);
     config.to_string()
 }
@@ -586,74 +630,107 @@ fn own_prefixes(agent: &str) -> &'static [&'static str] {
     }
 }
 
-/// The variables of Pygg's environment an agent does not get: those named like a secret (a key, a token, a password,
-/// a credential) that its own sign-in does not use, such as cloud, GitHub or database credentials. Pygg's own
-/// (`PYGG_`) stay.
-pub fn withheld_env(agent: &str, names: impl Iterator<Item = String>) -> Vec<String> {
+/// The variables of Pygg's environment an agent does not get (best effort, by name and value): those named like a secret
+/// (a key, a token, a password, a credential) that its own sign-in does not use, such as cloud, GitHub or database
+/// keys, and any whose value is a URL with a user and password in it (a `DATABASE_URL`). Proxy variables stay: the
+/// agent needs them to reach its own provider. Secrets in files and credential stores are not covered.
+pub fn withheld_env(agent: &str, vars: impl Iterator<Item = (String, String)>) -> Vec<String> {
     const SECRET: &[&str] = &["KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "PRIVATE", "AUTH"];
     let own = own_prefixes(agent);
-    names
-        .filter(|name| {
-            let upper = name.to_ascii_uppercase();
-            SECRET.iter().any(|s| upper.contains(s))
-                && !upper.starts_with("PYGG_")
-                && !own.iter().any(|p| upper.starts_with(p))
-        })
-        .collect()
+    vars.filter(|(name, value)| {
+        let upper = name.to_ascii_uppercase();
+        if upper.ends_with("_PROXY") || upper == "PYGG_TOKEN" || own.iter().any(|p| upper.starts_with(p)) {
+            return false;
+        }
+        SECRET.iter().any(|s| upper.contains(s)) || has_url_credentials(value)
+    })
+    .map(|(name, _)| name)
+    .collect()
 }
 
-/// How far a run is held to its profile, per concern: `enforced` (the agent cannot do it), `not_enforced` (Pygg cannot
-/// hold this agent to it), `allowed` (the user allowed it).
+/// `scheme://user:password@host`: a URL that carries its own credentials.
+pub fn has_url_credentials(value: &str) -> bool {
+    value
+        .split("://")
+        .nth(1)
+        .and_then(|rest| rest.split(['/', '?', '#']).next())
+        .is_some_and(|host| host.split_once('@').is_some_and(|(user, _)| user.contains(':')))
+}
+
+/// How far a run is held to its profile, per concern: `blocked` (the agent is refused it), `allowed` (the user allowed
+/// it), `not_guaranteed` (Pygg cannot hold this agent to it here), `partial` (best effort, said in the note).
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Sandbox {
     pub agent: String,
-    pub outside_files: String,
+    pub writes_outside: String,
+    pub reads_outside: String,
     pub shell: String,
-    pub web: String,
+    pub network: String,
     pub secrets: String,
-    /// One line on what the agent itself does, where it matters.
+    /// What the agent itself does, and the limits of each claim.
     pub note: String,
 }
 
+/// What a run of `agent` with these choices is held to, as Pygg starts it on this platform. Conservative: a shell, once
+/// allowed, can reach files and the network the agent's file and web tools are refused; Codex's sandbox is not relied
+/// on on Windows; Gemini CLI has no sandbox here.
 pub fn sandbox_profile(agent: &str, allow_shell: bool, allow_web: bool) -> Sandbox {
-    let pick = |allowed: bool, enforced: bool| {
-        if allowed {
-            "allowed"
-        } else if enforced {
-            "enforced"
+    sandbox_profile_on(agent, allow_shell, allow_web, cfg!(windows))
+}
+
+fn sandbox_profile_on(agent: &str, allow_shell: bool, allow_web: bool, windows: bool) -> Sandbox {
+    let state = |s: &str| s.to_string();
+    let (blocked, open, unsure) = ("blocked", "allowed", "not_guaranteed");
+    // A shell the user allowed reaches past every tool rule.
+    let through_shell = |held: &'static str| -> &'static str {
+        if allow_shell && held == blocked {
+            unsure
         } else {
-            "not_enforced"
+            held
         }
-        .to_string()
     };
-    let (files, shell, web, note) = match agent {
-        "claude-code" => {
-            (true, true, true, "Edits outside the copy are refused in headless mode; tools are an allow-list.")
-        }
-        "codex" => (
-            true,
-            true,
-            true,
-            "Codex's workspace-write sandbox: writes and commands stay in the copy, network off unless allowed.",
+    let (writes, reads, shell, network, note) = match agent {
+        "claude-code" => (
+            through_shell(blocked),
+            unsure,
+            if allow_shell { open } else { blocked },
+            if allow_web { open } else { through_shell(blocked) },
+            "Headless Claude Code is refused edits outside its folder and every tool Pygg denies (--disallowedTools); its Read tool may still read outside.",
         ),
-        "opencode" => {
-            (true, true, true, "Pygg sets OpenCode's permissions for the run: shell, web, nothing outside the copy.")
+        "codex" => {
+            let sandbox = if windows { unsure } else { blocked };
+            (
+                sandbox,
+                unsure,
+                // Codex always has a shell, inside its sandbox.
+                if windows { unsure } else { "sandboxed" },
+                if allow_web { open } else { sandbox },
+                if windows {
+                    "Codex's workspace-write sandbox is not relied on on Windows: its writes and network are not guaranteed to stay in."
+                } else {
+                    "Codex's workspace-write sandbox keeps writes in the copy and the network off unless allowed; it can read outside."
+                },
+            )
         }
-        "gemini-cli" => (
-            false,
-            true,
-            false,
-            "Gemini CLI has no sandbox here without Docker: it may read outside the copy and search the web.",
+        "opencode" => (
+            through_shell(blocked),
+            through_shell(blocked),
+            if allow_shell { open } else { blocked },
+            if allow_web { open } else { through_shell(blocked) },
+            "Pygg sets OpenCode's permissions for the run: bash, webfetch and websearch as allowed, nothing outside the copy for its file tools.",
         ),
-        _ => (false, false, false, ""),
+        "gemini-cli" => (unsure, unsure, if allow_shell { open } else { unsure }, if allow_web { open } else { unsure },
+            "Gemini CLI has no sandbox here without Docker, and its approval mode is not a denial: Pygg cannot hold it to these."),
+        _ => (unsure, unsure, unsure, unsure, ""),
     };
     Sandbox {
         agent: agent.into(),
-        outside_files: pick(false, files),
-        shell: if agent == "codex" { "enforced".into() } else { pick(allow_shell, shell) },
-        web: pick(allow_web, web),
-        secrets: "enforced".into(),
+        writes_outside: state(writes),
+        reads_outside: state(reads),
+        shell: state(shell),
+        network: state(network),
+        secrets: state("partial"),
         note: note.into(),
     }
 }
@@ -697,7 +774,7 @@ pub async fn run(
         ));
     }
     // Secrets the agent does not need for its own sign-in stay out of its environment (the sandbox profile).
-    command.remove_env = withheld_env(spec.id, std::env::vars().map(|(k, _)| k));
+    command.remove_env = withheld_env(spec.id, std::env::vars());
     if spec.id == "gemini-cli" {
         // The worktree is a copy Pygg made for this task; Gemini CLI refuses an untrusted folder in headless mode
         // (geminicli.com/docs/cli/trusted-folders).
@@ -844,7 +921,9 @@ mod tests {
                 "--permission-mode",
                 "acceptEdits",
                 "--allowedTools",
-                "Read,Write,Edit,Glob,Grep"
+                "Read,Write,Edit,Glob,Grep",
+                "--disallowedTools",
+                "Bash,WebFetch,WebSearch"
             ]
         );
         assert_eq!(

@@ -1505,11 +1505,12 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
     brainstormDiff: () => touch(DEMO_DIFF),
     taskBrief: async id => { const d = get(id); return touch(`# Task brief: ${d.title}\n\n- Project: ${d.workspaceName}\n- State: ${d.state}\n\n## Goal\n\n${d.prompt}\n`); },
     sandboxProfiles: async (agents, allowShell, allowWeb) => touch(agents.map(agent => {
-      const gemini = agent === 'gemini-cli';
-      return {agent, outsideFiles: gemini ? 'not_enforced' as const : 'enforced' as const,
-        shell: agent === 'codex' ? 'enforced' as const : allowShell ? 'allowed' as const : 'enforced' as const,
-        web: allowWeb ? 'allowed' as const : gemini ? 'not_enforced' as const : 'enforced' as const, secrets: 'enforced' as const,
-        note: gemini ? 'Gemini CLI has no sandbox here without Docker: it may read outside the copy and search the web.' : ''};
+      const unsure = agent === 'gemini-cli' || agent === 'codex';
+      const held = (allowed: boolean) => allowed ? 'allowed' as const : unsure || allowShell ? 'not_guaranteed' as const : 'blocked' as const;
+      return {agent, writesOutside: held(false), readsOutside: 'not_guaranteed' as const, shell: agent === 'codex' ? 'not_guaranteed' as const : allowShell ? 'allowed' as const : 'blocked' as const,
+        network: held(allowWeb), secrets: 'partial' as const,
+        note: agent === 'gemini-cli' ? 'Gemini CLI has no sandbox here without Docker, and its approval mode is not a denial: Pygg cannot hold it to these.'
+          : agent === 'codex' ? 'Codex’s workspace-write sandbox is not relied on on Windows: its writes and network are not guaranteed to stay in.' : ''};
     })),
     taskEstimate: async steps => {
       const est = steps.map((s, i) => s.billing === 'free' || s.billing === 'local' ? {kind: 'free' as const, runs: 0, lowMicroUsd: null, highMicroUsd: null}

@@ -123,10 +123,12 @@ export function NewTaskView({onCreated, onPlanCreated, workspaceId: initial, mod
 
     {mode === 'task' && workspace && <WorkspaceChecks workspace={workspace} onChanged={workspaces.reload}/>}
 
-    {mode !== 'plan' && <CostPanel estimate={estimate.data ?? null} steps={steps ?? []} names={Object.fromEntries(installed.map(a => [a.id, a.name]))}
-      capText={capText} onCap={setCapText} capValid={capValid}/>}
+    {mode !== 'plan' && <CostPanel estimate={estimate.data && estimate.data.steps.length === (steps ?? []).length ? estimate.data : null}
+      steps={steps ?? []} names={Object.fromEntries(installed.map(a => [a.id, a.name]))}
+      capText={capText} onCap={setCapText} capValid={capValid} updating={estimate.loading}/>}
 
-    {mode !== 'plan' && sandbox.data && <SafetyPanel profiles={sandbox.data} names={Object.fromEntries(installed.map(a => [a.id, a.name]))}/>}
+    {mode !== 'plan' && sandbox.data && <SafetyPanel profiles={sandbox.data.filter(p => agentIds.includes(p.agent))} updating={sandbox.loading}
+      names={Object.fromEntries(installed.map(a => [a.id, a.name]))}/>}
 
     {mode !== 'plan' && <details className="form-disclosure agent-settings">
       <summary>{t('Agent settings')}<span className="secondary"> · {ladder || t('no agent installed')}</span></summary>
@@ -256,8 +258,8 @@ const dollars = (micro: number) => `$${(micro / 1e6).toFixed(micro > 0 && micro 
  * What the task may cost before it starts (the gap study's task budget): each step of the ladder with what its agent
  * and model cost on recent runs, the stop rules, and an optional cap for the whole task.
  */
-function CostPanel({estimate, steps, names, capText, onCap, capValid}: {estimate: LadderEstimate | null; steps: Step[];
-  names: Record<string, string>; capText: string; onCap: (v: string) => void; capValid: boolean}) {
+function CostPanel({estimate, steps, names, capText, onCap, capValid, updating}: {estimate: LadderEstimate | null; steps: Step[];
+  names: Record<string, string>; capText: string; onCap: (v: string) => void; capValid: boolean; updating: boolean}) {
   const priced = (e: LadderEstimate['steps'][number]) => e.kind === 'free' ? t('free') : e.kind === 'quota' ? t('your plan’s quota')
     : e.kind === 'unknown' ? t('unknown: never run') : e.lowMicroUsd === e.highMicroUsd ? t('≈{usd} ({n} runs)', {usd: dollars(e.highMicroUsd ?? 0), n: e.runs})
     : t('{low}–{high} ({n} runs)', {low: dollars(e.lowMicroUsd ?? 0), high: dollars(e.highMicroUsd ?? 0), n: e.runs});
@@ -265,50 +267,53 @@ function CostPanel({estimate, steps, names, capText, onCap, capValid}: {estimate
     : estimate.firstLowMicroUsd === estimate.firstHighMicroUsd ? `≈${dollars(estimate.firstHighMicroUsd)}`
     : `${dollars(estimate.firstLowMicroUsd ?? 0)}–${dollars(estimate.firstHighMicroUsd)}`;
   return <section className="group cost-panel">
-    <h2>{t('Cost')}</h2>
-    <div className="group-box">
+    <h2>{t('Cost')}{updating && estimate && <span className="brain-meta"> · {t('updating…')}</span>}</h2>
+    <div className={updating && estimate ? 'group-box stale' : 'group-box'} aria-busy={updating}>
       {!estimate ? <div className="group-row"><Spinner label={t('Estimating…')}/></div> : <>
         <div className="group-row cost-lines">
           <span>{t('If the first step succeeds: {cost}', {cost: first ?? ''})}</span>
-          <span>{t('If every step runs: up to {cost}', {cost: dollars(estimate.allHighMicroUsd)})}
-            {estimate.unknownSteps > 0 && <span className="warn-text"> · {t('{n} steps never ran: their cost is unknown', {n: estimate.unknownSteps})}</span>}</span>
+          <span>{estimate.unknownSteps > 0
+            ? t('If every step runs: the steps with a history cost up to {cost} on past runs, plus {n} never run, unknown', {cost: dollars(estimate.allHighMicroUsd), n: estimate.unknownSteps})
+            : t('If every step runs: up to {cost} on past runs', {cost: dollars(estimate.allHighMicroUsd)})}</span>
         </div>
         <ol className="ladder-list">
           {estimate.steps.map((e, i) => <li key={i}><span className="mono">{i + 1}. {names[steps[i]?.agent] ?? steps[i]?.agent}{steps[i]?.model ? ` · ${steps[i].model}` : ''}</span>
             <span className={e.kind === 'unknown' ? 'warn-text' : 'secondary'}>{priced(e)}</span></li>)}
         </ol>
-        <p className="group-footnote">{t('The next step starts only when a step fails: the checks fail, it changes nothing, or the agent stops. A paid step asks you first. Estimates are past runs by the agent’s own report and Pygg’s ledger, not a quote.')}</p>
+        <p className="group-footnote">{t('The next step starts only when a step fails: the checks fail, it changes nothing, or the agent stops. A paid step asks you first. Estimates are what the same agent and model cost on earlier attempts, not a quote or a ceiling.')}</p>
       </>}
       <div className="group-row">
         <span className="group-label"><label htmlFor="task-cap">{t('Stop the task at')}</label>
-          <small>{t('Optional. No further step starts once the task has cost this much; a paid step’s cap is never set above what is left.')}</small></span>
+          <small id="task-cap-hint">{capValid ? t('Optional. No further step starts once the task has cost this much, or once a paid step’s cost is unknown; a paid step’s cap is never above what is left. Only Claude Code stops itself mid-run at a cap: another agent’s step may go over, and the task stops after it.')
+            : t('Enter an amount above 0, or leave it empty.')}</small></span>
         <span className="group-control"><span className={capValid ? 'money-input' : 'money-input invalid'}><span aria-hidden>$</span>
-          <input id="task-cap" inputMode="decimal" placeholder={t('no cap')} value={capText} onChange={e => onCap(e.target.value)}/></span></span>
+          <input id="task-cap" inputMode="decimal" placeholder={t('no cap')} value={capText} onChange={e => onCap(e.target.value)}
+            aria-invalid={!capValid} aria-describedby="task-cap-hint"/></span></span>
       </div>
     </div>
   </section>;
 }
 
-const HOLD: Record<Hold, string> = {enforced: 'blocked', allowed: 'allowed by you', not_enforced: 'not enforced'};
+const HOLD: Record<Hold, string> = {blocked: 'blocked', allowed: 'allowed by you', not_guaranteed: 'not guaranteed', partial: 'filtered, best effort', sandboxed: 'in its sandbox'};
 
 /**
  * What the agents of this ladder are held to (the sandbox profile): files outside the copy, shell, web, and secrets
  * in the environment, per agent, with what Pygg cannot enforce said plainly.
  */
-function SafetyPanel({profiles, names}: {profiles: Sandbox[]; names: Record<string, string>}) {
-  const loose = profiles.some(p => [p.outsideFiles, p.shell, p.web, p.secrets].includes('not_enforced'));
+function SafetyPanel({profiles, names, updating}: {profiles: Sandbox[]; names: Record<string, string>; updating: boolean}) {
+  const loose = profiles.some(p => [p.writesOutside, p.readsOutside, p.shell, p.network].includes('not_guaranteed'));
   return <section className="group safety-panel">
-    <h2>{t('Safety')}</h2>
-    <div className="group-box">
+    <h2>{t('Safety')}{updating && <span className="brain-meta"> · {t('updating…')}</span>}</h2>
+    <div className={updating ? 'group-box stale' : 'group-box'} aria-busy={updating}>
       <table className="safety-table">
-        <thead><tr><th scope="col">{t('Agent')}</th><th scope="col">{t('Files outside its copy')}</th><th scope="col">{t('Shell')}</th>
-          <th scope="col">{t('Web')}</th><th scope="col">{t('Your secrets')}</th></tr></thead>
+        <thead><tr><th scope="col">{t('Agent')}</th><th scope="col">{t('Writes outside its copy')}</th><th scope="col">{t('Reads outside')}</th>
+          <th scope="col">{t('Shell')}</th><th scope="col">{t('Network')}</th><th scope="col">{t('Secrets in the environment')}</th></tr></thead>
         <tbody>{profiles.map(p => <tr key={p.agent}><th scope="row">{names[p.agent] ?? p.agent}</th>
-          {[p.outsideFiles, p.shell, p.web, p.secrets].map((h, i) => <td key={i} className={`hold ${h}`}>{t(HOLD[h])}</td>)}</tr>)}</tbody>
+          {[p.writesOutside, p.readsOutside, p.shell, p.network, p.secrets].map((h, i) => <td key={i} className={`hold ${h}`}>{t(HOLD[h])}</td>)}</tr>)}</tbody>
       </table>
       {profiles.filter(p => p.note).map(p => <p key={p.agent} className="group-footnote safety-note">{names[p.agent] ?? p.agent}: {p.note}</p>)}
     </div>
-    <p className="group-footnote">{t('Every attempt works on its own copy of the repository; your checkout is never changed. Secrets in Pygg’s environment that an agent does not need for its own sign-in (cloud, GitHub, database keys) are not passed to it.')}
-      {loose && ` ${t('Where a cell says not enforced, Pygg cannot hold that agent to it: keep secrets out of the repository, or choose another agent.')}`}</p>
+    <p className="group-footnote">{t('Every attempt works on its own copy of the repository; your checkout is never changed. Variables in Pygg’s environment that look like secrets and that the agent’s own sign-in does not use (cloud, GitHub, database keys, URLs with a password) are not passed to it; secrets in files and credential stores are not covered.')}
+      {loose && ` ${t('Not guaranteed means Pygg cannot hold that agent to it here: an allowed shell reaches past tool rules. Keep secrets out of the repository, or choose another agent.')}`}</p>
   </section>;
 }

@@ -42,14 +42,14 @@ Printed when a tool started by `pygg run` exits: cost (unknown and subscription 
 
 | Agent | Headless command | Status |
 | --- | --- | --- |
-| Claude Code | `claude -p … --permission-mode acceptEdits` (file tools; Bash, WebFetch and WebSearch only on **Allow**) | Live through the MCP server |
+| Claude Code | `claude -p … --permission-mode acceptEdits` (file tools; Bash, WebFetch and WebSearch only on **Allow**, else in `--disallowedTools`) | Live through the MCP server |
 | Codex CLI | `codex exec --json --sandbox workspace-write --ephemeral` (network only on **Allow** web) | Live (ChatGPT plan) |
 | Gemini CLI | `gemini -p … --approval-mode auto_edit` (`yolo` only on **Allow**) | Refused by Google for personal accounts; API key untested |
-| OpenCode | `opencode run --format json`, permissions set per run: `bash` and `webfetch` as allowed, `external_directory` denied | Live (free model) |
+| OpenCode | `opencode run --format json`, permissions set per run: `bash`, `webfetch` and `websearch` as allowed, `external_directory` denied | Live (free model) |
 
 - **Sign-in stays with the agent;** Pygg shows only the CLI's status, key-shaped text redacted.
 - **One worktree per run** (ADR-008); user files and branch untouched; kept as a branch or discarded.
-- **Least permission (the safety profile):** shell and web each need **Allow**; nothing outside the copy; secrets in Pygg's environment that the agent's own sign-in does not use (cloud, GitHub, database keys) are withheld; New work shows per agent what is enforced, and Gemini CLI's files and web as not enforced. 15-minute limit; the whole process tree ends on timeout or cancel.
+- **Least permission (the safety profile):** shell and web each need **Allow**. New work shows per agent, on this platform, writes and reads outside the copy, shell, network and secrets as blocked, allowed, not guaranteed or best effort: an allowed shell reaches past tool rules; Codex's sandbox is not relied on on Windows; Gemini CLI holds to none of them here. Variables in Pygg's environment that look like secrets (by name, or a URL with a password) and that the agent's own sign-in does not use are withheld, proxies kept; files and credential stores are not covered. 15-minute limit; the whole process tree ends on timeout or cancel.
 - **Honest cost:** subscription cost is unknown, never $0.
 - Where: `agents.rs`; app **Agents**; headless `pygg agent`.
 

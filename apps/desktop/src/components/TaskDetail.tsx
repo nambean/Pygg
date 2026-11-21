@@ -396,7 +396,7 @@ function Evidence({task}: {task: Detail}) {
   if (task.policy.checks.length === 0) unchecked.push(t('Nothing checked this result: the project has no approved checks.'));
   else {
     unchecked.push(t('The checks test only what their commands run; behaviour they do not cover is unchecked.'));
-    if (paths.length > 0 && tests.length === 0) unchecked.push(t('No test file changed: the checks ran the tests that were already there.'));
+    if (paths.length > 0 && tests.length === 0) unchecked.push(t('No test file changed in this result.'));
   }
   if (card) unchecked.push(t('The card’s done criterion, to confirm yourself: {done}', {done: card.done}));
   const firstLine = task.prompt.split('\n').map(l => l.trim()).find(Boolean) ?? '';
@@ -417,11 +417,25 @@ function Evidence({task}: {task: Detail}) {
   </section>;
 }
 
-/** Copies the task as a brief for another agent: goal, base, attempts and why they stopped, checks, where it stands. */
+/** The task as a brief for another agent (goal, base, attempts and why they stopped, checks, where it stands), shown
+ *  before it is copied: key-shaped text and passwords in URLs are masked, but the task's own words go as written. */
 function BriefButton({taskId}: {taskId: string}) {
-  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
-  return <button type="button" className="button" title={t('The goal, where it started, what was tried and why it stopped, the checks, where it stands; secrets removed')}
-    onClick={() => call(api => api.taskBrief(taskId)).then(text => navigator.clipboard?.writeText(text)).then(() => { setState('copied'); setTimeout(() => setState('idle'), 1800); },
-      () => setState('failed'))}>
-    {state === 'copied' ? t('Brief copied') : state === 'failed' ? t('Could not copy') : t('Copy brief for another agent')}</button>;
+  const [text, setText] = useState<string | null>(null);
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const copy = (value: string) => {
+    if (!navigator.clipboard) { setStatus(t('Could not copy: select the text and copy it yourself.')); return; }
+    navigator.clipboard.writeText(value).then(() => setStatus(t('Brief copied.')), () => setStatus(t('Could not copy: select the text and copy it yourself.')));
+  };
+  return <>
+    <button type="button" className="button" onClick={() => { setError(null); setStatus('');
+      call(api => api.taskBrief(taskId)).then(setText, e => setError(errorText(e))); }}>{t('Brief for another agent…')}</button>
+    {error && <ErrorNote>{error}</ErrorNote>}
+    {text !== null && <ConfirmSheet destructive={false} title={t('Brief for another agent')} confirmLabel={t('Copy')}
+      message={<>
+        <p className="secondary">{t('Read it before sharing it. Key-shaped text and passwords in URLs are masked; the task’s own words and file names go as written.')}</p>
+        <pre className="log-tail selectable brief-preview">{text}</pre>
+        <p role="status" aria-live="polite">{status}</p></>}
+      onClose={() => setText(null)} onConfirm={async () => copy(text)}/>}
+  </>;
 }

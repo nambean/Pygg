@@ -781,8 +781,8 @@ fn approval_of(conn: &Connection, id: &str, row: &TaskRow, attempts: &[AttemptVi
         (a, b) => a.or(b),
     };
     let suggested = match left {
-        Some(left) if left > 0 => suggested_cap_micro(&estimate).min(left),
-        _ => suggested_cap_micro(&estimate),
+        Some(left) => suggested_cap_micro(&estimate).min(left),
+        None => suggested_cap_micro(&estimate),
     };
     Ok(Some(ApprovalView {
         step: waiting.step,
@@ -921,11 +921,32 @@ pub struct Estimate {
     pub high_micro_usd: Option<u64>,
 }
 
-/// What a task has cost so far, in micro-USD: Pygg's ledger, actual and estimated (unknown entries count nothing).
+/// What a task has cost so far, in micro-USD, attempt by attempt: the cost recorded on the attempt (Pygg's ledger for
+/// requests through the gateway, else the agent's own estimate), or its ledger entries, never both.
 fn spent_micro(conn: &Connection, task_id: &str) -> Result<u64> {
-    let attempts = attempts_of(conn, task_id)?;
-    let cost = cost_of(conn, task_id, &attempts)?;
-    Ok(((cost.actual_usd + cost.estimated_usd) * 1e6).round().max(0.0) as u64)
+    conn.query_row(
+        "SELECT COALESCE(SUM(COALESCE(a.agent_estimate_micro_usd, \
+           (SELECT SUM(u.cost_micro_usd) FROM usage_events u WHERE u.attempt_id = a.id AND u.cost_status IN ('actual', 'estimated')), 0)), 0) \
+         FROM attempts a JOIN task_stages s ON s.id = a.stage_id WHERE s.task_id = ?1",
+        [task_id],
+        |r| r.get::<_, i64>(0),
+    )
+    .map(|v| v.max(0) as u64)
+    .map_err(err)
+}
+
+/// A finished attempt on a paid (or unknown) billing whose cost nothing recorded: the task's cap cannot be kept past it.
+fn unknown_paid_attempt(conn: &Connection, task_id: &str) -> Result<Option<u32>> {
+    conn.query_row(
+        "SELECT a.number FROM attempts a JOIN task_stages s ON s.id = a.stage_id WHERE s.task_id = ?1 \
+         AND a.billing IN ('paid', 'unknown') AND a.state IN ('passed', 'done', 'failed') AND a.agent_estimate_micro_usd IS NULL \
+         AND NOT EXISTS (SELECT 1 FROM usage_events u WHERE u.attempt_id = a.id AND u.cost_status IN ('actual', 'estimated')) \
+         ORDER BY a.number LIMIT 1",
+        [task_id],
+        |r| r.get::<_, u32>(0),
+    )
+    .optional()
+    .map_err(err)
 }
 
 fn money(micro: u64) -> String {
@@ -1625,6 +1646,13 @@ impl Runner {
                         return Err(fill(m::CAP_OVER_BUDGET, &[&format!("{:.2}", usd(left))]));
                     }
                 }
+                // Nor more than the task's own cap leaves.
+                if let (Some(cap), Some(task_cap)) = (cap, row.policy.cap_micro_usd) {
+                    let task_left = task_cap.saturating_sub(spent_micro(&tx, id)?);
+                    if cap > task_left {
+                        return Err(fill(m::CAP_OVER_TASK, &[&format!("{:.2}", usd(task_left))]));
+                    }
+                }
             }
             tx.execute("UPDATE approvals SET state = ?2, cap_micro_usd = COALESCE(?3, cap_micro_usd), decided_at = ?4 \
                         WHERE attempt_id = ?1 AND state = 'pending'",
@@ -1695,6 +1723,13 @@ impl Runner {
                 if spent >= cap {
                     let reason = fill(m::TASK_CAP, &[&money(cap), &money(spent)]);
                     return self.with_db(|c| set_task(c, id, "blocked", None, Some(&reason))).map_err(err);
+                }
+                // A paid step whose cost nothing recorded: what the task spent is unknown, so the cap cannot be kept.
+                if !matches!(step.billing.as_str(), "free" | "local" | "subscription") {
+                    if let Some(n) = self.with_db(|c| unknown_paid_attempt(c, id))? {
+                        let reason = fill(m::TASK_CAP_UNKNOWN, &[&money(cap), &n]);
+                        return self.with_db(|c| set_task(c, id, "blocked", None, Some(&reason))).map_err(err);
+                    }
                 }
             }
             // A step whose model's account is held for good (no credit, a rejected key) cannot run: it is skipped
@@ -1992,9 +2027,8 @@ pub fn task_brief(conn: &Connection, id: &str) -> Result<String> {
     let cost = cost_of(conn, id, &attempts)?;
     let mut out = format!("# Task brief: {}\n\n", row.title);
     out.push_str(&format!(
-        "- Project: {} ({})\n- Started from commit: {}\n- State: {}{}\n- Cost so far: ${:.2} known{}\n\n",
+        "- Project: {}\n- Started from commit: {}\n- State: {}{}\n- Cost so far: ${:.2} known{}\n\n",
         row.workspace_name,
-        row.workspace_path,
         row.base_revision.as_deref().unwrap_or("unknown"),
         row.state.replace('_', " "),
         row.result_branch.as_deref().map(|b| format!("; kept as branch `{b}`")).unwrap_or_default(),
@@ -2041,7 +2075,29 @@ pub fn task_brief(conn: &Connection, id: &str) -> Result<String> {
         Some(b) => format!("\n\nContinue from branch `{b}`.\n"),
         None => format!("\n\nContinue from commit {}.\n", row.base_revision.as_deref().unwrap_or("HEAD")),
     });
-    Ok(crate::redact::redact(&out, &[]))
+    Ok(mask_url_credentials(&crate::redact::redact(&out, &[])))
+}
+
+/// `scheme://user:password@` → `scheme://[redacted]@`, wherever it appears in a text.
+fn mask_url_credentials(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("://") {
+        let (head, tail) = rest.split_at(at + 3);
+        out.push_str(head);
+        let end = tail
+            .find(|c: char| c.is_whitespace() || c == '/' || c == '`' || c == ')' || c == '"')
+            .unwrap_or(tail.len());
+        match tail[..end].rfind('@') {
+            Some(i) if tail[..i].contains(':') => {
+                out.push_str("[redacted]");
+                rest = &tail[i..];
+            }
+            _ => rest = tail,
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 pub fn result_diff(conn: &Connection, id: &str) -> Result<String> {
@@ -2562,6 +2618,25 @@ mod tests {
     }
 
     #[test]
+    fn what_a_task_spent_counts_each_attempt_once() {
+        let rig = rig(&[good_check()]);
+        let id = create(&rig, vec![step("claude-code", "paid", 3)]);
+        let conn = lock(&rig.db);
+        let stage: String =
+            conn.query_row("SELECT id FROM task_stages WHERE task_id = ?1", [&id], |r| r.get(0)).unwrap();
+        for (n, estimate) in [(1, Some(120_000i64)), (2, None)] {
+            conn.execute("INSERT INTO attempts (id, stage_id, number, agent, model_ref, tier, billing, state, rung, agent_estimate_micro_usd) \
+                VALUES (?1, ?2, ?3, 'claude-code', 'Claude Code', 3, 'paid', 'failed', 0, ?4)", params![format!("a{n}"), stage, n, estimate]).unwrap();
+        }
+        assert_eq!(
+            spent_micro(&conn, &id).unwrap(),
+            120_000,
+            "the agent's estimate counts; no ledger, no double count"
+        );
+        assert_eq!(unknown_paid_attempt(&conn, &id).unwrap(), Some(2), "the second attempt's cost is unknown");
+    }
+
+    #[test]
     fn a_ladder_is_estimated_from_its_steps_runs() {
         let conn = crate::db::open_in_memory().unwrap();
         let e = ladder_estimate(
@@ -2627,6 +2702,11 @@ mod tests {
         assert!(brief.contains("1. ") && brief.contains("2. "), "both attempts: {brief}");
         assert!(brief.contains(&format!("- `{}`", good_check())));
         assert!(brief.contains("Continue from commit"));
+        assert!(!brief.contains(&rig.repo.to_string_lossy().to_string()), "no local path");
+        assert_eq!(
+            mask_url_credentials("pull postgres://app:s3cret@db/x and https://host/a@b"),
+            "pull postgres://[redacted]@db/x and https://host/a@b"
+        );
     }
 
     #[test]

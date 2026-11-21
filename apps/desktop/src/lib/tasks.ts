@@ -94,8 +94,8 @@ export type NewTask = {
   allowWeb?: boolean;
 };
 /** What an agent is held to for a run (agents.rs `sandbox_profile`): enforced, allowed by you, or not enforced. */
-export type Hold = 'enforced' | 'allowed' | 'not_enforced';
-export type Sandbox = { agent: string; outsideFiles: Hold; shell: Hold; web: Hold; secrets: Hold; note: string };
+export type Hold = 'blocked' | 'allowed' | 'not_guaranteed' | 'partial' | 'sandboxed';
+export type Sandbox = { agent: string; writesOutside: Hold; readsOutside: Hold; shell: Hold; network: Hold; secrets: Hold; note: string };
 /** One step before it runs (tasks.rs `ladder_estimate`): free, quota, money (with a history) or unknown. */
 export type StepEstimate = { kind: 'free' | 'quota' | 'money' | 'unknown'; runs: number; lowMicroUsd: number | null; highMicroUsd: number | null };
 export type LadderEstimate = { steps: StepEstimate[]; firstLowMicroUsd: number | null; firstHighMicroUsd: number | null; allHighMicroUsd: number; unknownSteps: number };

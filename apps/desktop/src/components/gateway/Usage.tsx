@@ -480,10 +480,12 @@ function Coverage({days, total, quality}: {days: number; total: UsageGroup; qual
     {what: t('Requests through Pygg with a price'), seen: t('{n} requests · {amount}', {n: priced, amount: microUsd(total.knownMicroUsd)}), tone: 'ok'},
     {what: t('Requests through Pygg without a price'), seen: total.unknownRequests ? t('{n} requests: give their models a price in Providers', {n: total.unknownRequests}) : t('none'),
       tone: total.unknownRequests ? 'warn' : 'ok'},
-    {what: t('Agent runs on their own sign-in'), seen: quality && quality.unknownEntries ? t('{n} runs reported no cost', {n: quality.unknownEntries}) : t('none without a cost'),
+    {what: t('Agent runs on their own sign-in'), seen: !quality ? t('loading…') : quality.unknownEntries ? t('{n} runs reported no cost', {n: quality.unknownEntries}) : t('none without a cost'),
       tone: quality && quality.unknownEntries ? 'warn' : 'ok'},
-    {what: t('Subscriptions'), seen: subscriptions.length === 0 ? t('none connected')
-      : t('{n} connected · {m} state their limits; the rest are Unknown', {n: subscriptions.length, m: stated}), tone: subscriptions.length && stated < subscriptions.length ? 'warn' : 'ok'},
+    {what: t('Subscriptions'), seen: subs.error && !subs.data ? t('could not be read: {error}', {error: subs.error}) : !subs.data ? t('loading…')
+      : subscriptions.length === 0 ? t('none connected')
+      : t('{n} connected · {m} state their limits; the rest are Unknown', {n: subscriptions.length, m: stated}),
+      tone: subs.error && !subs.data ? 'warn' : subscriptions.length && stated < subscriptions.length ? 'warn' : 'ok'},
     {what: t('Tools not pointed at Pygg'), seen: t('not seen at all: their use and limits are in their own apps'), tone: 'none'},
   ];
   return <section className="group" aria-labelledby="coverage-heading">

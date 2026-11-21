@@ -19,6 +19,10 @@ pub const HALTED: &str = "{0}. Pygg stopped before trying another step.";
 pub const ALL_FAILED: &str = "Every step failed. Last: {0}";
 pub const NO_ATTEMPT: &str = "no attempt ran";
 pub const TASK_CAP: &str = "Stopped at this task's cap of {0}: it has cost {1} so far. No further step was started.";
+pub const TASK_CAP_UNKNOWN: &str =
+    "Stopped before a paid step: this task's cap of {0} cannot be kept, because what attempt {1} cost is unknown.";
+pub const CAP_OVER_TASK: &str =
+    "The cap is more than this task's own cap leaves (${0}). Lower it, or raise the task's cap.";
 pub const ANSWERED: &str = "Answered. Nothing was changed; the answer is below.";
 pub const NO_ANSWER: &str = "The agent finished without an answer";
 pub const ACCOUNT_HELD: &str = "Skipped {0}: its account is {1} ({2}). Fix it under Providers to use this model again.";
@@ -113,6 +117,8 @@ pub const ALL: &[&str] = &[
     ALL_FAILED,
     NO_ATTEMPT,
     TASK_CAP,
+    TASK_CAP_UNKNOWN,
+    CAP_OVER_TASK,
     ANSWERED,
     NO_ANSWER,
     ACCOUNT_HELD,

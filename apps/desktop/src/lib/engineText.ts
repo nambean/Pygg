@@ -16,6 +16,8 @@ const TEMPLATES: string[] = [
   "Every step failed. Last: {0}",
   "no attempt ran",
   "Stopped at this task's cap of {0}: it has cost {1} so far. No further step was started.",
+  "Stopped before a paid step: this task's cap of {0} cannot be kept, because what attempt {1} cost is unknown.",
+  "The cap is more than this task's own cap leaves (${0}). Lower it, or raise the task's cap.",
   "Answered. Nothing was changed; the answer is below.",
   "The agent finished without an answer",
   "Skipped {0}: its account is {1} ({2}). Fix it under Providers to use this model again.",
