@@ -313,7 +313,7 @@ function SafetyPanel({profiles, names, updating}: {profiles: Sandbox[]; names: R
       </table>
       {profiles.filter(p => p.note).map(p => <p key={p.agent} className="group-footnote safety-note">{names[p.agent] ?? p.agent}: {p.note}</p>)}
     </div>
-    <p className="group-footnote">{t('Every attempt works on its own copy of the repository; your checkout is never changed. Variables in Pygg’s environment that look like secrets and that the agent’s own sign-in does not use (cloud, GitHub, database keys, URLs with a password) are not passed to it; secrets in files and credential stores are not covered.')}
+    <p className="group-footnote">{t('Every attempt starts in its own copy of the repository. Where writes outside the copy are not blocked, other files, your checkout among them, can be changed. Variables in Pygg’s environment that look like secrets and that the agent’s own sign-in does not use (cloud, GitHub, database keys, URLs with a password) are not passed to it; secrets in files and credential stores are not covered.')}
       {loose && ` ${t('Not guaranteed means Pygg cannot hold that agent to it here: an allowed shell reaches past tool rules. Keep secrets out of the repository, or choose another agent.')}`}</p>
   </section>;
 }

@@ -390,6 +390,8 @@ export type SkillProject = {path: string; name: string; addedAt: number; missing
 export type TaskQuality = {
   tasks: number; kept: number; discarded: number; retried: number; cancelled: number;
   checkedAttempts: number; passedAttempts: number; knownMicroUsd: number; unknownEntries: number;
+  /** Finished paid attempts whose cost nothing recorded. */
+  unknownCostRuns?: number;
   microUsdPerKept: number | null;
 };
 

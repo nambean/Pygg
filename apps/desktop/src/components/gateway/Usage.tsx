@@ -182,7 +182,7 @@ export function Usage({onOpenTools, intent, onIntentDone}: {onOpenTools?: () => 
         </div>
       </section>
 
-      <Coverage days={Number(range)} total={data.total} quality={quality.data ?? null}/>
+      <Coverage days={Number(range)} total={data.total} quality={quality.data ?? null} qualityError={quality.data ? null : quality.error ?? null}/>
       {overTime.data && <CostOverTime days={Number(range)} buckets={overTime.data}
         comparison={savings.data?.baseline && savings.data.baselinePriced ? {model: savings.data.baseline, periods: savings.data.periods} : null}/>}
       <TokenMix days={Number(range)}/>
@@ -471,7 +471,7 @@ function LedgerRow({event: e, open, onToggle, chain}: {event: UsageEvent; open: 
  * What Pygg can see (the gap study's coverage-aware usage): requests through the gateway with a price, those without
  * one, agent runs that reported no cost, subscriptions known only as quota, and what never passes through Pygg.
  */
-function Coverage({days, total, quality}: {days: number; total: UsageGroup; quality: TaskQuality | null}) {
+function Coverage({days, total, quality, qualityError}: {days: number; total: UsageGroup; quality: TaskQuality | null; qualityError: string | null}) {
   const subs = useGateway(api => api.usageSubscriptions(days), [days], 30_000);
   const priced = total.requests - total.unknownRequests;
   const subscriptions = subs.data ?? [];
@@ -480,8 +480,9 @@ function Coverage({days, total, quality}: {days: number; total: UsageGroup; qual
     {what: t('Requests through Pygg with a price'), seen: t('{n} requests · {amount}', {n: priced, amount: microUsd(total.knownMicroUsd)}), tone: 'ok'},
     {what: t('Requests through Pygg without a price'), seen: total.unknownRequests ? t('{n} requests: give their models a price in Providers', {n: total.unknownRequests}) : t('none'),
       tone: total.unknownRequests ? 'warn' : 'ok'},
-    {what: t('Agent runs on their own sign-in'), seen: !quality ? t('loading…') : quality.unknownEntries ? t('{n} runs reported no cost', {n: quality.unknownEntries}) : t('none without a cost'),
-      tone: quality && quality.unknownEntries ? 'warn' : 'ok'},
+    {what: t('Paid agent runs with no recorded cost'), seen: qualityError ? t('could not be read: {error}', {error: qualityError}) : !quality ? t('loading…')
+      : (quality.unknownCostRuns ?? 0) > 0 ? t('{n} runs', {n: quality.unknownCostRuns ?? 0}) : t('none'),
+      tone: qualityError || (quality?.unknownCostRuns ?? 0) > 0 ? 'warn' : 'ok'},
     {what: t('Subscriptions'), seen: subs.error && !subs.data ? t('could not be read: {error}', {error: subs.error}) : !subs.data ? t('loading…')
       : subscriptions.length === 0 ? t('none connected')
       : t('{n} connected · {m} state their limits; the rest are Unknown', {n: subscriptions.length, m: stated}),

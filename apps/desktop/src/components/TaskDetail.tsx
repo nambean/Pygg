@@ -423,9 +423,11 @@ function BriefButton({taskId}: {taskId: string}) {
   const [text, setText] = useState<string | null>(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const copy = (value: string) => {
-    if (!navigator.clipboard) { setStatus(t('Could not copy: select the text and copy it yourself.')); return; }
-    navigator.clipboard.writeText(value).then(() => setStatus(t('Brief copied.')), () => setStatus(t('Could not copy: select the text and copy it yourself.')));
+  // Throws when the copy fails, so the sheet stays open with the reason and the text to select by hand.
+  const copy = async (value: string) => {
+    if (!navigator.clipboard) throw t('Could not copy: select the text and copy it yourself.');
+    try { await navigator.clipboard.writeText(value); } catch { throw t('Could not copy: select the text and copy it yourself.'); }
+    setStatus(t('Brief copied.'));
   };
   return <>
     <button type="button" className="button" onClick={() => { setError(null); setStatus('');
@@ -436,6 +438,6 @@ function BriefButton({taskId}: {taskId: string}) {
         <p className="secondary">{t('Read it before sharing it. Key-shaped text and passwords in URLs are masked; the task’s own words and file names go as written.')}</p>
         <pre className="log-tail selectable brief-preview">{text}</pre>
         <p role="status" aria-live="polite">{status}</p></>}
-      onClose={() => setText(null)} onConfirm={async () => copy(text)}/>}
+      onClose={() => setText(null)} onConfirm={() => copy(text)}/>}
   </>;
 }

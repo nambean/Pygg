@@ -937,10 +937,12 @@ fn spent_micro(conn: &Connection, task_id: &str) -> Result<u64> {
 
 /// A finished attempt on a paid (or unknown) billing whose cost nothing recorded: the task's cap cannot be kept past it.
 fn unknown_paid_attempt(conn: &Connection, task_id: &str) -> Result<Option<u32>> {
+    // Unknown when nothing recorded its cost, or when any of its ledger entries has no price: a part is not the whole.
     conn.query_row(
         "SELECT a.number FROM attempts a JOIN task_stages s ON s.id = a.stage_id WHERE s.task_id = ?1 \
          AND a.billing IN ('paid', 'unknown') AND a.state IN ('passed', 'done', 'failed') AND a.agent_estimate_micro_usd IS NULL \
-         AND NOT EXISTS (SELECT 1 FROM usage_events u WHERE u.attempt_id = a.id AND u.cost_status IN ('actual', 'estimated')) \
+         AND (NOT EXISTS (SELECT 1 FROM usage_events u WHERE u.attempt_id = a.id AND u.cost_status IN ('actual', 'estimated')) \
+              OR EXISTS (SELECT 1 FROM usage_events u WHERE u.attempt_id = a.id AND u.cost_status = 'unknown')) \
          ORDER BY a.number LIMIT 1",
         [task_id],
         |r| r.get::<_, u32>(0),
@@ -1226,6 +1228,8 @@ pub struct Quality {
     /// Known money of all tasks' ledger entries, and the entries whose cost is unknown (not counted).
     pub known_micro_usd: u64,
     pub unknown_entries: u64,
+    /// Finished attempts on a paid or unknown billing whose cost nothing recorded (no agent estimate, no priced entry).
+    pub unknown_cost_runs: u64,
     /// Known money per kept result; `None` when nothing was kept.
     pub micro_usd_per_kept: Option<u64>,
 }
@@ -1253,6 +1257,17 @@ pub fn quality(conn: &Connection, since_ms: i64) -> Result<Quality> {
         unknown_entries: unknown.max(0) as u64,
         ..Quality::default()
     };
+    q.unknown_cost_runs = conn
+        .query_row(
+            "SELECT COUNT(*) FROM attempts a JOIN task_stages s ON s.id = a.stage_id JOIN tasks t ON t.id = s.task_id \
+             WHERE t.created_at >= ?1 AND a.billing IN ('paid', 'unknown') AND a.state IN ('passed', 'done', 'failed') \
+             AND a.agent_estimate_micro_usd IS NULL \
+             AND NOT EXISTS (SELECT 1 FROM usage_events u WHERE u.attempt_id = a.id AND u.cost_status IN ('actual', 'estimated'))",
+            [since_ms],
+            |r| r.get::<_, i64>(0),
+        )
+        .map_err(err)?
+        .max(0) as u64;
     q.checked_attempts = q.passed_attempts + count("checks_passed", 0)?;
     q.micro_usd_per_kept = (kept > 0).then(|| q.known_micro_usd / kept);
     Ok(q)
@@ -2628,12 +2643,24 @@ mod tests {
             conn.execute("INSERT INTO attempts (id, stage_id, number, agent, model_ref, tier, billing, state, rung, agent_estimate_micro_usd) \
                 VALUES (?1, ?2, ?3, 'claude-code', 'Claude Code', 3, 'paid', 'failed', 0, ?4)", params![format!("a{n}"), stage, n, estimate]).unwrap();
         }
-        assert_eq!(
-            spent_micro(&conn, &id).unwrap(),
-            120_000,
-            "the agent's estimate counts; no ledger, no double count"
-        );
+        assert_eq!(spent_micro(&conn, &id).unwrap(), 120_000, "the agent's estimate counts");
         assert_eq!(unknown_paid_attempt(&conn, &id).unwrap(), Some(2), "the second attempt's cost is unknown");
+        let entry = |attempt: &str, status: &str, micro: Option<i64>| {
+            conn.execute(
+                "INSERT INTO usage_events (id, attempt_id, provider, model, cost_micro_usd, cost_status, source, created_at)                  VALUES (?1, ?2, 'p', 'm', ?3, ?4, 'test', 1)",
+                params![uuid::Uuid::new_v4().to_string(), attempt, micro, status],
+            )
+            .unwrap();
+        };
+        // Attempt 1 has the agent's estimate and a ledger entry: counted once, by its recorded cost.
+        entry("a1", "actual", Some(50_000));
+        // Attempt 2: one priced request and one without a price.
+        entry("a2", "estimated", Some(30_000));
+        entry("a2", "unknown", None);
+        assert_eq!(spent_micro(&conn, &id).unwrap(), 150_000, "a1 by its recorded cost, a2 by its priced entries");
+        assert_eq!(unknown_paid_attempt(&conn, &id).unwrap(), Some(2), "a part of a cost is not the whole");
+        conn.execute("DELETE FROM usage_events WHERE attempt_id = 'a2' AND cost_status = 'unknown'", []).unwrap();
+        assert_eq!(unknown_paid_attempt(&conn, &id).unwrap(), None);
     }
 
     #[test]
