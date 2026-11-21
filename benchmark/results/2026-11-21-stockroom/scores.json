@@ -1,0 +1,2130 @@
+{
+ "strong-1": {
+  "api": {
+   "passed": 36,
+   "total": 37,
+   "results": [
+    {
+     "id": "server starts with npm start",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "API without a session is 401",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "page without a session redirects to /login",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "wrong password is 401",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "ADMIN_PASSWORD signs in",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the password is not stored in plain text",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "add a product",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "duplicate SKU is 409",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "product: missing name is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "product: negative price is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "product: fractional stock is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "product: negative stock is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "get a product, 404 for an unknown one",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "edit a product",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "edit to a duplicate SKU is 409",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "25 more products page 20 at a time",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "search matches name or SKU, case-insensitive",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "CSV export",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "add a customer",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "duplicate email is 409",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "invalid email is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "customer search and edit",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "create an order: stock taken, total and prices recorded",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "too little stock is 409 and changes nothing",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "order: no items is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "order: quantity 0 is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "order: unknown customer is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "order: unknown product is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "get an order with its items, 404 for an unknown one",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "status: pending to paid to shipped",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "refused status changes are 409, unknown status 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "cancelling puts stock back",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "orders newest first, filter by status, with customer names",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "dashboard figures",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a product or customer in an order cannot be deleted",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "delete a product and a customer with no orders",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "sign out ends the session",
+     "pass": false,
+     "detail": "after logout got 200"
+    }
+   ]
+  },
+  "ui": {
+   "passed": 20,
+   "total": 21,
+   "results": [
+    {
+     "id": "server starts with npm start",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a page without a session shows the sign-in page",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a wrong password shows an error on the page",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "signing in goes to the dashboard",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the navigation links every page",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the dashboard shows the counts and revenue",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "add a product through the form",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a duplicate SKU shows an error in plain words",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "delete asks for confirmation and removes the product",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "products page 20 at a time with next and previous links",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the search box finds by name or SKU",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the CSV link downloads every product",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "add a customer through the form",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a duplicate email shows an error",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "create an order through the form",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "an order moves to paid with a button",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "too little stock shows an error",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "every form field has a label",
+     "pass": false,
+     "detail": "unlabelled: /orders:select-one, /orders:number"
+    },
+    {
+     "id": "no sideways scrolling at 375 px",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "sign out returns to the sign-in page",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the data stays after a restart",
+     "pass": true,
+     "detail": ""
+    }
+   ]
+  }
+ },
+ "strong-2": {
+  "api": {
+   "passed": 37,
+   "total": 37,
+   "results": [
+    {
+     "id": "server starts with npm start",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "API without a session is 401",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "page without a session redirects to /login",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "wrong password is 401",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "ADMIN_PASSWORD signs in",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the password is not stored in plain text",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "add a product",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "duplicate SKU is 409",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "product: missing name is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "product: negative price is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "product: fractional stock is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "product: negative stock is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "get a product, 404 for an unknown one",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "edit a product",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "edit to a duplicate SKU is 409",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "25 more products page 20 at a time",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "search matches name or SKU, case-insensitive",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "CSV export",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "add a customer",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "duplicate email is 409",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "invalid email is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "customer search and edit",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "create an order: stock taken, total and prices recorded",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "too little stock is 409 and changes nothing",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "order: no items is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "order: quantity 0 is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "order: unknown customer is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "order: unknown product is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "get an order with its items, 404 for an unknown one",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "status: pending to paid to shipped",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "refused status changes are 409, unknown status 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "cancelling puts stock back",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "orders newest first, filter by status, with customer names",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "dashboard figures",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a product or customer in an order cannot be deleted",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "delete a product and a customer with no orders",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "sign out ends the session",
+     "pass": true,
+     "detail": ""
+    }
+   ]
+  },
+  "ui": {
+   "passed": 19,
+   "total": 21,
+   "results": [
+    {
+     "id": "server starts with npm start",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a page without a session shows the sign-in page",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a wrong password shows an error on the page",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "signing in goes to the dashboard",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the navigation links every page",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the dashboard shows the counts and revenue",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "add a product through the form",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a duplicate SKU shows an error in plain words",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "delete asks for confirmation and removes the product",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "products page 20 at a time with next and previous links",
+     "pass": false,
+     "detail": "rows on page 1: 40"
+    },
+    {
+     "id": "the search box finds by name or SKU",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the CSV link downloads every product",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "add a customer through the form",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a duplicate email shows an error",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "create an order through the form",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "an order moves to paid with a button",
+     "pass": false,
+     "detail": "status pending"
+    },
+    {
+     "id": "too little stock shows an error",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "every form field has a label",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "no sideways scrolling at 375 px",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "sign out returns to the sign-in page",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the data stays after a restart",
+     "pass": true,
+     "detail": ""
+    }
+   ]
+  }
+ },
+ "strong-3": {
+  "api": {
+   "passed": 37,
+   "total": 37,
+   "results": [
+    {
+     "id": "server starts with npm start",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "API without a session is 401",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "page without a session redirects to /login",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "wrong password is 401",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "ADMIN_PASSWORD signs in",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the password is not stored in plain text",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "add a product",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "duplicate SKU is 409",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "product: missing name is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "product: negative price is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "product: fractional stock is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "product: negative stock is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "get a product, 404 for an unknown one",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "edit a product",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "edit to a duplicate SKU is 409",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "25 more products page 20 at a time",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "search matches name or SKU, case-insensitive",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "CSV export",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "add a customer",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "duplicate email is 409",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "invalid email is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "customer search and edit",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "create an order: stock taken, total and prices recorded",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "too little stock is 409 and changes nothing",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "order: no items is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "order: quantity 0 is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "order: unknown customer is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "order: unknown product is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "get an order with its items, 404 for an unknown one",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "status: pending to paid to shipped",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "refused status changes are 409, unknown status 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "cancelling puts stock back",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "orders newest first, filter by status, with customer names",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "dashboard figures",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a product or customer in an order cannot be deleted",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "delete a product and a customer with no orders",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "sign out ends the session",
+     "pass": true,
+     "detail": ""
+    }
+   ]
+  },
+  "ui": {
+   "passed": 17,
+   "total": 21,
+   "results": [
+    {
+     "id": "server starts with npm start",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a page without a session shows the sign-in page",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a wrong password shows an error on the page",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "signing in goes to the dashboard",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the navigation links every page",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the dashboard shows the counts and revenue",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "add a product through the form",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a duplicate SKU shows an error in plain words",
+     "pass": false,
+     "detail": "no visible error: Stockroom\nDashboard\nProducts\nCustomers\nOrders\nSign out\nProducts\n\nPage 1 of 1 (1 product)\n\nSearch\nSearch\nSKU\tName\tPrice\tStock\tActions\nUI-1\tGreen teapot\t$12.50\t3\t\nEdit\nDelete\nPrevious\nNext\nDownload CSV\n"
+    },
+    {
+     "id": "delete asks for confirmation and removes the product",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "products page 20 at a time with next and previous links",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the search box finds by name or SKU",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the CSV link downloads every product",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "add a customer through the form",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a duplicate email shows an error",
+     "pass": false,
+     "detail": "no visible error"
+    },
+    {
+     "id": "create an order through the form",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "an order moves to paid with a button",
+     "pass": false,
+     "detail": "status pending"
+    },
+    {
+     "id": "too little stock shows an error",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "every form field has a label",
+     "pass": false,
+     "detail": "unlabelled: /orders:productId[], /orders:quantity[]"
+    },
+    {
+     "id": "no sideways scrolling at 375 px",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "sign out returns to the sign-in page",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the data stays after a restart",
+     "pass": true,
+     "detail": ""
+    }
+   ]
+  }
+ },
+ "cheap-1": {
+  "api": {
+   "passed": 0,
+   "total": 37,
+   "results": [
+    {
+     "id": "server starts with npm start",
+     "pass": false,
+     "detail": "no answer on http://127.0.0.1:52327 within 30 s: s/cjs/loader:1262:25)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)\r\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\r\n    at node:internal/main/run_main_module:33:47 {\r\n  code: 'MODULE_NOT_FOU"
+    },
+    {
+     "id": "API without a session is 401",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "page without a session redirects to /login",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "wrong password is 401",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "ADMIN_PASSWORD signs in",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "the password is not stored in plain text",
+     "pass": false,
+     "detail": "no database at DB_PATH"
+    },
+    {
+     "id": "add a product",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "duplicate SKU is 409",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "product: missing name is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "product: negative price is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "product: fractional stock is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "product: negative stock is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "get a product, 404 for an unknown one",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "edit a product",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "edit to a duplicate SKU is 409",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "25 more products page 20 at a time",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "search matches name or SKU, case-insensitive",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "CSV export",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "add a customer",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "duplicate email is 409",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "invalid email is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "customer search and edit",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "create an order: stock taken, total and prices recorded",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "too little stock is 409 and changes nothing",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "order: no items is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "order: quantity 0 is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "order: unknown customer is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "order: unknown product is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "get an order with its items, 404 for an unknown one",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "status: pending to paid to shipped",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "refused status changes are 409, unknown status 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "cancelling puts stock back",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "orders newest first, filter by status, with customer names",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "dashboard figures",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "a product or customer in an order cannot be deleted",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "delete a product and a customer with no orders",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "sign out ends the session",
+     "pass": false,
+     "detail": "fetch failed"
+    }
+   ]
+  },
+  "ui": {
+   "passed": 2,
+   "total": 21,
+   "results": [
+    {
+     "id": "server starts with npm start",
+     "pass": false,
+     "detail": "no answer within 30 s"
+    },
+    {
+     "id": "a page without a session shows the sign-in page",
+     "pass": false,
+     "detail": "at /"
+    },
+    {
+     "id": "a wrong password shows an error on the page",
+     "pass": false,
+     "detail": "no visible field labelled \"Username\""
+    },
+    {
+     "id": "signing in goes to the dashboard",
+     "pass": false,
+     "detail": "no visible field labelled \"Username\""
+    },
+    {
+     "id": "the navigation links every page",
+     "pass": false,
+     "detail": "missing Dashboard, Products, Customers, Orders"
+    },
+    {
+     "id": "the dashboard shows the counts and revenue",
+     "pass": false,
+     "detail": "hmmm\u2026 can't reach this page\n\n127.0.0.1 refused to connect.\n\ntry:\n\nsearch the web for 127 0 0 1\nchecking the connection\nchecking the proxy and the firewall\nerr_c"
+    },
+    {
+     "id": "add a product through the form",
+     "pass": false,
+     "detail": "no visible field labelled \"SKU\""
+    },
+    {
+     "id": "a duplicate SKU shows an error in plain words",
+     "pass": false,
+     "detail": "no visible field labelled \"SKU\""
+    },
+    {
+     "id": "delete asks for confirmation and removes the product",
+     "pass": false,
+     "detail": "page script: TypeError: Failed to fetch\n    at <anonymous>:1:1"
+    },
+    {
+     "id": "products page 20 at a time with next and previous links",
+     "pass": false,
+     "detail": "page script: TypeError: Failed to fetch\n    at <anonymous>:1:1"
+    },
+    {
+     "id": "the search box finds by name or SKU",
+     "pass": false,
+     "detail": "no search box"
+    },
+    {
+     "id": "the CSV link downloads every product",
+     "pass": false,
+     "detail": "no Download CSV link"
+    },
+    {
+     "id": "add a customer through the form",
+     "pass": false,
+     "detail": "no visible field labelled \"Name\""
+    },
+    {
+     "id": "a duplicate email shows an error",
+     "pass": false,
+     "detail": "no visible field labelled \"Name\""
+    },
+    {
+     "id": "create an order through the form",
+     "pass": false,
+     "detail": "could not choose a customer and a product: selects: 0"
+    },
+    {
+     "id": "an order moves to paid with a button",
+     "pass": false,
+     "detail": "no button to move it to paid"
+    },
+    {
+     "id": "too little stock shows an error",
+     "pass": false,
+     "detail": "page script: TypeError: Cannot read properties of undefined (reading 'options')\n    at <anonymous>:5:26\n    at <anonymous>:8:25"
+    },
+    {
+     "id": "every form field has a label",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "no sideways scrolling at 375 px",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "sign out returns to the sign-in page",
+     "pass": false,
+     "detail": "no visible button or link named \"Sign out\""
+    },
+    {
+     "id": "the data stays after a restart",
+     "pass": false,
+     "detail": "did not start again"
+    }
+   ]
+  }
+ },
+ "cheap-2": {
+  "api": {
+   "passed": 0,
+   "total": 37,
+   "results": [
+    {
+     "id": "server starts with npm start",
+     "pass": false,
+     "detail": "no answer on http://127.0.0.1:54709 within 30 s: s/cjs/loader:1262:25)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)\r\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\r\n    at node:internal/main/run_main_module:33:47 {\r\n  code: 'MODULE_NOT_FOU"
+    },
+    {
+     "id": "API without a session is 401",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "page without a session redirects to /login",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "wrong password is 401",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "ADMIN_PASSWORD signs in",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "the password is not stored in plain text",
+     "pass": false,
+     "detail": "no database at DB_PATH"
+    },
+    {
+     "id": "add a product",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "duplicate SKU is 409",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "product: missing name is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "product: negative price is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "product: fractional stock is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "product: negative stock is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "get a product, 404 for an unknown one",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "edit a product",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "edit to a duplicate SKU is 409",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "25 more products page 20 at a time",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "search matches name or SKU, case-insensitive",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "CSV export",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "add a customer",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "duplicate email is 409",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "invalid email is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "customer search and edit",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "create an order: stock taken, total and prices recorded",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "too little stock is 409 and changes nothing",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "order: no items is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "order: quantity 0 is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "order: unknown customer is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "order: unknown product is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "get an order with its items, 404 for an unknown one",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "status: pending to paid to shipped",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "refused status changes are 409, unknown status 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "cancelling puts stock back",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "orders newest first, filter by status, with customer names",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "dashboard figures",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "a product or customer in an order cannot be deleted",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "delete a product and a customer with no orders",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "sign out ends the session",
+     "pass": false,
+     "detail": "fetch failed"
+    }
+   ]
+  },
+  "ui": {
+   "passed": 2,
+   "total": 21,
+   "results": [
+    {
+     "id": "server starts with npm start",
+     "pass": false,
+     "detail": "no answer within 30 s"
+    },
+    {
+     "id": "a page without a session shows the sign-in page",
+     "pass": false,
+     "detail": "at /"
+    },
+    {
+     "id": "a wrong password shows an error on the page",
+     "pass": false,
+     "detail": "no visible field labelled \"Username\""
+    },
+    {
+     "id": "signing in goes to the dashboard",
+     "pass": false,
+     "detail": "no visible field labelled \"Username\""
+    },
+    {
+     "id": "the navigation links every page",
+     "pass": false,
+     "detail": "missing Dashboard, Products, Customers, Orders"
+    },
+    {
+     "id": "the dashboard shows the counts and revenue",
+     "pass": false,
+     "detail": "hmmm\u2026 can't reach this page\n\n127.0.0.1 refused to connect.\n\ntry:\n\nsearch the web for 127 0 0 1\nchecking the connection\nchecking the proxy and the firewall\nerr_c"
+    },
+    {
+     "id": "add a product through the form",
+     "pass": false,
+     "detail": "no visible field labelled \"SKU\""
+    },
+    {
+     "id": "a duplicate SKU shows an error in plain words",
+     "pass": false,
+     "detail": "no visible field labelled \"SKU\""
+    },
+    {
+     "id": "delete asks for confirmation and removes the product",
+     "pass": false,
+     "detail": "page script: TypeError: Failed to fetch\n    at <anonymous>:1:1"
+    },
+    {
+     "id": "products page 20 at a time with next and previous links",
+     "pass": false,
+     "detail": "page script: TypeError: Failed to fetch\n    at <anonymous>:1:1"
+    },
+    {
+     "id": "the search box finds by name or SKU",
+     "pass": false,
+     "detail": "no search box"
+    },
+    {
+     "id": "the CSV link downloads every product",
+     "pass": false,
+     "detail": "no Download CSV link"
+    },
+    {
+     "id": "add a customer through the form",
+     "pass": false,
+     "detail": "no visible field labelled \"Name\""
+    },
+    {
+     "id": "a duplicate email shows an error",
+     "pass": false,
+     "detail": "no visible field labelled \"Name\""
+    },
+    {
+     "id": "create an order through the form",
+     "pass": false,
+     "detail": "could not choose a customer and a product: selects: 0"
+    },
+    {
+     "id": "an order moves to paid with a button",
+     "pass": false,
+     "detail": "no button to move it to paid"
+    },
+    {
+     "id": "too little stock shows an error",
+     "pass": false,
+     "detail": "page script: TypeError: Cannot read properties of undefined (reading 'options')\n    at <anonymous>:5:26\n    at <anonymous>:8:25"
+    },
+    {
+     "id": "every form field has a label",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "no sideways scrolling at 375 px",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "sign out returns to the sign-in page",
+     "pass": false,
+     "detail": "no visible button or link named \"Sign out\""
+    },
+    {
+     "id": "the data stays after a restart",
+     "pass": false,
+     "detail": "did not start again"
+    }
+   ]
+  }
+ },
+ "cheap-3": {
+  "api": {
+   "passed": 0,
+   "total": 37,
+   "results": [
+    {
+     "id": "server starts with npm start",
+     "pass": false,
+     "detail": "no answer on http://127.0.0.1:57463 within 30 s: s/cjs/loader:1262:25)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)\r\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\r\n    at node:internal/main/run_main_module:33:47 {\r\n  code: 'MODULE_NOT_FOU"
+    },
+    {
+     "id": "API without a session is 401",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "page without a session redirects to /login",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "wrong password is 401",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "ADMIN_PASSWORD signs in",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "the password is not stored in plain text",
+     "pass": false,
+     "detail": "no database at DB_PATH"
+    },
+    {
+     "id": "add a product",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "duplicate SKU is 409",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "product: missing name is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "product: negative price is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "product: fractional stock is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "product: negative stock is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "get a product, 404 for an unknown one",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "edit a product",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "edit to a duplicate SKU is 409",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "25 more products page 20 at a time",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "search matches name or SKU, case-insensitive",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "CSV export",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "add a customer",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "duplicate email is 409",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "invalid email is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "customer search and edit",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "create an order: stock taken, total and prices recorded",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "too little stock is 409 and changes nothing",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "order: no items is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "order: quantity 0 is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "order: unknown customer is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "order: unknown product is 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "get an order with its items, 404 for an unknown one",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "status: pending to paid to shipped",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "refused status changes are 409, unknown status 400",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "cancelling puts stock back",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "orders newest first, filter by status, with customer names",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "dashboard figures",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "a product or customer in an order cannot be deleted",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "delete a product and a customer with no orders",
+     "pass": false,
+     "detail": "fetch failed"
+    },
+    {
+     "id": "sign out ends the session",
+     "pass": false,
+     "detail": "fetch failed"
+    }
+   ]
+  },
+  "ui": {
+   "passed": 2,
+   "total": 21,
+   "results": [
+    {
+     "id": "server starts with npm start",
+     "pass": false,
+     "detail": "no answer within 30 s"
+    },
+    {
+     "id": "a page without a session shows the sign-in page",
+     "pass": false,
+     "detail": "at /"
+    },
+    {
+     "id": "a wrong password shows an error on the page",
+     "pass": false,
+     "detail": "no visible field labelled \"Username\""
+    },
+    {
+     "id": "signing in goes to the dashboard",
+     "pass": false,
+     "detail": "no visible field labelled \"Username\""
+    },
+    {
+     "id": "the navigation links every page",
+     "pass": false,
+     "detail": "missing Dashboard, Products, Customers, Orders"
+    },
+    {
+     "id": "the dashboard shows the counts and revenue",
+     "pass": false,
+     "detail": "hmmm\u2026 can't reach this page\n\n127.0.0.1 refused to connect.\n\ntry:\n\nsearch the web for 127 0 0 1\nchecking the connection\nchecking the proxy and the firewall\nerr_c"
+    },
+    {
+     "id": "add a product through the form",
+     "pass": false,
+     "detail": "no visible field labelled \"SKU\""
+    },
+    {
+     "id": "a duplicate SKU shows an error in plain words",
+     "pass": false,
+     "detail": "no visible field labelled \"SKU\""
+    },
+    {
+     "id": "delete asks for confirmation and removes the product",
+     "pass": false,
+     "detail": "page script: TypeError: Failed to fetch\n    at <anonymous>:1:1"
+    },
+    {
+     "id": "products page 20 at a time with next and previous links",
+     "pass": false,
+     "detail": "page script: TypeError: Failed to fetch\n    at <anonymous>:1:1"
+    },
+    {
+     "id": "the search box finds by name or SKU",
+     "pass": false,
+     "detail": "no search box"
+    },
+    {
+     "id": "the CSV link downloads every product",
+     "pass": false,
+     "detail": "no Download CSV link"
+    },
+    {
+     "id": "add a customer through the form",
+     "pass": false,
+     "detail": "no visible field labelled \"Name\""
+    },
+    {
+     "id": "a duplicate email shows an error",
+     "pass": false,
+     "detail": "no visible field labelled \"Name\""
+    },
+    {
+     "id": "create an order through the form",
+     "pass": false,
+     "detail": "could not choose a customer and a product: selects: 0"
+    },
+    {
+     "id": "an order moves to paid with a button",
+     "pass": false,
+     "detail": "no button to move it to paid"
+    },
+    {
+     "id": "too little stock shows an error",
+     "pass": false,
+     "detail": "page script: TypeError: Cannot read properties of undefined (reading 'options')\n    at <anonymous>:5:26\n    at <anonymous>:8:25"
+    },
+    {
+     "id": "every form field has a label",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "no sideways scrolling at 375 px",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "sign out returns to the sign-in page",
+     "pass": false,
+     "detail": "no visible button or link named \"Sign out\""
+    },
+    {
+     "id": "the data stays after a restart",
+     "pass": false,
+     "detail": "did not start again"
+    }
+   ]
+  }
+ },
+ "cheap-brain": {
+  "api": {
+   "passed": 37,
+   "total": 37,
+   "results": [
+    {
+     "id": "server starts with npm start",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "API without a session is 401",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "page without a session redirects to /login",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "wrong password is 401",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "ADMIN_PASSWORD signs in",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the password is not stored in plain text",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "add a product",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "duplicate SKU is 409",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "product: missing name is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "product: negative price is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "product: fractional stock is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "product: negative stock is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "get a product, 404 for an unknown one",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "edit a product",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "edit to a duplicate SKU is 409",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "25 more products page 20 at a time",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "search matches name or SKU, case-insensitive",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "CSV export",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "add a customer",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "duplicate email is 409",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "invalid email is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "customer search and edit",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "create an order: stock taken, total and prices recorded",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "too little stock is 409 and changes nothing",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "order: no items is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "order: quantity 0 is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "order: unknown customer is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "order: unknown product is 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "get an order with its items, 404 for an unknown one",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "status: pending to paid to shipped",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "refused status changes are 409, unknown status 400",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "cancelling puts stock back",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "orders newest first, filter by status, with customer names",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "dashboard figures",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a product or customer in an order cannot be deleted",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "delete a product and a customer with no orders",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "sign out ends the session",
+     "pass": true,
+     "detail": ""
+    }
+   ]
+  },
+  "ui": {
+   "passed": 20,
+   "total": 21,
+   "results": [
+    {
+     "id": "server starts with npm start",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a page without a session shows the sign-in page",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a wrong password shows an error on the page",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "signing in goes to the dashboard",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the navigation links every page",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the dashboard shows the counts and revenue",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "add a product through the form",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a duplicate SKU shows an error in plain words",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "delete asks for confirmation and removes the product",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "products page 20 at a time with next and previous links",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the search box finds by name or SKU",
+     "pass": false,
+     "detail": "results: Stockroom\nDashboard\nProducts\nCustomers\nOrders\nSign out\nProducts\nAdd Product\nSKU \nName \nPrice \nStock \nAdd product\nSearch\nDownload CSV\nSKU\tName\tPrice\tStock\tActions\nUI-1\tGreen teapot\t12.50\t3\tEditDelete\nB"
+    },
+    {
+     "id": "the CSV link downloads every product",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "add a customer through the form",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "a duplicate email shows an error",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "create an order through the form",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "an order moves to paid with a button",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "too little stock shows an error",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "every form field has a label",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "no sideways scrolling at 375 px",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "sign out returns to the sign-in page",
+     "pass": true,
+     "detail": ""
+    },
+    {
+     "id": "the data stays after a restart",
+     "pass": true,
+     "detail": ""
+    }
+   ]
+  }
+ }
+}

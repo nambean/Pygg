@@ -1,0 +1,16 @@
+{
+  "name": "stockroom",
+  "version": "1.0.0",
+  "description": "A small inventory and order management system",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "test": "node --test test/app.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2"
+  },
+  "type": "module"
+}

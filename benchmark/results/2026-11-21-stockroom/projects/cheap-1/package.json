@@ -1,0 +1,14 @@
+{
+  "name": "stockroom",
+  "version": "1.0.0",
+  "description": "Inventory and order management for small shops",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --experimental-sqlite test/index.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "cookie-parser": "^1.4.7"
+  }
+}
