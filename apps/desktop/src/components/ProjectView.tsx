@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, Copy, GitBranch, Plus, Settings2 } from 'lucide-react';
+import { Check, Copy, GitBranch, MessageSquareText, Plus, Settings2 } from 'lucide-react';
 import { t } from '../lib/i18n';
 import { type BoardCard, type BoardSummary, type Brainstorm, type TaskSummary, type WorkspaceView } from '../lib/tasks';
 import { useGateway } from '../hooks/useGateway';
@@ -20,13 +20,14 @@ type Props = {
   onOpenBrainstorm: (brainstorm: Brainstorm) => void;
   onOpenBrainstormId: (id: string) => void;
   onNewTask: () => void;
+  onAsk: () => void;
   onSettings: () => void;
 };
 
 type Step = { name: string; state: 'todo' | 'now' | 'done'; detail: string };
 
 /** One project (a workspace): plan → tasks → output for its brainstorms, and its solo tasks. */
-export function ProjectView({workspace: w, tasks, brainstorms, board, onOpenTask, onOpenTaskId, onOpenBrainstorm, onOpenBrainstormId, onNewTask, onSettings}: Props) {
+export function ProjectView({workspace: w, tasks, brainstorms, board, onOpenTask, onOpenTaskId, onOpenBrainstorm, onOpenBrainstormId, onNewTask, onAsk, onSettings}: Props) {
   const [newPlan, setNewPlan] = useState(false);
   const plans = brainstorms.filter(b => b.state !== 'declined').sort((a, b) => b.createdAt - a.createdAt);
   // A plan that waits on you comes first, then the newest approved one.
@@ -61,6 +62,16 @@ export function ProjectView({workspace: w, tasks, brainstorms, board, onOpenTask
       detail: finished ? t('A branch to review and merge') : t('When every card is done')},
   ];
 
+  // What waits on the user, on this project's board: a paid step to approve, a result to review, a blocked card.
+  type Need = {card: BoardCard; what: string; action: string | null};
+  const needs = cards.flatMap((c): Need[] => {
+    if (!c.taskId) return c.lane === 'blocked' && c.blockedReason ? [{card: c, what: c.blockedReason, action: null}] : [];
+    if (c.task?.state === 'waiting_approval') return [{card: c, what: t('A paid step waits for your approval'), action: t('Approve…')}];
+    if (c.lane === 'review') return [{card: c, what: t('Finished: review the result, then keep or discard it'), action: t('Review')}];
+    if (c.lane === 'blocked') return [{card: c, what: c.blockedReason ?? t('Blocked'), action: t('Open')}];
+    return [];
+  });
+
   return <div className="projects project">
     <div className="project-head">
       <div>
@@ -68,6 +79,7 @@ export function ProjectView({workspace: w, tasks, brainstorms, board, onOpenTask
       </div>
       <span className="spacer"/>
       <button type="button" className="button" onClick={onSettings}><Settings2 size={13} aria-hidden/>{t('Project settings')}</button>
+      <button type="button" className="button" onClick={onAsk}><MessageSquareText size={13} aria-hidden/>{t('Ask about this project')}</button>
       <button type="button" className="button" onClick={onNewTask}><Plus size={13} aria-hidden/>{t('New solo task')}</button>
     </div>
 
@@ -77,6 +89,14 @@ export function ProjectView({workspace: w, tasks, brainstorms, board, onOpenTask
         <span className="step-text"><span className="step-name">{s.name}</span><span className="step-detail">{s.detail}</span></span>
       </li>)}
     </ol>
+
+    {needs.length > 0 && <section className="needs-you" aria-labelledby="needs-you">
+      <h2 id="needs-you">{t('Waiting for you · {n}', {n: needs.length})}</h2>
+      <ul>{needs.map(({card, what, action}) => <li key={card.id}>
+        <span className="needs-title">{card.title}</span><span className="needs-what">{what}</span>
+        {action && card.taskId && <button type="button" className="button prominent" onClick={() => onOpenTaskId(card.taskId!)}>{action}</button>}
+      </li>)}</ul>
+    </section>}
 
     <section className="task-section" aria-labelledby="project-plan">
       <div className="section-heading">

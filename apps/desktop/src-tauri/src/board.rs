@@ -383,6 +383,7 @@ fn task_for(conn: &Connection, card: &Card) -> Result<NewTask> {
         allow_shell: false,
         timeout_secs: None,
         handoff: None,
+        answer: false,
     })
 }
 

@@ -78,7 +78,7 @@ export function BrainStorming({onSkills, onWorkspaces}: {onSkills: () => void; o
           </div>
         </div>
         <Row label={t('Brain prompt')} hint={t('What the planner is asked; a prompt in Skills & Prompts')}>
-          <span className="mono">brain-v2</span><button type="button" className="button" onClick={onSkills}>{t('Open')}</button></Row>
+          <span className="mono">brain-v3</span><button type="button" className="button" onClick={onSkills}>{t('Open')}</button></Row>
       </div>}
     </section>
 

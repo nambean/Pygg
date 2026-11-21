@@ -35,6 +35,11 @@ const CHECK_TIMEOUT: Duration = Duration::from_secs(600);
 /// How much of a failed check's output the next step is given.
 const HANDOFF_CHARS: usize = 1500;
 use crate::messages::{self as m, fill, NO_CHANGES};
+/// What an answer task's agent is told after the question.
+const ANSWER_BRIEF: &str = "This is a question about the code, not a change. Read whatever you need in this \
+    repository and answer it. Do not create, edit or delete any file. End with your whole answer as your last \
+    message, in the language of the question, naming the files you rely on as path:line.";
+
 const NO_CHANGES_HANDOFF: &str =
     "The previous attempt ended without changing any file. The task needs changes to the files.";
 
@@ -277,6 +282,10 @@ pub struct Policy {
     /// What the next step is told after a failed attempt (handoff.rs, ADR-030): `none`, `tail` or `evidence`.
     #[serde(default = "default_handoff")]
     pub handoff: String,
+    /// A question about the code, not a change: the agent reads and answers, nothing is kept or checked, and its
+    /// final message is the result (an answer task).
+    #[serde(default)]
+    pub answer: bool,
 }
 
 fn default_handoff() -> String {
@@ -299,6 +308,9 @@ pub struct NewTask {
     /// `none`, `tail` (the default) or `evidence` (H1, off unless asked for).
     #[serde(default)]
     pub handoff: Option<String>,
+    /// An answer task: a question about the code; see `Policy::answer`.
+    #[serde(default)]
+    pub answer: bool,
 }
 
 fn title_of(prompt: &str) -> String {
@@ -375,6 +387,7 @@ pub fn create_task_at(conn: &Connection, new: &NewTask, client_id: Option<&str>,
         allow_shell: new.allow_shell,
         timeout_secs: new.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS).clamp(60, 3600),
         handoff: handoff.into(),
+        answer: new.answer,
     };
     let title = new
         .title
@@ -558,7 +571,7 @@ fn task_row(conn: &Connection, id: &str) -> Result<TaskRow> {
             title: r.get(0)?, workspace_id: r.get(1)?, workspace_name: r.get(2)?, workspace_path: r.get(3)?, prompt: r.get(4)?,
             strategy: r.get(5)?, state: r.get(6)?, phase: r.get(7)?, reason: r.get(8)?, result: r.get(9)?,
             result_branch: r.get(10)?, base_revision: r.get(11)?,
-            policy: Policy { steps: vec![], checks: vec![], allow_shell: false, timeout_secs: DEFAULT_TIMEOUT_SECS, handoff: default_handoff() },
+            policy: Policy { steps: vec![], checks: vec![], allow_shell: false, timeout_secs: DEFAULT_TIMEOUT_SECS, handoff: default_handoff(), answer: false },
             stage_id: r.get(13)?, created_at: r.get(14)?, updated_at: r.get(15)?, client_id: r.get(16)?, client_name: r.get(17)?,
             brainstorm_id: r.get(18)?, card_id: r.get(19)?,
         }, r.get::<_, String>(12)?)),
@@ -1245,12 +1258,7 @@ fn handoff_for(mode: &str, carried: Option<&str>, attempts: &[AttemptView]) -> O
             verified; treat the agents' own accounts as unconfirmed."
             )
         }),
-        _ => carried.map(|why| {
-            format!(
-                "A previous attempt at this task, started from the same code, did not pass the \
-            workspace's checks. You start again from the original code.\n{why}"
-            )
-        }),
+        _ => carried.map(previous_attempt),
     }
 }
 
@@ -1262,15 +1270,32 @@ fn compose_with(prompt: &str, handoff: Option<&str>) -> String {
     }
 }
 
-/// The prompt for an attempt: the task, plus why the previous attempt failed its checks.
+/// The prompt for an attempt: the task, plus why the previous attempt failed.
 pub fn compose(prompt: &str, handoff: Option<&str>) -> String {
     match handoff {
         None => prompt.to_string(),
-        Some(why) => format!(
-            "{prompt}\n\n---\nA previous attempt at this task, started from the same code, did not pass the \
-            workspace's checks. You start again from the original code.\n{why}"
-        ),
+        Some(why) => format!("{prompt}\n\n---\n{}", previous_attempt(why)),
     }
+}
+
+/// What the next attempt is told about the last one: it failed its checks, or it changed nothing; never a check
+/// failure that did not happen (the owner's run: "did not pass the checks" for an attempt that made no change).
+fn previous_attempt(why: &str) -> String {
+    let what =
+        if why == NO_CHANGES_HANDOFF { "did not change any file" } else { "did not pass the workspace's checks" };
+    format!("A previous attempt at this task, started from the same code, {what}. You start again from the original code.\n{why}")
+}
+
+/// Why a step cannot run now: its model goes through Pygg's gateway (`pygg/<connection>/<model>`) and that connection
+/// is held for a reason that waiting does not fix (no credit, a rejected key), so the gateway would refuse it.
+fn held_account(conn: &Connection, step: &Step) -> rusqlite::Result<Option<String>> {
+    let Some(model) = step.model.as_deref().and_then(|m| m.strip_prefix("pygg/")) else { return Ok(None) };
+    let Some((provider, model_id)) = model.split_once('/') else { return Ok(None) };
+    let health = crate::gateway::store::blocking_health(conn, provider, model_id)
+        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(e))))?;
+    Ok(health
+        .filter(|h| !crate::gateway::policy::lifts_by_waiting(&h.state))
+        .map(|h| fill(m::ACCOUNT_HELD, &[&model, &h.state.replace('_', " "), &h.reason])))
 }
 
 /// How recently a step must have timed out, twice in a row without answering, to be skipped.
@@ -1574,6 +1599,14 @@ impl Runner {
                 let reason = fill(m::ALL_FAILED, &[&last_failure.as_deref().unwrap_or(m::NO_ATTEMPT)]);
                 return self.with_db(|c| set_task(c, id, "check_failed", None, Some(&reason))).map_err(err);
             };
+            // A step whose model's account is held for good (no credit, a rejected key) cannot run: it is skipped
+            // before it asks for approval or starts the agent (the owner's run lost 10 minutes on such a step).
+            if let Some(why) = self.with_db(|c| held_account(c, step)).map_err(err)? {
+                self.with_db(|c| skip_attempt(c, id, &row.stage_id, index, step, &why)).map_err(err)?;
+                last_failure = Some(why);
+                index += 1;
+                continue;
+            }
             // A step whose service has stopped answering is skipped, unless it is the last one left to try.
             if index + 1 < row.policy.steps.len() {
                 if let Some(why) = self.with_db(|c| unresponsive(c, step)).map_err(err)? {
@@ -1600,7 +1633,14 @@ impl Runner {
                 model: step.model.clone(),
                 workspace: PathBuf::from(&row.workspace_path),
                 base: base.clone(),
-                prompt: compose_with(&row.prompt, given.as_deref()),
+                prompt: compose_with(
+                    &if row.policy.answer {
+                        format!("{}\n\n---\n{ANSWER_BRIEF}", row.prompt)
+                    } else {
+                        row.prompt.clone()
+                    },
+                    given.as_deref(),
+                ),
                 allow_shell: row.policy.allow_shell,
                 timeout_secs: row.policy.timeout_secs,
                 max_budget_usd: cap.map(usd),
@@ -1681,6 +1721,23 @@ impl Runner {
                 // The agent's own failure says nothing about the code, so the next step starts with the task alone.
                 carried = None;
                 last_failure = Some(reason);
+                index += 1;
+                continue;
+            }
+            if row.policy.answer {
+                drop_worktree(self)?;
+                let answered = run.usage.result.as_deref().is_some_and(|t| !t.trim().is_empty());
+                if answered {
+                    return self
+                        .with_db(|c| {
+                            close_attempt(c, &attempt, "done", None)?;
+                            set_task(c, id, "answered", None, Some(m::ANSWERED))
+                        })
+                        .map_err(err);
+                }
+                self.with_db(|c| close_attempt(c, &attempt, "failed", Some(m::NO_ANSWER))).map_err(err)?;
+                carried = None;
+                last_failure = Some(fill(m::LAST_FAILURE, &[&name, &m::NO_ANSWER]));
                 index += 1;
                 continue;
             }
@@ -2076,6 +2133,8 @@ mod tests {
         Costly(&'static str, &'static str, f64),
         Fail,
         Nothing,
+        /// Changes nothing and ends with this final message (an answer task's answer).
+        Answer(&'static str),
         WaitForStop,
         /// `Write`, with one request through Pygg's gateway tagged with the attempt (its session header), priced at
         /// this many micro-USD or unpriced; the agent itself estimates $0, as OpenCode does for a custom provider.
@@ -2123,6 +2182,7 @@ mod tests {
                         .map_err(|e| e.to_string())?;
                     let mut outcome = "ok";
                     let mut estimate = None;
+                    let mut said: Option<String> = None;
                     let mut output_tokens = Some(10);
                     match act {
                         Act::TimeOut => {
@@ -2171,6 +2231,7 @@ mod tests {
                         }
                         Act::Fail => outcome = "failed",
                         Act::Nothing => {}
+                        Act::Answer(text) => said = Some(text.into()),
                         Act::WaitForStop => {
                             canceled(cancel).await;
                             outcome = "canceled";
@@ -2198,6 +2259,7 @@ mod tests {
                             input_tokens: Some(100),
                             output_tokens,
                             estimate_usd: estimate,
+                            result: said,
                             ..AgentUsage::default()
                         },
                         // The attempt id the engine handed over, so a test can check it is the attempt's own.
@@ -2222,6 +2284,7 @@ mod tests {
             allow_shell: false,
             timeout_secs: None,
             handoff: None,
+            answer: false,
         };
         create_task(&lock(&rig.db), &new).unwrap()
     }
@@ -2237,6 +2300,95 @@ mod tests {
 
     fn detail(rig: &Rig, id: &str) -> TaskDetail {
         task_detail(&lock(&rig.db), id).unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_answer_task_ends_with_the_agents_answer_and_keeps_nothing() {
+        let rig = rig(&[good_check()]);
+        // The first agent says nothing; the second answers.
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(vec![Act::Nothing, Act::Answer("The app starts in src/main.rs:12.")], rig.prompts.clone()),
+        );
+        let new = NewTask {
+            workspace_id: rig.workspace.clone(),
+            title: None,
+            prompt: "Explain how the app starts".into(),
+            strategy: "free_first".into(),
+            steps: vec![step("opencode", "free", 1), step("codex", "subscription", 3)],
+            allow_shell: false,
+            timeout_secs: None,
+            handoff: None,
+            answer: true,
+        };
+        let id = create_task(&lock(&rig.db), &new).unwrap();
+        runner.start(&id).unwrap().await.unwrap();
+        let task = detail(&rig, &id);
+        assert_eq!(task.summary.state, "answered", "{:?}", task.reason);
+        assert_eq!(task.reason.as_deref(), Some(m::ANSWERED));
+        let last = task.attempt_details.last().unwrap();
+        assert_eq!(
+            (last.outcome.as_str(), last.summary.as_deref()),
+            ("done", Some("The app starts in src/main.rs:12."))
+        );
+        assert_eq!(task.attempt_details[0].escalation_reason.as_deref(), Some(m::NO_ANSWER));
+        let prompts = rig.prompts.lock().unwrap().clone();
+        assert!(prompts[0].contains(ANSWER_BRIEF), "{}", prompts[0]);
+        assert!(task.result.is_none(), "nothing to keep");
+    }
+
+    #[tokio::test]
+    async fn a_step_whose_account_has_no_credit_is_skipped_before_it_runs() {
+        let rig = rig(&[good_check()]);
+        let gemini_conn = crate::gateway::store::add_provider(
+            &lock(&rig.db),
+            &crate::gateway::store::NewProvider {
+                kind: "openrouter",
+                label: "gemini",
+                endpoint: "https://example.invalid/v1",
+                credential_ref: None,
+                default_billing: "paid",
+                wire: "openai",
+            },
+        )
+        .unwrap();
+        crate::gateway::store::mark_health(
+            &lock(&rig.db),
+            &gemini_conn.id,
+            "",
+            "payment_required",
+            "prepayment credits are depleted",
+            Some(402),
+            Some(now_ms() + 600_000),
+        )
+        .unwrap();
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(vec![Act::Write("result.txt", "good\n")], rig.prompts.clone()),
+        );
+        let gemini =
+            Step { model: Some(format!("pygg/{}/gemini-4-carbon", gemini_conn.id)), ..step("opencode", "paid", 3) };
+        let id = create(&rig, vec![gemini, step("codex", "subscription", 3)]);
+        runner.start(&id).unwrap().await.unwrap();
+        let task = detail(&rig, &id);
+        assert_eq!(task.summary.state, "checks_passed", "{:?}", task.reason);
+        let skipped = &task.attempt_details[0];
+        assert_eq!(skipped.outcome, "skipped");
+        assert!(skipped.escalation_reason.as_deref().unwrap_or("").contains("payment required"), "{skipped:?}");
+        assert_eq!(
+            rig.prompts.lock().unwrap().len(),
+            1,
+            "only the second step ran; no approval was asked for the first"
+        );
+    }
+
+    #[test]
+    fn the_handoff_says_what_failed() {
+        assert!(previous_attempt(NO_CHANGES_HANDOFF).contains("did not change any file"));
+        assert!(!previous_attempt(NO_CHANGES_HANDOFF).contains("checks"));
+        assert!(previous_attempt("The check `x` exited 1").contains("did not pass the workspace's checks"));
     }
 
     #[tokio::test]
@@ -2259,6 +2411,7 @@ mod tests {
                 allow_shell: false,
                 timeout_secs: None,
                 handoff: Some(mode.into()),
+                answer: false,
             };
             let id = create_task(&lock(&rig.db), &new).unwrap();
             runner.start(&id).unwrap().await.unwrap();
@@ -2297,6 +2450,7 @@ mod tests {
             allow_shell: false,
             timeout_secs: None,
             handoff: Some("memory".into()),
+            answer: false,
         };
         assert!(create_task(&lock(&rig.db), &bad).unwrap_err().contains("Unknown handoff"));
     }
@@ -2447,6 +2601,7 @@ mod tests {
                 allow_shell: false,
                 timeout_secs: None,
                 handoff: None,
+                answer: false,
             };
             let db = lock(&rig.db);
             let id = create_task_at(&db, &new, None, Some(branch)).unwrap();
@@ -2941,6 +3096,7 @@ mod tests {
             allow_shell: false,
             timeout_secs: None,
             handoff: None,
+            answer: false,
         };
         assert_eq!(create_task(&conn, &base).unwrap_err(), "Describe the task");
         let prompt = "Fix it".to_string();

@@ -249,6 +249,13 @@ Built as ADR-034 (pools) and ADR-038 (key rings); rotation never gets around ban
 - An approved brainstorm becomes the workspace's **board** (Discovery, Ready, Running, Checking, Blocked, Review, Done); Running and Checking have a WIP limit, default 1, never removable; MCP moves a card only between Discovery and Ready.
 - **Amended:** a brainstorm builds on one branch `str/brain-<requirement>-<id>`; a conflict or a checked-out branch is kept as its own branch; the user's checkout is never touched.
 
+## ADR-043 — Answer tasks: a question about the code gets an answer, not a commit
+
+*Built* (2026-11-21, after the owner's first real run turned "read the architecture" into nine cards).
+- **Ask about this project** starts an answer task: the agent reads the repository and answers; nothing is kept, no check runs, the agent's last message is the result (state `answered`). Paid steps still ask first.
+- The planner (`brain-v3`) returns no cards for a request that only asks to explain code, and points to Ask about this project.
+- A step whose model's account is held for a reason waiting does not fix (no credit, a rejected key) is skipped before it asks for approval; the gateway refuses such a request at once with 402, never 429 with a `Retry-After` an agent sleeps through.
+
 ## Open decisions
 
 - A code-signing certificate ([ROADMAP, Release gates: Install](ROADMAP.md#release-gates)), before distribution.

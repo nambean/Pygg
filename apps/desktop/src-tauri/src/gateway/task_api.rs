@@ -314,6 +314,7 @@ async fn start(State(shared): State<Shared>, headers: HeaderMap, body: Bytes) ->
             allow_shell: request.allow_shell,
             timeout_secs: request.timeout_secs,
             handoff: request.handoff,
+            answer: false,
         };
         let id = tasks::create_task_for(db, &new, Some(&client_id))?;
         tasks::task_detail_for(db, &id, Some(&client_id))

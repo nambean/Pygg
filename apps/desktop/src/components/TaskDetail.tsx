@@ -102,7 +102,8 @@ function Actions({task, onChanged}: {task: Detail; onChanged: () => void}) {
   }, [task.id, resultId]);
 
   return <section className="group task-actions">
-    {task.reason && <p className={task.state === 'checks_passed' || task.state === 'manually_accepted' ? 'group-footnote' : 'warning-note'}>{engineText(task.reason)}</p>}
+    {task.reason && <p className={task.state === 'checks_passed' || task.state === 'manually_accepted' || task.state === 'answered' ? 'group-footnote' : 'warning-note'}>{engineText(task.reason)}</p>}
+    {task.state === 'answered' && <Answer task={task}/>}
     {task.result === 'kept' && task.resultBranch && <div className="group-box task-output">
       <div className="agent-result-head"><Badge tone="ok">{t('Output')}</Badge>
         <span className="secondary">{task.brainstormId && task.resultBranch.startsWith('str/brain-')
@@ -290,5 +291,17 @@ function LiveActivity({attemptId, agent}: {attemptId: string; agent: string}) {
           onScroll={e => { const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24; }}>
           {activity.lines.map(l => `${new Date(l.atMs).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'})}  ${l.text}`).join('\n')}
         </pre>}
+  </div>;
+}
+
+/** An answer task's result: the agent's last message, as it wrote it (nothing was changed or kept). */
+function Answer({task}: {task: Detail}) {
+  const done = [...task.attemptDetails].reverse().find(a => a.outcome === 'done');
+  const text = done?.summary?.trim() ?? '';
+  return <div className="group-box task-output">
+    <div className="agent-result-head"><Badge tone="ok">{t('Answer')}</Badge>
+      <span className="secondary">{done ? done.label : ''}</span><span className="spacer"/>
+      {text && <CopyButton text={text} label={t('Copy')}/>}</div>
+    {text ? <div className="answer-text selectable">{text}</div> : <p className="secondary">{t('The agent left no text.')}</p>}
   </div>;
 }

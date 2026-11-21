@@ -214,6 +214,13 @@ pub fn decide(failure: &Failure) -> Decision {
     }
 }
 
+/// Whether a hold in this state ends by itself soon, so a client is told to wait for it (429 with `Retry-After`):
+/// a rate limit, a server error, an unreachable host. No credit, a rejected key, a forbidden or unavailable model
+/// wait for the user or the provider; a request held only by those is refused at once.
+pub fn lifts_by_waiting(state: &str) -> bool {
+    matches!(state, "rate_limited" | "server_error" | "unreachable")
+}
+
 /// The reset a response asks for: OpenAI's `retry-after-ms`, then `Retry-After` in seconds or as an HTTP
 /// date. A date is measured against the response's own `Date` header when it has one, so a skewed local
 /// clock does not shorten or lengthen the wait.
@@ -289,6 +296,16 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_passing_holds_tell_a_client_to_wait() {
+        assert!(
+            lifts_by_waiting("rate_limited") && lifts_by_waiting("server_error") && lifts_by_waiting("unreachable")
+        );
+        for state in ["payment_required", "invalid_credentials", "forbidden", "model_unavailable"] {
+            assert!(!lifts_by_waiting(state), "{state}");
+        }
+    }
 
     fn http(status: u16) -> Failure {
         Failure::Http(ProviderError::new(status))

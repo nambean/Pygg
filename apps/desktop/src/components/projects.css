@@ -71,3 +71,11 @@
 .plan-changes .button { margin-bottom: 8px; }
 .start-plan .plan-requirement { display: block; width: 100%; box-sizing: border-box; margin: 6px 0 8px; resize: vertical; min-height: 84px; font: inherit; }
 .start-plan .form-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.answer-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.55; margin-top: 8px; max-height: 60vh; overflow: auto; }
+.needs-you { border: 1px solid var(--orange); border-radius: 8px; padding: 10px 12px; margin: 12px 0; }
+.needs-you h2 { font-size: 13px; margin: 0 0 6px; color: var(--orange); }
+.needs-you ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.needs-you li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; gap: 10px; align-items: center; font-size: 12px; }
+.needs-you .needs-title { font-weight: 600; overflow-wrap: anywhere; }
+.needs-you .needs-what { color: var(--secondary); overflow-wrap: anywhere; }
+@media (max-width: 900px) { .needs-you li { grid-template-columns: minmax(0, 1fr) auto; } .needs-you .needs-what { grid-column: 1; } }

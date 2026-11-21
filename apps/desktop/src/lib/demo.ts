@@ -1232,6 +1232,7 @@ export function demoApi(): GatewayApi {
   };
 }
 
+const DEMO_ANSWER = 'The app starts in src/main.tsx:1, which mounts <App/>. The gateway is a Rust server started from src-tauri/src/lib.rs:140 on port 8741; the database is opened in src-tauri/src/db.rs:58 (SQLite, WAL mode).\n\nRequests go: client → gateway/mod.rs (routing) → a provider connection → the ledger (usage_events).';
 const DEMO_ACTIVITY = ['OpenCode started', 'read src/timeout.ts', 'grep setTimeout', '» The delay is multiplied by 100; ms is already milliseconds.',
   'edit src/timeout.ts', '$ npm test', '» All 12 tests pass.'];
 const DEMO_DIFF = 'diff --git a/src/timeout.ts b/src/timeout.ts\n--- a/src/timeout.ts\n+++ b/src/timeout.ts\n@@ -3,3 +3,3 @@\n-  return setTimeout(fn, ms * 100);\n+  return setTimeout(fn, ms);\n';
@@ -1420,7 +1421,7 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
     brainstormStart: async (workspaceId, requirement) => {
       if (!requirement.trim()) throw 'Describe what to build';
       const b: Brainstorm = {id: `bs-${Date.now()}`, clientId: 'k-app', session: `app-${Date.now()}`, workspaceId, state: 'thinking', requirement: requirement.trim(),
-        planner: sonnet, promptVersion: 'brain-v2', revision: 0, proposal: {questions: [], cards: [], droppedCards: 0}, rawReply: null, note: null, error: null,
+        planner: sonnet, promptVersion: 'brain-v3', revision: 0, proposal: {questions: [], cards: [], droppedCards: 0}, rawReply: null, note: null, error: null,
         createdAt: Date.now(), updatedAt: Date.now()};
       brainstorms.unshift(b);
       void planned(b);
@@ -1470,6 +1471,16 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
         policy: {steps: task.steps, checks: w.checks.filter(c => c.approved).map(({command, source}) => ({command, source})),
           allowShell: task.allowShell, timeoutSecs: task.timeoutSecs ?? 900}});
       setTimeout(() => { if (details.get(id)?.state === 'running') set(id, {phase: 'checking'}); }, 2500);
+      if (task.answer) {
+        setTimeout(() => {
+          const d = details.get(id);
+          if (d?.state !== 'running') return;
+          set(id, {state: 'answered', phase: undefined, reason: 'Answered. Nothing was changed; the answer is below.',
+            attempts: [{...d.attempts[0], outcome: 'done'}],
+            attemptDetails: d.attemptDetails.map((a, i) => i === d.attemptDetails.length - 1 ? {...a, outcome: 'done', summary: DEMO_ANSWER} : a)});
+        }, 3000);
+        return id;
+      }
       setTimeout(() => {
         const d = details.get(id);
         if (d?.state !== 'running') return;

@@ -602,6 +602,7 @@ pub async fn run_case_engine(
         allow_shell: false,
         timeout_secs: Some(config.agent_timeout.as_secs()),
         handoff: config.handoff.clone(),
+        answer: false,
     };
     let id = tasks::create_task(&conn, &new)?;
     let db = Arc::new(Mutex::new(conn));

@@ -145,6 +145,15 @@ fn describe(task: &Value) -> String {
             "Finished, but no check confirmed it. Review the changes with pygg_task_diff before keeping them.".into(),
         "checks_passed" | "manually_accepted" | "needs_review" | "canceled" if !task["resultBranch"].is_null() =>
             format!("Kept as branch {}.", s(&task["resultBranch"])),
+        "answered" => format!(
+            "Answered; nothing was changed. The answer:
+{}",
+            task["attemptDetails"]
+                .as_array()
+                .and_then(|a| a.iter().rev().find(|a| a["outcome"] == "done"))
+                .and_then(|a| a["summary"].as_str())
+                .unwrap_or("(no text)")
+        ),
         "interrupted" => "The Pygg app closed while it ran; the user can retry it in the app.".into(),
         "check_failed" => "Every step failed. Read the reasons above; you may do the task yourself or start a new one with more detail.".into(),
         _ => String::new(),

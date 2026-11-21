@@ -389,10 +389,45 @@ pub fn read_usage(agent: &str, stdout: &str) -> AgentUsage {
             u.cache_write_tokens = Some(report.tokens.cache_write);
             u.estimate_usd = report.cost_micro_usd.map(|m| m as f64 / 1e6);
             u.error = report.error;
+            u.result = opencode_final_text(stdout);
         }
         _ => {}
     }
     u
+}
+
+#[cfg(test)]
+mod final_text_tests {
+    #[test]
+    fn opencodes_final_message_is_the_text_after_its_last_tool_call() {
+        let out = [
+            r#"{"type":"text","part":{"text":"Let me look."}}"#,
+            r#"{"type":"tool_use","part":{"tool":"read","state":{"input":{"filePath":"a"}}}}"#,
+            r#"{"type":"text","part":{"text":"It starts in main.rs."}}"#,
+            r#"{"type":"step_finish","part":{}}"#,
+        ]
+        .join("\n");
+        assert_eq!(super::opencode_final_text(&out).as_deref(), Some("It starts in main.rs."));
+        assert_eq!(super::opencode_final_text(r#"{"type":"tool_use","part":{}}"#), None);
+    }
+}
+
+/// OpenCode's final message: the text parts it wrote after its last tool call (`--format json` events).
+fn opencode_final_text(stdout: &str) -> Option<String> {
+    let mut tail: Vec<String> = Vec::new();
+    for event in stdout.lines().filter_map(|l| serde_json::from_str::<Value>(l.trim()).ok()) {
+        match event["type"].as_str() {
+            Some("tool_use") => tail.clear(),
+            Some("text") => {
+                if let Some(text) = event["part"]["text"].as_str() {
+                    tail.push(text.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    let text = tail.join("\n").trim().to_string();
+    (!text.is_empty()).then_some(text)
 }
 
 /// The last complete JSON object in `text` (agents may print log lines before it).

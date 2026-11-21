@@ -1,5 +1,5 @@
-import { Ban, CircleAlert, CircleCheck, CircleX, Eye, Hourglass, Lightbulb, LoaderCircle, RefreshCw, Search, TriangleAlert,
-  UserCheck } from 'lucide-react';
+import { Ban, CircleAlert, CircleCheck, CircleX, Eye, Hourglass, Lightbulb, LoaderCircle, MessageSquareText, RefreshCw, Search,
+  TriangleAlert, UserCheck } from 'lucide-react';
 import type { RefObject } from 'react';
 import { ago, elapsed, taskCost } from '../lib/format';
 import { t } from '../lib/i18n';
@@ -140,6 +140,7 @@ export function statusLine(task: TaskSummary, now = Date.now()): string {
     case 'checks_passed': return t('Checks passed · {time}', {time: ago(task.updatedAt, now)});
     case 'needs_review': return t('Finished, needs your review · {time}', {time: ago(task.updatedAt, now)});
     case 'manually_accepted': return t('Manually accepted · {time}', {time: ago(task.updatedAt, now)});
+    case 'answered': return t('Answered · {time}', {time: ago(task.updatedAt, now)});
     case 'check_failed': return attempt === 1 ? t('Check failed · {time}', {time: ago(task.updatedAt, now)})
       : t('Check failed after {n} attempts · {time}', {n: attempt, time: ago(task.updatedAt, now)});
     case 'blocked': return t('Blocked by policy · {time}', {time: ago(task.updatedAt, now)});
@@ -158,6 +159,7 @@ export function StateIcon({state}: {state: TaskState}) {
       case 'checks_passed': return <CircleCheck {...props}/>;
       case 'needs_review': return <Eye {...props}/>;
       case 'manually_accepted': return <UserCheck {...props}/>;
+      case 'answered': return <MessageSquareText {...props}/>;
       case 'check_failed': return <CircleAlert {...props}/>;
       case 'blocked': return <Ban {...props}/>;
       case 'canceled': return <CircleX {...props}/>;

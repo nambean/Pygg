@@ -47,7 +47,7 @@ type View =
   | {kind: 'brainstorm'; id: string; from: TaskFilter; project?: string}
   | {kind: 'board'; workspaceId: string | null}
   | {kind: 'brain'}
-  | {kind: 'new'; workspaceId?: string | null}
+  | {kind: 'new'; workspaceId?: string | null; answer?: boolean}
   | {kind: 'policies'}
   | {kind: 'skills'}
   | {kind: 'workspaces'}
@@ -204,7 +204,9 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
   const projectId = view.kind === 'project' ? (view.id || workspaces[0]?.id || '') : '';
   const openedProject = workspaces.find(w => w.id === projectId);
   const openedTask = view.kind === 'task' ? allTasks.find(task => task.id === view.id) : undefined;
-  const created = (id: string) => { taskList.reload(); workspaceList.reload(); setView({kind: 'task', id, from: 'all'}); };
+  // A task started from a project's page goes back there.
+  const created = (id: string) => { taskList.reload(); workspaceList.reload();
+    setView({kind: 'task', id, from: 'all', project: view.kind === 'new' ? view.workspaceId ?? undefined : undefined}); };
   const title = isGateway(view.kind) ? t(GATEWAY.find(g => g.kind === view.kind)!.title)
     : view.kind === 'projects' ? t('Projects')
     : view.kind === 'project' ? openedProject?.name ?? t('Project')
@@ -213,7 +215,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
     : view.kind === 'brainstorm' ? t('Brainstorm')
     : view.kind === 'board' ? t('Tasks')
     : view.kind === 'brain' ? t('Agents & defaults')
-    : view.kind === 'new' ? t('New solo task')
+    : view.kind === 'new' ? (view.answer ? t('Ask about this project') : t('New solo task'))
     : view.kind === 'policies' ? t('Policies')
     : view.kind === 'skills' ? t('Skills & Prompts')
     : view.kind === 'workspaces' ? t('Project settings')
@@ -334,7 +336,8 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
               onOpenTask={openTask} onOpenTaskId={id => { taskList.reload(); setView({kind: 'task', id, from: 'board', project: openedProject.id}); }}
               onOpenBrainstorm={b => setView({kind: 'brainstorm', id: b.id, from: 'all', project: openedProject.id})}
               onOpenBrainstormId={id => setView({kind: 'brainstorm', id, from: 'all', project: openedProject.id})}
-              onNewTask={() => newTask(openedProject.id)} onSettings={() => setView({kind: 'workspaces'})}/>
+              onNewTask={() => newTask(openedProject.id)} onAsk={() => setView({kind: 'new', workspaceId: openedProject.id, answer: true})}
+              onSettings={() => setView({kind: 'workspaces'})}/>
           : <div className="page">{workspaceList.data ? <p className="group-footnote">{t('That project is no longer here.')}</p> : <Spinner/>}</div>)}
         {view.kind === 'skills' && <Skills intent={intent === 'create' ? 'create' : undefined} onIntentDone={intentDone}/>}
         {view.kind === 'guide' && <Guide go={go} base={status?.baseUrl ?? (status ? `http://127.0.0.1:${status.port}` : null)}/>}
@@ -367,7 +370,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
         {view.kind === 'brainstorm' && <BrainstormDetail id={view.id}
           onBack={() => { brainList.reload(); taskList.reload(); setView(view.project ? {kind: 'project', id: view.project} : {kind: 'projects'}); }}
           onOpenBoard={workspaceId => { boardList.reload(); taskList.reload(); setView({kind: 'project', id: workspaceId}); }}/>}
-        {view.kind === 'new' && <NewTaskView onCreated={created} workspaceId={view.workspaceId ?? null}/>}
+        {view.kind === 'new' && <NewTaskView key={view.answer ? 'ask' : 'task'} onCreated={created} workspaceId={view.workspaceId ?? null} answer={view.answer ?? false}/>}
         {view.kind === 'workspaces' && <WorkspacesView/>}
         {view.kind === 'policies' && <Policies go={go} onSettings={() => setView({kind: 'settings'})}
           onWorkspaces={() => setView({kind: 'workspaces'})}/>}

@@ -98,7 +98,7 @@ Code: `apps/desktop/src/main.tsx` (shell), `src/components` and `components/gate
 
 - **Models by role** (plan, code, test, review): the saved pick, **Change…** (role sheet, §6), **Clear**.
 - **Defaults for a new brainstorm:** runner, WIP limits for Running and Checking.
-- **Facts and prompt:** facts feed switch, **Refresh**, prompt `brain-v2`.
+- **Facts and prompt:** facts feed switch, **Refresh**, prompt `brain-v3`.
 - **Projects that differ:** **Override…** / **Edit…** (project sheet, §6), **Use defaults**.
 - **Which level wins:** workspace override, then this screen, then the rules.
 
@@ -168,7 +168,7 @@ Code: `apps/desktop/src/main.tsx` (shell), `src/components` and `components/gate
 `ProjectsView.tsx`, `ProjectView.tsx`. The owner's model: **create a project → plan it with Brain Storming → the tasks run → take the output**, or **one solo task**.
 
 - **Projects:** **Needs your attention** (brainstorms to review, steps to approve), the projects as cards (path, plans, cards on the board, what runs or waits), **Add project…**, recent **Solo tasks**, **New solo task**, **All tasks**.
-- **A project:** the step bar **Plan → Tasks → Output** for the chosen plan (by default the one waiting on you, else the newest approved; progress counts its board cards: done, running, to review, blocked); **1 · Plan** (its brainstorms and **New plan**: **What should be built?**, **Start planning**; with none, the form is open, with how to start one from the coding agent with `pygg/brain` folded below); **2 · Tasks** (the project's board, folded once every card on it is done, and the project's solo tasks); **3 · Output** (the plan's branch with copyable git commands, **Review the changes** as one diff from where the plan started, results that could not join the plan's branch on branches of their own, kept solo results). **Project settings** opens §5.3.
+- **A project:** the step bar **Plan → Tasks → Output** for the chosen plan (by default the one waiting on you, else the newest approved; progress counts its board cards: done, running, to review, blocked); **1 · Plan** (its brainstorms and **New plan**: **What should be built?**, **Start planning**; with none, the form is open, with how to start one from the coding agent with `pygg/brain` folded below); **2 · Tasks** (the project's board, folded once every card on it is done, and the project's solo tasks); **Waiting for you** under the steps (a paid step to approve, a result to review, a blocked card, each with its button); **Ask about this project** (an answer task, ADR-043) beside **New solo task**; **3 · Output** (the plan's branch with copyable git commands, **Review the changes** as one diff from where the plan started, results that could not join the plan's branch on branches of their own, kept solo results). **Project settings** opens §5.3.
 
 ### 5.1 Tasks
 
@@ -190,6 +190,7 @@ Code: `apps/desktop/src/main.tsx` (shell), `src/components` and `components/gate
 `TaskDetail.tsx`.
 
 - **Waiting for approval** (inline): **Approve up to $…** with a cap, or **Decline**; a sensitive workspace asks **Allow This Step**.
+- **Answer** (an answer task): the agent's answer with **Copy**; nothing to keep.
 - **Result:** **Review Changes**, **Keep as Branch**, **Discard…**, **Export Patch…**; once kept, an **Output** box with the branch (copy), the git commands to review and merge, and, for a plan's card, whether its work is on the plan's branch or kept apart.
 - **Live activity** under a running attempt: what the agent does, line by line (files read and written, commands, what the model said), from OpenCode and Codex as it happens; Claude Code and Gemini CLI report when they finish. `live.rs`, in memory, the last 500 lines of an attempt.
 - Attempts with cost and checks; **Stop Task**, **Retry**; the task's text folded when long.

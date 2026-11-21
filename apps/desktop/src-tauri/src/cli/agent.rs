@@ -55,6 +55,7 @@ async fn task(db_path: PathBuf, flags: &HashMap<String, String>) {
         allow_shell: flags.get("shell").map(String::as_str) == Some("yes"),
         timeout_secs: flags.get("timeout").and_then(|t| t.parse().ok()),
         handoff: flags.get("handoff").cloned(),
+        answer: false,
     };
     let id = tasks::create_task(&conn, &new).unwrap_or_else(|e| fail(e));
     let db = Arc::new(Mutex::new(conn));

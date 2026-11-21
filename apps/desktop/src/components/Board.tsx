@@ -70,7 +70,7 @@ export function Board({workspaceId, workspaces, onWorkspace, onOpenTask}: {
         <button type="button" className="button prominent" disabled={busy} onClick={() => act(() => call(api => api.gatewayStart()).then(() => gateway.reload()))}>{t('Start')}</button></span>}
     </div>
     {error && <ErrorNote>{error}</ErrorNote>}
-    {cards.length === 0 && <p className="group-footnote">{t('No cards yet. Brainstorms start from your coding agent: ask it to use the model pygg/brain, then approve the proposal under Tasks.')}</p>}
+    {cards.length === 0 && <p className="group-footnote">{t('No cards yet. Start a plan with New plan on the project page (or from your coding agent with the model pygg/brain), then approve it.')}</p>}
     <div className="board">
       <div className="board-columns">
         {BOARD_LANES.map(lane => <div key={lane} className={`board-column ${lane}`}>
@@ -107,13 +107,14 @@ function Card({card: c, busy, onAct, onOpenTask, onDrop}: {card: BoardCard; busy
     {c.runner === 'ide' && !c.taskId && c.lane !== 'done' && <div className="ide-note">{t('Your coding agent does this card; Pygg does not see its progress yet. Hand it to Pygg to run it here instead.')}</div>}
     <div className="foot">
       {c.lane === 'blocked' && <span>{t('blocked {time}', {time: span(blocked)})}</span>}
-      {c.lane === 'running' && c.startedAt != null && <span>{t('{phase} · {time}', {phase: c.task ? phaseLabel(c.task.phase) : t('running'), time: elapsed(now - c.startedAt)})}</span>}
+      {c.task?.state === 'waiting_approval' && <span className="waits-you">{t('waits for your approval')}</span>}
+      {c.lane === 'running' && c.startedAt != null && c.task?.state !== 'waiting_approval' && <span>{t('{phase} · {time}', {phase: c.task ? phaseLabel(c.task.phase) : t('running'), time: elapsed(now - c.startedAt)})}</span>}
       {c.lane === 'discovery' && <span>{c.held ? t('held by you') : t('waits for {deps}', {deps: c.dependsOn.join(', ') || '—'})}</span>}
       {c.lane === 'ready' && <span>{t('next in line')}</span>}
       {result && <span>{result.outcome === 'passed' ? t('checks passed') : t('finished')}</span>}
     </div>
     <div className="actions">
-      {c.taskId && <button type="button" className="button" aria-label={t('{action}: {title}', {action: c.lane === 'blocked' || c.lane === 'review' ? t('Review') : t('Open'), title: c.title})} onClick={() => onOpenTask(c.taskId!)}>{c.lane === 'blocked' || c.lane === 'review' ? t('Review') : t('Open')}</button>}
+      {c.taskId && <button type="button" className="button" aria-label={t('{action}: {title}', {action: c.lane === 'blocked' || c.lane === 'review' ? t('Review') : t('Open'), title: c.title})} onClick={() => onOpenTask(c.taskId!)}>{c.task?.state === 'waiting_approval' ? t('Approve…') : c.lane === 'blocked' || c.lane === 'review' ? t('Review') : t('Open')}</button>}
       {c.lane === 'ready' && <>
         <button type="button" className="button" disabled={busy} onClick={() => onAct(c.class === 'expedite' ? 'standard' : 'expedite')}>{c.class === 'expedite' ? t('Standard') : t('Expedite')}</button>
         <button type="button" className="button" disabled={busy} onClick={() => onAct('hold')}>{t('Back to Discovery')}</button>

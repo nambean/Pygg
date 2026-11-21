@@ -972,6 +972,19 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
     // model); other connections of the group may not, which would be using a sibling key to get around a limit.
     let mut blocked_groups: HashMap<String, String> = HashMap::new();
     let mut retry_at: Option<i64> = None;
+    // Only a hold that ends by itself (a rate limit, an outage) tells the client when to come back. One that waits
+    // for the user or the provider (no credit, a rejected key) refuses at once, not with a `Retry-After` that an agent
+    // sleeps through when its recheck is due (the owner's run lost 10 minutes so on an account out of credit).
+    let mut no_credit = false;
+    let mut note_hold = |state: &str, until: Option<i64>| {
+        if policy::lifts_by_waiting(state) {
+            if let Some(until) = until {
+                retry_at = Some(retry_at.map_or(until, |r: i64| r.min(until)));
+            }
+        } else if state == "payment_required" {
+            no_credit = true;
+        }
+    };
     let has_limit = client.has_money_limit();
     // The first limit a hold did not fit (cost plan A3): a session or day limit refuses with 402, the month with 429.
     let mut over_scope: Option<store::LimitScope> = None;
@@ -1036,18 +1049,14 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             continue;
         }
         if let Ok(Some(health)) = shared.with_db(|db| store::blocking_health(db, &provider.id, &model_id)) {
-            if let Some(until) = health.until_ms {
-                retry_at = Some(retry_at.map_or(until, |r: i64| r.min(until)));
-            }
+            note_hold(&health.state, health.until_ms);
             skipped.push(format!("{name}: {} ({})", health.state.replace('_', " "), health.reason));
             continue;
         }
         // A refusal on another connection of the same quota group keeps this one off the same model too, for as
         // long as that refusal lasts, not only within the request that hit it (counter-review CR-01).
         if let Ok(Some((holder, hold))) = shared.with_db(|db| store::group_hold(db, &provider, &model_id)) {
-            if let Some(until) = hold.until_ms {
-                retry_at = Some(retry_at.map_or(until, |r: i64| r.min(until)));
-            }
+            note_hold(&hold.state, hold.until_ms);
             skipped.push(format!(
                 "{name}: shares limits with {}, which is {} ({})",
                 holder.label,
@@ -1058,9 +1067,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         }
         if let Some(key) = &key {
             if let Ok(Some(mark)) = shared.with_db(|db| keys::blocking(db, key, &model_id, db_now())) {
-                if let Some(until) = mark.until_ms {
-                    retry_at = Some(retry_at.map_or(until, |r: i64| r.min(until)));
-                }
+                note_hold(&mark.state, mark.until_ms);
                 skipped.push(format!("{name}: {} ({})", mark.state.replace('_', " "), mark.reason));
                 continue;
             }
@@ -1518,6 +1525,10 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         (StatusCode::TOO_MANY_REQUESTS, "budget_exceeded")
     } else if wait.is_some() {
         (StatusCode::TOO_MANY_REQUESTS, "rate_limit_error")
+    } else if no_credit {
+        // No credit behind the targets: 402, which agents do not retry, so a task's step ends now and the next model
+        // of its ladder can start.
+        (StatusCode::PAYMENT_REQUIRED, "payment_required")
     } else {
         (StatusCode::BAD_GATEWAY, "api_error")
     };

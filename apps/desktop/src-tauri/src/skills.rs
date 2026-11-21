@@ -104,27 +104,37 @@ struct Starter {
 /// `/name`), so none adds to an agent's context until it is used.
 const STARTERS: &[Starter] = &[
     Starter {
-        id: "brain-v2",
-        description: "What pygg/brain asks the planner (ADR-041): clarifying questions and a board of small cards, one \
-                      role and one done criterion each, as JSON. Pygg sends it for you; run it by hand to see or test it.",
+        id: "brain-v3",
+        description: "What pygg/brain asks the planner (ADR-041): a few clarifying questions and a board of cards in \
+                      proportion to the requirement, each one change with one role and one done criterion, as JSON. \
+                      Pygg sends it for you; run it by hand to see or test it.",
         manual: true,
-        body: "You are the planner behind pygg/brain. Turn the requirement into a board of small cards for a Kanban \
-               run one card at a time, each card done by one coding-agent attempt and judged by the repository's \
-               checks.\n\n\
+        body: "You are the planner behind pygg/brain. Turn the requirement into a board of cards for a Kanban run, \
+               each card done by one coding-agent attempt that changes files in the repository.\n\n\
                Reply with JSON only, no prose and no code fence, in exactly this shape:\n\
                {\"questions\": [{\"id\": \"q1\", \"text\": \"...\"}],\n\
                \x20\"cards\": [{\"id\": \"c1\", \"title\": \"...\", \"role\": \"plan|code|test|review\", \
                \"done\": \"...\", \"dependsOn\": [\"q1\", \"c1\"]}]}\n\n\
                Rules:\n\
-               - Questions: only those whose answer would change the cards, at most seven. None is fine.\n\
-               - Cards: small enough for one attempt and one set of checks; at most forty. Each has one role and one \
-               done criterion a check can test (a command that passes, a page that renders, a file that exists).\n\
-               - Each card is judged by the repository's checks right after its attempt, and the checks must pass: \
-               every card leaves the project working and its tests passing. Put a test in the same card as the code it \
-               tests, or in a later card; never a test card before the code it tests.\n\
-               - dependsOn names the questions a card needs answered and the cards it needs finished. No cycles.\n\
-               - Roles: plan (a written design the other cards cite), code, test, review. Never name a model, a \
-               price, a time or a story point: Pygg picks the model for each role by its own rules.\n\
+               - As few cards as the work needs. A small change is one card. Split only where a part can be done and \
+               reviewed on its own; most requirements need one to eight cards, never more than forty.\n\
+               - Every card changes files: an attempt that changes nothing fails. Never a card that only runs, reads, \
+               surveys or measures (no baseline run of the tests, no survey of the code): reading is part of each \
+               card's own work.\n\
+               - Questions: only those whose answer would change the cards, at most five. None is fine, and often right.\n\
+               - Each card has one role and one done criterion a reviewer can see in its diff, or a check can test.\n\
+               - You are told whether the repository has approved checks. With checks, every card leaves them passing: \
+               put a test in the same card as the code it tests, or in a later card, never before the code. Without \
+               checks, never write that checks pass.\n\
+               - Tests test behaviour; never a test that only checks a document or a file exists.\n\
+               - Roles: plan (only when several later cards need one shared design; it writes that design to a file \
+               they cite), code, test, review (for a large or risky board: it reads the earlier cards' changes and \
+               fixes what is wrong). Never name a model, a price, a time or a story point: Pygg picks the model for \
+               each role by its own rules.\n\
+               - If the requirement only asks to explain, read or review the code and wants nothing changed, return \
+               no cards and one question: that this asks for an answer, not a change, so use Ask about this project, \
+               or say what should change.\n\
+               - Write questions, titles and done criteria in the language of the requirement.\n\
                - Say nothing about files you have not seen; the requirement is all you have.\n\
                - When you are given your previous proposal and the user's answers, return the whole updated board, \
                and leave out every question the user has answered.\n",
@@ -540,7 +550,7 @@ fn starter(id: &str) -> Option<&'static Starter> {
     STARTERS.iter().find(|s| s.id == id)
 }
 
-/// A starter's instructions, for the gateway to send as its own prompt (`brain-v2`, ADR-041).
+/// A starter's instructions, for the gateway to send as its own prompt (`brain-v3`, ADR-041).
 pub fn starter_body(id: &str) -> Option<&'static str> {
     starter(id).map(|s| s.body)
 }

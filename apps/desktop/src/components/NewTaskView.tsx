@@ -31,7 +31,7 @@ function suggestedSteps(strategy: Strategy, agents: AgentInfo[]): Step[] {
  * step runs with the agent's own sign-in in a fresh worktree; a step that fails the checks hands what failed to
  * the next one. A step marked paid waits for approval.
  */
-export function NewTaskView({onCreated, workspaceId: initial}: {onCreated: (id: string) => void; workspaceId?: string | null}) {
+export function NewTaskView({onCreated, workspaceId: initial, answer = false}: {onCreated: (id: string) => void; workspaceId?: string | null; answer?: boolean}) {
   const workspaces = useGateway(api => api.workspaces());
   const agents = useGateway(api => api.agents());
   const [workspaceId, setWorkspaceId] = useState(initial ?? '');
@@ -53,7 +53,7 @@ export function NewTaskView({onCreated, workspaceId: initial}: {onCreated: (id: 
     if (!canStart || !workspace || !steps) return;
     setBusy(true);
     setError(null);
-    call(api => api.createTask({workspaceId: workspace.id, title: null, prompt: text.trim(), strategy, steps, allowShell, timeoutSecs: null}))
+    call(api => api.createTask({workspaceId: workspace.id, title: null, prompt: text.trim(), strategy, steps, allowShell, timeoutSecs: null, answer}))
       .then(id => { gatewayChanged(); onCreated(id); }, e => { setError(errorText(e)); setBusy(false); });
   };
   useEffect(() => {
@@ -66,9 +66,11 @@ export function NewTaskView({onCreated, workspaceId: initial}: {onCreated: (id: 
 
   return <div className="settings new-task">
     <section className="group">
-      <h2><label htmlFor="task-text">{t('Task')}</label></h2>
+      <h2><label htmlFor="task-text">{answer ? t('Question') : t('Task')}</label></h2>
       <textarea id="task-text" className="task-input" autoFocus value={text} onChange={e => setText(e.target.value)}
-        placeholder={t('Describe the change, e.g. “Fix timeout handling and add regression tests.”')} rows={5}/>
+        placeholder={answer ? t('Ask about the code, e.g. “How does the app start, and where is the database opened?”')
+          : t('Describe the change, e.g. “Fix timeout handling and add regression tests.”')} rows={5}/>
+      {answer && <p className="group-footnote">{t('An agent reads the repository and answers. Nothing is changed, so nothing needs keeping; a paid step still asks first.')}</p>}
     </section>
 
     {workspaces.error && !workspaces.data
@@ -113,7 +115,7 @@ export function NewTaskView({onCreated, workspaceId: initial}: {onCreated: (id: 
     {error && <ErrorNote>{error}</ErrorNote>}
     <div className="form-actions">
       <button type="button" className="button prominent" disabled={!canStart} onClick={start}>
-        {busy ? <Spinner/> : <Play size={13} aria-hidden/>}{t('Start Task')}</button>
+        {busy ? <Spinner/> : <Play size={13} aria-hidden/>}{answer ? t('Ask') : t('Start Task')}</button>
       <span className="shortcut-hint">{`${MOD}Enter`}</span>
     </div>
   </div>;

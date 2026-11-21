@@ -14,6 +14,7 @@ export type TaskState =
   | 'checks_passed'
   | 'needs_review'       // finished, but nothing confirmed it (no checks, or it changed what defines them)
   | 'manually_accepted'
+  | 'answered'           // an answer task: a question about the code, answered; nothing changed
   | 'check_failed'
   | 'blocked'            // no eligible model, or the policy or budget allows nothing more
   | 'canceled'
@@ -83,6 +84,8 @@ export type Step = { agent: string; model: string | null; tier: Tier; billing: B
 export type NewTask = {
   workspaceId: string; title: string | null; prompt: string; strategy: Strategy; steps: Step[];
   allowShell: boolean; timeoutSecs: number | null;
+  /** A question about the code, not a change: the agent answers and nothing is kept. */
+  answer?: boolean;
 };
 
 export type CheckResult = { command: string; passed: boolean; detail: string; outputTail: string; durationMs: number };
@@ -131,7 +134,7 @@ export type ApprovalView = {
 export type TaskDetail = TaskSummary & {
   prompt: string; strategy: Strategy; reason: string | null; result: 'kept' | 'discarded' | null; resultBranch: string | null;
   baseRevision: string | null; workspaceName: string; workspacePath: string;
-  policy: { steps: Step[]; checks: { command: string; source: string }[]; allowShell: boolean; timeoutSecs: number };
+  policy: { steps: Step[]; checks: { command: string; source: string }[]; allowShell: boolean; timeoutSecs: number; answer?: boolean };
   /** Every attempt in full; `attempts` holds the chips. */
   attemptDetails: AttemptView[];
   approval: ApprovalView | null;
@@ -155,7 +158,7 @@ export function matchesFilter(task: TaskSummary, filter: TaskFilter): boolean {
     // Running excludes approval waits: those have their own filter.
     case 'running': return task.state === 'running';
     case 'approval': return task.state === 'waiting_approval';
-    case 'completed': return task.state === 'checks_passed' || task.state === 'manually_accepted' || task.state === 'needs_review';
+    case 'completed': return task.state === 'checks_passed' || task.state === 'manually_accepted' || task.state === 'needs_review' || task.state === 'answered';
     case 'failed': return task.state === 'check_failed' || task.state === 'blocked';
     case 'stopped': return task.state === 'canceled' || task.state === 'interrupted';
   }

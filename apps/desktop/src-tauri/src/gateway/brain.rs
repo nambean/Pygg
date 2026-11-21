@@ -1,7 +1,7 @@
 //! `pygg/brain` (ADR-041, docs/design/BRAIN.md §2): the router is the brain. A client names the virtual model
 //! `pygg/brain` with a requirement; the gateway picks a planner by rule (auto's filters, the `plan` role's facts,
 //! the user's saved pick first), asks it for clarifying questions and a board of cards with Pygg's own prompt
-//! (the starter skill `brain-v2`), picks a model per card by rule (never the planner's word), stores the proposal
+//! (the starter skill `brain-v3`), picks a model per card by rule (never the planner's word), stores the proposal
 //! for the app, and answers the client with the proposal in plain text. A paid planner on first use waits for the
 //! user's pick in the app (ADR-010); a later call in the same session refines the same brainstorm.
 //!
@@ -25,7 +25,7 @@ pub const HEADER: &str = "x-pygg-brainstorm";
 /// The ledger's route kind for the calls the brain makes.
 pub const ROUTE_KIND: &str = "brain";
 /// The starter skill that holds the prompt (skills.rs, ADR-039).
-pub const PROMPT_VERSION: &str = "brain-v2";
+pub const PROMPT_VERSION: &str = "brain-v3";
 /// The quality signal written per planner reply (ADR-029, migration 0042).
 pub const METRIC: &str = "brain_schema_ok";
 pub const MAX_QUESTIONS: usize = 7;
@@ -398,9 +398,21 @@ pub fn pick(conn: &Connection, client: &Client) -> Result<Pick> {
 
 /// The messages the planner is sent: Pygg's prompt, then the requirement (and, on a refinement, the previous
 /// proposal and what the user answered). Nothing from the user's repository, nothing about their connections.
-fn planner_messages(b: &Brainstorm, answers: Option<&str>) -> Vec<Value> {
+fn planner_messages(b: &Brainstorm, answers: Option<&str>, checks: Option<&[String]>) -> Vec<Value> {
     let prompt = crate::skills::starter_body(PROMPT_VERSION).unwrap_or_default();
     let mut user = format!("Requirement:\n{}", b.requirement.trim());
+    // Whether a card's result is tested at all decides how cards are cut and what "done" can promise.
+    user.push_str(&match checks {
+        Some([]) => {
+            "\n\nThe repository has no approved checks: nothing tests a card's result, a person reviews each diff."
+                .to_string()
+        }
+        Some(list) => format!(
+            "\n\nThe repository's approved checks, run after every card: {}.",
+            list.iter().map(|c| format!("`{c}`")).collect::<Vec<_>>().join(", ")
+        ),
+        None => "\n\nThe repository's checks are not known yet.".to_string(),
+    });
     if b.revision > 0 {
         let previous = json!({
             "questions": b.proposal.questions.iter().filter(|q| !q.answered).map(|q| json!({"id": q.id, "text": q.text})).collect::<Vec<_>>(),
@@ -433,7 +445,13 @@ pub async fn run_planner(
     b.state = "thinking".into();
     shared.with_db(|db| save(db, b))?;
     let max_tokens = shared.with_db(|db| planner_max_tokens(db, &planner));
-    let body = json!({ "model": planner, "messages": planner_messages(b, answers), "stream": false, "max_tokens": max_tokens, "temperature": 0.2 });
+    let checks: Option<Vec<String>> = b.workspace_id.as_deref().and_then(|w| {
+        shared
+            .with_db(|db| crate::tasks::workspace(db, w))
+            .ok()
+            .map(|ws| ws.checks.into_iter().filter(|c| c.approved).map(|c| c.command).collect())
+    });
+    let body = json!({ "model": planner, "messages": planner_messages(b, answers, checks.as_deref()), "stream": false, "max_tokens": max_tokens, "temperature": 0.2 });
     let mut headers = HeaderMap::new();
     if let Ok(v) = HeaderValue::from_str(&b.session) {
         headers.insert(super::SESSION_HEADER, v);
@@ -1015,6 +1033,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_planner_is_told_whether_the_repository_has_checks() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let (client, _) = crate::gateway::store::create_client(&conn, "app", None).unwrap();
+        let b = create(&conn, &client.id, "s1", "Add CSV export", "thinking").unwrap();
+        let user =
+            |checks: Option<&[String]>| planner_messages(&b, None, checks)[1]["content"].as_str().unwrap().to_string();
+        assert!(user(Some(&[])).contains("no approved checks"));
+        assert!(user(Some(&["npm test".to_string()])).contains("`npm test`"));
+        assert!(user(None).contains("not known yet"));
+        assert!(planner_messages(&b, None, None)[0]["content"].as_str().unwrap().contains("Every card changes files"));
+    }
+
+    #[test]
     fn a_brainstorm_started_in_the_app_belongs_to_its_project() {
         let conn = crate::db::open_in_memory().unwrap();
         let (client, _) = crate::gateway::store::create_client(&conn, "app", None).unwrap();
@@ -1232,7 +1263,7 @@ mod tests {
             branch: None,
         };
         let text = proposal_text(&b);
-        assert!(text.starts_with("Brainstorm b_1 · revision 1 · open it in Pygg: pygg://brainstorm/b_1\nPlanner: gemini/gemini-3.1-pro (brain-v2)\n"), "{text}");
+        assert!(text.starts_with("Brainstorm b_1 · revision 1 · open it in Pygg: pygg://brainstorm/b_1\nPlanner: gemini/gemini-3.1-pro (brain-v3)\n"), "{text}");
         assert!(text.contains("1. Which payment providers?"));
         assert!(
             text.contains(

@@ -178,10 +178,33 @@ pub fn patch(worktree: &Worktree) -> Result<String, IsolationError> {
     Ok(text)
 }
 
+/// A lowercase letter with its accents taken off (Vietnamese and the common Latin ones), so a branch name keeps the
+/// words: "sửa lỗi" gives "sua-loi", not "s-a-l-i". Anything else is returned as it is.
+fn fold(c: char) -> std::vec::IntoIter<char> {
+    const GROUPS: &[(&str, &str)] = &[
+        ("àáạảãâầấậẩẫăằắặẳẵäåā", "a"),
+        ("èéẹẻẽêềếệểễëē", "e"),
+        ("ìíịỉĩïî", "i"),
+        ("òóọỏõôồốộổỗơờớợởỡöøō", "o"),
+        ("ùúụủũưừứựửữüûū", "u"),
+        ("ỳýỵỷỹÿ", "y"),
+        ("đ", "d"),
+        ("ç", "c"),
+        ("ñ", "n"),
+        ("ß", "ss"),
+    ];
+    for (from, to) in GROUPS {
+        if from.contains(c) {
+            return to.chars().collect::<Vec<_>>().into_iter();
+        }
+    }
+    vec![c].into_iter()
+}
+
 /// `str/<slug>-<short id>`: lowercase ASCII letters, digits and dashes, at most 48 characters of slug.
 pub fn branch_name(title: &str, id: &str) -> String {
     let mut slug = String::new();
-    for c in title.chars().flat_map(char::to_lowercase) {
+    for c in title.chars().flat_map(char::to_lowercase).flat_map(fold) {
         if c.is_ascii_alphanumeric() {
             slug.push(c);
         } else if !slug.ends_with('-') && !slug.is_empty() {
@@ -468,7 +491,8 @@ pub(crate) mod tests {
 
     #[test]
     fn branch_names_are_safe() {
-        assert_eq!(branch_name("  Sửa lỗi --- timeout  ", "ABCDEF123"), "str/s-a-l-i-timeout-abcdef12");
+        assert_eq!(branch_name("  Sửa lỗi --- timeout  ", "ABCDEF123"), "str/sua-loi-timeout-abcdef12");
+        assert_eq!(branch_name("brain đọc kiến trúc dự án", "b_931be223ee"), "str/brain-doc-kien-truc-du-an-b931be22");
         assert_eq!(branch_name("!!!", "42"), "str/task-42");
         assert!(branch_name(&"x".repeat(200), "1").len() <= "str/".len() + 48 + 1 + 1);
     }

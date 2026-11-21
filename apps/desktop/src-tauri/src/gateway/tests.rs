@@ -1445,9 +1445,12 @@ fn an_account_out_of_credit_cools_the_whole_connection_down() {
         let health = rig.shared.with_db(|db| store::list_health(db, Some("main"))).unwrap();
         assert_eq!((health[0].model_id.as_str(), health[0].state.as_str()), ("", "payment_required"));
         assert!(health[0].until_ms.unwrap() - crate::db::now_ms() > 3_000_000);
-        // Every model of the connection, and of its siblings, waits.
-        assert_eq!(rig.post("/v1/chat/completions", chat("main/fast")).await.status(), 429);
-        assert_eq!(rig.post("/v1/chat/completions", chat("sibling/fast")).await.status(), 429);
+        // Every model of the connection, and of its siblings, is refused at once with 402: waiting does not bring
+        // credit back, so no Retry-After for an agent to sleep through.
+        let held = rig.post("/v1/chat/completions", chat("main/fast")).await;
+        assert_eq!(held.status(), 402);
+        assert!(held.headers().get("retry-after").is_none());
+        assert_eq!(rig.post("/v1/chat/completions", chat("sibling/fast")).await.status(), 402);
         assert_eq!(rig.fake.count("fast"), 0);
     });
 }
@@ -2570,7 +2573,7 @@ fn pygg_brain_proposes_a_board_refines_it_in_the_session_and_ledgers_the_planner
         assert!(id.starts_with("b_"), "{id}");
         let answer: Value = response.json().await.unwrap();
         let text = answer["choices"][0]["message"]["content"].as_str().unwrap().to_string();
-        assert!(text.starts_with(&format!("Brainstorm {id} · revision 1 · open it in Pygg: pygg://brainstorm/{id}\nPlanner: backup/steady (brain-v2)\n")), "{text}");
+        assert!(text.starts_with(&format!("Brainstorm {id} · revision 1 · open it in Pygg: pygg://brainstorm/{id}\nPlanner: backup/steady (brain-v3)\n")), "{text}");
         assert!(text.contains("1. Which payment providers?"), "{text}");
         assert!(text.contains("- c2 [code] Catalogue pages — auto/code -> backup/steady, then main/fast (after c1, q1)"), "{text}");
         assert!(text.ends_with("Approve in Pygg; this client cannot approve. Paid cards still wait for approval one by one when they start.\n"), "{text}");
@@ -2640,7 +2643,7 @@ fn pygg_brain_waits_for_the_users_pick_when_the_planner_would_cost_money() {
         let response = rig.post_session("/v1/chat/completions", "brain-4", body).await;
         let text =
             response.json::<Value>().await.unwrap()["choices"][0]["message"]["content"].as_str().unwrap().to_string();
-        assert!(text.contains("Planner: main/fast (brain-v2)"), "{text}");
+        assert!(text.contains("Planner: main/fast (brain-v3)"), "{text}");
         assert_eq!(rig.ledger().len(), 1);
     });
 }
