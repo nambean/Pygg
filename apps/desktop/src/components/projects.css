@@ -69,3 +69,5 @@
 .live-log { max-height: 280px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .plan-changes { margin-top: 10px; }
 .plan-changes .button { margin-bottom: 8px; }
+.start-plan .plan-requirement { display: block; width: 100%; box-sizing: border-box; margin: 6px 0 8px; resize: vertical; min-height: 84px; font: inherit; }
+.start-plan .form-actions { display: flex; gap: 8px; flex-wrap: wrap; }

@@ -1654,6 +1654,63 @@ fn client_of(state: &AppState, b: &brain::Brainstorm) -> Res<Client> {
         .ok_or_else(|| "The client that started this brainstorm is gone".into())
 }
 
+/// The gateway client the app's own brainstorms run as: made once and named, so it shows under Clients, where its
+/// limit and policy are set like any other's. Its key is not kept: only the app uses this client, in process.
+fn app_brain_client(db: &rusqlite::Connection) -> Res<Client> {
+    const SETTING: &str = "brain.app_client";
+    if let Some(id) = store::setting(db, SETTING)? {
+        if let Some(c) = store::list_clients(db)?.into_iter().find(|c| c.id == id && c.revoked_at.is_none()) {
+            return Ok(c);
+        }
+    }
+    let (client, _key) = store::create_client(db, "Pygg app (Brain Storming)", None)?;
+    store::set_setting(db, SETTING, &client.id)?;
+    Ok(client)
+}
+
+/// Starts a plan for a project from the app (ADR-027 amended): the planner is chosen as for a coding agent's
+/// brainstorm and runs in the background; a paid one waits for the user's pick first. Returns the brainstorm.
+#[tauri::command]
+pub async fn brainstorm_start(
+    state: State<'_, AppState>, workspace_id: String, requirement: String,
+) -> Res<brain::Brainstorm> {
+    let (mut b, client, ready) = state.shared.with_db(|db| -> Res<(brain::Brainstorm, Client, bool)> {
+        crate::tasks::workspace(db, &workspace_id)?;
+        let client = app_brain_client(db)?;
+        let mut b = brain::create_in_app(db, &client.id, &workspace_id, &requirement)?;
+        let ready = brain::choose_planner(db, &client, &mut b)?;
+        Ok((b, client, ready))
+    })?;
+    let id = b.id.clone();
+    if ready {
+        let shared = state.shared.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = brain::run_planner(&shared, &client, &mut b, None).await;
+        });
+    }
+    brainstorm_of(&state, &id)
+}
+
+/// The user's answers and changes to a proposal, sent to the planner for a new revision (in the background).
+#[tauri::command]
+pub async fn brainstorm_refine(state: State<'_, AppState>, id: String, answers: String) -> Res<brain::Brainstorm> {
+    let mut b = brainstorm_of(&state, &id)?;
+    if b.state != "proposed" {
+        return Err("Only a proposed plan can be answered".into());
+    }
+    if answers.trim().is_empty() {
+        return Err("Write an answer or a change first".into());
+    }
+    let client = client_of(&state, &b)?;
+    b.state = "thinking".into();
+    state.shared.with_db(|db| brain::save(db, &b))?;
+    let shared = state.shared.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = brain::run_planner(&shared, &client, &mut b, Some(&answers)).await;
+    });
+    brainstorm_of(&state, &id)
+}
+
 /// Every brainstorm, newest first, for the Tasks list.
 #[tauri::command]
 pub fn brainstorms_list(state: State<'_, AppState>) -> Res<Vec<brain::Brainstorm>> {

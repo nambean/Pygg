@@ -55,7 +55,7 @@ Printed when a tool started by `pygg run` exits: cost (unknown and subscription 
 
 ## The MCP server and the task API (experimental, on hold)
 
-Tasks start from the user's coding agent (ADR-027); the app runs them, approves paid steps and keeps history.
+Tasks start from the user's coding agent (ADR-027; a plan may also start on a project's page); the app runs them, approves paid steps and keeps history.
 
 - **Server:** `<app> mcp`, `pygg mcp` or `pygg-mcp` (stdio); config `PYGG_TOKEN`, optional `PYGG_URL` (default `http://127.0.0.1:8741`).
 - **MCP tools:** `pygg_run_task`, `pygg_task_status`, `pygg_task_diff`, `pygg_keep_result`, `pygg_discard_result`, `pygg_stop_task`, `pygg_list_tasks`, `pygg_agents`, `pygg_brainstorm`, `pygg_model_facts`, `pygg_board`, `pygg_board_move`.

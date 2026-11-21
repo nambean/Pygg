@@ -10,9 +10,9 @@ import { usd } from '../lib/format';
 import './brain.css';
 
 /**
- * A brainstorm (BRAIN.md §4.4): the planner pick when the rule's pick costs money, the questions (answered in the
- * coding agent, never here), the cards by wave with the model Pygg picked and why, and approval into tasks.
- * Nothing on this screen sends anything to a model except the pick, which the user makes.
+ * A brainstorm (BRAIN.md §4.4): the planner pick when the rule's pick costs money, the questions (answered here for
+ * a plan started in the app, in the coding agent for one started there), the cards by wave with the model Pygg picked
+ * and why, and approval into tasks. Only the pick and the user's answers send anything to a model.
  */
 export function BrainstormDetail({id, onBack, onOpenBoard}: {id: string; onBack: () => void; onOpenBoard: (workspaceId: string) => void}) {
   const settings = useGateway(api => api.brainSettings());
@@ -31,7 +31,7 @@ export function BrainstormDetail({id, onBack, onOpenBoard}: {id: string; onBack:
         <span className="state-icon waiting_approval"><Lightbulb size={18} strokeWidth={1.9} aria-hidden/></span>
         <div style={{minWidth: 0, flex: 1}}>
           <h2 className="selectable">{b.requirement.split('\n')[0]}</h2>
-          <p><StateBadge state={b.state} revision={b.revision}/>{b.clientId ? ` · ${t('from a coding agent')}` : ''} · {t('session {session}', {session: b.session})}</p>
+          <p><StateBadge state={b.state} revision={b.revision}/>{b.session.startsWith('app-') ? ` · ${t('started here')}` : b.clientId ? ` · ${t('from a coding agent')}` : ''} · {t('session {session}', {session: b.session})}</p>
           <p>{t('Planner')}: <span className="brain-id">{b.planner ?? t('no planner yet')}</span> · {b.promptVersion}</p>
         </div>
       </header>
@@ -50,7 +50,7 @@ export function BrainstormDetail({id, onBack, onOpenBoard}: {id: string; onBack:
         <span className="spacer"/>{b.workspaceId && <button type="button" className="button prominent" onClick={() => onOpenBoard(b.workspaceId!)}>{t('Open Board')}</button>}</div>}
 
       {(b.state === 'proposed' || b.state === 'approved') && <>
-        <Questions b={b}/>
+        <Questions b={b} onChanged={changed}/>
         <Cards b={b} onChanged={changed} changeScope={settings.data?.changeScope ?? 'ask'}/>
         {b.state === 'proposed' && <Approve b={b} onChanged={changed} onOpenBoard={onOpenBoard}/>}
       </>}
@@ -133,15 +133,38 @@ function PickPlanner({b, onChanged, retry, remember: rememberDefault}: {b: Brain
   </section>;
 }
 
-function Questions({b}: {b: Brainstorm}) {
+function Questions({b, onChanged}: {b: Brainstorm; onChanged: () => void}) {
   const qs = b.proposal.questions;
   const answered = qs.filter(q => q.answered).length;
+  const here = b.session.startsWith('app-') && b.state === 'proposed';
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [other, setOther] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const text = [...qs.filter(q => !q.answered && answers[q.id]?.trim()).map(q => `${q.id}: ${answers[q.id].trim()}`),
+    ...(other.trim() ? [`Changes: ${other.trim()}`] : [])].join('\n');
+  const send = () => {
+    setBusy(true); setError(null);
+    call(api => api.brainstormRefine(b.id, text)).then(() => { setBusy(false); setAnswers({}); setOther(''); onChanged(); },
+      e => { setError(errorText(e)); setBusy(false); });
+  };
   return <section className="group brain-questions">
     <div className="group-heading"><h2>{t('Questions · {n}, {m} answered', {n: qs.length, m: answered})}</h2>
-      <span className="brain-meta">{t('Answered in your coding agent, not here')}</span></div>
+      {!here && <span className="brain-meta">{t('Answered in your coding agent, not here')}</span>}</div>
     {qs.length === 0 ? <p className="group-footnote">{t('The planner asked nothing.')}</p> : <div className="group-box">
-      {qs.map(q => <div key={q.id} className="q-row"><span className="n">{q.id}</span><span>{q.text}</span>
+      {qs.map(q => <div key={q.id} className="q-row"><span className="n">{q.id}</span><span>{q.text}
+        {here && !q.answered && <input className="q-answer" aria-label={t('Answer to {q}', {q: q.id})} value={answers[q.id] ?? ''}
+          placeholder={t('Your answer')} onChange={e => setAnswers(a => ({...a, [q.id]: e.target.value}))}/>}</span>
         {q.answered ? <span className="brain-meta">{t('answered')}</span> : <Badge tone="warn">{t('open')}</Badge>}</div>)}
+    </div>}
+    {here && <div className="brain-refine">
+      <label htmlFor={`refine-${b.id}`}>{t('Anything else to change in the plan')}</label>
+      <textarea id={`refine-${b.id}`} rows={2} value={other} onChange={e => setOther(e.target.value)}
+        placeholder={t('For example: one card for the API, another for the page; leave out the export.')}/>
+      <div className="form-actions"><button type="button" className="button prominent" disabled={busy || !text} onClick={send}>
+        {busy ? t('Sending…') : t('Send to the planner')}</button>
+        <span className="brain-meta">{t('The planner writes a new revision; open questions you leave blank stay open.')}</span></div>
+      {error && <ErrorNote>{error}</ErrorNote>}
     </div>}
   </section>;
 }

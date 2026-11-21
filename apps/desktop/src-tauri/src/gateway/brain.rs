@@ -205,6 +205,50 @@ fn new_id() -> String {
     format!("b_{}", &uuid::Uuid::new_v4().simple().to_string()[..10])
 }
 
+/// The session of a brainstorm started in the app (ADR-027 amended) begins with this; one from a coding agent has the
+/// agent's session.
+pub const APP_SESSION: &str = "app-";
+
+/// A brainstorm started in the app for a project, with the requirement as the user wrote it. Its planner is chosen
+/// next (`choose_planner`), then run.
+pub fn create_in_app(conn: &Connection, client_id: &str, workspace_id: &str, requirement: &str) -> Result<Brainstorm> {
+    let requirement = requirement.trim();
+    if requirement.is_empty() {
+        return Err("Describe what to build".into());
+    }
+    let session = format!("{APP_SESSION}{}", uuid::Uuid::new_v4().simple());
+    let mut b = create(conn, client_id, &session, requirement, "thinking")?;
+    b.workspace_id = Some(workspace_id.to_string());
+    save(conn, &b)?;
+    Ok(b)
+}
+
+/// Sets the planner of a brainstorm that has none: the saved pick, or the rule's when it costs nothing. `false` when
+/// the brainstorm now waits for the user's pick or has failed for want of a model (saved either way).
+pub fn choose_planner(conn: &Connection, client: &Client, b: &mut Brainstorm) -> Result<bool> {
+    if b.planner.is_some() {
+        return Ok(true);
+    }
+    match pick(conn, client)? {
+        Pick::Saved(name) | Pick::Rule(name) => {
+            b.planner = Some(name);
+            Ok(true)
+        }
+        Pick::WaitsForPick(name) => {
+            b.state = "waiting_pick".into();
+            b.note = Some(format!("the rule would pick {name}, which costs money; pick a planner in Pygg"));
+            save(conn, b)?;
+            Ok(false)
+        }
+        Pick::Nothing(why) => {
+            b.state = "failed".into();
+            b.error = Some(format!("no connected model is eligible as a planner: {why}"));
+            save(conn, b)?;
+            Ok(false)
+        }
+    }
+}
+
 fn create(conn: &Connection, client_id: &str, session: &str, requirement: &str, state: &str) -> Result<Brainstorm> {
     let id = new_id();
     let now = crate::db::now_ms();
@@ -803,22 +847,9 @@ pub async fn answer(shared: &Shared, client: &Client, incoming: &Incoming<'_>) -
         Some(b) if matches!(b.state.as_str(), "proposed" | "waiting_pick" | "failed" | "thinking") => (b, Some(text)),
         _ => (shared.with_db(|db| create(db, &client.id, &session, &text, "thinking")).map_err(internal)?, None),
     };
-    if b.planner.is_none() {
-        match shared.with_db(|db| pick(db, client)).map_err(internal)? {
-            Pick::Saved(name) | Pick::Rule(name) => b.planner = Some(name),
-            Pick::WaitsForPick(name) => {
-                b.state = "waiting_pick".into();
-                b.note = Some(format!("the rule would pick {name}, which costs money; pick a planner in Pygg"));
-                shared.with_db(|db| save(db, &b)).map_err(internal)?;
-                return Ok(Reply { text: waiting_text(&b), brainstorm_id: b.id });
-            }
-            Pick::Nothing(why) => {
-                b.state = "failed".into();
-                b.error = Some(format!("no connected model is eligible as a planner: {why}"));
-                shared.with_db(|db| save(db, &b)).map_err(internal)?;
-                return Ok(Reply { text: failed_text(&b), brainstorm_id: b.id });
-            }
-        }
+    if !shared.with_db(|db| choose_planner(db, client, &mut b)).map_err(internal)? {
+        let text = if b.state == "waiting_pick" { waiting_text(&b) } else { failed_text(&b) };
+        return Ok(Reply { text, brainstorm_id: b.id });
     }
     let answers = if b.revision > 0 { answers } else { None };
     match run_planner(shared, client, &mut b, answers.as_deref()).await {
@@ -982,6 +1013,24 @@ pub fn respond(incoming: &Incoming<'_>, reply: &Reply) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_brainstorm_started_in_the_app_belongs_to_its_project() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let (client, _) = crate::gateway::store::create_client(&conn, "app", None).unwrap();
+        conn.execute("INSERT INTO workspaces (id, name, path, created_at) VALUES ('w1', 'repo', 'C:/src/repo', 1)", [])
+            .unwrap();
+        assert!(create_in_app(&conn, &client.id, "w1", "   ").is_err(), "an empty requirement is refused");
+        let mut b = create_in_app(&conn, &client.id, "w1", "  Add CSV export  ").unwrap();
+        assert_eq!((b.workspace_id.as_deref(), b.requirement.as_str()), (Some("w1"), "Add CSV export"));
+        assert!(b.session.starts_with(APP_SESSION));
+        // No model is connected: nothing can plan, and it says so.
+        assert!(!choose_planner(&conn, &client, &mut b).unwrap());
+        assert_eq!(get(&conn, &b.id).unwrap().unwrap().state, "failed");
+        // A planner already set is kept.
+        b.planner = Some("p/m".into());
+        assert!(choose_planner(&conn, &client, &mut b).unwrap());
+    }
 
     fn board(cards: &str) -> String {
         format!(r#"{{"questions": [{{"id": "q1", "text": "Which payment providers?"}}], "cards": [{cards}]}}"#)

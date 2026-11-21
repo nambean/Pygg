@@ -168,7 +168,7 @@ Code: `apps/desktop/src/main.tsx` (shell), `src/components` and `components/gate
 `ProjectsView.tsx`, `ProjectView.tsx`. The owner's model: **create a project → plan it with Brain Storming → the tasks run → take the output**, or **one solo task**.
 
 - **Projects:** **Needs your attention** (brainstorms to review, steps to approve), the projects as cards (path, plans, cards on the board, what runs or waits), **Add project…**, recent **Solo tasks**, **New solo task**, **All tasks**.
-- **A project:** the step bar **Plan → Tasks → Output** for the chosen plan (by default the one waiting on you, else the newest approved; progress counts its board cards: done, running, to review, blocked); **1 · Plan** (its brainstorms; with none, how to start one from the coding agent with `pygg/brain`); **2 · Tasks** (the project's board, folded once every card on it is done, and the project's solo tasks); **3 · Output** (the plan's branch with copyable git commands, **Review the changes** as one diff from where the plan started, results that could not join the plan's branch on branches of their own, kept solo results). **Project settings** opens §5.3.
+- **A project:** the step bar **Plan → Tasks → Output** for the chosen plan (by default the one waiting on you, else the newest approved; progress counts its board cards: done, running, to review, blocked); **1 · Plan** (its brainstorms and **New plan**: **What should be built?**, **Start planning**; with none, the form is open, with how to start one from the coding agent with `pygg/brain` folded below); **2 · Tasks** (the project's board, folded once every card on it is done, and the project's solo tasks); **3 · Output** (the plan's branch with copyable git commands, **Review the changes** as one diff from where the plan started, results that could not join the plan's branch on branches of their own, kept solo results). **Project settings** opens §5.3.
 
 ### 5.1 Tasks
 
@@ -206,6 +206,7 @@ Code: `apps/desktop/src/main.tsx` (shell), `src/components` and `components/gate
 
 - States: **Waits for your pick**, **Thinking**, **Proposed**, **Approved · board**, **Declined**, **Planner failed**.
 - A paid planner waits for **Use <model>** or **Decline**.
+- A plan started here (**started here**): an answer box under each open question, **Anything else to change in the plan**, **Send to the planner** (a new revision); one from a coding agent is answered there.
 - Cards: model, **Change…** (role sheet, §6), up to 5 fallbacks, **Drop** / **Restore**.
 - Approve bar: known estimate, budget left; **Approve <n> cards…** puts them on the board.
 

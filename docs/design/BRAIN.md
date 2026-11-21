@@ -2,7 +2,7 @@
 
 > **Status:** Current · built, on hold (owner review) · verification per part: [Implementation Status](../IMPLEMENTATION-STATUS.md)
 
-A requirement typed into the user's own coding agent becomes a board of cards, each on a model picked by rule from measured facts, run one at a time under the user's approval.
+A requirement typed into the user's own coding agent, or on a project's page in the app, becomes a board of cards, each on a model picked by rule from measured facts, run one at a time under the user's approval.
 
 | Part | ADR | What | Status |
 | --- | --- | --- | --- |
@@ -70,6 +70,7 @@ Each part works alone: the feed ranks the role aliases, and the aliases can be b
 - **Reply:** brainstorm id and app link, numbered questions (at most 7), proposed cards (at most 40) with role, done criterion and model, and the known estimate.
 - **Refinement:** another call in the same session with answers refines the brainstorm; a new session starts another.
 - **Planner:** picked by rule from the `plan` ranking; a saved pick wins; a paid planner waits for the user's pick in the app; a free or local one runs at once.
+- **From the app (ADR-027 amended):** **New plan** on a project's page sends the requirement the same way, as the client **Pygg app (Brain Storming)**; the planner runs in the background; answers and changes typed on the brainstorm screen refine it.
 - **Prompt:** `brain-v2` in Skills & Prompts (ADR-039); it never asks for a model name, a time estimate or repository content. Since v2 it tells the planner that each card is judged by the checks right after it, so every card must leave the tests passing, with a test in the same card as its code or a later one: a planner that went test-first (eleven test cards before any code) jammed the board at the first red test (2026-11-21).
 - **Models per card:** the role's saved pick on Brain Storming, else the rule's pick plus two suggested fallbacks (the user may set up to five); never the planner's suggestion.
 - **Approval** (app only, needs a Git workspace, ADR-008) writes one board card per kept card on one branch per brainstorm.
@@ -109,7 +110,7 @@ Screens as built: [SCREENS.md](SCREENS.md).
 
 ### 4.1 Rules the screens keep
 
-- **No chat:** requirements and answers are typed in the coding agent (ADR-028).
+- **No chat:** a requirement and its answers are one form each, in the coding agent or on the brainstorm screen; no conversation is kept (ADR-028).
 - **Approvals inline** in the app, never by notification or API (ADR-010).
 - **Honest values:** Unknown is a word; the sum is **Known estimate**, never a ceiling.
 - **Every rank shows its source and date**; a derived rank says **derived**; never only in a tooltip.

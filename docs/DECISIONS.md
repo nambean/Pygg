@@ -151,6 +151,7 @@ Built as ADR-034 (pools) and ADR-038 (key rings); rotation never gets around ban
 *Accepted (tasks on hold).*
 - Tasks start from the user's coding agent through Pygg's MCP server; the app runs them, approves paid steps and reviews results ([AGENTS.md](AGENTS.md#the-mcp-server-and-the-task-api-experimental-on-hold)).
 - A client needs **May start tasks**, sees only its own tasks, and cannot approve a paid step.
+- Amended 2026-11-21 (owner): a **plan** (Brain Storming) may also start in the app, from a project's page; it runs as the client **Pygg app (Brain Storming)**, under that client's limit and policy, and its questions are answered in the app. Solo tasks still start in the coding agent or **New solo task**.
 
 ## ADR-028 — MIT licence, a $20 benchmark budget, and no Auto Chat
 

@@ -1238,7 +1238,7 @@ const DEMO_DIFF = 'diff --git a/src/timeout.ts b/src/timeout.ts\n--- a/src/timeo
 
 /** Tasks for the browser preview: the sample tasks, and new ones that "run" for a few seconds. Nothing runs. */
 function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards' | 'board' | 'boardLimits' | 'boardAct' | 'boardSetLimits' | 'brainstorms' | 'brainstorm' | 'brainstormPickPlanner' | 'brainstormRetry' | 'brainstormSetModel' | 'brainstormSetCard' | 'brainstormDecline' | 'brainstormApprove' | 'workspaces' | 'addWorkspace' | 'removeWorkspace' | 'taskBudget' | 'setTaskBudget' | 'setWorkspaceBudget' | 'setWorkspacePrivacy' | 'pickFolder' | 'exportPatch'
-  | 'detectChecks' | 'workspaceCheck' | 'tasks' | 'task' | 'createTask' | 'cancelTask' | 'decideTask' | 'retryTask' | 'taskDiff' | 'taskActivity' | 'brainstormDiff'
+  | 'detectChecks' | 'workspaceCheck' | 'tasks' | 'task' | 'createTask' | 'cancelTask' | 'decideTask' | 'retryTask' | 'taskDiff' | 'taskActivity' | 'brainstormDiff' | 'brainstormStart' | 'brainstormRefine'
   | 'finishTask'> {
   let dailyLimit: number | null = 2;
   const workspaces: WorkspaceView[] = SAMPLE_WORKSPACES.map((w, i) => ({...w, tasks: 0, dailyBudgetUsd: null, privacyClass: i === 1 ? 'sensitive' as const : 'standard' as const, checks: i === 0
@@ -1417,6 +1417,20 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
     brainstorm: async id => touch(brainstorm(id)),
     brainstormPickPlanner: async (id, model) => { const b = brainstorm(id); b.planner = model; return planned(b); },
     brainstormRetry: async id => planned(brainstorm(id)),
+    brainstormStart: async (workspaceId, requirement) => {
+      if (!requirement.trim()) throw 'Describe what to build';
+      const b: Brainstorm = {id: `bs-${Date.now()}`, clientId: 'k-app', session: `app-${Date.now()}`, workspaceId, state: 'thinking', requirement: requirement.trim(),
+        planner: sonnet, promptVersion: 'brain-v2', revision: 0, proposal: {questions: [], cards: [], droppedCards: 0}, rawReply: null, note: null, error: null,
+        createdAt: Date.now(), updatedAt: Date.now()};
+      brainstorms.unshift(b);
+      void planned(b);
+      return touch(clone(b));
+    },
+    brainstormRefine: async id => {
+      const b = brainstorm(id);
+      void planned(b).then(() => { b.proposal.questions = b.proposal.questions.map(q => ({...q, answered: true})); });
+      return touch(clone(b));
+    },
     brainstormSetModel: async (id, cardId, model, allOfRole) => {
       const b = brainstorm(id);
       const role = b.proposal.cards.find(c => c.id === cardId)?.role;

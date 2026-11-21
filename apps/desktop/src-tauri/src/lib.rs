@@ -381,6 +381,8 @@ pub fn run() {
             commands::task_diff,
             commands::task_activity,
             commands::brainstorm_diff,
+            commands::brainstorm_start,
+            commands::brainstorm_refine,
             commands::task_finish,
             commands::mcp_setup,
             commands::integrations_list,

@@ -18,6 +18,7 @@ type Props = {
   onOpenTask: (task: TaskSummary) => void;
   onOpenTaskId: (id: string) => void;
   onOpenBrainstorm: (brainstorm: Brainstorm) => void;
+  onOpenBrainstormId: (id: string) => void;
   onNewTask: () => void;
   onSettings: () => void;
 };
@@ -25,7 +26,8 @@ type Props = {
 type Step = { name: string; state: 'todo' | 'now' | 'done'; detail: string };
 
 /** One project (a workspace): plan → tasks → output for its brainstorms, and its solo tasks. */
-export function ProjectView({workspace: w, tasks, brainstorms, board, onOpenTask, onOpenTaskId, onOpenBrainstorm, onNewTask, onSettings}: Props) {
+export function ProjectView({workspace: w, tasks, brainstorms, board, onOpenTask, onOpenTaskId, onOpenBrainstorm, onOpenBrainstormId, onNewTask, onSettings}: Props) {
+  const [newPlan, setNewPlan] = useState(false);
   const plans = brainstorms.filter(b => b.state !== 'declined').sort((a, b) => b.createdAt - a.createdAt);
   // A plan that waits on you comes first, then the newest approved one.
   const active = plans.find(b => b.state === 'proposed' || b.state === 'waiting_pick' || b.state === 'failed')
@@ -83,12 +85,11 @@ export function ProjectView({workspace: w, tasks, brainstorms, board, onOpenTask
           <select value={plan?.id ?? ''} onChange={e => setPlanId(e.target.value)}>
             {plans.map(b => <option key={b.id} value={b.id}>{b.requirement.split('\n')[0].slice(0, 70)} · {new Date(b.createdAt).toLocaleDateString()}</option>)}
           </select></label>}
+        {plans.length > 0 && !newPlan && <button type="button" className="button" onClick={() => setNewPlan(true)}><Plus size={13} aria-hidden/>{t('New plan')}</button>}
       </div>
-      {plans.length === 0 ? <div className="start-plan">
-        <p>{t('A plan is made in your coding agent: ask it to use the model pygg/brain with your requirement, from this repository. Pygg’s planner splits it into cards with a role each, and the proposal appears here for you to review and approve.')}</p>
-        <pre className="selectable">{t('Use the model pygg/brain: <describe what to build>')}</pre>
-        <p className="group-footnote">{t('Or skip planning and run one solo task.')}</p>
-      </div> : <ul className="task-list">
+      {(plans.length === 0 || newPlan) && <StartPlan workspaceId={w.id} onStarted={id => { setNewPlan(false); onOpenBrainstormId(id); }}
+        onCancel={plans.length > 0 ? () => setNewPlan(false) : undefined}/>}
+      {plans.length === 0 ? <p className="group-footnote">{t('Or skip planning and run one solo task.')}</p> : <ul className="task-list">
         {plans.map(b => <BrainstormRow key={b.id} brainstorm={b} attention={b.state === 'proposed' || b.state === 'waiting_pick' || b.state === 'failed'}
           onOpen={onOpenBrainstorm} project={b.id === plan?.id && plans.length > 1 ? t('shown below') : null}/>)}
       </ul>}
@@ -174,4 +175,31 @@ function PlanChanges({id}: {id: string}) {
     {open && (error ? <ErrorNote>{error}</ErrorNote> : diff === null ? <Spinner label={t('Loading changes…')}/>
       : diff.trim() === '' ? <p className="group-footnote">{t('No changes against your branch: it may be merged already.')}</p> : <DiffView diff={diff}/>)}
   </div>;
+}
+
+/** A new plan for this project: the requirement goes to Pygg's planner (Brain Storming), which splits it into cards
+ *  for review here. The same plan can start in a coding agent with the model pygg/brain. */
+function StartPlan({workspaceId, onStarted, onCancel}: {workspaceId: string; onStarted: (id: string) => void; onCancel?: () => void}) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const start = () => {
+    setBusy(true); setError(null);
+    call(api => api.brainstormStart(workspaceId, text)).then(b => { setBusy(false); setText(''); onStarted(b.id); },
+      e => { setError(errorText(e)); setBusy(false); });
+  };
+  return <form className="start-plan" onSubmit={e => { e.preventDefault(); if (text.trim() && !busy) start(); }}>
+    <label htmlFor="plan-requirement"><strong>{t('What should be built?')}</strong></label>
+    <textarea id="plan-requirement" className="plan-requirement" rows={4} value={text} onChange={e => setText(e.target.value)}
+      placeholder={t('Describe the feature or change as you would to a colleague: what it does, for whom, what must not break.')}/>
+    <div className="form-actions">
+      <button type="submit" className="button prominent" disabled={busy || !text.trim()}>{busy ? t('Starting…') : t('Start planning')}</button>
+      {onCancel && <button type="button" className="button" onClick={onCancel} disabled={busy}>{t('Cancel')}</button>}
+    </div>
+    {error && <ErrorNote>{error}</ErrorNote>}
+    <p className="group-footnote">{t('Pygg’s planner reads only what you write here, not your files. It splits the work into cards with a role each; you review, answer its questions and approve before anything runs. A paid planner waits for your pick.')}</p>
+    <details className="form-disclosure"><summary>{t('Or start it from your coding agent')}</summary>
+      <p className="group-footnote">{t('Ask your agent, in this repository, to use the model pygg/brain with the requirement; the proposal appears here the same way.')}</p>
+      <pre className="selectable">{t('Use the model pygg/brain: <describe what to build>')}</pre></details>
+  </form>;
 }

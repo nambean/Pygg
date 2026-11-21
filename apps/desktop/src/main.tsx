@@ -333,6 +333,7 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
               brainstorms={brainstorms.filter(b => b.workspaceId === openedProject.id)} board={(boardList.data ?? []).find(b => b.workspaceId === openedProject.id) ?? null}
               onOpenTask={openTask} onOpenTaskId={id => { taskList.reload(); setView({kind: 'task', id, from: 'board', project: openedProject.id}); }}
               onOpenBrainstorm={b => setView({kind: 'brainstorm', id: b.id, from: 'all', project: openedProject.id})}
+              onOpenBrainstormId={id => setView({kind: 'brainstorm', id, from: 'all', project: openedProject.id})}
               onNewTask={() => newTask(openedProject.id)} onSettings={() => setView({kind: 'workspaces'})}/>
           : <div className="page">{workspaceList.data ? <p className="group-footnote">{t('That project is no longer here.')}</p> : <Spinner/>}</div>)}
         {view.kind === 'skills' && <Skills intent={intent === 'create' ? 'create' : undefined} onIntentDone={intentDone}/>}
