@@ -27,6 +27,8 @@ pub const SETTING_REMEMBER_PLANNER: &str = "brain.remember_planner";
 pub const SETTING_CHANGE_SCOPE: &str = "brain.change_scope";
 /// Measures are shown once this many cards are done (BRAIN.md 4.6).
 pub const MEASURED_FROM: usize = 5;
+/// The task states from which a blocked card may run again (`act`'s `rerun`).
+const RERUNNABLE: &[&str] = &["check_failed", "failed", "blocked", "canceled"];
 
 fn err(e: rusqlite::Error) -> String {
     e.to_string()
@@ -569,6 +571,26 @@ pub fn act(conn: &Connection, card_id: &str, action: &str) -> Result<Card> {
             conn.execute("UPDATE board_cards SET runner = 'engine', updated_at = ?2 WHERE id = ?1", params![c.id, now])
                 .map_err(err)?;
         }
+        // A card whose task failed (every step, a spending limit, a stop) runs again as a new task once the user has
+        // fixed what blocked it: back to Ready, pulled under the limit like any card, from the brainstorm's branch as
+        // it is now. The failed task stays in the history. Without this a failed card was a dead end.
+        "rerun" => {
+            let failed = match &c.task_id {
+                Some(task) => task_state(conn, task)?
+                    .is_some_and(|t| RERUNNABLE.contains(&t.state.as_str()) && t.result.is_none()),
+                None => false,
+            };
+            if c.lane != "blocked" || !failed {
+                return Err("Only a blocked card whose task failed or was stopped can run again".into());
+            }
+            let blocked = c.blocked_since.map_or(0, |since| (now - since).max(0));
+            conn.execute(
+                "UPDATE board_cards SET task_id = NULL, lane = 'ready', blocked_reason = NULL, blocked_since = NULL, \
+                 blocked_ms = blocked_ms + ?2, started_at = NULL, updated_at = ?3 WHERE id = ?1",
+                params![c.id, blocked, now],
+            )
+            .map_err(err)?;
+        }
         other => return Err(format!("{other} is not a board action")),
     }
     card(conn, card_id)?.ok_or_else(|| "Card not found".into())
@@ -797,6 +819,28 @@ mod tests {
     fn lane(conn: &Connection, ws: &str, card_id: &str) -> (String, Option<String>) {
         let c = cards_of(conn, ws).unwrap().into_iter().find(|c| c.card_id == card_id).unwrap();
         (c.lane, c.blocked_reason)
+    }
+
+    #[test]
+    fn a_blocked_card_whose_task_failed_runs_again_as_a_new_task() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let ws = workspace(&conn);
+        let b = brainstorm(vec![bcard("c1", &[], 1, "engine")], vec![]);
+        insert_brainstorm(&conn, &b);
+        add_cards(&conn, &b, &ws, "opencode").unwrap();
+        let first = tick(&conn).unwrap().remove(0);
+        let card_id = cards_of(&conn, &ws).unwrap()[0].id.clone();
+        assert!(act(&conn, &card_id, "rerun").is_err(), "a running card does not run again");
+        conn.execute("UPDATE tasks SET state = 'check_failed' WHERE id = ?1", [&first]).unwrap();
+        settle(&conn).unwrap();
+        assert_eq!(lane(&conn, &ws, "c1").0, "blocked");
+        let c = act(&conn, &card_id, "rerun").unwrap();
+        assert_eq!((c.lane.as_str(), c.task_id.as_deref()), ("ready", None));
+        let second = tick(&conn).unwrap().remove(0);
+        assert_ne!(second, first);
+        assert_eq!(cards_of(&conn, &ws).unwrap()[0].task_id.as_deref(), Some(second.as_str()));
+        let kept: i64 = conn.query_row("SELECT count(*) FROM tasks WHERE id = ?1", [&first], |r| r.get(0)).unwrap();
+        assert_eq!(kept, 1, "the failed task stays in the history");
     }
 
     #[test]

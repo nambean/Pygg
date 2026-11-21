@@ -239,7 +239,7 @@ export function phaseLabel(phase: RunningPhase | undefined): string {
 }
 export type Board = { workspaceId: string; workspaceName: string; workspacePath: string; limits: BoardLimits; cards: BoardCard[]; measures: BoardMeasures };
 export type BoardSummary = { workspaceId: string; workspaceName: string; cards: number; attention: number; limits: {wipRunning: number; wipChecking: number} | null };
-export type BoardAction = 'expedite' | 'standard' | 'hold' | 'release' | 'drop' | 'engine';
+export type BoardAction = 'expedite' | 'standard' | 'hold' | 'release' | 'drop' | 'engine' | 'rerun';
 /** The Brain Storming defaults (BRAIN.md 4.7b). */
 export type BrainSettings = { wipRunning: number; wipChecking: number; runner: 'engine' | 'ide'; rememberPlanner: boolean; changeScope: 'ask' | 'card' | 'role' };
 export type BrainPick = { scope: string; role: BrainRole; model: string };

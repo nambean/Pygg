@@ -1379,6 +1379,7 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
       else if (action === 'release') { c.held = false; c.lane = 'ready'; }
       else if (action === 'drop') c.lane = 'discarded';
       else if (action === 'engine') { c.runner = 'engine'; if (c.lane === 'blocked') { c.lane = 'ready'; c.blockedReason = null; c.blockedSince = null; } }
+      else if (action === 'rerun') { if (c.lane !== 'blocked' || !c.taskId) throw 'Only a blocked card whose task failed or was stopped can run again'; c.taskId = null; c.task = null; c.lane = 'ready'; c.blockedReason = null; c.blockedSince = null; }
       c.updatedAt = Date.now();
       await sleep(80);
       return clone(c);

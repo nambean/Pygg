@@ -98,6 +98,7 @@ Each part works alone: the feed ranks the role aliases, and the aliases can be b
 - Daily budgets are unchanged ([AGENTS](../AGENTS.md)); a card that would exceed one blocks before it starts.
 - The board approves nothing; steps waiting for approval do not count against the limit.
 - An IDE-run card waits as **Waiting for your agent** until **Hand to the engine**.
+- A blocked card whose task failed or was stopped has **Run again**: back to Ready, pulled as a new task from the brainstorm's branch as it is then (after the user raised a limit or added a model); the failed task stays in the history.
 - Measures (from five done cards): cycle time, lead time, cards done today, time blocked, known money per kept result by role.
 - MCP tools `pygg_brainstorm`, `pygg_board`, `pygg_board_move` (Discovery ↔ Ready only), `pygg_model_facts`; none approves anything.
 - Where: `board.rs` (a 3 s tick), migration 0044.

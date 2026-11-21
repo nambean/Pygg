@@ -120,6 +120,8 @@ function Card({card: c, busy, onAct, onOpenTask, onDrop}: {card: BoardCard; busy
       {c.lane === 'discovery' && c.held && <button type="button" className="button" disabled={busy} onClick={() => onAct('release')}><Play size={12} aria-hidden/>{t('Move to Ready')}</button>}
       {!c.taskId && c.lane !== 'done' && <button type="button" className="button" disabled={busy} aria-label={t('Drop {title}', {title: c.title})} onClick={onDrop}>{t('Drop')}</button>}
       {c.runner === 'ide' && !c.taskId && <button type="button" className="button" disabled={busy} onClick={() => onAct('engine')}>{t('Hand to the engine')}</button>}
+      {c.lane === 'blocked' && c.taskId && c.task && ['check_failed', 'failed', 'blocked', 'canceled'].includes(c.task.state) &&
+        <button type="button" className="button" disabled={busy} aria-label={t('Run again: {title}', {title: c.title})} onClick={() => onAct('rerun')}><Play size={12} aria-hidden/>{t('Run again')}</button>}
     </div>
   </div>;
 }
