@@ -69,6 +69,14 @@ const states = [
   {screen: 'brain', name: 'a role pick being changed: the role sheet', steps: `click('Change…', 0); await wait(1200);`, expect: '[role=dialog] .role-row'},
   {screen: 'brain', name: 'a project’s override sheet', steps: `click('Override…', 0); await wait(1200);`, expect: '[role=dialog] .group-box'},
   {screen: 'board', query: 'stress&gateway=stopped', name: 'the gateway stopped', steps: '', expect: '.board-head .engine-state'},
+  // Smart Tasks as projects: the list (what waits on you, projects, solo tasks), with long names, and a project's page
+  // (plan → tasks → output, the board inside it).
+  {screen: 'projects', name: 'Projects', steps: '', expect: '.project-grid'},
+  {screen: 'projects', query: 'stress', name: 'Projects with long names', steps: '', expect: '.project-grid'},
+  {screen: 'projects', query: 'empty', name: 'Projects, first run', steps: '', expect: '.placeholder'},
+  {screen: 'projects', name: 'a project being added', steps: `click('Add project…', 0); await wait(400);`, expect: '.project-add'},
+  {screen: 'project', name: 'a project’s page', steps: '', expect: '.project-steps'},
+  {screen: 'project', query: 'stress', name: 'a project’s page with long names', steps: '', expect: '.project-steps'},
   // First run: nothing connected, no keys, no requests.
   ...['overview', 'connections', 'endpoint', 'tools', 'combos', 'usage', 'skills'].map(screen => ({screen, query: 'empty', name: 'first run', steps: ''})),
   {screen: 'connections', query: 'empty', name: 'first run, Connect sheet', steps: `click('Connect Provider'); await wait(800);`, expect: '[role=dialog]'},
@@ -175,6 +183,8 @@ function inspect() {
   for (const el of document.querySelectorAll('.content *, [role="dialog"] *, [role="menu"] *')) {
     const style = getComputedStyle(el);
     if (style.display === 'none' || style.visibility === 'hidden' || style.position === 'fixed') continue;
+    // A spinning icon's box grows and shrinks as it turns (a rotated square); where it stands mid-turn says nothing.
+    if (style.animationName !== 'none' && style.transform !== 'none') continue;
     const box = el.getBoundingClientRect();
     // Text in a box too narrow to show any of it, as the Usage tables' model names were once (a cell made a block of
     // width 0): nothing overflows, the text is simply gone. A screen-reader-only label (clipped on purpose) is fine.
@@ -198,7 +208,8 @@ function inspect() {
       if (box.right > edge + 1) report(el, `cut off ${Math.round(box.right - edge)} px by ${name(clip).split(' "')[0]}: ${name(el)}`);
     }
     // Content wider than its own box, in a box that does not scroll sideways and does not cut it off with an ellipsis.
-    if (el.scrollWidth > el.clientWidth + 1 && !scrollsSideways(el) && style.textOverflow !== 'ellipsis'
+    const spinsInside = [...el.children].some(c => { const cs = getComputedStyle(c); return cs.animationName !== 'none' && cs.transform !== 'none'; });
+    if (el.scrollWidth > el.clientWidth + 1 && !scrollsSideways(el) && style.textOverflow !== 'ellipsis' && !spinsInside
       && style.overflowX !== 'hidden' && el.clientWidth > 0 && !['svg', 'path', 'input', 'textarea', 'select'].includes(el.tagName.toLowerCase())) {
       report(el, `content ${el.scrollWidth - el.clientWidth} px wider than its box: ${name(el)}`);
     }

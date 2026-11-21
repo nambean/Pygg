@@ -149,6 +149,26 @@ pub fn diff(worktree: &Worktree) -> Result<String, IsolationError> {
     git(&worktree.path, &["diff", "--cached", &worktree.base])
 }
 
+/// Everything on `branch` since `base` (the commit it started from), or since it left the checked-out branch when no
+/// base is known (`HEAD...branch`), at most `limit` bytes, with a note when cut. Reads only; nothing is checked out.
+pub fn branch_diff(repo: &Path, branch: &str, base: Option<&str>, limit: usize) -> Result<String, IsolationError> {
+    require_repository(repo)?;
+    let range = match base {
+        Some(base) => format!("{base}..refs/heads/{branch}"),
+        None => format!("HEAD...refs/heads/{branch}"),
+    };
+    let mut text = git(repo, &["diff", &range])?;
+    if text.len() > limit {
+        let mut cut = limit;
+        while !text.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        text.truncate(cut);
+        text.push_str("\n… [diff cut here; see the whole of it with git diff] …\n");
+    }
+    Ok(text)
+}
+
 /// The attempt's changes as a patch `git apply` takes, binary files included (ADR-009, Export Patch).
 pub fn patch(worktree: &Worktree) -> Result<String, IsolationError> {
     git(&worktree.path, &["add", "--all"])?;
@@ -417,6 +437,33 @@ pub(crate) mod tests {
         for w in [w1, w2, w3, w4] {
             discard(&w).unwrap();
         }
+    }
+
+    #[test]
+    fn a_branchs_diff_is_against_where_it_left_the_checkout() {
+        let repo = std::env::temp_dir().join(format!("pygg-bdiff-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+        init_repository(&repo, "start").unwrap();
+        ensure_branch(&repo, "str/brain-y").unwrap();
+        let w =
+            create(&repo, "str/brain-y", &std::env::temp_dir().join(format!("pygg-bdiff-w-{}", uuid::Uuid::new_v4())))
+                .unwrap();
+        std::fs::write(w.path.join("b.txt"), "two\n").unwrap();
+        let c = commit_result(&w, "card").unwrap();
+        add_to_branch(&repo, "str/brain-y", &c, &w.base).unwrap().unwrap();
+        discard(&w).unwrap();
+        let d = branch_diff(&repo, "str/brain-y", None, 10_000).unwrap();
+        assert!(d.contains("+two") && !d.contains("a.txt"), "{d}");
+        assert!(branch_diff(&repo, "str/brain-y", None, 20).unwrap().ends_with("git diff] …\n"));
+        // From the plan's own start, whatever is checked out now.
+        let start = head(&repo).unwrap();
+        git(&repo, &["checkout", "-q", "--detach", &c]).unwrap();
+        assert!(branch_diff(&repo, "str/brain-y", None, 10_000).unwrap().is_empty(), "against the checkout: nothing");
+        assert!(
+            branch_diff(&repo, "str/brain-y", Some(&start), 10_000).unwrap().contains("+two"),
+            "against the plan's start"
+        );
     }
 
     #[test]

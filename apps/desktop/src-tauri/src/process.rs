@@ -86,8 +86,16 @@ pub const HOST_SESSION_VARS: &[&str] = &[
     "CLAUDE_PID",
 ];
 
+/// Receives each line a process writes, as it arrives (stdout and stderr alike), for a live view of a run.
+pub type LineSink = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
+
 /// Runs `spec` until it exits, its time limit passes, or `cancel` resolves.
 pub async fn run(spec: &Spec, cancel: impl std::future::Future<Output = ()>) -> Outcome {
+    run_with(spec, cancel, None).await
+}
+
+/// `run`, and every line of output also goes to `sink` as it arrives; the bounded capture is unchanged.
+pub async fn run_with(spec: &Spec, cancel: impl std::future::Future<Output = ()>, sink: Option<LineSink>) -> Outcome {
     let started = Instant::now();
     let mut command = Command::new(&spec.program);
     command
@@ -127,8 +135,8 @@ pub async fn run(spec: &Spec, cancel: impl std::future::Future<Output = ()>) -> 
     };
     let pid = child.id();
     let limit = spec.output_limit;
-    let stdout = tokio::spawn(read_bounded(child.stdout.take(), limit));
-    let stderr = tokio::spawn(read_bounded(child.stderr.take(), limit));
+    let stdout = tokio::spawn(read_bounded(child.stdout.take(), limit, sink.clone()));
+    let stderr = tokio::spawn(read_bounded(child.stderr.take(), limit, sink));
 
     let exit = tokio::select! {
         status = child.wait() => match status {
@@ -150,9 +158,22 @@ pub async fn run(spec: &Spec, cancel: impl std::future::Future<Output = ()>) -> 
     Outcome { exit, stdout: out, stderr: err, truncated: out_cut || err_cut, duration: started.elapsed() }
 }
 
-/// Reads a stream to the end, keeping at most `limit` bytes: the first half and the last half.
-async fn read_bounded<R: AsyncRead + Unpin>(stream: Option<R>, limit: usize) -> (String, bool) {
+/// The longest line passed to a sink; a longer one is passed cut (an agent's JSON event can be large).
+const SINK_LINE_LIMIT: usize = 64 * 1024;
+
+/// Reads a stream to the end, keeping at most `limit` bytes: the first half and the last half. With a sink, every
+/// line also goes to it as it is read.
+async fn read_bounded<R: AsyncRead + Unpin>(stream: Option<R>, limit: usize, sink: Option<LineSink>) -> (String, bool) {
     let Some(mut stream) = stream else { return (String::new(), false) };
+    let mut line: Vec<u8> = Vec::new();
+    let emit = |line: &mut Vec<u8>| {
+        if let Some(sink) = &sink {
+            if !line.is_empty() {
+                sink(String::from_utf8_lossy(line).trim_end_matches('\r'));
+            }
+        }
+        line.clear();
+    };
     let half = limit / 2;
     let mut head: Vec<u8> = Vec::new();
     let mut tail: std::collections::VecDeque<u8> = std::collections::VecDeque::new();
@@ -164,6 +185,11 @@ async fn read_bounded<R: AsyncRead + Unpin>(stream: Option<R>, limit: usize) -> 
             Ok(n) => n,
         };
         for &byte in &buf[..n] {
+            if byte == b'\n' {
+                emit(&mut line);
+            } else if line.len() < SINK_LINE_LIMIT {
+                line.push(byte);
+            }
             if head.len() < half {
                 head.push(byte);
             } else {
@@ -175,6 +201,7 @@ async fn read_bounded<R: AsyncRead + Unpin>(stream: Option<R>, limit: usize) -> 
             }
         }
     }
+    emit(&mut line);
     let mut bytes = head;
     if dropped {
         bytes.extend_from_slice("\n… [output truncated] …\n".as_bytes());
@@ -240,6 +267,21 @@ mod tests {
         let outcome = rt().block_on(run(&spec, std::future::pending()));
         assert_eq!(outcome.exit, Exit::Code(3));
         assert!(outcome.stdout.contains("hello"));
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let into = seen.clone();
+        let sink: LineSink = std::sync::Arc::new(move |l: &str| into.lock().unwrap().push(l.to_string()));
+        let lines = if cfg!(windows) { "echo one&& echo two" } else { "echo one; echo two" };
+        let outcome = rt().block_on(run_with(
+            &Spec::shell(lines, std::env::temp_dir(), Duration::from_secs(20)),
+            std::future::pending(),
+            Some(sink),
+        ));
+        assert!(outcome.succeeded());
+        assert_eq!(
+            seen.lock().unwrap().iter().map(|l| l.trim()).collect::<Vec<_>>(),
+            ["one", "two"],
+            "each line as it came"
+        );
     }
 
     /// A child is its own session in its own folder: the host agent's session variables are gone and PWD is its folder.
@@ -290,7 +332,7 @@ mod tests {
 
     #[test]
     fn bounds_output() {
-        let (text, cut) = rt().block_on(read_bounded(Some(&b"abcdefghijklmnopqrstuvwxyz"[..]), 10));
+        let (text, cut) = rt().block_on(read_bounded(Some(&b"abcdefghijklmnopqrstuvwxyz"[..]), 10, None));
         assert!(cut);
         assert!(text.starts_with("abcde"));
         assert!(text.ends_with("vwxyz"));

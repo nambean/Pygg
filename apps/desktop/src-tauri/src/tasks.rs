@@ -431,6 +431,12 @@ pub struct TaskSummary {
     pub cost: TaskCost,
     pub started_at: i64,
     pub updated_at: i64,
+    /// The brainstorm and card it was made from; `None` for a solo task.
+    pub brainstorm_id: Option<String>,
+    pub card_id: Option<String>,
+    /// `kept` or `discarded` once decided, and the branch a kept result is on.
+    pub result: Option<String>,
+    pub result_branch: Option<String>,
     /// The gateway client that started it (an IDE agent through the MCP server); `None`: the app.
     pub source: Option<String>,
 }
@@ -538,12 +544,14 @@ struct TaskRow {
     updated_at: i64,
     client_id: Option<String>,
     client_name: Option<String>,
+    brainstorm_id: Option<String>,
+    card_id: Option<String>,
 }
 
 fn task_row(conn: &Connection, id: &str) -> Result<TaskRow> {
     let row = conn.query_row(
         "SELECT t.title, t.workspace_id, w.name, w.path, t.prompt, t.strategy, t.state, t.phase, t.reason, t.result, \
-                t.result_branch, t.base_revision, t.policy_snapshot_json, s.id, t.created_at, t.updated_at, t.client_id, c.name \
+                t.result_branch, t.base_revision, t.policy_snapshot_json, s.id, t.created_at, t.updated_at, t.client_id, c.name, t.brainstorm_id, t.card_id \
          FROM tasks t JOIN workspaces w ON w.id = t.workspace_id JOIN task_stages s ON s.task_id = t.id AND s.position = 0 \
          LEFT JOIN gateway_clients c ON c.id = t.client_id WHERE t.id = ?1", [id],
         |r| Ok((TaskRow {
@@ -552,6 +560,7 @@ fn task_row(conn: &Connection, id: &str) -> Result<TaskRow> {
             result_branch: r.get(10)?, base_revision: r.get(11)?,
             policy: Policy { steps: vec![], checks: vec![], allow_shell: false, timeout_secs: DEFAULT_TIMEOUT_SECS, handoff: default_handoff() },
             stage_id: r.get(13)?, created_at: r.get(14)?, updated_at: r.get(15)?, client_id: r.get(16)?, client_name: r.get(17)?,
+            brainstorm_id: r.get(18)?, card_id: r.get(19)?,
         }, r.get::<_, String>(12)?)),
     ).optional().map_err(err)?;
     let (mut row, policy) = row.ok_or(m::TASK_GONE)?;
@@ -658,6 +667,10 @@ fn summary_of(conn: &Connection, id: &str, row: &TaskRow, attempts: &[AttemptVie
         started_at: row.created_at,
         updated_at: row.updated_at,
         source: row.client_name.clone(),
+        brainstorm_id: row.brainstorm_id.clone(),
+        card_id: row.card_id.clone(),
+        result: row.result.clone(),
+        result_branch: row.result_branch.clone(),
     })
 }
 

@@ -55,6 +55,12 @@ export type TaskSummary = {
   updatedAt: number;
   /** The client that started it through the task API (an IDE agent via pygg-mcp); null: the app. */
   source?: string | null;
+  /** The brainstorm and card it was made from; null for a solo task. */
+  brainstormId?: string | null;
+  cardId?: string | null;
+  /** `kept` or `discarded` once decided, and the branch a kept result is on. */
+  result?: 'kept' | 'discarded' | null;
+  resultBranch?: string | null;
 };
 
 export type Workspace = { id: string; name: string; path: string };
@@ -80,6 +86,9 @@ export type NewTask = {
 };
 
 export type CheckResult = { command: string; passed: boolean; detail: string; outputTail: string; durationMs: number };
+
+/** What a running agent has done so far, line by line (live.rs); `known` is false when the app has no live log of it. */
+export type Activity = { known: boolean; lines: {seq: number; atMs: number; text: string}[]; dropped: number; done: boolean };
 
 export type AttemptView = {
   id: string; number: number; step: number; agent: string; label: string; agentModel: string | null;
@@ -189,6 +198,8 @@ export type Brainstorm = {
   planner: string | null; promptVersion: string; revision: number;
   proposal: { questions: BrainQuestion[]; cards: BrainCard[]; droppedCards: number };
   rawReply: string | null; note: string | null; error: string | null; createdAt: number; updatedAt: number;
+  /** The branch its cards build on, once approved onto a board. */
+  branch?: string | null;
 };
 /** A brainstorm the user must look at: it waits for a pick, a decision, or failed. */
 export function brainstormNeedsAttention(b: Brainstorm): boolean {

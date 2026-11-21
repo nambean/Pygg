@@ -36,14 +36,12 @@ Code: `apps/desktop/src/main.tsx` (shell), `src/components` and `components/gate
 | Usage | The ledger: cost, tokens, requests | Built | §5.6 |
 | Policies | Every rule the gateway applies | Built | below |
 | Skills & Prompts | Agent skills and what global files cost | Built | below |
-| **Smart Tasks:** Tasks | Tasks, brainstorms, the board | Built · experimental, on hold | §5.1, §5.2 |
-| Workspaces | Repositories tasks run in | Built · on hold | §5.3 |
-| Agents | Agent CLIs, one-off runs, MCP set-up | Built · on hold | below |
-| Brain Storming | `pygg/brain` defaults for every project | Built · on hold | below |
+| **Smart Tasks:** Projects | A project is a repository: plan → tasks → output, or a solo task | Built · experimental | §5.0, §5.1 |
+| Agents & defaults | Agent CLIs, MCP set-up, and the Brain Storming defaults | Built · experimental | below |
 | **App:** Guide | How to use Pygg | Built | below |
 | Settings | Language, budgets, background, diagnostics, history | Built | §5.8 |
 
-- The app starts on Home; Tasks and Workspaces show counts of what needs attention (§5.1).
+- The app starts on Home; Projects shows a count of what needs attention (§5.0). All tasks, Project settings and the board stay reachable from Projects and the command palette.
 - **Footer:** gateway status (opens Home) and version: `Gateway Running · <port>`, `Gateway Stopped`, `Gateway Couldn't Start`, `Connecting…`, `Core isn't responding`; a provider outage shows on that connection (§5.4), never as gateway offline.
 
 #### Home
@@ -165,9 +163,16 @@ Code: `apps/desktop/src/main.tsx` (shell), `src/components` and `components/gate
 
 ## 5. Screens
 
+### 5.0 Projects
+
+`ProjectsView.tsx`, `ProjectView.tsx`. The owner's model: **create a project → plan it with Brain Storming → the tasks run → take the output**, or **one solo task**.
+
+- **Projects:** **Needs your attention** (brainstorms to review, steps to approve), the projects as cards (path, plans, cards on the board, what runs or waits), **Add project…**, recent **Solo tasks**, **New solo task**, **All tasks**.
+- **A project:** the step bar **Plan → Tasks → Output** for the chosen plan (by default the one waiting on you, else the newest approved; progress counts its board cards: done, running, to review, blocked); **1 · Plan** (its brainstorms; with none, how to start one from the coding agent with `pygg/brain`); **2 · Tasks** (the project's board, folded once every card on it is done, and the project's solo tasks); **3 · Output** (the plan's branch with copyable git commands, **Review the changes** as one diff from where the plan started, results that could not join the plan's branch on branches of their own, kept solo results). **Project settings** opens §5.3.
+
 ### 5.1 Tasks
 
-`TaskList.tsx`. Experimental, on hold.
+`TaskList.tsx`, as **All tasks**. Experimental.
 
 - Filters with counts: All, Running, Needs Approval, Completed, Failed, Stopped, **Board** (§5.1.1).
 - **Needs Attention** pinned on top with **Review**; search (`Ctrl+F`); brainstorm rows (§5.2.2).
@@ -185,8 +190,9 @@ Code: `apps/desktop/src/main.tsx` (shell), `src/components` and `components/gate
 `TaskDetail.tsx`.
 
 - **Waiting for approval** (inline): **Approve up to $…** with a cap, or **Decline**; a sensitive workspace asks **Allow This Step**.
-- **Result:** **Review Changes**, **Keep as Branch**, **Discard…**, **Export Patch…**.
-- Attempts with cost and checks; **Stop Task**, **Retry**.
+- **Result:** **Review Changes**, **Keep as Branch**, **Discard…**, **Export Patch…**; once kept, an **Output** box with the branch (copy), the git commands to review and merge, and, for a plan's card, whether its work is on the plan's branch or kept apart.
+- **Live activity** under a running attempt: what the agent does, line by line (files read and written, commands, what the model said), from OpenCode and Codex as it happens; Claude Code and Gemini CLI report when they finish. `live.rs`, in memory, the last 500 lines of an attempt.
+- Attempts with cost and checks; **Stop Task**, **Retry**; the task's text folded when long.
 
 #### 5.2.1 New Task
 

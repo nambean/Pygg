@@ -1551,6 +1551,35 @@ pub async fn task_diff(state: State<'_, AppState>, id: String) -> Res<String> {
     state.shared.with_db(|db| tasks::result_diff(db, &id))
 }
 
+/// A plan's combined changes: its branch against the project's checked-out branch (the Output of a brainstorm).
+#[tauri::command]
+pub async fn brainstorm_diff(state: State<'_, AppState>, id: String) -> Res<String> {
+    let (branch, path, base) = state.shared.with_db(|db| -> Res<(String, String, Option<String>)> {
+        let b = brain::get(db, &id)?.ok_or_else(|| "That brainstorm is gone".to_string())?;
+        let branch =
+            b.branch.ok_or_else(|| "This plan has no branch yet: it is made when the plan is approved".to_string())?;
+        let ws = b.workspace_id.ok_or_else(|| "This plan has no project".to_string())?;
+        // Where the plan started: its first card's task began at the branch's tip, made from HEAD at approval.
+        let base: Option<String> = db
+            .query_row(
+                "SELECT base_revision FROM tasks WHERE brainstorm_id = ?1 AND base_revision IS NOT NULL                  ORDER BY created_at LIMIT 1",
+                [&id],
+                |r| r.get(0),
+            )
+            .ok();
+        Ok((branch, crate::tasks::workspace(db, &ws)?.path, base))
+    })?;
+    crate::isolation::branch_diff(std::path::Path::new(&path), &branch, base.as_deref(), 512 * 1024)
+        .map_err(|e| e.to_string())
+}
+
+/// What an attempt's agent has done so far, line by line, after line `after` (live.rs). Polled by the task's screen
+/// while a step runs.
+#[tauri::command]
+pub fn task_activity(attempt_id: String, after: u64) -> crate::live::Activity {
+    crate::live::since(&attempt_id, after)
+}
+
 /// Keeps the task's result as a branch (`title` names it) or discards it. Returns the branch when kept.
 #[tauri::command]
 pub async fn task_finish(

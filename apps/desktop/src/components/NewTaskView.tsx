@@ -31,10 +31,10 @@ function suggestedSteps(strategy: Strategy, agents: AgentInfo[]): Step[] {
  * step runs with the agent's own sign-in in a fresh worktree; a step that fails the checks hands what failed to
  * the next one. A step marked paid waits for approval.
  */
-export function NewTaskView({onCreated}: {onCreated: (id: string) => void}) {
+export function NewTaskView({onCreated, workspaceId: initial}: {onCreated: (id: string) => void; workspaceId?: string | null}) {
   const workspaces = useGateway(api => api.workspaces());
   const agents = useGateway(api => api.agents());
-  const [workspaceId, setWorkspaceId] = useState('');
+  const [workspaceId, setWorkspaceId] = useState(initial ?? '');
   const [text, setText] = useState('');
   const [strategy, setStrategy] = useState<Strategy>('free_first');
   const [steps, setSteps] = useState<Step[] | null>(null);

@@ -239,7 +239,6 @@ function Approve({b, onChanged, onOpenBoard}: {b: Brainstorm; onChanged: () => v
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [made, setMade] = useState<string[] | null>(null);
-  useEffect(() => { if (!workspace && workspaces.data?.[0]) setWorkspace(workspaces.data[0].id); }, [workspaces.data, workspace]);
   const installed = (agents.data ?? []).filter(a => a.installed);
   useEffect(() => { if (!agent && installed.length) setAgent(installed.find(a => a.id === 'opencode')?.id ?? installed[0].id); }, [installed, agent]);
   const kept = b.proposal.cards.filter(c => !c.dropped);
@@ -263,8 +262,9 @@ function Approve({b, onChanged, onOpenBoard}: {b: Brainstorm; onChanged: () => v
     <div className="approve-bar sticky">
       <span className="estimate brain-meta">{estimateLine}</span>
       <span>{t('{n} cards', {n: kept.length})}{unpicked > 0 && <span className="warn-text"> · {t('{n} without an eligible model', {n: unpicked})}</span>}</span>
-      <label className="inline-field">{t('Workspace')}
-        <select className="popup-button" value={workspace} onChange={e => setWorkspace(e.target.value)} aria-label={t('Workspace')}>
+      <label className="inline-field">{t('Project')}
+        <select className="popup-button" value={workspace} onChange={e => setWorkspace(e.target.value)} aria-label={t('Project')}>
+          {!workspace && <option value="">{t('Choose a project…')}</option>}
           {(workspaces.data ?? []).map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
         </select></label>
       <label className="inline-field">{t('Agent')}
@@ -277,7 +277,8 @@ function Approve({b, onChanged, onOpenBoard}: {b: Brainstorm; onChanged: () => v
     </div>
     {agent && agent !== 'opencode' && <p className="group-footnote">{t('Only OpenCode through Pygg runs a card on the model Pygg picked. {agent} runs with its own sign-in and model; the pick is told to it.', {agent: AGENT_NAMES[agent] ?? agent})}</p>}
     {installed.length === 0 && agents.data && <p className="warn-text">{t('No agent is installed; install one on Agents to run the cards.')}</p>}
-    {workspaces.data?.length === 0 && <p className="warn-text">{t('No workspace yet: add the repository on Workspaces first, then approve here.')}</p>}
+    {workspaces.data?.length === 0 && <p className="warn-text">{t('No project yet: add the repository under Projects first, then approve here.')}</p>}
+    {!workspace && (workspaces.data?.length ?? 0) > 0 && <p className="group-footnote">{t('Choose the project (repository) this plan is for; its cards run there.')}</p>}
     {error && <ErrorNote>{error}</ErrorNote>}
     {confirming && <ConfirmSheet destructive={false} title={t('Approve {n} cards?', {n: kept.length})} confirmLabel={t('Approve')}
       message={<p>{agent === 'opencode'

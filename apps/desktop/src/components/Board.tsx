@@ -104,6 +104,7 @@ function Card({card: c, busy, onAct, onOpenTask, onDrop}: {card: BoardCard; busy
     <div className="foot"><span className={`role-chip ${c.role}`}>{c.role}</span>{c.task && <AttemptSequence attempts={c.task.attempts}/>}</div>
     <span className="brain-id">{c.ladder[0] ?? '—'}{c.ladder.length > 1 && t(', then {n} more', {n: c.ladder.length - 1})}</span>
     {c.blockedReason && <div className="reason">{c.blockedReason}</div>}
+    {c.runner === 'ide' && !c.taskId && c.lane !== 'done' && <div className="ide-note">{t('Your coding agent does this card; Pygg does not see its progress yet. Hand it to Pygg to run it here instead.')}</div>}
     <div className="foot">
       {c.lane === 'blocked' && <span>{t('blocked {time}', {time: span(blocked)})}</span>}
       {c.lane === 'running' && c.startedAt != null && <span>{t('{phase} · {time}', {phase: c.task ? phaseLabel(c.task.phase) : t('running'), time: elapsed(now - c.startedAt)})}</span>}
@@ -119,7 +120,7 @@ function Card({card: c, busy, onAct, onOpenTask, onDrop}: {card: BoardCard; busy
       </>}
       {c.lane === 'discovery' && c.held && <button type="button" className="button" disabled={busy} onClick={() => onAct('release')}><Play size={12} aria-hidden/>{t('Move to Ready')}</button>}
       {!c.taskId && c.lane !== 'done' && <button type="button" className="button" disabled={busy} aria-label={t('Drop {title}', {title: c.title})} onClick={onDrop}>{t('Drop')}</button>}
-      {c.runner === 'ide' && !c.taskId && <button type="button" className="button" disabled={busy} onClick={() => onAct('engine')}>{t('Hand to the engine')}</button>}
+      {c.runner === 'ide' && !c.taskId && <button type="button" className="button" disabled={busy} onClick={() => onAct('engine')}>{t('Hand to Pygg')}</button>}
       {c.lane === 'blocked' && c.taskId && c.task && ['check_failed', 'failed', 'blocked', 'canceled'].includes(c.task.state) &&
         <button type="button" className="button" disabled={busy} aria-label={t('Run again: {title}', {title: c.title})} onClick={() => onAct('rerun')}><Play size={12} aria-hidden/>{t('Run again')}</button>}
     </div>

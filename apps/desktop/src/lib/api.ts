@@ -6,7 +6,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { engineText } from './engineText';
 import { runningInDesktop } from './native';
-import type { DayBudget, NewTask, TaskDetail, TaskSummary, WorkspaceView, Brainstorm, BrainRole, RoleLine, Board, BoardAction, BoardCard, BoardLimits, BoardSummary, BrainPick, BrainSettings, FactsStatus } from './tasks';
+import type { Activity, DayBudget, NewTask, TaskDetail, TaskSummary, WorkspaceView, Brainstorm, BrainRole, RoleLine, Board, BoardAction, BoardCard, BoardLimits, BoardSummary, BrainPick, BrainSettings, FactsStatus } from './tasks';
 
 export type Billing = 'free' | 'local' | 'subscription' | 'paid' | 'unknown';
 export const BILLINGS: Billing[] = ['free', 'local', 'subscription', 'paid', 'unknown'];
@@ -587,11 +587,13 @@ export interface GatewayApi {
   decideTask(id: string, approve: boolean, capUsd: number | null): Promise<void>;
   retryTask(id: string): Promise<void>;
   taskDiff(id: string): Promise<string>;
+  taskActivity(attemptId: string, after: number): Promise<Activity>;
   /** Keeps the result as a branch (returned) or discards it. */
   finishTask(id: string, keep: boolean, title: string | null): Promise<string | null>;
   /** pygg/brain (ADR-041): brainstorms started from a coding agent, picked, edited and approved here. */
   brainstorms(): Promise<Brainstorm[]>;
   brainstorm(id: string): Promise<Brainstorm>;
+  brainstormDiff(id: string): Promise<string>;
   /** The models eligible as the planner, ranked for the plan role, with the reasons for the rest. */
   /** The models eligible for a role under the brainstorm's client, ranked as the brain ranks them; the plan role by default. */
   brainstormCandidates(id: string, role?: BrainRole): Promise<AutoPlan>;
@@ -741,6 +743,7 @@ const native: GatewayApi = {
   createTask: task => invoke('task_create', {task}),
   brainstorms: () => invoke('brainstorms_list'),
   brainstorm: id => invoke('brainstorm_get', {id}),
+  brainstormDiff: id => invoke('brainstorm_diff', {id}),
   brainstormCandidates: (id, role) => invoke('brainstorm_candidates', {id, role: role ?? null}),
   brainstormPickPlanner: (id, model, remember) => invoke('brainstorm_pick_planner', {id, model, remember}),
   brainstormRetry: id => invoke('brainstorm_retry', {id}),
@@ -765,6 +768,7 @@ const native: GatewayApi = {
   decideTask: (id, approve, capUsd) => invoke('task_decide', {id, approve, capUsd}),
   retryTask: id => invoke('task_retry', {id}),
   taskDiff: id => invoke('task_diff', {id}),
+  taskActivity: (attemptId, after) => invoke('task_activity', {attemptId, after}),
   finishTask: (id, keep, title) => invoke('task_finish', {id, keep, title}),
   mcpSetup: () => invoke('mcp_setup'),
   integrations: () => invoke('integrations_list'),

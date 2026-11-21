@@ -1232,11 +1232,13 @@ export function demoApi(): GatewayApi {
   };
 }
 
+const DEMO_ACTIVITY = ['OpenCode started', 'read src/timeout.ts', 'grep setTimeout', '» The delay is multiplied by 100; ms is already milliseconds.',
+  'edit src/timeout.ts', '$ npm test', '» All 12 tests pass.'];
 const DEMO_DIFF = 'diff --git a/src/timeout.ts b/src/timeout.ts\n--- a/src/timeout.ts\n+++ b/src/timeout.ts\n@@ -3,3 +3,3 @@\n-  return setTimeout(fn, ms * 100);\n+  return setTimeout(fn, ms);\n';
 
 /** Tasks for the browser preview: the sample tasks, and new ones that "run" for a few seconds. Nothing runs. */
 function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards' | 'board' | 'boardLimits' | 'boardAct' | 'boardSetLimits' | 'brainstorms' | 'brainstorm' | 'brainstormPickPlanner' | 'brainstormRetry' | 'brainstormSetModel' | 'brainstormSetCard' | 'brainstormDecline' | 'brainstormApprove' | 'workspaces' | 'addWorkspace' | 'removeWorkspace' | 'taskBudget' | 'setTaskBudget' | 'setWorkspaceBudget' | 'setWorkspacePrivacy' | 'pickFolder' | 'exportPatch'
-  | 'detectChecks' | 'workspaceCheck' | 'tasks' | 'task' | 'createTask' | 'cancelTask' | 'decideTask' | 'retryTask' | 'taskDiff'
+  | 'detectChecks' | 'workspaceCheck' | 'tasks' | 'task' | 'createTask' | 'cancelTask' | 'decideTask' | 'retryTask' | 'taskDiff' | 'taskActivity' | 'brainstormDiff'
   | 'finishTask'> {
   let dailyLimit: number | null = 2;
   const workspaces: WorkspaceView[] = SAMPLE_WORKSPACES.map((w, i) => ({...w, tasks: 0, dailyBudgetUsd: null, privacyClass: i === 1 ? 'sensitive' as const : 'standard' as const, checks: i === 0
@@ -1472,6 +1474,11 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
     retryTask: async id => { if (get(id).state !== 'interrupted') throw 'Only an interrupted task can be retried';
       set(id, {state: 'running', phase: 'preparing', reason: null}); },
     taskDiff: () => touch(DEMO_DIFF),
+    brainstormDiff: () => touch(DEMO_DIFF),
+    taskActivity: async (_attempt, after) => {
+      const lines = DEMO_ACTIVITY.map((text, i) => ({seq: i + 1, atMs: Date.now() - (DEMO_ACTIVITY.length - i) * 4000, text})).filter(l => l.seq > after);
+      return touch({known: true, lines, dropped: 0, done: false});
+    },
     taskBudget: () => touch({recordedUsd: 0.48, reservedUsd: 0.1, limitUsd: dailyLimit, unknownCalls: 1}),
     setTaskBudget: async dailyUsd => { dailyLimit = dailyUsd; return touch({recordedUsd: 0.48, reservedUsd: 0.1, limitUsd: dailyLimit, unknownCalls: 1}); },
     setWorkspacePrivacy: async (id, privacyClass) => { const w = findWorkspace(id); w.privacyClass = privacyClass; return touch(w); },

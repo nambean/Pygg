@@ -263,7 +263,7 @@ button { cursor: default; }
 .row-cost { font-size: 11px; color: var(--secondary); font-variant-numeric: tabular-nums; }
 .row-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; align-self: center; }
 
-.state-icon { display: grid; place-items: center; width: 20px; flex-shrink: 0; margin-top: 1px; color: var(--secondary); }
+.state-icon { display: grid; place-items: center; width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; color: var(--secondary); }
 .state-icon.running { color: var(--accent-text); }
 .state-icon.waiting_approval, .state-icon.interrupted, .state-icon.needs_revalidation, .state-icon.needs_review { color: var(--orange); }
 .state-icon.checks_passed, .state-icon.manually_accepted { color: var(--green); }

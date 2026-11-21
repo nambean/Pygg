@@ -88,6 +88,8 @@ Status: live delegation from Codex CLI and Claude Code (task run, check passed, 
 A task is a ladder of agent steps fixed at creation, judged by the workspace's **approved** checks (`tasks.rs`).
 
 - Each attempt runs one step in a fresh worktree of the base commit; `PYGG_ATTEMPT_ID` ties ledger entries to it.
+- Pygg's own MCP server is off in the runs it starts (OpenCode: `OPENCODE_CONFIG_CONTENT` with `mcp.pygg.enabled=false`, merged with any the user set; Codex: `-c mcp_servers.pygg.enabled=false`; Claude Code runs with a fixed tool list): with it, an agent handed its task back to Pygg instead of doing it.
+- What the agent does shows live on the task's screen (`live.rs`): its output is read line by line as it runs, turned into readable lines and redacted, the last 500 lines of an attempt kept in memory.
 - A failed attempt is discarded and the next step gets a handoff (`tail` default, `none`, `evidence`; ADR-030).
 - Checks pass → **Keep as Branch**, **Export Patch** or **Discard**; no approved checks → needs review.
 - **Paid step waits for approval** with a spending cap (ADR-010); over the cap the ladder stops.

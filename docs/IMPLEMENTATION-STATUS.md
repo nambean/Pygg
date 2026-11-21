@@ -131,7 +131,7 @@ All built and fake-provider tested; none release-ready: see the [release gates](
 
 | Part | Built | Verified |
 | --- | --- | --- |
-| Screens | Home, Providers, Endpoint, CLI Tools, Combos, Usage, Policies, Skills & Prompts, Guide, Settings; Smart Tasks (on hold) | Preview; ui-check; native screenshots |
+| Screens | Home, Providers, Endpoint, CLI Tools, Combos, Usage, Policies, Skills & Prompts, Guide, Settings; Smart Tasks as Projects (project page: plan → tasks → output; live activity in task detail) | Preview; ui-check; native screenshots |
 | Start-up and tray | Gateway starts with the app; closing keeps it in the tray | Native app, scratch store |
 | Diagnostics | One redacted zip ([SECURITY](SECURITY.md)) | Unit |
 | Look and name | Green accent, light and dark; traffic-light controls (ADR-012) | Preview; snap layouts at 100% only |

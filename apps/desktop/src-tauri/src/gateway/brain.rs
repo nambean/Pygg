@@ -138,12 +138,14 @@ pub struct Brainstorm {
     pub error: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+    /// The branch its cards build on, once approved onto a board (migration 0045).
+    pub branch: Option<String>,
 }
 
 // ---------- the store ----------
 
 const COLUMNS: &str = "id, client_id, session, workspace_id, state, requirement, planner, prompt_version, revision, \
-                       proposal_json, raw_reply, note, error, created_at, updated_at";
+                       proposal_json, raw_reply, note, error, created_at, updated_at, branch";
 
 fn row(r: &rusqlite::Row) -> rusqlite::Result<Brainstorm> {
     let proposal: String = r.get(9)?;
@@ -163,6 +165,7 @@ fn row(r: &rusqlite::Row) -> rusqlite::Result<Brainstorm> {
         error: r.get(12)?,
         created_at: r.get(13)?,
         updated_at: r.get(14)?,
+        branch: r.get(15)?,
     })
 }
 
@@ -1177,6 +1180,7 @@ mod tests {
             error: None,
             created_at: 0,
             updated_at: 0,
+            branch: None,
         };
         let text = proposal_text(&b);
         assert!(text.starts_with("Brainstorm b_1 · revision 1 · open it in Pygg: pygg://brainstorm/b_1\nPlanner: gemini/gemini-3.1-pro (brain-v2)\n"), "{text}");

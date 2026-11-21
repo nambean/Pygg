@@ -281,7 +281,17 @@ pub fn arguments(agent: &str, prompt: &str, model: Option<&str>, allow_shell: bo
             ]);
         }
         "codex" => {
-            args.extend([s("exec"), s("--json"), s("--sandbox"), s("workspace-write"), s("--ephemeral"), s(prompt)])
+            // Pygg's own MCP server is off in the runs Pygg starts: with it, an agent handed its task back to Pygg.
+            args.extend([
+                s("-c"),
+                s(NO_PYGG_MCP_CODEX),
+                s("exec"),
+                s("--json"),
+                s("--sandbox"),
+                s("workspace-write"),
+                s("--ephemeral"),
+                s(prompt),
+            ])
         }
         "gemini-cli" => args.extend([
             s("-p"),
@@ -419,6 +429,21 @@ pub fn claude_session_headers(agent: &str, attempt: &str, var: impl Fn(&str) -> 
     Some(kept.into_iter().chain(std::iter::once(header)).collect::<Vec<_>>().join("\n"))
 }
 
+/// The MCP server `pygg setup` adds to the agents, turned off for the runs Pygg itself starts: a run that could call
+/// `pygg_run_task` handed its own task back to Pygg instead of doing it (seen 2026-11-21 with OpenCode).
+pub const NO_PYGG_MCP_CODEX: &str = "mcp_servers.pygg.enabled=false";
+
+/// OpenCode's inline configuration for a run Pygg starts: `extra` (an inline configuration the user already set, if
+/// any) with the `pygg` MCP server turned off.
+pub fn opencode_inline_config(extra: Option<&str>) -> String {
+    let mut config = extra
+        .and_then(|e| serde_json::from_str::<serde_json::Value>(e).ok())
+        .filter(serde_json::Value::is_object)
+        .unwrap_or_else(|| serde_json::json!({}));
+    config["mcp"]["pygg"]["enabled"] = serde_json::Value::Bool(false);
+    config.to_string()
+}
+
 /// Runs a task: a worktree of the workspace's current commit under `worktrees`, the agent started in it, and
 /// the result measured. The worktree is kept for the user to keep as a branch or discard.
 pub async fn run(
@@ -450,6 +475,10 @@ pub async fn run(
     args.extend(arguments(spec.id, &request.prompt, request.model.as_deref(), request.allow_shell)?);
     args.extend(budget_arguments(spec.id, request.max_budget_usd));
     let mut command = command(&launch, args, &worktree.path, Duration::from_secs(request.timeout_secs.unwrap_or(900)));
+    if spec.id == "opencode" {
+        let extra = std::env::var("OPENCODE_CONFIG_CONTENT").ok();
+        command.env.push(("OPENCODE_CONFIG_CONTENT".into(), opencode_inline_config(extra.as_deref())));
+    }
     if spec.id == "gemini-cli" {
         // The worktree is a copy Pygg made for this task; Gemini CLI refuses an untrusted folder in headless mode
         // (geminicli.com/docs/cli/trusted-folders).
@@ -463,7 +492,21 @@ pub async fn run(
             command.env.push(("ANTHROPIC_CUSTOM_HEADERS".into(), headers));
         }
     }
-    let outcome = process::run(&command, cancel).await;
+    // What the agent does, line by line, for the task's screen while it runs (live.rs).
+    let attempt = request.attempt_id.clone().filter(|a| !a.is_empty());
+    let sink: Option<process::LineSink> = attempt.clone().map(|attempt| {
+        let agent = spec.id;
+        crate::live::push(&attempt, &format!("{} started", spec.name));
+        std::sync::Arc::new(move |raw: &str| {
+            if let Some(text) = crate::live::readable(agent, raw) {
+                crate::live::push(&attempt, &text);
+            }
+        }) as process::LineSink
+    });
+    let outcome = process::run_with(&command, cancel, sink).await;
+    if let Some(attempt) = &attempt {
+        crate::live::finish(attempt);
+    }
 
     let usage = read_usage(spec.id, &outcome.stdout);
     let stat = isolation::changes(&worktree).unwrap_or_default();
@@ -587,7 +630,18 @@ mod tests {
         );
         assert_eq!(
             arguments("codex", "fix it", Some("gpt-x"), false).unwrap(),
-            ["exec", "--json", "--sandbox", "workspace-write", "--ephemeral", "--model", "gpt-x", "fix it"]
+            [
+                "-c",
+                NO_PYGG_MCP_CODEX,
+                "exec",
+                "--json",
+                "--sandbox",
+                "workspace-write",
+                "--ephemeral",
+                "--model",
+                "gpt-x",
+                "fix it"
+            ]
         );
         assert_eq!(
             arguments("gemini-cli", "fix it", None, true).unwrap(),
@@ -671,5 +725,31 @@ mod tests {
         let launch = read_npm_shim(&shim).unwrap();
         assert_eq!(launch.program, "node");
         assert_eq!(launch.prefix, [target.to_string_lossy().into_owned()]);
+    }
+}
+
+#[cfg(test)]
+mod pygg_mcp_tests {
+    use super::*;
+
+    #[test]
+    fn runs_pygg_starts_have_its_own_mcp_server_off() {
+        assert_eq!(opencode_inline_config(None), r#"{"mcp":{"pygg":{"enabled":false}}}"#);
+        let kept: serde_json::Value =
+            serde_json::from_str(&opencode_inline_config(Some(r#"{"theme":"x","mcp":{"other":{"enabled":true}}}"#)))
+                .unwrap();
+        assert_eq!(
+            (
+                kept["theme"].as_str(),
+                kept["mcp"]["other"]["enabled"].as_bool(),
+                kept["mcp"]["pygg"]["enabled"].as_bool()
+            ),
+            (Some("x"), Some(true), Some(false))
+        );
+        assert_eq!(opencode_inline_config(Some("not json")), r#"{"mcp":{"pygg":{"enabled":false}}}"#);
+        assert_eq!(
+            arguments("codex", "p", None, false).unwrap()[..2],
+            ["-c".to_string(), NO_PYGG_MCP_CODEX.to_string()]
+        );
     }
 }

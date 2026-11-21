@@ -74,7 +74,7 @@ export function TaskList({tasks, brainstorms, filter, workspaces, scoped, query,
   </div>;
 }
 
-function TaskRow({task, attention, workspace, onOpen}: {
+export function TaskRow({task, attention, workspace, onOpen}: {
   task: TaskSummary; attention: boolean; workspace: string | null; onOpen: (task: TaskSummary) => void;
 }) {
   return <li className={`task-row${attention ? ' attention' : ''}`}>
@@ -100,7 +100,9 @@ function TaskRow({task, attention, workspace, onOpen}: {
 }
 
 /** A brainstorm's row (BRAIN.md 4.3): the requirement, who asked, the planner, questions and cards. */
-function BrainstormRow({brainstorm: b, attention, onOpen}: {brainstorm: Brainstorm; attention: boolean; onOpen: (b: Brainstorm) => void}) {
+export function BrainstormRow({brainstorm: b, attention, onOpen, project}: {
+  brainstorm: Brainstorm; attention: boolean; onOpen: (b: Brainstorm) => void; project?: string | null;
+}) {
   const open = b.proposal.questions.filter(q => !q.answered).length;
   const cards = b.proposal.cards.filter(c => !c.dropped).length;
   const state = ({waiting_pick: t('waits for your pick'), thinking: t('thinking'), proposed: t('proposed · revision {n}', {n: b.revision}),
@@ -111,7 +113,7 @@ function BrainstormRow({brainstorm: b, attention, onOpen}: {brainstorm: Brainsto
     <div className="row-body">
       <div className="row-title">
         <span className="name">{b.requirement.split('\n')[0]}</span>
-        <span className="host">{t('brainstorm · session {session}', {session: b.session})}</span>
+        <span className="host">{project === undefined ? t('brainstorm · session {session}', {session: b.session}) : project ? t('plan · {project}', {project}) : t('plan')}</span>
       </div>
       <div className="row-status">{state} · {b.planner ?? t('no planner yet')}</div>
       <div className="row-meta">

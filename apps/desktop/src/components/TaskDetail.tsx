@@ -1,16 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronLeft, FileDown, GitBranch, Play, RotateCcw, Square, Trash2, X } from 'lucide-react';
 import { call, errorText, gatewayChanged } from '../lib/api';
 import { taskCost } from '../lib/format';
 import { t } from '../lib/i18n';
 import { engineText } from '../lib/engineText';
 import { tokens } from '../lib/money';
-import { AGENT_NAMES, type ApprovalView, type AttemptView, type TaskDetail as Detail } from '../lib/tasks';
+import { AGENT_NAMES, type Activity, type ApprovalView, type AttemptView, type TaskDetail as Detail } from '../lib/tasks';
 import { useGateway } from '../hooks/useGateway';
 import { billingLabel, outcomeLabel } from './AttemptSequence';
 import { DiffView } from './DiffView';
 import { StateIcon, statusLine } from './TaskList';
 import { Badge, ConfirmSheet, CopyButton, ErrorNote, FormRow, Spinner } from './ui';
+import './projects.css';
 
 /**
  * Task detail (SCREENS.md §5.2): what the task is waiting on, its result, and every attempt with its checks.
@@ -50,7 +51,7 @@ export function TaskDetail({id, onBack, backTo}: {id: string; onBack: () => void
       <section className="group">
         <h2>{t('Task')}</h2>
         <div className="group-box">
-          <p className="agent-message selectable">{task.prompt}</p>
+          <Prompt text={task.prompt}/>
           <dl className="detail-list">
             <dt>{t('Steps')}</dt>
             <dd>{task.policy.steps.map((s, i) => `${i + 1}. ${AGENT_NAMES[s.agent] ?? s.agent}${s.model ? ` · ${s.model}` : ''} (T${s.tier}, ${billingLabel(s.billing)})`).join('  ')}</dd>
@@ -62,6 +63,19 @@ export function TaskDetail({id, onBack, backTo}: {id: string; onBack: () => void
       </section>
     </>}
   </div>;
+}
+
+/** The task's text, folded to its first lines when long (a card's prompt carries the whole requirement). */
+function Prompt({text}: {text: string}) {
+  const lines = text.split('\n');
+  const long = lines.length > 8 || text.length > 900;
+  const [open, setOpen] = useState(false);
+  const shown = !long || open ? text : lines.slice(0, 6).join('\n').slice(0, 700) + '…';
+  return <>
+    <p className="agent-message selectable">{shown}</p>
+    {long && <button type="button" className="link-button" onClick={() => setOpen(o => !o)}>
+      {open ? t('Show less') : t('Show the whole task')}</button>}
+  </>;
 }
 
 function Actions({task, onChanged}: {task: Detail; onChanged: () => void}) {
@@ -89,9 +103,20 @@ function Actions({task, onChanged}: {task: Detail; onChanged: () => void}) {
 
   return <section className="group task-actions">
     {task.reason && <p className={task.state === 'checks_passed' || task.state === 'manually_accepted' ? 'group-footnote' : 'warning-note'}>{engineText(task.reason)}</p>}
-    {task.result === 'kept' && task.resultBranch && <p className="ok-note">
-      {t('Kept as branch {branch}. Your checkout was not changed.', {branch: task.resultBranch})}</p>}
+    {task.result === 'kept' && task.resultBranch && <div className="group-box task-output">
+      <div className="agent-result-head"><Badge tone="ok">{t('Output')}</Badge>
+        <span className="secondary">{task.brainstormId && task.resultBranch.startsWith('str/brain-')
+          ? t('This card’s work is on its plan’s branch, with the cards before it.')
+          : task.brainstormId ? t('This card ran beside another and did not apply cleanly on its plan’s branch, so it is on a branch of its own: merge it by hand.')
+          : t('Kept as a branch. Your checkout was not changed.')}</span></div>
+      <p className="output-line"><GitBranch size={14} aria-hidden/><code className="selectable">{task.resultBranch}</code>
+        <CopyButton text={task.resultBranch} label={t('Copy')}/></p>
+      <pre className="log-tail selectable">{`git log --oneline ${task.resultBranch}\ngit diff HEAD...${task.resultBranch}\ngit merge ${task.resultBranch}`}</pre>
+      <p className="group-footnote">{t('Review the branch, then merge it into yours when you are happy. Pygg never merges for you.')}</p>
+    </div>}
     {task.result === 'discarded' && <p className="group-footnote">{t('The result was discarded.')}</p>}
+    {task.brainstormId && !task.result && (task.state === 'check_failed' || task.state === 'blocked' || task.state === 'interrupted' || task.state === 'canceled') &&
+      <p className="group-footnote">{t('This is a card of a plan. To try it again, after raising a limit or changing its models, use Run again on the card in the project’s board.')}</p>}
     {message && <p className="ok-note">{message}</p>}
 
     {result && <div className="group-box agent-result">
@@ -220,10 +245,50 @@ function AttemptRow({attempt: a}: {attempt: AttemptView}) {
           <span className="mono">{c.command}</span><small className="secondary">{engineText(c.detail)} · {t('{s} s', {s: (c.durationMs / 1000).toFixed(1)})}</small>
         </li>)}
       </ul>}
+      {a.outcome === 'running' && <LiveActivity attemptId={a.id} agent={a.agent}/>}
       {a.handoffSent && <details><summary>{t('What it was told about earlier attempts')}</summary>
         <pre className="log-tail selectable">{a.handoffSent}</pre></details>}
       {failedCheck?.outputTail && <details><summary>{t('Check output')}</summary><pre className="log-tail">{failedCheck.outputTail}</pre></details>}
       {a.logTail && <details><summary>{t('Agent output')}</summary><pre className="log-tail">{a.logTail}</pre></details>}
     </div>
   </li>;
+}
+
+/** What the agent is doing now, line by line (live.rs): read files, commands it ran, what the model said. Polled every
+ *  1.5 s while the attempt runs; it follows the newest line unless the reader scrolled up. */
+function LiveActivity({attemptId, agent}: {attemptId: string; agent: string}) {
+  const [activity, setActivity] = useState<Activity>({known: false, lines: [], dropped: 0, done: false});
+  const box = useRef<HTMLPreElement>(null);
+  const follow = useRef(true);
+  useEffect(() => {
+    let live = true;
+    let last = 0;
+    let busy = false;
+    const tick = () => {
+      if (busy) return;   // one request at a time, so lines never arrive twice or out of order
+      busy = true;
+      call(api => api.taskActivity(attemptId, last)).then(a => {
+        busy = false;
+        if (!live) return;
+        const fresh = a.lines.filter(l => l.seq > last);
+        if (fresh.length) last = fresh[fresh.length - 1].seq;
+        setActivity(prev => ({...a, lines: [...prev.lines, ...fresh].slice(-500)}));
+      }, () => { busy = false; });
+    };
+    void tick();
+    const timer = setInterval(tick, 1500);
+    return () => { live = false; clearInterval(timer); };
+  }, [attemptId]);
+  useEffect(() => { if (follow.current && box.current) box.current.scrollTop = box.current.scrollHeight; }, [activity.lines.length]);
+  const streams = agent === 'opencode' || agent === 'codex';
+  return <div className="live-activity">
+    <div className="live-head"><span className="live-dot" aria-hidden/>{t('Live activity')}
+      {activity.dropped > 0 && <small className="secondary">{t('{n} earlier lines not kept', {n: activity.dropped})}</small>}</div>
+    {activity.lines.length === 0
+      ? <p className="secondary">{streams ? t('Waiting for the agent’s first output…') : t('This agent reports what it did when it finishes; its output appears below then.')}</p>
+      : <pre ref={box} className="log-tail live-log selectable" aria-live="polite"
+          onScroll={e => { const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24; }}>
+          {activity.lines.map(l => `${new Date(l.atMs).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'})}  ${l.text}`).join('\n')}
+        </pre>}
+  </div>;
 }
