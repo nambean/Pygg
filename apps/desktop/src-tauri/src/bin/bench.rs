@@ -33,7 +33,7 @@ struct Args {
 
 fn usage() -> ! {
     eprintln!("usage: bench --cases DIR --agent COMMAND --rung TIER=MODEL [--rung …] \
-        [--mode all|single|cascade] [--only CASE] [--out DIR] [--agent-timeout SECONDS] [--check-timeout SECONDS] [--budget-usd N] [--gateway-db STORE] [--engine AGENT] [--repeat N] [--allow-unknown yes] [--handoff none|tail|evidence]");
+        [--mode all|single|cascade] [--only CASE] [--out DIR] [--agent-timeout SECONDS] [--check-timeout SECONDS] [--budget-usd N] [--gateway-db STORE] [--engine AGENT] [--repeat N] [--allow-unknown yes] [--handoff none|tail|evidence|brief]");
     std::process::exit(2);
 }
 
@@ -78,8 +78,9 @@ fn parse() -> Args {
             "--engine" => engine = Some(value()),
             "--allow-unknown" => allow_unknown = value() == "yes",
             "--handoff" => {
-                handoff =
-                    Some(value()).filter(|h| ["none", "tail", "evidence"].contains(&h.as_str())).or_else(|| usage())
+                handoff = Some(value())
+                    .filter(|h| ["none", "tail", "evidence", "brief"].contains(&h.as_str()))
+                    .or_else(|| usage())
             }
             "--repeat" => repeat = value().parse().ok().filter(|n| (1..=10).contains(n)).unwrap_or_else(|| usage()),
             "-h" | "--help" => usage(),

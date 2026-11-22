@@ -514,7 +514,7 @@ pub struct AttemptView {
     /// Paths this attempt changed, recorded before a discarded worktree is removed.
     pub changed_paths: Vec<String>,
     #[serde(skip)]
-    worktree: Option<String>,
+    pub(crate) worktree: Option<String>,
     #[serde(skip)]
     base: Option<String>,
 }
@@ -1774,7 +1774,16 @@ impl Runner {
             // What this attempt is told about earlier ones, recorded as sent so the user can see it.
             let earlier =
                 if row.policy.handoff == "evidence" { self.with_db(|c| attempts_of(c, id))? } else { Vec::new() };
-            let given = handoff_for(&row.policy.handoff, carried.as_deref(), &earlier);
+            // `brief`: the next step is told what the portable brief says, as if the user had carried it to another
+            // agent (the brief's recovery proof, ROADMAP gap item 5). Nothing on the first step.
+            let given = if row.policy.handoff == "brief" {
+                match carried {
+                    Some(_) => Some(self.with_db(|c| task_brief(c, id))?),
+                    None => None,
+                }
+            } else {
+                handoff_for(&row.policy.handoff, carried.as_deref(), &earlier)
+            };
             self.with_db(|c| c.execute("UPDATE attempts SET handoff_sent = ?2 WHERE id = ?1", params![attempt, given]))
                 .map_err(err)?;
             let request = ExecRequest {
@@ -1818,8 +1827,9 @@ impl Runner {
                 link_gateway_usage(c, &attempt).map_err(err)
             })?;
             // A paid step's cap, checked against what the run cost. Requests the agent sent through Pygg are priced by
-            // Pygg's ledger, whatever the agent estimates; otherwise the agent's own estimate is all there is. Claude
-            // Code stops at the cap itself; the others can only be checked afterwards.
+            // Pygg's ledger, whatever the agent estimates; otherwise the agent's own estimate is all there is. Through
+            // Pygg the gateway refuses the attempt's next request once its spend reaches the cap (its session limit), so
+            // it can pass the cap by the requests already running; Claude Code also stops at it itself.
             let (reported, whose) = match through_pygg {
                 Some((known, 0)) => (Some(known), m::PYGG_LEDGER.to_string()),
                 Some(_) => (None, String::new()),

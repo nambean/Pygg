@@ -10,7 +10,8 @@
 //! What Pygg cannot see it does not claim: which files an agent read, its reasoning, its tool calls.
 
 /// How a task hands evidence from a failed attempt to the next step.
-pub const MODES: [&str; 3] = ["none", "tail", "evidence"];
+/// `brief` gives the next step the task's portable brief (`tasks::task_brief`), as another agent would get it.
+pub const MODES: [&str; 4] = ["none", "tail", "evidence", "brief"];
 /// Today's behaviour, and the default until the A/B says otherwise (ADR-030).
 pub const DEFAULT_MODE: &str = "tail";
 

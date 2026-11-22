@@ -3540,6 +3540,33 @@ fn a_session_over_its_limit_is_refused_and_other_sessions_go_on() {
 }
 
 #[test]
+fn a_task_attempts_approved_cap_refuses_its_next_request_once_reached() {
+    rt().block_on(async {
+        let rig = rig().await;
+        // An approved cap of 500 on attempt "att-1" (its session), with no limit on the key itself.
+        rig.shared
+            .with_db(|db| {
+                db.execute_batch("PRAGMA foreign_keys = OFF")?;
+                db.execute(
+                    "INSERT INTO approvals (id, attempt_id, cap_micro_usd, policy_version, state, created_at) \
+                     VALUES ('ap-1', 'att-1', 500, 'test', 'approved', 0)",
+                    [],
+                )?;
+                db.execute_batch("PRAGMA foreign_keys = ON")
+            })
+            .unwrap();
+        // Each answer costs 300: sent at 0 and 300 counted, refused at 600.
+        assert_eq!(rig.post_session("/v1/chat/completions", "att-1", small("main/fast")).await.status(), 200);
+        assert_eq!(rig.post_session("/v1/chat/completions", "att-1", small("main/fast")).await.status(), 200);
+        assert_eq!(rig.post_session("/v1/chat/completions", "att-1", small("main/fast")).await.status(), 402);
+        // Another session is not held to it; a lower key limit still applies first.
+        assert_eq!(rig.post_session("/v1/chat/completions", "att-2", small("main/fast")).await.status(), 200);
+        rig.set_limits(Some(200), None);
+        assert_eq!(rig.post_session("/v1/chat/completions", "att-2", small("main/fast")).await.status(), 402);
+    });
+}
+
+#[test]
 fn an_estimated_session_limit_sends_while_spend_is_under_it() {
     rt().block_on(async {
         let rig = rig().await;

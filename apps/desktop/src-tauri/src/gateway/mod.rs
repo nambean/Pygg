@@ -604,8 +604,9 @@ pub fn authenticate(shared: &Shared, headers: &HeaderMap) -> Result<Client, Refu
     }
     // A session or day limit already reached (cost plan A3) refuses before routing, with 402: agents retry a 429, and
     // waiting does not lift a session limit. A request already running is never cut; it is counted when it settles.
-    if client.session_budget_micro_usd.is_some() || client.day_budget_micro_usd.is_some() {
-        let session = session_key(headers);
+    // A named session may be a smart task's attempt with an approved cap, whatever the key's own limits.
+    let session = session_key(headers);
+    if client.session_budget_micro_usd.is_some() || client.day_budget_micro_usd.is_some() || session.is_some() {
         let hit = shared
             .with_db(|db| store::reached_limit(db, &client.id, session.as_deref(), db_now()))
             .map_err(|e| Refusal::new(StatusCode::INTERNAL_SERVER_ERROR, "api_error", e))?;

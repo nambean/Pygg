@@ -1479,12 +1479,31 @@ fn counted_in(
 
 /// The client's session and day limits that apply to a request, as `(scope, limit)`, session first. The session limit
 /// applies only to a request that names a session.
+///
+/// A smart task's attempt names its own id as the session, and the cap the user approved for it is that session's
+/// limit too, the lower of the two applying: the next request is refused once the attempt's spend reaches its cap,
+/// instead of the cap being checked only when the agent has finished (the replay found steps 20 times over).
 fn short_limits(conn: &Connection, client_id: &str, session: Option<&str>) -> rusqlite::Result<Vec<(LimitScope, u64)>> {
     let (per_session, per_day): (Option<i64>, Option<i64>) = conn.query_row(
         "SELECT session_budget_micro_usd, day_budget_micro_usd FROM gateway_clients WHERE id = ?1",
         [client_id],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
+    let attempt_cap: Option<i64> = match session {
+        Some(session) => conn
+            .query_row(
+                "SELECT cap_micro_usd FROM approvals WHERE attempt_id = ?1 AND state = 'approved' AND cap_micro_usd > 0 \
+                 ORDER BY rowid DESC LIMIT 1",
+                [session],
+                |r| r.get(0),
+            )
+            .optional()?,
+        None => None,
+    };
+    let per_session = match (per_session, attempt_cap) {
+        (Some(key), Some(attempt)) => Some(key.min(attempt)),
+        (key, attempt) => key.or(attempt),
+    };
     let mut limits = Vec::new();
     if let (Some(limit), Some(_)) = (per_session, session) {
         limits.push((LimitScope::Session, limit.max(0) as u64));

@@ -42,7 +42,7 @@ Printed when a tool started by `pygg run` exits: cost (unknown and subscription 
 
 | Agent | Headless command | Status |
 | --- | --- | --- |
-| Claude Code | `claude -p … --permission-mode acceptEdits` (file tools; Bash, WebFetch and WebSearch only on **Allow**, else in `--disallowedTools`) | Live through the MCP server |
+| Claude Code | `claude -p … --permission-mode acceptEdits` (Read, Glob and Grep pre-allowed; edits accepted inside the copy only; Bash, WebFetch and WebSearch only on **Allow**, else in `--disallowedTools`) | Live through the MCP server; outside writes refused (proof 2026-11-23) |
 | Codex CLI | `codex exec --json --sandbox workspace-write --ephemeral` (network only on **Allow** web) | Live (ChatGPT plan) |
 | Gemini CLI | `gemini -p … --approval-mode auto_edit` (`yolo` only on **Allow**) | Refused by Google for personal accounts; API key untested |
 | OpenCode | `opencode run --format json`, permissions set per run: `bash`, `webfetch` and `websearch` as allowed, `external_directory` denied | Live (free model) |
@@ -90,9 +90,9 @@ A task is a ladder of agent steps fixed at creation, judged by the workspace's *
 - Each attempt runs one step in a fresh worktree of the base commit; `PYGG_ATTEMPT_ID` ties ledger entries to it.
 - Pygg's own MCP server is off in the runs it starts (OpenCode: `OPENCODE_CONFIG_CONTENT` with `mcp.pygg.enabled=false`, merged with any the user set; Codex: `-c mcp_servers.pygg.enabled=false`; Claude Code runs with a fixed tool list): with it, an agent handed its task back to Pygg instead of doing it.
 - What the agent does shows live on the task's screen (`live.rs`): its output is read line by line as it runs, turned into readable lines and redacted, the last 500 lines of an attempt kept in memory.
-- A failed attempt is discarded and the next step gets a handoff (`tail` default, `none`, `evidence`; ADR-030).
+- A failed attempt is discarded and the next step gets a handoff (`tail` default, `none`, `evidence`, or `brief`: the portable brief; ADR-030).
 - Checks pass → **Keep as Branch**, **Export Patch** or **Discard**; no approved checks → needs review.
-- **Paid step waits for approval** with a spending cap (ADR-010); over the cap the ladder stops.
+- **Paid step waits for approval** with a spending cap (ADR-010). The cap is also the attempt's gateway session limit: once its spend reaches it, the agent's next request through Pygg gets 402; over the cap the ladder stops.
 - **Daily budgets** (UTC) for all tasks and per workspace.
 - **Sensitive** workspace asks before every step; detected checks are suggestions until approved.
 - Headless: `pygg agent --db STORE task --workspace DIR --prompt TEXT --steps "…" [--check CMD]`.

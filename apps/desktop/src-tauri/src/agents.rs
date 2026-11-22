@@ -275,7 +275,10 @@ pub fn arguments(
     let s = |v: &str| v.to_string();
     match agent {
         "claude-code" => {
-            let mut tools = String::from("Read,Write,Edit,Glob,Grep");
+            // Write and Edit are not pre-allowed: a bare `Write` allows every path, and a headless run wrote outside its
+            // folder with it (the sandbox proof, 2026-11-23). acceptEdits accepts edits inside the working folder; one
+            // outside would need a prompt, which a headless run refuses.
+            let mut tools = String::from("Read,Glob,Grep");
             if allow_shell {
                 tools.push_str(",Bash");
             }
@@ -339,8 +342,9 @@ pub fn arguments(
     Ok(args)
 }
 
-/// The cap an agent enforces itself: only Claude Code has one (`--max-budget-usd`). Others are checked after the run
-/// against the cost they report (tasks.rs).
+/// The cap an agent enforces itself: only Claude Code has one (`--max-budget-usd`). Requests any agent sends through
+/// Pygg are held to the cap by the gateway (the attempt's session limit); others are checked after the run against the
+/// cost the agent reports (tasks.rs).
 pub fn budget_arguments(agent: &str, max_usd: Option<f64>) -> Vec<String> {
     match (agent, max_usd) {
         ("claude-code", Some(usd)) if usd > 0.0 => vec!["--max-budget-usd".into(), format!("{usd:.2}")],
@@ -921,7 +925,7 @@ mod tests {
                 "--permission-mode",
                 "acceptEdits",
                 "--allowedTools",
-                "Read,Write,Edit,Glob,Grep",
+                "Read,Glob,Grep",
                 "--disallowedTools",
                 "Bash,WebFetch,WebSearch"
             ]

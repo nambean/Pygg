@@ -370,6 +370,10 @@ pub struct CaseRecord {
     pub total_ms: u64,
     /// Set when the budget stopped the case before its ladder was finished.
     pub stopped: Option<String>,
+    /// With `BENCH_HIDDEN`: whether the passing result also passed the case's hidden checks, which the agent and the
+    /// ladder never saw. `None` when there are none or nothing passed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hidden_passed: Option<bool>,
 }
 
 impl CaseRecord {
@@ -539,6 +543,7 @@ pub async fn run_case(
         attempts,
         total_ms: started.elapsed().as_millis() as u64,
         stopped,
+        hidden_passed: None,
     })
 }
 
@@ -567,6 +572,7 @@ pub async fn run_case_engine(
             attempts: Vec::new(),
             total_ms: 0,
             stopped: Some(reason),
+            hidden_passed: None,
         });
     }
     let slot =
@@ -664,6 +670,13 @@ pub async fn run_case_engine(
         });
     }
     let passing_tier = detail.attempt_details.iter().find(|a| a.outcome == "passed").map(|a| a.tier);
+    let hidden_passed = match (
+        std::env::var_os("BENCH_HIDDEN"),
+        detail.attempt_details.iter().find(|a| a.outcome == "passed").and_then(|a| a.worktree.clone()),
+    ) {
+        (Some(dir), Some(worktree)) => hidden_checks(case, Path::new(&dir), Path::new(&worktree), config).await,
+        _ => None,
+    };
     // The result's worktree waits for the user in the app; here it is only measured.
     let _ = tasks::discard(&db.lock().unwrap_or_else(|p| p.into_inner()), &id);
     Ok(CaseRecord {
@@ -676,7 +689,39 @@ pub async fn run_case_engine(
         attempts,
         total_ms: started.elapsed().as_millis() as u64,
         stopped: None,
+        hidden_passed,
     })
+}
+
+/// The case's hidden checks on a passing result: the files under `<dir>/<case id>` (the full tests the agent saw only
+/// part of) copied over the result, then the case's checks run again. `None` when the case has no hidden files.
+async fn hidden_checks(case: &Case, dir: &Path, worktree: &Path, config: &Config) -> Option<bool> {
+    let source = dir.join(&case.file.id);
+    if !source.is_dir() {
+        return None;
+    }
+    fn copy(from: &Path, to: &Path) -> std::io::Result<()> {
+        for entry in std::fs::read_dir(from)? {
+            let entry = entry?;
+            let target = to.join(entry.file_name());
+            if entry.file_type()?.is_dir() {
+                std::fs::create_dir_all(&target)?;
+                copy(&entry.path(), &target)?;
+            } else {
+                std::fs::copy(entry.path(), &target)?;
+            }
+        }
+        Ok(())
+    }
+    if copy(&source, worktree).is_err() {
+        return Some(false);
+    }
+    for check in &case.file.checks {
+        if !checks::run(check, worktree, config.check_timeout, &[], std::future::pending()).await.passed {
+            return Some(false);
+        }
+    }
+    Some(true)
 }
 
 /// Pass rate and effort per run label, for the console report.
