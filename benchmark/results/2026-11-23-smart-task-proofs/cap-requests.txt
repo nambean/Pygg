@@ -1,0 +1,4 @@
+sessions 597, cap = 50% of each session's real cost
+over the cap: median 21.0%, p90 66.2%, max 100.0%; without the gateway's refusal every one would end 100% over
+sessions 597, cap = 20% of each session's real cost
+over the cap: median 46.9%, p90 187.8%, max 400.0%; without the gateway's refusal every one would end 400% over

@@ -1,0 +1,42 @@
+records                            1614
+money_attempts                     1049
+steps_with_3plus_history           899
+inside_range                       701
+above_high                         115
+below_low                          83
+cost_over_offered_cap              13
+over_cap_excess_median_pct         43.3285
+over_cap_excess_p90_pct            531.6841000000003
+cost_to_high_ratio_median          0.5649709603955311
+cost_to_high_ratio_p90             1.0733104816454437
+midpoint_error_median_pct          34.60396182347683
+no_history_steps                   14
+no_history_over_50c                0
+unknown_cost_money_attempts        108
+unknown_by_status                  {'floor': 23, 'unknown': 85}
+ladders_with_prediction            949
+ladders_known_cost                 915
+ladders_within_predicted           787
+ladders_over_task_cap              128
+task_cap_excess_median_pct         25.86812992302751
+task_cap_excess_p90_pct            114.228922391709
+task_cap_excess_max_pct            2002.913102082359
+solves_lost_to_task_cap            0
+solves_total                       865
+blocked_by_unknown_cost            0
+cascades_with_prediction           242
+cascades_climbed                   195
+cascades_over_task_cap             27
+cascades_stopped_by_cap            0
+cascade_solves_lost_to_cap         0
+interrupted_attempts               {'free/estimated': 96, 'money/estimated': 15, 'money/floor': 14, 'money/unknown': 74, 'quota/estimated': 13}
+
+Worst steps over the offered cap:
+  anthropic/claude-haiku-5-5                         runs=10 high=$0.0364 cap=$0.1000 cost=$0.7645 (2026-11-13-ccht/claude-code-haiku.jsonl)
+  pygg/google-gemini/gemini-3.1-flash-lite           runs=10 high=$0.0201 cap=$0.0500 cost=$0.3632 (2026-11-20-all-models/gemini.jsonl)
+  pygg/google-gemini/gemini-3.1-flash-lite           runs= 9 high=$0.1176 cap=$0.2000 cost=$0.5055 (2026-11-20-all-models/gemini.jsonl)
+  anthropic/claude-sonnet-5-5                        runs=10 high=$0.1060 cap=$0.2000 cost=$0.4211 (2026-11-13-ccht/claude-code-sonnet.jsonl)
+  pygg/auto/cheap                                    runs=10 high=$0.0268 cap=$0.0500 cost=$0.1029 (2026-11-13-ccht/opencode-auto-cheap.jsonl)
+  pygg/auto/code                                     runs=10 high=$0.0423 cap=$0.1000 cost=$0.1513 (2026-11-20-mixaicloud/coding-aliases-pass2-3.jsonl)
+  pygg/mixai-deepseek/deepseek-v4-pro                runs=10 high=$0.1315 cap=$0.2000 cost=$0.2867 (2026-11-20-mixaicloud/coding-deepseek-pass2-3.jsonl)
+  pygg/google-gemini/gemini-3.8-flash                runs= 9 high=$0.2086 cap=$0.3500 cost=$0.4729 (2026-11-20-all-models/gemini.jsonl)

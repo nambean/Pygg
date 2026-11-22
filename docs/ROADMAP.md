@@ -31,16 +31,16 @@ From public evidence (an analysis of 66,320 Reddit complaint posts about AI codi
 
 ### Smart Tasks next, from the gap study
 
-Built 2026-11-22, each with tests; the proofs are still to run.
+Built 2026-11-22; proofs run 2026-11-23 ([report](../benchmark/reports/2026-11-23-smart-task-proofs.md)).
 
-| # | Item | Effort | Proof |
-| --- | --- | --- | --- |
-| 1 | **Task budget and receipt:** a range and a cap before, every attempt and the cost per kept result after | M | Estimate error and overshoot on replayed and interrupted runs |
-| 2 | **Review evidence card:** requirement, diff, base, checks run and passed, criteria nothing checked | M | Blind reviewers find seeded defects faster; misses reported |
-| 3 | **Cheap-first ladder shown with its predicted total** and the stop rules; escalate only on a failed check | M | Paired tasks with hidden checks: pass rate and cost per solved task against strong-only |
-| 4 | **Sandbox profile** per attempt (files, keys, network), its enforcement shown before it runs | L | Adversarial fixtures per OS |
-| 5 | **Portable task brief** to export and import between agents | M | Hand-off completeness and recovery time; secrets redacted |
-| 6 | **Coverage-aware usage:** what the gateway saw, what a provider states, what is unknown | S | Reconciled against provider reports |
+| # | Item | Effort | Proof | Result |
+| --- | --- | --- | --- | --- |
+| 1 | **Task budget and receipt:** a range and a cap before, every attempt and the cost per kept result after | M | Estimate error and overshoot on replayed and interrupted runs | 78% within range; 1.4% over the cap by a median 43%; the cap is now the attempt's gateway limit |
+| 2 | **Review evidence card:** requirement, diff, base, checks run and passed, criteria nothing checked | M | Blind reviewers find seeded defects faster; misses reported | 29/50 → 44/50 caught; "no check ran" still passed 6+ in 10 |
+| 3 | **Cheap-first ladder shown with its predicted total** and the stop rules; escalate only on a failed check | M | Paired tasks with hidden checks: pass rate and cost per solved task against strong-only | 16/16 vs 17/18, no hidden misses; 1/5.6 the list cost, 1/4 the time |
+| 4 | **Sandbox profile** per attempt (files, keys, network), its enforcement shown before it runs | L | Adversarial fixtures per OS | Windows: Claude Code wrote outside (fixed); the rest as stated |
+| 5 | **Portable task brief** to export and import between agents | M | Hand-off completeness and recovery time; secrets redacted | 20/20 seeded secrets masked (was 8); no hand-off gain measured |
+| 6 | **Coverage-aware usage:** what the gateway saw, what a provider states, what is unknown | S | Reconciled against provider reports | Ledger 7.5% under MixAICloud's counters; 1% unpriced, shown unknown |
 
 Not to build: a quota scraper, cookie or OAuth bridges into subscriptions, estimates sold as bill guarantees, passing checks presented as proof of safety, or a promise that cheap routing always saves.
 

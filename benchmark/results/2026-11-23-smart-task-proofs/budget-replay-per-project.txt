@@ -1,0 +1,42 @@
+records                            1614
+money_attempts                     1049
+steps_with_3plus_history           869
+inside_range                       671
+above_high                         113
+below_low                          85
+cost_over_offered_cap              10
+over_cap_excess_median_pct         29.59807142857143
+over_cap_excess_p90_pct            200.10844999999983
+cost_to_high_ratio_median          0.5685682378362662
+cost_to_high_ratio_p90             1.075558621393306
+midpoint_error_median_pct          33.65284397131531
+no_history_steps                   25
+no_history_over_50c                1
+unknown_cost_money_attempts        108
+unknown_by_status                  {'floor': 23, 'unknown': 85}
+ladders_with_prediction            941
+ladders_known_cost                 908
+ladders_within_predicted           773
+ladders_over_task_cap              135
+task_cap_excess_median_pct         23.834590546480708
+task_cap_excess_p90_pct            95.7102431162972
+task_cap_excess_max_pct            1707.1048310861236
+solves_lost_to_task_cap            0
+solves_total                       857
+blocked_by_unknown_cost            0
+cascades_with_prediction           241
+cascades_climbed                   194
+cascades_over_task_cap             31
+cascades_stopped_by_cap            0
+cascade_solves_lost_to_cap         0
+interrupted_attempts               {'free/estimated': 96, 'money/estimated': 15, 'money/floor': 14, 'money/unknown': 74, 'quota/estimated': 13}
+
+Worst steps over the offered cap:
+  pygg/google-gemini/gemini-3.1-flash-lite           runs=10 high=$0.0201 cap=$0.0500 cost=$0.3632 (2026-11-20-all-models/gemini.jsonl)
+  pygg/google-gemini/gemini-3.1-flash-lite           runs= 9 high=$0.1176 cap=$0.2000 cost=$0.5055 (2026-11-20-all-models/gemini.jsonl)
+  pygg/auto/code                                     runs=10 high=$0.0423 cap=$0.1000 cost=$0.1513 (2026-11-20-mixaicloud/coding-aliases-pass2-3.jsonl)
+  pygg/mixai-deepseek/deepseek-v4-pro                runs=10 high=$0.1315 cap=$0.2000 cost=$0.2867 (2026-11-20-mixaicloud/coding-deepseek-pass2-3.jsonl)
+  pygg/google-gemini/gemini-3.8-flash                runs= 9 high=$0.2086 cap=$0.3500 cost=$0.4729 (2026-11-20-all-models/gemini.jsonl)
+  pygg/auto/code                                     runs= 7 high=$0.0407 cap=$0.1000 cost=$0.1241 (2026-11-20-mixaicloud/coding-aliases-pass1.jsonl)
+  pygg/auto/cheap                                    runs= 5 high=$0.0640 cap=$0.1000 cost=$0.1203 (2026-11-20-mixaicloud/coding-aliases-pass1.jsonl)
+  pygg/mixai-deepseek/deepseek-v4-flash              runs=10 high=$0.0571 cap=$0.1000 cost=$0.1182 (2026-11-20-mixaicloud/coding-deepseek-pass2-3.jsonl)
