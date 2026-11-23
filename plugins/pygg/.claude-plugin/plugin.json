@@ -1,7 +1,7 @@
 {
   "name": "pygg",
   "displayName": "Pygg",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Hand coding subtasks from Claude Code to cheaper agents through Pygg, a local AI gateway: each runs in its own Git worktree, is checked by the checks you approved, and becomes a branch only when you keep it. Needs the Pygg app (Windows) or its command line running.",
   "author": { "name": "nambean", "url": "https://github.com/nambean" },
   "homepage": "https://github.com/nambean/Pygg#readme",

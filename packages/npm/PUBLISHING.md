@@ -15,7 +15,7 @@ Five packages. `@pygg/cli` is the launcher that runs the native program as the `
 
 The packages are built by CI, not on the owner's PC: the macOS and Linux programs can only be built there.
 
-1. Raise `version` in `packages/npm/pygg/package.json` and the four `optionalDependencies` entries together (`npm-pack.mjs` refuses versions that differ). The platform packages take the launcher's version. `pygg --version` reports it too: the build reads it from this package.json, and `npm-pack.mjs` refuses a program built before the change.
+1. Raise `version` in `packages/npm/pygg/package.json` and the four `optionalDependencies` entries together (`npm-pack.mjs` refuses versions that differ). The platform packages take the launcher's version. `pygg --version` reports it too: the build reads it from this package.json, and `npm-pack.mjs` refuses a program built before the change. Also the pinned `@pygg/cli@<version>` in `plugins/pygg/scripts/mcp.mjs` (npm-pack refuses another) and the plugin's `version` in `plugins/pygg/.claude-plugin/plugin.json`: Anthropic's plugin directory picks up each commit to `main`.
 2. Push to `main` (or run **npm packages** from the Actions tab). The workflow builds `pygg-cli` on Windows, Linux and macOS, packs every package, installs each platform's back from the tarballs and runs `pygg`. Download the artifact **npm-packages-all** (five `.tgz` files) from the run.
 3. Publish, from the folder holding the tarballs, platform packages first:
 

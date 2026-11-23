@@ -52,6 +52,12 @@ function checkVersions() {
     die(`server.json names version ${versions.join(', ')}; it must be @pygg/cli's ${launcher.version}.`);
   }
   if (launcher.mcpName !== server.name) die(`package.json mcpName ${launcher.mcpName} must be server.json's name ${server.name}.`);
+  // The Claude Code plugin falls back to `npx @pygg/cli@<version>`; the plugin directory requires that version pinned.
+  const plugin = readFileSync(join(root, 'plugins/pygg/scripts/mcp.mjs'), 'utf8');
+  const pinned = [...plugin.matchAll(/'@pygg\/cli@([^']+)'/g)].map(m => m[1]);
+  if (!pinned.length || pinned.some(v => v !== launcher.version)) {
+    die(`plugins/pygg/scripts/mcp.mjs runs @pygg/cli@${pinned.join(', ') || 'nothing'}; it must be ${launcher.version}.`);
+  }
 }
 
 function pack(dir) {
