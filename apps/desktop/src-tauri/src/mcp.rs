@@ -83,9 +83,10 @@ fn tools() -> Value {
          "inputSchema": {"type": "object", "required": ["task_id"], "properties": {"task_id": id.clone()}}},
         {"name": "pygg_task_brief", "description": "A task as a brief to continue it elsewhere: the goal, where it started, each attempt and why it stopped, the checks that define done, and where it stands.",
          "inputSchema": {"type": "object", "required": ["task_id"], "properties": {"task_id": id.clone()}}},
-        {"name": "pygg_keep_result", "description": "Keep a finished task's result as a new branch of the repository (your checkout is not changed). Returns the branch name, which you can merge or check out.",
+        {"name": "pygg_keep_result", "description": "Keep a finished task's result as a new branch of the repository (your checkout is not changed). Returns the branch name, which you can merge or check out. A result no check vouches for (pygg_task_status says NOT READY) is refused unless accept_unchecked is true.",
          "inputSchema": {"type": "object", "required": ["task_id"], "properties": {"task_id": id.clone(),
-            "title": {"type": "string", "description": "Commit message and branch title. Default: the task's title."}}}},
+            "title": {"type": "string", "description": "Commit message and branch title. Default: the task's title."},
+            "accept_unchecked": {"type": "boolean", "description": "Keep a NOT READY result anyway: only after you read its whole diff with pygg_task_diff and judged it yourself, since no check confirmed it. Say so to the user."}}}},
         {"name": "pygg_discard_result", "description": "Discard a finished task's result.",
          "inputSchema": {"type": "object", "required": ["task_id"], "properties": {"task_id": id.clone()}}},
         {"name": "pygg_stop_task", "description": "Stop a running or waiting task.",
@@ -114,7 +115,7 @@ fn tools() -> Value {
 }
 
 /// What an agent needs to know about a task, and what to do next.
-fn describe(task: &Value) -> String {
+pub(crate) fn describe(task: &Value) -> String {
     let s = |v: &Value| v.as_str().unwrap_or("").to_string();
     let mut out = format!("Task {} \"{}\": {}", s(&task["id"]), s(&task["title"]), s(&task["state"]));
     if let Some(reason) = task["reason"].as_str() {
@@ -130,6 +131,15 @@ fn describe(task: &Value) -> String {
             out.push_str(&format!(" ({files} files, +{} −{})", a["insertions"], a["deletions"]));
         }
         out.push('\n');
+        for c in a["checks"].as_array().into_iter().flatten() {
+            let verdict = if c["passed"].as_bool() == Some(true) { "passed" } else { "FAILED" };
+            out.push_str(&format!(
+                "     check `{}`: {verdict} ({}, {:.1} s)\n",
+                s(&c["command"]),
+                s(&c["detail"]),
+                c["durationMs"].as_u64().unwrap_or(0) as f64 / 1000.0
+            ));
+        }
         // What that attempt was told about earlier ones (ADR-030), so the calling agent sees the same as the user.
         if let Some(sent) = a["handoffSent"].as_str() {
             out.push_str("     It was given, after the task:\n");
@@ -143,8 +153,10 @@ fn describe(task: &Value) -> String {
         "waiting_approval" => "Waiting for the user to approve a paid step in the Pygg app. Tell the user; check again later.".into(),
         "checks_passed" if task["result"].is_null() =>
             "The approved checks passed. Review the changes with pygg_task_diff, then pygg_keep_result (a new branch) or pygg_discard_result.".into(),
+        "needs_review" if task["result"].is_null() && task["checked"] == "definitions_changed" =>
+            "NOT READY: the checks passed, but this result changed a file that defines them, so they do not vouch for it. Read the whole diff with pygg_task_diff; keep it only if you judge it correct yourself (pygg_keep_result with accept_unchecked, and tell the user it is unchecked), or pygg_discard_result.".into(),
         "needs_review" if task["result"].is_null() =>
-            "Finished, but no check confirmed it. Review the changes with pygg_task_diff before keeping them.".into(),
+            "NOT READY: no check ran on this result, so nothing confirmed it. Read the whole diff with pygg_task_diff; keep it only if you judge it correct yourself (pygg_keep_result with accept_unchecked, and tell the user it is unchecked), or pygg_discard_result. The user can approve checks for this workspace in the Pygg app.".into(),
         "checks_passed" | "manually_accepted" | "needs_review" | "canceled" if !task["resultBranch"].is_null() =>
             format!("Kept as branch {}.", s(&task["resultBranch"])),
         "answered" => format!(
@@ -223,7 +235,8 @@ async fn call_tool(gateway: &Gateway, name: &str, args: &Value) -> Result<String
                 .call(
                     Method::POST,
                     &format!("/pygg/v1/tasks/{}/keep", task_id(args)?),
-                    Some(json!({"title": args["title"].as_str()})),
+                    Some(json!({"title": args["title"].as_str(),
+                        "acceptUnchecked": args["accept_unchecked"].as_bool().unwrap_or(false)})),
                 )
                 .await?;
             Ok(format!(

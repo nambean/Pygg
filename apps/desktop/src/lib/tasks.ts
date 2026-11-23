@@ -152,6 +152,9 @@ export type TaskDetail = TaskSummary & {
   /** Every attempt in full; `attempts` holds the chips. */
   attemptDetails: AttemptView[];
   approval: ApprovalView | null;
+  /** How far the checks vouch for the result: only `passed` is ready; `not_checked` (no check ran) and
+   *  `definitions_changed` (it changed a file that defines them) are kept only as unchecked work. */
+  checked: 'passed' | 'not_checked' | 'definitions_changed' | 'failed' | '';
 };
 
 /** Display names of the agents (agents.rs AGENTS). */

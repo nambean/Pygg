@@ -537,6 +537,25 @@ pub struct TaskDetail {
     pub attempt_details: Vec<AttemptView>,
     /// The paid step waiting for the user's decision, if any.
     pub approval: Option<ApprovalView>,
+    /// How far the checks vouch for the result (ROADMAP focus item 2): `passed` (every approved check passed on it),
+    /// `not_checked` (no check ran), `definitions_changed` (they passed, but it changed a file that defines them),
+    /// `failed` (no step passed its checks); empty while running and for an answer. Only `passed` is ready: the others
+    /// are kept only when the user says so (`keep`'s `unchecked`).
+    pub checked: &'static str,
+}
+
+/// The `checked` verdict of a task (see `TaskDetail::checked`).
+fn checked_of(state: &str, attempts: &[AttemptView]) -> &'static str {
+    let result = attempts.iter().rev().find(|a| a.open || a.outcome == "done" || a.outcome == "passed");
+    match state {
+        "checks_passed" => "passed",
+        "check_failed" => "failed",
+        "needs_review" | "manually_accepted" => match result {
+            Some(a) if !a.checks.is_empty() => "definitions_changed",
+            _ => "not_checked",
+        },
+        _ => "",
+    }
 }
 
 /// A pending approval as the user sees it: what would run, what it cost before, and a cap to start from.
@@ -745,7 +764,9 @@ pub fn task_detail_for(conn: &Connection, id: &str, client_id: Option<&str>) -> 
     let attempts = attempts_of(conn, id)?;
     let summary = summary_of(conn, id, &row, &attempts)?;
     let approval = approval_of(conn, id, &row, &attempts)?;
+    let checked = checked_of(&row.state, &attempts);
     Ok(TaskDetail {
+        checked,
         summary,
         prompt: row.prompt,
         strategy: row.strategy,
@@ -2167,8 +2188,14 @@ pub fn record_export(conn: &Connection, id: &str, path: &str) -> Result<()> {
 }
 
 /// Keeps the result as a new branch of the workspace (the user's checkout is untouched) and removes the worktree.
-pub fn keep(conn: &Connection, id: &str, title: Option<&str>) -> Result<String> {
+///
+/// A result no check vouches for (`needs_review`: no check ran, or it changed a file that defines one) is not ready:
+/// it is kept only with `unchecked`, the user's word that they reviewed it themselves (ROADMAP focus item 2).
+pub fn keep(conn: &Connection, id: &str, title: Option<&str>, unchecked: bool) -> Result<String> {
     let (row, attempt, worktree) = result_attempt(conn, id)?;
+    if row.state == "needs_review" && !unchecked {
+        return Err(if attempt.checks.is_empty() { m::NOT_CHECKED_KEEP } else { m::DEFINITIONS_KEEP }.into());
+    }
     let title = title.map(str::trim).filter(|t| !t.is_empty()).unwrap_or(&row.title);
     let own = isolation::branch_name(title, id);
     // A board card's result goes onto its brainstorm's branch, where the next card starts (ADR-042); when it cannot
@@ -2218,7 +2245,13 @@ pub fn keep(conn: &Connection, id: &str, title: Option<&str>) -> Result<String> 
         };
         format!("not added to {shared}: {why}")
     });
-    audit(&tx, "task.kept", id, serde_json::json!({"branch": branch, "notAdded": note})).map_err(err)?;
+    audit(
+        &tx,
+        "task.kept",
+        id,
+        serde_json::json!({"branch": branch, "notAdded": note, "unchecked": row.state == "needs_review"}),
+    )
+    .map_err(err)?;
     tx.commit().map_err(err)?;
     Ok(branch)
 }
@@ -2945,7 +2978,7 @@ mod tests {
 
         let diff = result_diff(&lock(&rig.db), &id).unwrap();
         assert!(diff.contains("+good"), "{diff}");
-        let branch = keep(&lock(&rig.db), &id, None).unwrap();
+        let branch = keep(&lock(&rig.db), &id, None, false).unwrap();
         assert!(branch.starts_with("str/make-result-txt-say-good-"), "{branch}");
         let task = detail(&rig, &id);
         assert_eq!((task.summary.state.as_str(), task.result.as_deref()), ("checks_passed", Some("kept")));
@@ -3017,11 +3050,11 @@ mod tests {
         };
         let first = card("c1");
         runner.start(&first).unwrap().await.unwrap();
-        assert_eq!(keep(&lock(&rig.db), &first, None).unwrap(), branch);
+        assert_eq!(keep(&lock(&rig.db), &first, None, false).unwrap(), branch);
         let second = card("c2");
         runner.start(&second).unwrap().await.unwrap();
         assert_eq!(detail(&rig, &second).summary.state, "checks_passed", "card 2 sees card 1's result.txt");
-        assert_eq!(keep(&lock(&rig.db), &second, None).unwrap(), branch);
+        assert_eq!(keep(&lock(&rig.db), &second, None, false).unwrap(), branch);
         let files =
             crate::isolation::git(&rig.repo, &["ls-tree", "--name-only", &format!("refs/heads/{branch}")]).unwrap();
         assert!(files.contains("result.txt") && files.contains("page.txt"), "{files}");
@@ -3069,8 +3102,13 @@ mod tests {
         runner.start(&id).unwrap().await.unwrap();
         let task = detail(&rig, &id);
         assert_eq!((task.summary.state.as_str(), task.attempt_details[0].outcome.as_str()), ("needs_review", "done"));
-        keep(&lock(&rig.db), &id, Some("Add new file")).unwrap();
-        assert_eq!(detail(&rig, &id).summary.state, "manually_accepted");
+        assert_eq!(task.checked, "not_checked");
+        // Not ready: a plain keep is refused, and the result stays open.
+        assert_eq!(keep(&lock(&rig.db), &id, Some("Add new file"), false).unwrap_err(), m::NOT_CHECKED_KEEP);
+        assert_eq!(detail(&rig, &id).summary.state, "needs_review");
+        keep(&lock(&rig.db), &id, Some("Add new file"), true).unwrap();
+        let kept = detail(&rig, &id);
+        assert_eq!((kept.summary.state.as_str(), kept.checked), ("manually_accepted", "not_checked"));
     }
 
     #[tokio::test]
@@ -3089,8 +3127,9 @@ mod tests {
         let id = create(&rig, vec![step("codex", "subscription", 3)]);
         runner.start(&id).unwrap().await.unwrap();
         let task = detail(&rig, &id);
-        assert_eq!(task.summary.state, "needs_review");
+        assert_eq!((task.summary.state.as_str(), task.checked), ("needs_review", "definitions_changed"));
         assert!(task.reason.unwrap().contains("package.json"));
+        assert_eq!(keep(&lock(&rig.db), &id, None, false).unwrap_err(), m::DEFINITIONS_KEEP);
         discard(&lock(&rig.db), &id).unwrap();
         let task = detail(&rig, &id);
         assert_eq!((task.summary.state.as_str(), task.result.as_deref()), ("canceled", Some("discarded")));
@@ -3557,5 +3596,108 @@ mod tests {
         );
         remove_workspace(&conn, &ws.id).unwrap();
         assert!(list_workspaces(&conn).unwrap().is_empty());
+    }
+
+    /// ROADMAP focus item 2's proof: through the task engine with fake agents, 50 results that no check ran on, and
+    /// 30 that checks did run on (10 passed, 10 failed, 10 that changed the file defining their check). Every result
+    /// no check vouches for must stay not ready (a plain keep refused, the result still open, what an IDE agent reads
+    /// says NOT READY), and every check that ran must show its exact command and what it gave.
+    ///
+    ///     cargo test --release --lib checks_gate_proof -- --ignored --nocapture
+    ///
+    /// `PYGG_PROOF_OUT` names a JSON-lines file for one row per task.
+    #[tokio::test]
+    #[ignore]
+    async fn checks_gate_proof() {
+        const WRITES: [(&str, &str); 5] = [
+            ("result.txt", "changed\n"),
+            ("new.rs", "pub fn f() {}\n"),
+            ("README.md", "# Edited\n"),
+            ("a_test.js", "test('x', () => {});\n"),
+            ("PLAN.md", "- step\n"),
+        ];
+        let good = good_check();
+        let no_checks = rig(&[]);
+        let with_check = rig(&[good]);
+        let changes_definition = rig(&[]);
+        lock(&changes_definition.db)
+            .execute(
+                "INSERT INTO workspace_checks (id, workspace_id, command, source, approved) \
+                 VALUES ('c', ?1, 'exit 0', 'package.json', 1)",
+                [&changes_definition.workspace],
+            )
+            .unwrap();
+        let mut rows = String::new();
+        let mut tally: Vec<(&str, usize, usize)> = Vec::new();
+        for i in 0..80 {
+            let (kind, rig, acts): (&str, &Rig, Vec<Act>) = match i {
+                0..50 => {
+                    let (path, text) = WRITES[i % WRITES.len()];
+                    // Every fifth one gets there on its second step, after a first that changed nothing.
+                    let acts = if i % 5 == 4 {
+                        vec![Act::Nothing, Act::Write(path, text)]
+                    } else {
+                        vec![Act::Write(path, text)]
+                    };
+                    ("no check ran", &no_checks, acts)
+                }
+                50..60 => ("check passed", &with_check, vec![Act::Write("result.txt", "good\n")]),
+                60..70 => ("check failed", &with_check, vec![Act::Write("result.txt", "bad\n")]),
+                _ => ("definition changed", &changes_definition, vec![Act::Write("package.json", "{\"scripts\":{}}")]),
+            };
+            let steps = (0..acts.len()).map(|_| step("codex", "subscription", 3)).collect();
+            let runner = Runner::new(rig.db.clone(), rig.worktrees.clone(), fake(acts, rig.prompts.clone()));
+            let id = create(rig, steps);
+            runner.start(&id).unwrap().await.unwrap();
+            let task = detail(rig, &id);
+            let shown = crate::mcp::describe(&serde_json::to_value(&task).unwrap());
+            let checks: Vec<&CheckResult> = task.attempt_details.iter().flat_map(|a| a.checks.iter()).collect();
+            // Every check that ran shows its exact command and its exit.
+            let every_check_shown =
+                checks.iter().all(|c| shown.contains(&format!("check `{}`: ", c.command)) && shown.contains(&c.detail));
+            let refused = if task.result.is_none() && task.summary.state == "needs_review" {
+                keep(&lock(&rig.db), &id, None, false).err()
+            } else {
+                None
+            };
+            let after = detail(rig, &id);
+            let not_ready = task.summary.state == "needs_review"
+                && refused.is_some()
+                && after.summary.state == "needs_review"
+                && after.result.is_none()
+                && shown.contains("NOT READY");
+            let expected = match kind {
+                "no check ran" => task.checked == "not_checked" && not_ready && checks.is_empty(),
+                "check passed" => {
+                    task.checked == "passed" && task.summary.state == "checks_passed" && !shown.contains("NOT READY")
+                }
+                "check failed" => task.checked == "failed" && task.summary.state == "check_failed",
+                _ => task.checked == "definitions_changed" && not_ready,
+            } && every_check_shown;
+            if task.summary.state == "needs_review" || task.summary.state == "checks_passed" {
+                discard(&lock(&rig.db), &id).unwrap();
+            }
+            rows.push_str(&format!(
+                "{}\n",
+                serde_json::json!({ "task": i, "kind": kind, "state": task.summary.state, "checked": task.checked,
+                    "keepRefused": refused, "notReadyShown": shown.contains("NOT READY"), "checksRun": checks.len(),
+                    "everyCheckShown": every_check_shown, "asExpected": expected })
+            ));
+            match tally.iter_mut().find(|t| t.0 == kind) {
+                Some(t) => {
+                    t.1 += 1;
+                    t.2 += expected as usize;
+                }
+                None => tally.push((kind, 1, expected as usize)),
+            }
+        }
+        if let Ok(path) = std::env::var("PYGG_PROOF_OUT") {
+            std::fs::write(path, &rows).unwrap();
+        }
+        println!("{:20} {:>6} {:>12}", "kind", "tasks", "as expected");
+        for (kind, n, ok) in &tally {
+            println!("{kind:20} {n:>6} {ok:>12}");
+        }
+        assert!(tally.iter().all(|(_, n, ok)| n == ok), "{rows}");
     }
 }

@@ -15,7 +15,7 @@ export function statusLine(task: TaskSummary, now = Date.now()): string {
     case 'waiting_approval': return t('Waiting for approval · attempt {n}', {n: attempt});
     case 'needs_revalidation': return t('Plan needs revalidation');
     case 'checks_passed': return t('Checks passed · {time}', {time: ago(task.updatedAt, now)});
-    case 'needs_review': return t('Finished, needs your review · {time}', {time: ago(task.updatedAt, now)});
+    case 'needs_review': return t('Finished, not ready: nothing checked it · {time}', {time: ago(task.updatedAt, now)});
     case 'manually_accepted': return t('Manually accepted · {time}', {time: ago(task.updatedAt, now)});
     case 'answered': return t('Answered · {time}', {time: ago(task.updatedAt, now)});
     case 'check_failed': return attempt === 1 ? t('Check failed · {time}', {time: ago(task.updatedAt, now)})

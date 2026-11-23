@@ -2,8 +2,8 @@
 //!
 //!   agent detect
 //!   agent [--db PATH] run --agent ID --workspace DIR --prompt TEXT [--model M] [--shell yes] [--timeout SECS]
-//!                         [--keep TITLE | --discard yes]
-//!   agent --db PATH task --workspace DIR --prompt TEXT --steps "agent[:model],…" [--check CMD] [--keep TITLE | --discard yes]
+//!                         [--keep TITLE [--unchecked yes] | --discard yes]
+//!   agent --db PATH task --workspace DIR --prompt TEXT --steps "agent[:model],…" [--check CMD] [--keep TITLE [--unchecked yes] | --discard yes]
 //!   agent --db PATH quality [--days N]
 //!
 //! The agent runs with its own sign-in; nothing here reads or stores it. With --db the run is recorded in that
@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 /// A smart task, as the app runs it: the workspace's approved checks plus `--check`, then the steps in order.
 ///
 ///   agent --db PATH task --workspace DIR --prompt TEXT --steps "opencode:opencode/some-free-model,codex"
-///                        [--check CMD] [--shell yes] [--keep TITLE | --discard yes]
+///                        [--check CMD] [--shell yes] [--keep TITLE [--unchecked yes] | --discard yes]
 ///
 /// A step is `agent[:model]`; its billing is recorded as unknown, so no step waits for approval here.
 async fn task(db_path: PathBuf, flags: &HashMap<String, String>) {
@@ -116,7 +116,8 @@ async fn task(db_path: PathBuf, flags: &HashMap<String, String>) {
         println!("--- diff ---\n{}", diff.chars().take(2000).collect::<String>());
         match (flags.get("keep"), flags.get("discard")) {
             (Some(title), _) => {
-                println!("kept as {}", tasks::keep(&conn, &id, Some(title)).unwrap_or_else(|e| fail(e)))
+                let unchecked = flags.contains_key("unchecked");
+                println!("kept as {}", tasks::keep(&conn, &id, Some(title), unchecked).unwrap_or_else(|e| fail(e)))
             }
             (None, Some(_)) => {
                 tasks::discard(&conn, &id).unwrap_or_else(|e| fail(e));
@@ -137,8 +138,8 @@ fn fail(message: impl std::fmt::Display) -> ! {
 const HELP: &str = "usage: agent [--db PATH] <command> [--flag value …]
 
   detect                      the agent CLIs installed and how they sign in
-  run --agent ID --workspace DIR --prompt TEXT [--model M] [--shell yes] [--timeout SECS] [--keep TITLE | --discard yes]
-  task --workspace DIR --prompt TEXT --steps \"agent[:model],…\" [--check CMD] [--keep TITLE | --discard yes]   (needs --db)
+  run --agent ID --workspace DIR --prompt TEXT [--model M] [--shell yes] [--timeout SECS] [--keep TITLE [--unchecked yes] | --discard yes]
+  task --workspace DIR --prompt TEXT --steps \"agent[:model],…\" [--check CMD] [--keep TITLE [--unchecked yes] | --discard yes]   (needs --db)
   quality [--days N]          known money per kept result (needs --db)
 
 Agents run with their own sign-in; Pygg never reads or stores it.";

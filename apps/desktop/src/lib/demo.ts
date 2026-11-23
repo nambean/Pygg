@@ -1330,6 +1330,8 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
       policy: {steps: s.attempts.map((a, i) => ({agent: attempts[i].agent, model: null, tier: a.tier, billing: a.billing})), checks,
         allowShell: false, timeoutSecs: 900},
       attempts: s.attempts, attemptDetails: attempts,
+      checked: s.state === 'checks_passed' ? 'passed' : s.state === 'needs_review' ? (checks.length ? 'definitions_changed' : 'not_checked')
+        : s.state === 'check_failed' ? 'failed' : '',
       approval: s.state === 'waiting_approval' && waiting ? {step: waiting.step, paid: waiting.billing === 'paid', label: waiting.label,
         estimate: {runs: 4, lowMicroUsd: 20_000, highMicroUsd: 60_000}, suggestedCapUsd: 0.1, enforcedByAgent: waiting.agent === 'claude-code', enforcedByGateway: false,
         remainingUsd: 1.42} : null};
@@ -1487,9 +1489,14 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
       setTimeout(() => {
         const d = details.get(id);
         if (d?.state !== 'running') return;
-        const done = {...detailOf({...summary(d), state: 'checks_passed', attempts: [{...d.attempts[0], outcome: 'passed'}],
+        // As the engine: without an approved check nothing confirms the result, so it is not ready.
+        const unchecked = d.policy.checks.length === 0;
+        const state = unchecked ? 'needs_review' : 'checks_passed';
+        const done = {...detailOf({...summary(d), state, attempts: [{...d.attempts[0], outcome: unchecked ? 'done' : 'passed'}],
           cost: {actualUsd: 0, estimatedUsd: 0, unknownCalls: 1, localOnly: false}})};
-        set(id, {state: 'checks_passed', phase: undefined, attempts: done.attempts, cost: done.cost, attemptDetails: done.attemptDetails});
+        set(id, {state, phase: undefined, attempts: done.attempts, cost: done.cost, checked: unchecked ? 'not_checked' : 'passed',
+          reason: unchecked ? 'No checks are approved for this workspace, so nothing confirmed the result. Review the changes yourself.' : null,
+          attemptDetails: done.attemptDetails.map((a, i, all) => ({...a, open: i === all.length - 1, ...(unchecked ? {checks: []} : {})}))});
       }, 5000);
       return id;
     },
@@ -1543,7 +1550,8 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
     pickFolder: async () => null,
     exportPatch: async () => { await sleep(200); return 'C:\\Users\\you\\Downloads\\fix-timeout-handling.patch'; },
     setWorkspaceBudget: async (id, dailyUsd) => { const w = findWorkspace(id); w.dailyBudgetUsd = dailyUsd; return touch(w); },
-    finishTask: async (id, keep, title) => { await sleep(250); const d = get(id);
+    finishTask: async (id, keep, title, unchecked) => { await sleep(250); const d = get(id);
+      if (keep && d.state === 'needs_review' && !unchecked) throw 'Not ready: no check ran on this result. Review the changes; to keep it anyway, keep it as unchecked work.';
       const branch = keep ? `str/${(title || d.title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48)}-${id.replace(/\W/g, '').slice(0, 8)}` : null;
       set(id, {result: keep ? 'kept' : 'discarded', resultBranch: branch, state: d.state === 'needs_review' ? (keep ? 'manually_accepted' : 'canceled') : d.state});
       return branch; },

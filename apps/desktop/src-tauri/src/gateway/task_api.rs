@@ -413,6 +413,9 @@ async fn stop(State(shared): State<Shared>, headers: HeaderMap, Path(id): Path<S
 struct KeepBody {
     #[serde(default)]
     title: Option<String>,
+    /// The caller reviewed a result no check vouches for and keeps it anyway (`tasks::keep`).
+    #[serde(default, rename = "acceptUnchecked")]
+    accept_unchecked: bool,
 }
 
 async fn keep(State(shared): State<Shared>, headers: HeaderMap, Path(id): Path<String>, body: Bytes) -> Response {
@@ -430,7 +433,7 @@ async fn keep(State(shared): State<Shared>, headers: HeaderMap, Path(id): Path<S
     };
     match blocking(&shared, move |db| {
         tasks::check_owner(db, &id, &client.id)?;
-        tasks::keep(db, &id, body.title.as_deref())
+        tasks::keep(db, &id, body.title.as_deref(), body.accept_unchecked)
     })
     .await
     {
@@ -601,11 +604,23 @@ mod tests {
 
         let (_, diff) = api.send(reqwest::Method::GET, &format!("/pygg/v1/tasks/{id}/diff"), None, &api.token).await;
         assert!(diff["diff"].as_str().unwrap().contains("+fixed"));
-        let (status, kept) = api
+        // No check ran: not ready, so a plain keep is refused and says why (ROADMAP focus item 2).
+        assert_eq!(task["checked"], "not_checked");
+        let (status, refused) = api
             .send(
                 reqwest::Method::POST,
                 &format!("/pygg/v1/tasks/{id}/keep"),
                 Some(json!({"title": "Add fixed"})),
+                &api.token,
+            )
+            .await;
+        assert_eq!(status, 400, "{refused}");
+        assert!(refused["error"]["message"].as_str().unwrap().starts_with("Not ready: no check ran"));
+        let (status, kept) = api
+            .send(
+                reqwest::Method::POST,
+                &format!("/pygg/v1/tasks/{id}/keep"),
+                Some(json!({"title": "Add fixed", "acceptUnchecked": true})),
                 &api.token,
             )
             .await;

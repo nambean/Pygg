@@ -146,6 +146,7 @@ function Actions({task, onChanged}: {task: Detail; onChanged: () => void}) {
   const [diff, setDiff] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [discarding, setDiscarding] = useState(false);
+  const [keepingUnchecked, setKeepingUnchecked] = useState(false);
   const run = (f: () => Promise<unknown>, done?: (value: unknown) => void) => {
     setBusy(true);
     setError(null);
@@ -183,7 +184,9 @@ function Actions({task, onChanged}: {task: Detail; onChanged: () => void}) {
 
     {result && <div className="group-box agent-result">
       <div className="agent-result-head">
-        {task.state === 'checks_passed' ? <Badge tone="ok">{t('Checks passed')}</Badge> : <Badge tone="warn">{t('Needs your review')}</Badge>}
+        {task.state === 'checks_passed' ? <Badge tone="ok">{t('Checks passed')}</Badge>
+          : task.checked === 'definitions_changed' ? <Badge tone="warn">{t('Not ready: checks changed')}</Badge>
+          : <Badge tone="warn">{t('Not ready: not checked')}</Badge>}
         <span className="secondary">{t('{files} files, +{ins} −{del}', {files: result.filesChanged ?? 0, ins: result.insertions ?? 0, del: result.deletions ?? 0})}</span>
       </div>
       {result.summary && <p className="agent-message">{result.summary}</p>}
@@ -198,9 +201,12 @@ function Actions({task, onChanged}: {task: Detail; onChanged: () => void}) {
       <div className="form-actions">
         <input className="text-input" value={title} onChange={e => setTitle(e.target.value)} placeholder={task.title}
           aria-label={t('Branch title')} disabled={busy}/>
-        <button type="button" className="button prominent" disabled={busy}
-          onClick={() => run(() => call(api => api.finishTask(task.id, true, title.trim() || null)))}>
-          <GitBranch size={13} aria-hidden/>{t('Keep as Branch')}</button>
+        {task.state === 'checks_passed'
+          ? <button type="button" className="button prominent" disabled={busy}
+              onClick={() => run(() => call(api => api.finishTask(task.id, true, title.trim() || null)))}>
+              <GitBranch size={13} aria-hidden/>{t('Keep as Branch')}</button>
+          : <button type="button" className="button" disabled={busy} onClick={() => setKeepingUnchecked(true)}>
+              <GitBranch size={13} aria-hidden/>{t('Keep Without Checks…')}</button>}
         <button type="button" className="button" disabled={busy} onClick={() => setDiscarding(true)}>
           <Trash2 size={13} aria-hidden/>{t('Discard…')}</button>
         <button type="button" className="button" disabled={busy} title={t('Save the changes as a file git apply takes; the result stays here')}
@@ -208,8 +214,14 @@ function Actions({task, onChanged}: {task: Detail; onChanged: () => void}) {
             path => { if (path) setMessage(t('Saved as {path}. The result is still here to keep or discard.', {path: String(path)})); })}>
           <FileDown size={13} aria-hidden/>{t('Export Patch…')}</button>
       </div>
-      <p className="group-footnote">{t('Keep as Branch saves the result as a new branch in the repository. The folder you have open, and its branch, are not changed.')}</p>
+      <p className="group-footnote">{t('Keeping saves the result as a new branch in the repository. The folder you have open, and its branch, are not changed.')}</p>
     </div>}
+    {keepingUnchecked && <ConfirmSheet destructive={false} title={t('Keep a result nothing checked?')} confirmLabel={t('Keep Without Checks')}
+      message={<p>{task.checked === 'definitions_changed'
+        ? t('The checks passed, but this result changed a file that defines them, so their pass does not vouch for it. Keep it only if you have read the changes and judge them correct yourself.')
+        : t('No check ran on this result, so nothing confirmed it. Keep it only if you have read the changes and judge them correct yourself. Approving checks for this workspace lets Pygg confirm the next result.')}</p>}
+      onClose={() => setKeepingUnchecked(false)}
+      onConfirm={async () => { await call(api => api.finishTask(task.id, true, title.trim() || null, true)); setKeepingUnchecked(false); onChanged(); }}/>}
     {discarding && <ConfirmSheet title={t('Discard this result?')} confirmLabel={t('Discard Result')}
       message={<p>{t('The changes and the copy of the repository they were made in are deleted. This cannot be undone. Export Patch first to keep a copy.')}</p>}
       onClose={() => setDiscarding(false)}
@@ -412,7 +424,8 @@ function Evidence({task}: {task: Detail}) {
         {paths.length > 0 && <details><summary>{t('Files')}</summary><ul className="evidence-files mono">{paths.slice(0, 60).map(p => <li key={p}>{p}</li>)}</ul></details>}</dd>
       <dt>{t('Checked by')}</dt><dd>{result.checks.length === 0 ? <span className="warn-text">{t('no check ran')}</span>
         : <ul className="check-results">{result.checks.map(c => <li key={c.command} className={c.passed ? 'passed' : 'failed'}>
-            {c.passed ? <Check size={12} aria-hidden/> : <X size={12} aria-hidden/>}<span className="mono">{c.command}</span></li>)}</ul>}
+            {c.passed ? <Check size={12} aria-hidden/> : <X size={12} aria-hidden/>}<span className="mono selectable">{c.command}</span>
+            <span className="secondary"> · {c.passed ? t('passed') : c.detail} · {t('{s} s', {s: (c.durationMs / 1000).toFixed(1)})}</span></li>)}</ul>}
         {failed.length > 0 && <span className="warn-text">{t('{n} failed', {n: failed.length})}</span>}</dd>
       <dt>{t('Not checked')}</dt><dd><ul className="evidence-unchecked">{unchecked.map(u => <li key={u}>{u}</li>)}</ul></dd>
     </dl>

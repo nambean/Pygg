@@ -1583,11 +1583,11 @@ pub fn task_activity(attempt_id: String, after: u64) -> crate::live::Activity {
 /// Keeps the task's result as a branch (`title` names it) or discards it. Returns the branch when kept.
 #[tauri::command]
 pub async fn task_finish(
-    state: State<'_, AppState>, id: String, keep: bool, title: Option<String>,
+    state: State<'_, AppState>, id: String, keep: bool, title: Option<String>, unchecked: Option<bool>,
 ) -> Res<Option<String>> {
     state.shared.with_db(|db| {
         if keep {
-            tasks::keep(db, &id, title.as_deref()).map(Some)
+            tasks::keep(db, &id, title.as_deref(), unchecked.unwrap_or(false)).map(Some)
         } else {
             tasks::discard(db, &id).map(|()| None)
         }

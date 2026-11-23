@@ -33,6 +33,9 @@ pub const NO_CHECKS_NOTE: &str =
 pub const CHANGED_DEFINITIONS: &str = "The checks passed, but this attempt changed {0}, which defines them. Review the changes before trusting the result.";
 pub const CHANGED_DEFINITIONS_NOTE: &str = "The checks passed, but this attempt changed {0}, which defines them. Review the changes before trusting the result. {1}.";
 pub const NOTE: &str = "{0}.";
+pub const NOT_CHECKED_KEEP: &str =
+    "Not ready: no check ran on this result. Review the changes; to keep it anyway, keep it as unchecked work.";
+pub const DEFINITIONS_KEEP: &str = "Not ready: this result changed a file that defines its checks, so their pass does not vouch for it. Review the changes; to keep it anyway, keep it as unchecked work.";
 pub const DISCARDED: &str = "You discarded the result";
 pub const INTERRUPTED: &str = "The app closed while this task ran. Retry runs the step again from the same code.";
 
