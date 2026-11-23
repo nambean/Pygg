@@ -797,6 +797,32 @@ fn judge(
 /// Why nothing was eligible, grouped so that a store with hundreds of models still says what to fix: one group per
 /// connection and reason (numbers aside), the largest first, each with an example model and how many more share it.
 /// Found when an owner's 584 models were refused with the first 12 reasons, all from one connection.
+/// What brings models into `auto` when none is eligible (ROADMAP focus item 6: a newcomer with only local models
+/// was told to "set tiers" and had no way to find how), for the key named `client`: in the app and on the command line.
+pub fn remedy(excluded: &[Excluded], client: &str) -> String {
+    let mut steps = Vec::new();
+    if excluded.is_empty() {
+        steps.push(
+            "No model is listed yet: Providers → the connection → Refresh, or `pygg gateway refresh-models --id CONNECTION`."
+                .to_string(),
+        );
+    }
+    if excluded.iter().any(|e| e.reason.contains("below this client's minimum")) {
+        steps.push(format!(
+            "To let auto use models under this key's minimum tier, lower it: Endpoint → API Keys → Limits…, or \
+             `pygg gateway client --name \"{client}\" --auto-min-tier T0`."
+        ));
+    }
+    if excluded.iter().any(|e| e.kind == FACTS) {
+        steps.push(
+            "Fill the missing facts: Providers → Auto…, or `pygg gateway lookup`, or set them yourself with \
+             `pygg gateway model --model CONNECTION/MODEL --tier T2 --context 128000`."
+                .to_string(),
+        );
+    }
+    steps.join(" ")
+}
+
 pub fn summarize(excluded: &[Excluded], groups: usize) -> String {
     // (connection, reason with digits masked, example, count), in first-seen order.
     let mut found: Vec<(String, String, String, usize)> = Vec::new();
@@ -862,6 +888,21 @@ mod tests {
     use super::*;
     use crate::gateway::pricing::Price;
     use crate::gateway::store::{Capabilities, NewProvider};
+
+    #[test]
+    fn a_refusal_says_what_to_do_in_the_app_and_on_the_command_line() {
+        let ex =
+            |r: &str, kind| Excluded { provider_id: "ollama".into(), model_id: "q".into(), reason: r.into(), kind };
+        // Nothing listed: list the connection's models.
+        assert!(remedy(&[], "my-tool").contains("pygg gateway refresh-models --id CONNECTION"));
+        // A local model under the key's minimum tier: the command that lowers it, for this key.
+        let low = remedy(&[ex("tier T0 is below this client's minimum T2", POLICY)], "my-tool");
+        assert!(low.contains("pygg gateway client --name \"my-tool\" --auto-min-tier T0"), "{low}");
+        assert!(low.contains("Endpoint → API Keys → Limits"), "{low}");
+        // A missing fact: where to fill it.
+        let facts = remedy(&[ex("context size unknown", FACTS)], "my-tool");
+        assert!(facts.contains("pygg gateway lookup") && facts.contains("--context"), "{facts}");
+    }
 
     #[test]
     fn a_refusal_groups_its_reasons_by_connection_largest_first() {

@@ -937,14 +937,15 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 .map_err(|e| Refusal::new(StatusCode::INTERNAL_SERVER_ERROR, "api_error", e))?;
             if plan.ranked.is_empty() {
                 let why = auto::summarize(&plan.excluded, 8);
+                let remedy = auto::remedy(&plan.excluded, &client.name);
                 return Err(Refusal::new(
                     StatusCode::UNPROCESSABLE_ENTITY,
                     "no_eligible_model",
                     format!(
-                        "No connected model is eligible for \"{requested}\". Set tiers, context sizes and prices in \
-                     Pygg → Providers, or ask for a model by name.{}{}",
+                        "No connected model is eligible for \"{requested}\".{}{} {} Or ask for a model by name.",
                         if why.is_empty() { "" } else { " " },
-                        why
+                        if why.is_empty() { why } else { format!("{why}.") },
+                        remedy
                     ),
                 ));
             }

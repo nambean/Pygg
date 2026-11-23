@@ -63,7 +63,60 @@ pub async fn fetch_list(shared: &Shared, provider: &Provider) -> Result<Vec<List
         return Err(fail(None, "The provider's answer is not a model list".into()));
     }
     let prefix = presets::find(&provider.kind).and_then(|p| p.strip_model_prefix);
-    Ok(parse_list(&parsed, prefix))
+    let listed = parse_list(&parsed, prefix);
+    Ok(if provider.kind == "ollama" { ollama_facts(shared, provider, listed).await } else { listed })
+}
+
+/// Ollama's default served context when neither the model's parameters nor the server set one.
+const OLLAMA_DEFAULT_CONTEXT: u64 = 4096;
+
+/// Ollama's OpenAI-compatible list gives names only; its own `/api/show` says what each model can do (ROADMAP focus
+/// item 6: a newcomer with Ollama found no model eligible for `auto`). The context is what Ollama serves: the model's
+/// `num_ctx` when it sets one, else Ollama's default of 4,096, never more than the model's own maximum, since a longer
+/// prompt is cut short without an error; the most it answers is that context too. Raise it with `OLLAMA_CONTEXT_LENGTH` and `pygg gateway model --context`.
+/// A model that only embeds is left out: it cannot answer a chat request.
+async fn ollama_facts(shared: &Shared, provider: &Provider, listed: Vec<Listed>) -> Vec<Listed> {
+    let base = provider.endpoint.trim_end_matches('/').trim_end_matches("/v1").to_string();
+    let mut out = Vec::with_capacity(listed.len());
+    for mut model in listed {
+        let shown = shared
+            .http
+            .post(format!("{base}/api/show"))
+            .json(&serde_json::json!({ "model": model.id }))
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await;
+        let info = match shown {
+            Ok(response) if response.status().is_success() => response.json::<Value>().await.unwrap_or(Value::Null),
+            _ => Value::Null,
+        };
+        let capabilities: Vec<&str> =
+            info["capabilities"].as_array().map(|c| c.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+        if !capabilities.is_empty() && !capabilities.contains(&"completion") {
+            continue;
+        }
+        if model.context_tokens.is_none() {
+            let maximum = info["model_info"]
+                .as_object()
+                .and_then(|m| m.iter().find(|(k, _)| k.ends_with(".context_length")).and_then(|(_, v)| positive(v)));
+            let set = info["parameters"].as_str().and_then(|p| {
+                p.lines().find_map(|l| l.strip_prefix("num_ctx").and_then(|v| v.trim().parse::<u64>().ok()))
+            });
+            if let Some(maximum) = maximum {
+                model.context_tokens = Some(set.unwrap_or(OLLAMA_DEFAULT_CONTEXT).min(maximum));
+            }
+        }
+        // Ollama writes until the served context is full unless told less, so that is the most it can answer.
+        if model.max_output_tokens.is_none() {
+            model.max_output_tokens = model.context_tokens;
+        }
+        if !capabilities.is_empty() {
+            model.supports_tools = Some(capabilities.contains(&"tools"));
+            model.supports_vision = Some(capabilities.contains(&"vision"));
+        }
+        out.push(model);
+    }
+    out
 }
 
 /// The source recorded with facts read from this connection's model list.

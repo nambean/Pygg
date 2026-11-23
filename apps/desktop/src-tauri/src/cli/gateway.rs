@@ -179,6 +179,26 @@ pub async fn run(mut args: Vec<String>) {
                 })
                 .unwrap_or_else(|e| fail(e));
             println!("Added connection {} ({})", provider.id, provider.endpoint);
+            // Its models listed at once, as Providers does when a connection is added (ROADMAP focus item 6: a
+            // newcomer's first `auto` request found none). A failure is a hint, not an error: the connection stays.
+            match catalog::fetch_models(&shared, &provider).await {
+                Ok(ids) => {
+                    let source = catalog::list_source(&provider);
+                    let added = shared
+                        .with_db(|db| store::import_listed(db, &provider.id, &ids, Some(&source)))
+                        .unwrap_or_else(|e| fail(e));
+                    println!("{} listed {} models, {added} new", provider.label, ids.len());
+                    if let Some(catalog) =
+                        gateway::reference::current(&shared.http, &gateway::reference::cache_path(&db_path)).await
+                    {
+                        let _ = shared.with_db(|db| gateway::reference::apply(db, &catalog));
+                    }
+                }
+                Err(e) => println!(
+                    "Its models could not be listed yet ({e}); `pygg gateway refresh-models --id {}` tries again.",
+                    provider.id
+                ),
+            }
         }
         "remove-connection" => {
             let id = one("id").unwrap_or_else(|| fail("--id is required"));
@@ -340,6 +360,21 @@ pub async fn run(mut args: Vec<String>) {
             let (client, token) =
                 shared.with_db(|db| store::create_client(db, &name, limit)).unwrap_or_else(|e| fail(e));
             println!("Client {} created. Token (shown once):\n{token}", client.name);
+            // `auto` takes only models at or above the key's minimum tier: say so now when none is connected yet,
+            // rather than on the first request (ROADMAP focus item 6; a local-only set-up met a 422 there).
+            let floor: i64 = client.auto_min_tier.trim_start_matches(['T', 't']).parse().unwrap_or(2);
+            let above: i64 = shared
+                .with_db(|db| {
+                    db.query_row("SELECT COUNT(*) FROM models WHERE enabled = 1 AND tier >= ?1", [floor], |r| r.get(0))
+                })
+                .unwrap_or(0);
+            if above == 0 {
+                println!(
+                    "No connected model is rated {} or higher yet, so `auto` has none to choose for this key. Connect \
+                     one, or let it use lower tiers: pygg gateway client --name \"{}\" --auto-min-tier T0",
+                    client.auto_min_tier, client.name
+                );
+            }
         }
         "combo" => {
             let name = one("name").unwrap_or_else(|| fail("--name is required"));

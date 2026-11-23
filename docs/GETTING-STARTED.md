@@ -27,7 +27,7 @@ Get-FileHash .\Pygg_0.1.0_x64-setup.exe -Algorithm SHA256
 ```bash
 npm install -g @pygg/cli@dev
 pygg gateway add-connection --preset openrouter --key-env OPENROUTER_API_KEY   # macOS/Linux: no app
-pygg gateway create-client --name my-tool     # prints a Pygg API key once
+pygg gateway create-client --name my-tool     # prints a Pygg API key once, and the next command if auto has no model yet
 pygg gateway serve
 ```
 
@@ -98,7 +98,7 @@ pygg doctor
 | --- | --- |
 | Connection refused | Start the app; `pygg status` |
 | HTTP 401 | Wrong or revoked key; create a new one in Endpoint → API Keys |
-| HTTP 422 "No connected model is eligible for auto" | `pygg gateway lookup`, Providers → Auto…, or name a model |
+| HTTP 422 "No connected model is eligible for auto" | Do what the message says: a model under the key's minimum tier (local models are T0) → `pygg gateway client --name NAME --auto-min-tier T0`; a missing fact → `pygg gateway lookup` or Providers → Auto…; or name a model |
 | HTTP 429 "cooling down" | Provider limit; `auto` moves on |
 | Cost unknown | Set a price in Providers |
 
