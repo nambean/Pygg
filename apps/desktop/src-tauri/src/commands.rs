@@ -1811,7 +1811,7 @@ pub fn brainstorm_set_model(
 #[tauri::command]
 pub fn brainstorm_set_card(
     state: State<'_, AppState>, id: String, card: String, dropped: Option<bool>, runner: Option<String>,
-    class: Option<String>, fallbacks: Option<Vec<String>>,
+    class: Option<String>, fallbacks: Option<Vec<String>>, check: Option<String>,
 ) -> Res<brain::Brainstorm> {
     let mut b = brainstorm_of(&state, &id)?;
     if b.state != "proposed" {
@@ -1832,6 +1832,13 @@ pub fn brainstorm_set_card(
             return Err("A class is standard or expedite".into());
         }
         c.class = k;
+    }
+    // The card's check, as the user writes it: empty removes it; more than one line or 500 characters is refused.
+    if let Some(text) = check {
+        if !text.trim().is_empty() && brain::card_check(&text).is_none() {
+            return Err("A check is one command on one line, at most 500 characters".into());
+        }
+        c.check = brain::card_check(&text);
     }
     // The user's fallback list, in order: each `connection/model`, none twice, never the card's own model, at most
     // five so the card's task stays within the engine's six steps.

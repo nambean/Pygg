@@ -194,6 +194,26 @@ function Cards({b, onChanged, changeScope}: {b: Brainstorm; onChanged: () => voi
   </section>;
 }
 
+/** A card's check: the command its task runs after the workspace's checks, which the user reads and may change
+ *  before approving the plan, since approving it lets it run on this computer (ROADMAP focus item 6). */
+function CardCheck({card, editable, busy, onSave}: {card: BrainCard; editable: boolean; busy: boolean; onSave: (check: string) => void}) {
+  const [draft, setDraft] = useState(card.check ?? '');
+  useEffect(() => setDraft(card.check ?? ''), [card.check]);
+  if (!editable) return <div className="card-line brain-meta">{card.check
+    ? <>{t('Check')}: <code className="mono selectable">{card.check}</code></>
+    : t('No check: a person reviews this card')}</div>;
+  const changed = draft.trim() !== (card.check ?? '');
+  return <div className="card-check">
+    <label className="brain-meta" htmlFor={`check-${card.id}`}>{t('Check (runs on this computer after the card)')}</label>
+    <div className="card-check-row">
+      <input id={`check-${card.id}`} className="text-input mono" value={draft} disabled={busy} spellCheck={false}
+        placeholder={t('No check: a person reviews this card')} onChange={e => setDraft(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter' && changed) onSave(draft); }}/>
+      <button type="button" className="button" disabled={busy || !changed} onClick={() => onSave(draft)}>{t('Save')}</button>
+    </div>
+  </div>;
+}
+
 function CardRow({b, card, onChanged, changeScope}: {b: Brainstorm; card: BrainCard; onChanged: () => void; changeScope: 'ask' | 'card' | 'role'}) {
   const [sheet, setSheet] = useState<'change' | 'fallback' | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -208,6 +228,8 @@ function CardRow({b, card, onChanged, changeScope}: {b: Brainstorm; card: BrainC
       <div className="row-title"><span className="name">{card.title}</span><span className={`role-chip ${card.role}`}>{ROLE_NAMES[card.role]}</span>
         {deps.length > 0 && <span className="brain-meta">{t('needs {q} answered', {q: deps.join(', ')})}</span>}</div>
       <div className="card-line"><span className="brain-id">{card.model ?? t('nothing eligible')}</span></div>
+      <CardCheck card={card} editable={editable && !card.dropped} busy={busy}
+        onSave={check => act(() => call(api => api.brainstormSetCard(b.id, card.id, {check})))}/>
       {sheet === 'change' && <RoleSheet role={card.role} brainstormId={b.id} current={card.model} onClose={() => setSheet(null)}
         onPick={model => { if (changeScope === 'ask') { setPending(model); return; } return apply(model, changeScope === 'role'); }}/>}
       {sheet === 'fallback' && <RoleSheet role={card.role} brainstormId={b.id} exclude={[card.model ?? '', ...card.fallbacks.map(f => f.model)]} onClose={() => setSheet(null)}

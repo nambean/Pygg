@@ -617,7 +617,7 @@ export interface GatewayApi {
   brainstormPickPlanner(id: string, model: string, remember: boolean): Promise<Brainstorm>;
   brainstormRetry(id: string): Promise<Brainstorm>;
   brainstormSetModel(id: string, card: string, model: string, allOfRole: boolean): Promise<Brainstorm>;
-  brainstormSetCard(id: string, card: string, change: {dropped?: boolean; runner?: 'engine' | 'ide'; class?: 'standard' | 'expedite'; fallbacks?: string[]}): Promise<Brainstorm>;
+  brainstormSetCard(id: string, card: string, change: {dropped?: boolean; runner?: 'engine' | 'ide'; class?: 'standard' | 'expedite'; fallbacks?: string[]; check?: string}): Promise<Brainstorm>;
   brainstormDecline(id: string): Promise<Brainstorm>;
   /** Every card that is not dropped becomes a task of the workspace run by the agent; returns the task ids. */
   brainstormApprove(id: string, workspaceId: string, agent: string): Promise<string[]>;
@@ -770,7 +770,7 @@ const native: GatewayApi = {
   brainstormPickPlanner: (id, model, remember) => invoke('brainstorm_pick_planner', {id, model, remember}),
   brainstormRetry: id => invoke('brainstorm_retry', {id}),
   brainstormSetModel: (id, card, model, allOfRole) => invoke('brainstorm_set_model', {id, card, model, allOfRole}),
-  brainstormSetCard: (id, card, change) => invoke('brainstorm_set_card', {id, card, dropped: change.dropped ?? null, runner: change.runner ?? null, class: change.class ?? null, fallbacks: change.fallbacks ?? null}),
+  brainstormSetCard: (id, card, change) => invoke('brainstorm_set_card', {id, card, dropped: change.dropped ?? null, runner: change.runner ?? null, class: change.class ?? null, fallbacks: change.fallbacks ?? null, check: change.check ?? null}),
   brainstormDecline: id => invoke('brainstorm_decline', {id}),
   brainstormApprove: (id, workspaceId, agent) => invoke('brainstorm_approve', {id, workspaceId, agent}),
   modelFactsRole: role => invoke('model_facts_role', {role}),

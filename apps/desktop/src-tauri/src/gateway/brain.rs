@@ -1,7 +1,7 @@
 //! `pygg/brain` (ADR-041, docs/design/BRAIN.md §2): the router is the brain. A client names the virtual model
 //! `pygg/brain` with a requirement; the gateway picks a planner by rule (auto's filters, the `plan` role's facts,
 //! the user's saved pick first), asks it for clarifying questions and a board of cards with Pygg's own prompt
-//! (the starter skill `brain-v3`), picks a model per card by rule (never the planner's word), stores the proposal
+//! (the starter skill `brain-v4`), picks a model per card by rule (never the planner's word), stores the proposal
 //! for the app, and answers the client with the proposal in plain text. A paid planner on first use waits for the
 //! user's pick in the app (ADR-010); a later call in the same session refines the same brainstorm.
 //!
@@ -25,13 +25,21 @@ pub const HEADER: &str = "x-pygg-brainstorm";
 /// The ledger's route kind for the calls the brain makes.
 pub const ROUTE_KIND: &str = "brain";
 /// The starter skill that holds the prompt (skills.rs, ADR-039).
-pub const PROMPT_VERSION: &str = "brain-v3";
+pub const PROMPT_VERSION: &str = "brain-v4";
 /// The quality signal written per planner reply (ADR-029, migration 0042).
 pub const METRIC: &str = "brain_schema_ok";
 pub const MAX_QUESTIONS: usize = 7;
 pub const MAX_CARDS: usize = 40;
 /// Where a saved pick applies to every project (BRAIN.md 4.7b).
 pub const GLOBAL: &str = "global";
+
+/// A card's check as Pygg takes it, from the planner or the user: one trimmed line of at most 500 characters, as a
+/// workspace check; `None` for an empty one.
+pub fn card_check(text: &str) -> Option<String> {
+    let text = text.trim();
+    (!text.is_empty() && text.chars().count() <= 500 && !text.contains('\n') && !text.contains('\r'))
+        .then(|| text.to_string())
+}
 
 pub fn is_brain(requested: &str) -> bool {
     requested == MODEL
@@ -56,6 +64,11 @@ pub struct Card {
     pub title: String,
     pub role: String,
     pub done: String,
+    /// The command that shows the card is done, run after its task with the workspace's approved checks (ROADMAP
+    /// focus item 6, the narrow planner). The planner proposes it; the user sees and edits it before approving, and
+    /// the approval is what lets it run. `None`: nothing tests the card, a person reviews it.
+    #[serde(default)]
+    pub check: Option<String>,
     #[serde(default)]
     pub depends_on: Vec<String>,
     /// `connection/model`, picked by rule for the card's role; `None` when nothing was eligible.
@@ -416,7 +429,7 @@ fn planner_messages(b: &Brainstorm, answers: Option<&str>, checks: Option<&[Stri
     if b.revision > 0 {
         let previous = json!({
             "questions": b.proposal.questions.iter().filter(|q| !q.answered).map(|q| json!({"id": q.id, "text": q.text})).collect::<Vec<_>>(),
-            "cards": b.proposal.cards.iter().map(|c| json!({"id": c.id, "title": c.title, "role": c.role, "done": c.done, "dependsOn": c.depends_on})).collect::<Vec<_>>(),
+            "cards": b.proposal.cards.iter().map(|c| json!({"id": c.id, "title": c.title, "role": c.role, "done": c.done, "check": c.check, "dependsOn": c.depends_on})).collect::<Vec<_>>(),
         });
         user.push_str(&format!("\n\nYour previous proposal (JSON):\n{previous}"));
         if let Some(answers) = answers.map(str::trim).filter(|a| !a.is_empty()) {
@@ -713,6 +726,8 @@ pub fn parse_reply(text: &str) -> std::result::Result<Proposal, String> {
         let title = c["title"].as_str().map(str::trim).unwrap_or("");
         let role = c["role"].as_str().map(str::trim).unwrap_or("");
         let done = c["done"].as_str().or_else(|| c["doneCriterion"].as_str()).map(str::trim).unwrap_or("");
+        // A check the planner wrote that is not one plain line is left out, not repaired: the user can write one.
+        let check = c["check"].as_str().and_then(card_check);
         if title.is_empty()
             || done.is_empty()
             || !super::facts::ROUTED_ROLES.contains(&role)
@@ -741,6 +756,7 @@ pub fn parse_reply(text: &str) -> std::result::Result<Proposal, String> {
             .map(String::from)
             .collect();
         cards.push(Card {
+            check,
             id,
             title: title.chars().take(200).collect(),
             role: role.into(),
@@ -946,6 +962,11 @@ pub fn proposal_text(b: &Brainstorm) -> String {
                 deps,
                 c.done
             ));
+            // The command its task runs after the workspace's checks, or that nothing tests it (the narrow planner).
+            out.push_str(&match &c.check {
+                Some(check) => format!("  check: `{check}`\n"),
+                None => "  check: none, a person reviews it\n".to_string(),
+            });
         }
     }
     if let Some(note) = &b.note {
@@ -1065,6 +1086,20 @@ mod tests {
 
     fn board(cards: &str) -> String {
         format!(r#"{{"questions": [{{"id": "q1", "text": "Which payment providers?"}}], "cards": [{cards}]}}"#)
+    }
+
+    #[test]
+    fn a_card_keeps_a_one_line_check_and_drops_any_other() {
+        let p = parse_reply(&board(
+            r#"{"id": "c1", "title": "Cart", "role": "code", "done": "totals are right", "check": " node --test test/cart.test.js "},
+               {"id": "c2", "title": "Docs", "role": "code", "done": "a person reads it"},
+               {"id": "c3", "title": "Two", "role": "code", "done": "x", "check": "npm test\nrm -rf /"}"#,
+        ))
+        .unwrap();
+        let checks: Vec<Option<&str>> = p.cards.iter().map(|c| c.check.as_deref()).collect();
+        assert_eq!(checks, [Some("node --test test/cart.test.js"), None, None]);
+        assert_eq!(card_check(&"x".repeat(501)), None);
+        assert_eq!(card_check("  "), None);
     }
 
     #[test]
@@ -1263,7 +1298,7 @@ mod tests {
             branch: None,
         };
         let text = proposal_text(&b);
-        assert!(text.starts_with("Brainstorm b_1 · revision 1 · open it in Pygg: pygg://brainstorm/b_1\nPlanner: gemini/gemini-3.1-pro (brain-v3)\n"), "{text}");
+        assert!(text.starts_with("Brainstorm b_1 · revision 1 · open it in Pygg: pygg://brainstorm/b_1\nPlanner: gemini/gemini-3.1-pro (brain-v4)\n"), "{text}");
         assert!(text.contains("1. Which payment providers?"));
         assert!(
             text.contains(

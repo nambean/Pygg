@@ -51,6 +51,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0043_feedback_brainstorm.sql"),
     include_str!("../migrations/0044_board.sql"),
     include_str!("../migrations/0045_brainstorm_branch.sql"),
+    include_str!("../migrations/0046_card_check.sql"),
 ];
 
 pub const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;

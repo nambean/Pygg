@@ -329,6 +329,9 @@ pub struct NewTask {
     /// See `Policy::allow_web`.
     #[serde(default)]
     pub allow_web: bool,
+    /// Checks of this task only, after the workspace's approved ones: a planned card's check, approved with its plan.
+    #[serde(default)]
+    pub checks: Vec<String>,
 }
 
 fn title_of(prompt: &str) -> String {
@@ -396,12 +399,20 @@ pub fn create_task_at(conn: &Connection, new: &NewTask, client_id: Option<&str>,
         .collect();
     let policy = Policy {
         steps,
-        checks: ws
-            .checks
-            .iter()
-            .filter(|c| c.approved)
-            .map(|c| PolicyCheck { command: c.command.clone(), source: c.source.clone() })
-            .collect(),
+        checks: {
+            let mut checks: Vec<PolicyCheck> = ws
+                .checks
+                .iter()
+                .filter(|c| c.approved)
+                .map(|c| PolicyCheck { command: c.command.clone(), source: c.source.clone() })
+                .collect();
+            for command in new.checks.iter().filter_map(|c| crate::gateway::brain::card_check(c)) {
+                if !checks.iter().any(|c| c.command == command) {
+                    checks.push(PolicyCheck { command, source: "plan".into() });
+                }
+            }
+            checks
+        },
         allow_shell: new.allow_shell,
         timeout_secs: new.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS).clamp(60, 3600),
         handoff: handoff.into(),
@@ -2673,6 +2684,7 @@ mod tests {
             answer: false,
             cap_usd: None,
             allow_web: false,
+            checks: Vec::new(),
         };
         create_task(&lock(&rig.db), &new).unwrap()
     }
@@ -2688,6 +2700,44 @@ mod tests {
 
     fn detail(rig: &Rig, id: &str) -> TaskDetail {
         task_detail(&lock(&rig.db), id).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_planned_cards_check_runs_after_the_workspaces_and_decides_readiness() {
+        // ROADMAP focus item 6: a workspace with no approved check; the card's own check, approved with its plan,
+        // makes its result ready or not. An empty or many-line check is not taken.
+        let rig = rig(&[]);
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(vec![Act::Write("result.txt", "good\n"), Act::Write("result.txt", "bad\n")], rig.prompts.clone()),
+        );
+        let planned = |prompt: &str| NewTask {
+            workspace_id: rig.workspace.clone(),
+            title: None,
+            prompt: prompt.into(),
+            strategy: "free_first".into(),
+            steps: vec![step("codex", "subscription", 3)],
+            allow_shell: false,
+            timeout_secs: None,
+            handoff: None,
+            answer: false,
+            cap_usd: None,
+            allow_web: false,
+            checks: vec![good_check().into(), "  ".into(), "npm test\nrm -rf x".into()],
+        };
+        let good = create_task(&lock(&rig.db), &planned("Make result.txt say good")).unwrap();
+        runner.start(&good).unwrap().await.unwrap();
+        let task = detail(&rig, &good);
+        assert_eq!(task.policy.checks.len(), 1);
+        assert_eq!(
+            (task.policy.checks[0].command.as_str(), task.policy.checks[0].source.as_str()),
+            (good_check(), "plan")
+        );
+        assert_eq!((task.summary.state.as_str(), task.checked), ("checks_passed", "passed"));
+        let bad = create_task(&lock(&rig.db), &planned("Make result.txt say good")).unwrap();
+        runner.start(&bad).unwrap().await.unwrap();
+        assert_eq!(detail(&rig, &bad).checked, "failed");
     }
 
     #[tokio::test]
@@ -2711,6 +2761,7 @@ mod tests {
             answer: true,
             cap_usd: None,
             allow_web: false,
+            checks: Vec::new(),
         };
         let id = create_task(&lock(&rig.db), &new).unwrap();
         runner.start(&id).unwrap().await.unwrap();
@@ -2829,6 +2880,7 @@ mod tests {
             answer: false,
             cap_usd: Some(5.0),
             allow_web: false,
+            checks: Vec::new(),
         };
         let id = create_task(&lock(&rig.db), &new).unwrap();
         runner.start(&id).unwrap().await.unwrap();
@@ -2880,6 +2932,7 @@ mod tests {
             answer: false,
             cap_usd: Some(0.25),
             allow_web: false,
+            checks: Vec::new(),
         };
         let id = create_task(&lock(&rig.db), &new).unwrap();
         runner.start(&id).unwrap().await.unwrap();
@@ -2942,6 +2995,7 @@ mod tests {
                 answer: false,
                 cap_usd: None,
                 allow_web: false,
+                checks: Vec::new(),
             };
             let id = create_task(&lock(&rig.db), &new).unwrap();
             runner.start(&id).unwrap().await.unwrap();
@@ -2983,6 +3037,7 @@ mod tests {
             answer: false,
             cap_usd: None,
             allow_web: false,
+            checks: Vec::new(),
         };
         assert!(create_task(&lock(&rig.db), &bad).unwrap_err().contains("Unknown handoff"));
     }
@@ -3136,6 +3191,7 @@ mod tests {
                 answer: false,
                 cap_usd: None,
                 allow_web: false,
+                checks: Vec::new(),
             };
             let db = lock(&rig.db);
             let id = create_task_at(&db, &new, None, Some(branch)).unwrap();
@@ -3683,6 +3739,7 @@ mod tests {
             answer: false,
             cap_usd: None,
             allow_web: false,
+            checks: Vec::new(),
         };
         assert_eq!(create_task(&conn, &base).unwrap_err(), "Describe the task");
         let prompt = "Fix it".to_string();

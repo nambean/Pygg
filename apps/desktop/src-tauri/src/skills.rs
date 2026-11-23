@@ -104,9 +104,10 @@ struct Starter {
 /// `/name`), so none adds to an agent's context until it is used.
 const STARTERS: &[Starter] = &[
     Starter {
-        id: "brain-v3",
+        id: "brain-v4",
         description: "What pygg/brain asks the planner (ADR-041): a few clarifying questions and a board of cards in \
-                      proportion to the requirement, each one change with one role and one done criterion, as JSON. \
+                      proportion to the requirement, each one change with one role, one done criterion and, where it \
+                      can be tested, one check command, as JSON. \
                       Pygg sends it for you; run it by hand to see or test it.",
         manual: true,
         body: "You are the planner behind pygg/brain. Turn the requirement into a board of cards for a Kanban run, \
@@ -114,7 +115,7 @@ const STARTERS: &[Starter] = &[
                Reply with JSON only, no prose and no code fence, in exactly this shape:\n\
                {\"questions\": [{\"id\": \"q1\", \"text\": \"...\"}],\n\
                \x20\"cards\": [{\"id\": \"c1\", \"title\": \"...\", \"role\": \"plan|code|test|review\", \
-               \"done\": \"...\", \"dependsOn\": [\"q1\", \"c1\"]}]}\n\n\
+               \"done\": \"...\", \"check\": \"...\", \"dependsOn\": [\"q1\", \"c1\"]}]}\n\n\
                Rules:\n\
                - As few cards as the work needs. A small change is one card. Split only where a part can be done and \
                reviewed on its own; most requirements need one to eight cards, never more than forty.\n\
@@ -127,6 +128,12 @@ const STARTERS: &[Starter] = &[
                put a test in the same card as the code it tests, or in a later card, never before the code. Without \
                checks, never write that checks pass.\n\
                - Tests test behaviour; never a test that only checks a document or a file exists.\n\
+               - check: one shell command, run in the repository after the card, that passes only when the card is \
+               done: the repository's test command, or running the test file the card adds (for example \
+               `node --test test/cart.test.js` or `python -m pytest tests/test_cart.py`). Prefer an approved check \
+               when it tests the card. Leave check out when nothing can test the card, and say in done how a person \
+               sees it. One line, no `&&` chains of unrelated steps, nothing that installs, deletes or reaches the \
+               network beyond the project's own dependency install.\n\
                - Roles: plan (only when several later cards need one shared design; it writes that design to a file \
                they cite), code, test, review (for a large or risky board: it reads the earlier cards' changes and \
                fixes what is wrong). Never name a model, a price, a time or a story point: Pygg picks the model for \

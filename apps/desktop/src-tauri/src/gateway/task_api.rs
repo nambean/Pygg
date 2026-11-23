@@ -320,6 +320,7 @@ async fn start(State(shared): State<Shared>, headers: HeaderMap, body: Bytes) ->
             answer: false,
             cap_usd: None,
             allow_web: false,
+            checks: Vec::new(),
         };
         let id = tasks::create_task_for(db, &new, Some(&client_id))?;
         tasks::task_detail_for(db, &id, Some(&client_id))

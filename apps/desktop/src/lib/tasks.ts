@@ -205,6 +205,8 @@ export type BrainRole = 'plan' | 'code' | 'test' | 'review';
 export type BrainQuestion = { id: string; text: string; answered: boolean };
 export type BrainCard = {
   id: string; title: string; role: BrainRole; done: string; dependsOn: string[];
+  /** The command its task runs after the workspace's checks, seen and edited before approval; null: a person reviews it. */
+  check?: string | null;
   /** `connection/model`, picked by rule for the role; null when nothing was eligible. */
   model: string | null; reason: string | null;
   /** One run of the card by the route's estimate, in micro-USD: 0 for free or local, null when the model has no price. */

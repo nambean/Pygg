@@ -44,6 +44,8 @@ pub struct Card {
     pub title: String,
     pub role: String,
     pub done: String,
+    /// The command its task runs after the workspace's checks (`brain::Card::check`); `None` when none was planned.
+    pub check: Option<String>,
     pub prompt: String,
     pub depends_on: Vec<String>,
     pub ladder: Vec<String>,
@@ -69,7 +71,7 @@ pub struct Card {
 
 const COLUMNS: &str = "id, workspace_id, brainstorm_id, card_id, title, role, done, prompt, depends_on_json, ladder_json, agent, runner, \
                        class, lane, held, task_id, blocked_reason, blocked_since, blocked_ms, ready_at, started_at, done_at, position, \
-                       created_at, updated_at";
+                       created_at, updated_at, check_command";
 
 fn row(r: &rusqlite::Row) -> rusqlite::Result<Card> {
     let deps: String = r.get(8)?;
@@ -100,6 +102,7 @@ fn row(r: &rusqlite::Row) -> rusqlite::Result<Card> {
         position: r.get(22)?,
         created_at: r.get(23)?,
         updated_at: r.get(24)?,
+        check: r.get(25)?,
         task: None,
     })
 }
@@ -215,8 +218,8 @@ pub fn add_cards(conn: &Connection, b: &brain::Brainstorm, workspace_id: &str, a
         let id = format!("bc_{}", &uuid::Uuid::new_v4().simple().to_string()[..10]);
         conn.execute(
             "INSERT INTO board_cards (id, workspace_id, brainstorm_id, card_id, title, role, done, prompt, depends_on_json, ladder_json, agent, \
-             runner, class, lane, position, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'discovery', ?14, ?15, ?15)",
+             runner, class, lane, position, created_at, updated_at, check_command) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'discovery', ?14, ?15, ?15, ?16)",
             params![
                 id,
                 workspace_id,
@@ -232,7 +235,8 @@ pub fn add_cards(conn: &Connection, b: &brain::Brainstorm, workspace_id: &str, a
                 c.runner,
                 c.class,
                 (c.wave as i64) * 1000 + i as i64,
-                now
+                now,
+                c.check
             ],
         )
         .map_err(err)?;
@@ -386,6 +390,7 @@ fn task_for(conn: &Connection, card: &Card) -> Result<NewTask> {
         answer: false,
         cap_usd: None,
         allow_web: false,
+        checks: card.check.iter().cloned().collect(),
     })
 }
 
@@ -845,6 +850,7 @@ mod tests {
             title: format!("Card {id}"),
             role: "code".into(),
             done: "tests pass".into(),
+            check: None,
             depends_on: deps.iter().map(|d| d.to_string()).collect(),
             model: Some("paid/mid".into()),
             reason: Some("tier".into()),

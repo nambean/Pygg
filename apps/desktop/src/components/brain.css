@@ -42,6 +42,10 @@
 /* A select whose options are long model lines must not widen the row: its box is the card's, its text clipped. */
 .card-row select { min-width: 0; max-width: 100%; width: 100%; text-overflow: ellipsis; }
 .card-line select { flex: 1 1 100%; }
+.card-check { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.card-check-row { display: flex; gap: 6px; min-width: 0; }
+.card-check-row .text-input { flex: 1 1 auto; min-width: 0; font-size: 12px; }
+.card-line code { word-break: break-all; }
 .approve-bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-top: 16px; padding: 12px; background: var(--surface); border-radius: 10px; box-shadow: var(--shadow); font-size: 12px; }
 .approve-bar .spacer { flex: 1; }
 /* The approval stays in view under a long proposal; the estimate line takes a row of its own. */

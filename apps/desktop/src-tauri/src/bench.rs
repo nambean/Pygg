@@ -611,6 +611,7 @@ pub async fn run_case_engine(
         answer: false,
         cap_usd: None,
         allow_web: false,
+        checks: Vec::new(),
     };
     let id = tasks::create_task(&conn, &new)?;
     let db = Arc::new(Mutex::new(conn));
