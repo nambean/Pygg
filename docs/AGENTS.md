@@ -58,7 +58,7 @@ Printed when a tool started by `pygg run` exits: cost (unknown and subscription 
 Tasks start from the user's coding agent (ADR-027; a plan may also start on a project's page); the app runs them, approves paid steps and keeps history.
 
 - **Server:** `<app> mcp`, `pygg mcp` or `pygg-mcp` (stdio); config `PYGG_TOKEN`, optional `PYGG_URL` (default `http://127.0.0.1:8741`).
-- **MCP tools:** `pygg_run_task`, `pygg_task_status`, `pygg_task_diff`, `pygg_task_brief`, `pygg_keep_result`, `pygg_discard_result`, `pygg_stop_task`, `pygg_list_tasks`, `pygg_agents`, `pygg_brainstorm`, `pygg_model_facts`, `pygg_board`, `pygg_board_move`.
+- **MCP tools:** `pygg_run_task`, `pygg_task_status`, `pygg_task_diff`, `pygg_task_brief`, `pygg_keep_result`, `pygg_check_result`, `pygg_discard_result`, `pygg_stop_task`, `pygg_list_tasks`, `pygg_agents`, `pygg_brainstorm`, `pygg_model_facts`, `pygg_board`, `pygg_board_move`.
 - **Claude Code plugin:** `/plugin install pygg --marketplace nambean/Pygg` (MCP server plus skills `delegate-tasks`, `route-through-pygg`).
 - **One-click registration:** **Agents → Let Your Agent Delegate Tasks**, or `pygg mcp setup claude-code|codex|opencode`.
 - A tool call waits at most 50 s, then the agent asks `pygg_task_status` again.
@@ -91,7 +91,7 @@ A task is a ladder of agent steps fixed at creation, judged by the workspace's *
 - Pygg's own MCP server is off in the runs it starts (OpenCode: `OPENCODE_CONFIG_CONTENT` with `mcp.pygg.enabled=false`, merged with any the user set; Codex: `-c mcp_servers.pygg.enabled=false`; Claude Code runs with a fixed tool list): with it, an agent handed its task back to Pygg instead of doing it.
 - What the agent does shows live on the task's screen (`live.rs`): its output is read line by line as it runs, turned into readable lines and redacted, the last 500 lines of an attempt kept in memory.
 - A failed attempt is discarded and the next step gets a handoff (`tail` default, `none`, `evidence`, or `brief`: the portable brief; ADR-030).
-- Checks pass → **Keep as Branch**, **Export Patch** or **Discard**. No check ran, or the result changed a file defining one → **not ready**: kept only with **Keep Without Checks…** (API `acceptUnchecked`, MCP `accept_unchecked`, CLI `--unchecked yes`); each check shows its command, exit and time.
+- Checks pass → **Keep as Branch**, **Export Patch** or **Discard**. No check ran, or the result changed a file defining one → **not ready**: kept only with **Keep Without Checks…** (API `acceptUnchecked`, MCP `accept_unchecked`, CLI `--unchecked yes`); each check shows its command, exit and time. A result no check ran on lists the workspace's checks (suggested ones too, each with what it covers); approving one and **Check This Result** (API `POST …/check`, MCP `pygg_check_result`) checks it as it is.
 - **Paid step waits for approval** with a spending cap (ADR-010). Through Pygg's gateway (a `pygg/...` model) the cap holds: each request of the step, from any key naming its session, holds the most it could cost inside what is left, its output limit lowered to fit; a request that cannot fit gets 402 once the cap is spent, or 429 while requests in flight hold the rest; an unpriced model is not used. Elsewhere the cap is checked after the step, and over it the ladder stops.
 - **Daily budgets** (UTC) for all tasks and per workspace.
 - **Sensitive** workspace asks before every step; detected checks are suggestions until approved.

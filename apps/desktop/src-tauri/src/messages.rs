@@ -33,6 +33,14 @@ pub const NO_CHECKS_NOTE: &str =
 pub const CHANGED_DEFINITIONS: &str = "The checks passed, but this attempt changed {0}, which defines them. Review the changes before trusting the result.";
 pub const CHANGED_DEFINITIONS_NOTE: &str = "The checks passed, but this attempt changed {0}, which defines them. Review the changes before trusting the result. {1}.";
 pub const NOTE: &str = "{0}.";
+pub const CHECKED_AFTER: &str = "Checked after the step: every approved check ({0}) passed on this result.";
+pub const FAILED_AFTER: &str =
+    "Checked after the step: `{0}` failed on this result ({1}). Fix it, or discard the result.";
+pub const ALREADY_CHECKED: &str = "This result is not waiting for review, so there is nothing to check.";
+pub const APPROVE_A_CHECK: &str =
+    "No check is approved for this workspace. Approve one (Detect suggests some), then check the result.";
+pub const FAILED_KEEP: &str =
+    "Not ready: a check failed on this result. Review the changes; to keep it anyway, keep it as unchecked work.";
 pub const NOT_CHECKED_KEEP: &str =
     "Not ready: no check ran on this result. Review the changes; to keep it anyway, keep it as unchecked work.";
 pub const DEFINITIONS_KEEP: &str = "Not ready: this result changed a file that defines its checks, so their pass does not vouch for it. Review the changes; to keep it anyway, keep it as unchecked work.";

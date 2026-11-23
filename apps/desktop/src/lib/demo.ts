@@ -1240,7 +1240,7 @@ const DEMO_DIFF = 'diff --git a/src/timeout.ts b/src/timeout.ts\n--- a/src/timeo
 /** Tasks for the browser preview: the sample tasks, and new ones that "run" for a few seconds. Nothing runs. */
 function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards' | 'board' | 'boardLimits' | 'boardAct' | 'boardSetLimits' | 'brainstorms' | 'brainstorm' | 'brainstormPickPlanner' | 'brainstormRetry' | 'brainstormSetModel' | 'brainstormSetCard' | 'brainstormDecline' | 'brainstormApprove' | 'workspaces' | 'addWorkspace' | 'removeWorkspace' | 'taskBudget' | 'setTaskBudget' | 'setWorkspaceBudget' | 'setWorkspacePrivacy' | 'pickFolder' | 'exportPatch'
   | 'detectChecks' | 'workspaceCheck' | 'tasks' | 'task' | 'createTask' | 'cancelTask' | 'decideTask' | 'retryTask' | 'taskDiff' | 'taskActivity' | 'brainstormDiff' | 'plansProgress' | 'taskEstimate' | 'taskBrief' | 'sandboxProfiles' | 'brainstormStart' | 'brainstormRefine'
-  | 'finishTask'> {
+  | 'finishTask' | 'checkResult'> {
   let dailyLimit: number | null = 2;
   const workspaces: WorkspaceView[] = SAMPLE_WORKSPACES.map((w, i) => ({...w, tasks: 0, dailyBudgetUsd: null, privacyClass: i === 1 ? 'sensitive' as const : 'standard' as const, checks: i === 0
     ? [{command: 'pnpm install --frozen-lockfile', source: 'package.json', approved: true},
@@ -1550,6 +1550,13 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
     pickFolder: async () => null,
     exportPatch: async () => { await sleep(200); return 'C:\\Users\\you\\Downloads\\fix-timeout-handling.patch'; },
     setWorkspaceBudget: async (id, dailyUsd) => { const w = findWorkspace(id); w.dailyBudgetUsd = dailyUsd; return touch(w); },
+    checkResult: async id => { await sleep(600); const d = get(id); const w = findWorkspace(d.workspaceId);
+      const approved = w.checks.filter(c => c.approved);
+      if (approved.length === 0) throw 'No check is approved for this workspace. Approve one (Detect suggests some), then check the result.';
+      set(id, {state: 'checks_passed', checked: 'passed', reason: `Checked after the step: every approved check (${approved.length}) passed on this result.`,
+        policy: {...d.policy, checks: approved.map(({command, source}) => ({command, source}))},
+        attemptDetails: d.attemptDetails.map(a => a.open ? {...a, outcome: 'passed', checks: approved.map(c => ({command: c.command, passed: true, detail: 'exited 0', outputTail: '', durationMs: 2400}))} : a)});
+      return get(id); },
     finishTask: async (id, keep, title, unchecked) => { await sleep(250); const d = get(id);
       if (keep && d.state === 'needs_review' && !unchecked) throw 'Not ready: no check ran on this result. Review the changes; to keep it anyway, keep it as unchecked work.';
       const branch = keep ? `str/${(title || d.title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48)}-${id.replace(/\W/g, '').slice(0, 8)}` : null;

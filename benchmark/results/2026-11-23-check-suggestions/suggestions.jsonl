@@ -1,0 +1,20 @@
+{"repo": "Clever/microplane", "before": [], "after": ["go vet ./...", "go test ./...", "make test"], "thinBefore": true, "coversNamed": true, "smokeOnly": false}
+{"repo": "Kentzo/git-archive-all", "before": [], "after": ["python -m compileall -q .", "python -m pytest -q", "make test"], "thinBefore": true, "coversNamed": true, "smokeOnly": false, "compileallClean": true, "compileallCaughtBreak": true}
+{"repo": "LeaVerou/parsel", "before": ["install", "test", "build"], "after": ["npm ci", "npm run test", "npm run build", "npx --no-install tsc --noEmit"], "thinBefore": false, "coversNamed": true, "smokeOnly": false}
+{"repo": "apenwarr/git-subtrac", "before": [], "after": ["go vet ./...", "go test ./..."], "thinBefore": true, "coversNamed": true, "smokeOnly": false}
+{"repo": "benc-uk/workflow-dispatch", "before": ["install", "lint", "build"], "after": ["npm ci", "npm run lint", "npm run build", "npx --no-install tsc --noEmit"], "thinBefore": true, "coversNamed": true, "smokeOnly": true}
+{"repo": "brson/basic-http-server", "before": ["cargo check", "cargo test"], "after": ["cargo check", "cargo test"], "thinBefore": false, "coversNamed": true, "smokeOnly": false}
+{"repo": "fdemmer/django-weasyprint", "before": [], "after": ["python -m compileall -q .", "python -m pytest -q"], "thinBefore": true, "coversNamed": true, "smokeOnly": false, "compileallClean": true, "compileallCaughtBreak": true}
+{"repo": "javierjulio/textarea-autosize", "before": ["install", "test", "build"], "after": ["npm ci", "npm run test", "npm run build"], "thinBefore": false, "coversNamed": true, "smokeOnly": false}
+{"repo": "jbaublitz/getset", "before": ["cargo check", "cargo test"], "after": ["cargo check", "cargo test"], "thinBefore": false, "coversNamed": true, "smokeOnly": false}
+{"repo": "jongracecox/anybadge", "before": [], "after": ["python -m compileall -q .", "python -m pytest -q"], "thinBefore": true, "coversNamed": true, "smokeOnly": false, "compileallClean": true, "compileallCaughtBreak": true}
+{"repo": "mdlayher/vsock", "before": [], "after": ["go vet ./...", "go test ./..."], "thinBefore": true, "coversNamed": true, "smokeOnly": false}
+{"repo": "node-modules/detect-port", "before": ["install", "lint", "test"], "after": ["npm install", "npm run lint", "npm run test", "npx --no-install tsc --noEmit"], "thinBefore": false, "coversNamed": true, "smokeOnly": false}
+{"repo": "openstack/bashate", "before": [], "after": ["python -m compileall -q .", "python -m unittest discover -q"], "thinBefore": true, "coversNamed": true, "smokeOnly": false, "compileallClean": true, "compileallCaughtBreak": true}
+{"repo": "proposal-signals/signal-polyfill", "before": ["install", "lint", "test", "build"], "after": ["pnpm install --frozen-lockfile", "pnpm lint", "pnpm test", "pnpm build", "pnpm exec tsc --noEmit"], "thinBefore": false, "coversNamed": true, "smokeOnly": false}
+{"repo": "simonhmartin/genomics_general", "before": [], "after": ["python -m compileall -q ."], "thinBefore": true, "coversNamed": true, "smokeOnly": true, "compileallClean": false, "compileallCaughtBreak": true}
+{"repo": "slashmili/jdatetime", "before": [], "after": ["python -m compileall -q .", "python -m pytest -q"], "thinBefore": true, "coversNamed": true, "smokeOnly": false, "compileallClean": true, "compileallCaughtBreak": true}
+{"repo": "surishortlink/suri", "before": ["install", "lint", "test"], "after": ["npm ci", "npm run lint", "npm run test"], "thinBefore": false, "coversNamed": true, "smokeOnly": false}
+{"repo": "wavedrom/bitfield", "before": ["install", "test", "build"], "after": ["npm install", "npm run test", "npm run build"], "thinBefore": false, "coversNamed": true, "smokeOnly": false}
+{"repo": "witt3rd/oh-my-hermes", "before": [], "after": ["python -m compileall -q ."], "thinBefore": true, "coversNamed": true, "smokeOnly": true, "compileallClean": true, "compileallCaughtBreak": true}
+{"repo": "yargs/cliui", "before": ["install", "test"], "after": ["npm ci", "npm run test", "npx --no-install tsc --noEmit"], "thinBefore": false, "coversNamed": true, "smokeOnly": false}

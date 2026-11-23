@@ -71,6 +71,8 @@ pub struct WorkspaceCheck {
     pub source: String,
     /// Only approved checks run. A detected check is a suggestion until then.
     pub approved: bool,
+    /// What passing it means and what it leaves unchecked (`checks::covers`).
+    pub covers: &'static str,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -143,7 +145,10 @@ pub fn workspace(conn: &Connection, id: &str) -> Result<WorkspaceView> {
         .prepare("SELECT command, source, approved FROM workspace_checks WHERE workspace_id = ?1 ORDER BY rowid")
         .map_err(err)?;
     let checks = statement
-        .query_map([id], |r| Ok(WorkspaceCheck { command: r.get(0)?, source: r.get(1)?, approved: r.get(2)? }))
+        .query_map([id], |r| {
+            let command: String = r.get(0)?;
+            Ok(WorkspaceCheck { covers: checks::covers(&command), command, source: r.get(1)?, approved: r.get(2)? })
+        })
         .map_err(err)?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(err)?;
@@ -539,7 +544,7 @@ pub struct TaskDetail {
     pub approval: Option<ApprovalView>,
     /// How far the checks vouch for the result (ROADMAP focus item 2): `passed` (every approved check passed on it),
     /// `not_checked` (no check ran), `definitions_changed` (they passed, but it changed a file that defines them),
-    /// `failed` (no step passed its checks); empty while running and for an answer. Only `passed` is ready: the others
+    /// `failed` (no step passed its checks, or one failed on the result when checked after the step); empty while running and for an answer. Only `passed` is ready: the others
     /// are kept only when the user says so (`keep`'s `unchecked`).
     pub checked: &'static str,
 }
@@ -551,6 +556,7 @@ fn checked_of(state: &str, attempts: &[AttemptView]) -> &'static str {
         "checks_passed" => "passed",
         "check_failed" => "failed",
         "needs_review" | "manually_accepted" => match result {
+            Some(a) if a.checks.iter().any(|c| !c.passed) => "failed",
             Some(a) if !a.checks.is_empty() => "definitions_changed",
             _ => "not_checked",
         },
@@ -2194,7 +2200,14 @@ pub fn record_export(conn: &Connection, id: &str, path: &str) -> Result<()> {
 pub fn keep(conn: &Connection, id: &str, title: Option<&str>, unchecked: bool) -> Result<String> {
     let (row, attempt, worktree) = result_attempt(conn, id)?;
     if row.state == "needs_review" && !unchecked {
-        return Err(if attempt.checks.is_empty() { m::NOT_CHECKED_KEEP } else { m::DEFINITIONS_KEEP }.into());
+        return Err(if attempt.checks.is_empty() {
+            m::NOT_CHECKED_KEEP
+        } else if attempt.checks.iter().any(|c| !c.passed) {
+            m::FAILED_KEEP
+        } else {
+            m::DEFINITIONS_KEEP
+        }
+        .into());
     }
     let title = title.map(str::trim).filter(|t| !t.is_empty()).unwrap_or(&row.title);
     let own = isolation::branch_name(title, id);
@@ -2254,6 +2267,87 @@ pub fn keep(conn: &Connection, id: &str, title: Option<&str>, unchecked: bool) -
     .map_err(err)?;
     tx.commit().map_err(err)?;
     Ok(branch)
+}
+
+/// Runs the workspace's approved checks on a result that waits for review (ROADMAP focus item 3): after the user
+/// approved a check for a workspace that had none, the result is checked as it is, without running the agent again.
+/// Every check passes and none changed what defines it → `checks_passed`; otherwise it stays `needs_review`, with
+/// what each check gave on the result.
+pub async fn check_result(db: &Arc<Mutex<Connection>>, id: &str) -> Result<TaskDetail> {
+    let (attempt, worktree, approved) = {
+        let conn = db.lock().unwrap_or_else(|p| p.into_inner());
+        let (row, attempt, worktree) = result_attempt(&conn, id)?;
+        if row.state != "needs_review" {
+            return Err(m::ALREADY_CHECKED.into());
+        }
+        let approved: Vec<WorkspaceCheck> =
+            workspace(&conn, &row.workspace_id)?.checks.into_iter().filter(|c| c.approved).collect();
+        if approved.is_empty() {
+            return Err(m::APPROVE_A_CHECK.into());
+        }
+        conn.execute("UPDATE tasks SET phase = 'checking', updated_at = ?2 WHERE id = ?1", params![id, now_ms()])
+            .map_err(err)?;
+        (attempt, worktree, approved)
+    };
+    let mut results: Vec<CheckResult> = Vec::new();
+    for check in &approved {
+        let result = checks::run(&check.command, &worktree.path, CHECK_TIMEOUT, &[], std::future::pending()).await;
+        let passed = result.passed;
+        results.push(result);
+        if !passed {
+            break;
+        }
+    }
+    let changed = isolation::changed_files(&worktree).unwrap_or_default();
+    let conn = db.lock().unwrap_or_else(|p| p.into_inner());
+    let touched: Vec<&str> = approved
+        .iter()
+        .map(|c| c.source.as_str())
+        .filter(|s| !matches!(*s, "user" | "test files" | "Python files" | "Python tests" | ".NET project"))
+        .filter(|s| changed.iter().any(|p| p == s || p.ends_with(&format!("/{s}"))))
+        .collect();
+    let tx = conn.unchecked_transaction().map_err(err)?;
+    tx.execute(
+        "UPDATE attempts SET check_results_json = ?2 WHERE id = ?1",
+        params![attempt.id, serde_json::to_string(&results).map_err(|e| e.to_string())?],
+    )
+    .map_err(err)?;
+    // The task's policy now names the checks that ran, as one created after the approval would.
+    let policy: Option<String> = tx
+        .query_row("SELECT policy_snapshot_json FROM tasks WHERE id = ?1", [id], |r| r.get(0))
+        .optional()
+        .map_err(err)?;
+    if let Some(mut policy) = policy.and_then(|p| serde_json::from_str::<Policy>(&p).ok()) {
+        policy.checks =
+            approved.iter().map(|c| PolicyCheck { command: c.command.clone(), source: c.source.clone() }).collect();
+        tx.execute(
+            "UPDATE tasks SET policy_snapshot_json = ?2 WHERE id = ?1",
+            params![id, serde_json::to_string(&policy).map_err(|e| e.to_string())?],
+        )
+        .map_err(err)?;
+    }
+    match results.iter().find(|r| !r.passed) {
+        None if touched.is_empty() => {
+            tx.execute("UPDATE attempts SET state = 'passed' WHERE id = ?1", [&attempt.id]).map_err(err)?;
+            set_task(&tx, id, "checks_passed", None, Some(&fill(m::CHECKED_AFTER, &[&results.len().to_string()])))
+                .map_err(err)?;
+        }
+        None => set_task(&tx, id, "needs_review", None, Some(&fill(m::CHANGED_DEFINITIONS, &[&touched.join(", ")])))
+            .map_err(err)?,
+        Some(failed) => {
+            set_task(&tx, id, "needs_review", None, Some(&fill(m::FAILED_AFTER, &[&failed.command, &failed.detail])))
+                .map_err(err)?
+        }
+    }
+    audit(
+        &tx,
+        "task.checked",
+        id,
+        serde_json::json!({"checks": results.len(), "passed": results.iter().all(|r| r.passed)}),
+    )
+    .map_err(err)?;
+    tx.commit().map_err(err)?;
+    task_detail(&conn, id)
 }
 
 /// Discards the result and its worktree.
@@ -3109,6 +3203,50 @@ mod tests {
         keep(&lock(&rig.db), &id, Some("Add new file"), true).unwrap();
         let kept = detail(&rig, &id);
         assert_eq!((kept.summary.state.as_str(), kept.checked), ("manually_accepted", "not_checked"));
+    }
+
+    #[tokio::test]
+    async fn a_waiting_result_is_checked_once_a_check_is_approved() {
+        // ROADMAP focus item 3: a workspace with no check; the user approves one after the step, and the result is
+        // checked as it is, without the agent running again.
+        let rig = rig(&[]);
+        let runner = Runner::new(
+            rig.db.clone(),
+            rig.worktrees.clone(),
+            fake(
+                vec![
+                    Act::Write(
+                        "result.txt",
+                        "good
+",
+                    ),
+                    Act::Write(
+                        "result.txt",
+                        "bad
+",
+                    ),
+                ],
+                rig.prompts.clone(),
+            ),
+        );
+        let good = create(&rig, vec![step("codex", "subscription", 3)]);
+        runner.start(&good).unwrap().await.unwrap();
+        let bad = create(&rig, vec![step("codex", "subscription", 3)]);
+        runner.start(&bad).unwrap().await.unwrap();
+        assert_eq!(check_result(&rig.db, &good).await.unwrap_err(), m::APPROVE_A_CHECK);
+        add_check(&lock(&rig.db), &rig.workspace, good_check()).unwrap();
+        let checked = check_result(&rig.db, &good).await.unwrap();
+        assert_eq!((checked.summary.state.as_str(), checked.checked), ("checks_passed", "passed"));
+        assert_eq!(checked.policy.checks.len(), 1, "the task now names the check that ran");
+        assert_eq!(rig.prompts.lock().unwrap().len(), 2, "no agent ran again");
+        keep(&lock(&rig.db), &good, None, false).unwrap();
+        // A check that fails on the result: it stays open, failed, and not ready.
+        let failed = check_result(&rig.db, &bad).await.unwrap();
+        assert_eq!((failed.summary.state.as_str(), failed.checked), ("needs_review", "failed"));
+        assert!(failed.reason.unwrap().contains(good_check()));
+        assert_eq!(keep(&lock(&rig.db), &bad, None, false).unwrap_err(), m::FAILED_KEEP);
+        assert!(crate::mcp::describe(&serde_json::to_value(detail(&rig, &bad)).unwrap())
+            .contains("NOT READY: a check failed"));
     }
 
     #[tokio::test]

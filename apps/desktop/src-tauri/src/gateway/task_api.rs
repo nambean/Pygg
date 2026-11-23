@@ -38,6 +38,7 @@ pub fn routes() -> Router<Shared> {
         .route("/pygg/v1/tasks/{id}/brief", get(brief))
         .route("/pygg/v1/tasks/{id}/stop", post(stop))
         .route("/pygg/v1/tasks/{id}/keep", post(keep))
+        .route("/pygg/v1/tasks/{id}/check", post(check_result))
         .route("/pygg/v1/tasks/{id}/discard", post(discard))
         // pygg/brain (ADR-041): a client reads its own brainstorms; nothing here approves one.
         .route("/pygg/v1/brainstorms", get(brainstorms))
@@ -439,6 +440,23 @@ async fn keep(State(shared): State<Shared>, headers: HeaderMap, Path(id): Path<S
     {
         Ok(branch) => Json(json!({ "branch": branch })).into_response(),
         Err(r) => r,
+    }
+}
+
+/// Runs the workspace's approved checks on the client's result waiting for review (`tasks::check_result`). The checks
+/// are the ones the user approved in the app; a client cannot add one.
+async fn check_result(State(shared): State<Shared>, headers: HeaderMap, Path(id): Path<String>) -> Response {
+    let (client, _) = match permitted(&shared, &headers) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    let (owned, client_id) = (id.clone(), client.id.clone());
+    if let Err(r) = blocking(&shared, move |db| tasks::check_owner(db, &owned, &client_id)).await {
+        return r;
+    }
+    match tasks::check_result(&shared.db, &id).await {
+        Ok(detail) => Json(detail).into_response(),
+        Err(e) => error(StatusCode::BAD_REQUEST, e),
     }
 }
 

@@ -10,6 +10,7 @@ import { useGateway } from '../hooks/useGateway';
 import { billingLabel, outcomeLabel } from './AttemptSequence';
 import { DiffView } from './DiffView';
 import { StateIcon, statusLine } from './TaskList';
+import { WorkspaceChecks } from './WorkspacesView';
 import { Badge, ConfirmSheet, CopyButton, ErrorNote, FormRow, Segmented, Spinner } from './ui';
 import './projects.css';
 
@@ -216,6 +217,8 @@ function Actions({task, onChanged}: {task: Detail; onChanged: () => void}) {
       </div>
       <p className="group-footnote">{t('Keeping saves the result as a new branch in the repository. The folder you have open, and its branch, are not changed.')}</p>
     </div>}
+    {result && task.checked === 'not_checked' && <CheckThisResult task={task} busy={busy}
+      onCheck={() => run(() => call(api => api.checkResult(task.id)))}/>}
     {keepingUnchecked && <ConfirmSheet destructive={false} title={t('Keep a result nothing checked?')} confirmLabel={t('Keep Without Checks')}
       message={<p>{task.checked === 'definitions_changed'
         ? t('The checks passed, but this result changed a file that defines them, so their pass does not vouch for it. Keep it only if you have read the changes and judge them correct yourself.')
@@ -430,6 +433,25 @@ function Evidence({task}: {task: Detail}) {
       <dt>{t('Not checked')}</dt><dd><ul className="evidence-unchecked">{unchecked.map(u => <li key={u}>{u}</li>)}</ul></dd>
     </dl>
   </section>;
+}
+
+/** For a result no check ran on: the workspace's checks, suggested ones included with what each covers, to approve,
+ *  and a button that runs the approved ones on this result as it is (ROADMAP focus item 3). */
+function CheckThisResult({task, busy, onCheck}: {task: Detail; busy: boolean; onCheck: () => void}) {
+  const workspaces = useGateway(api => api.workspaces(), [task.workspaceId]);
+  const workspace = workspaces.data?.find(w => w.id === task.workspaceId);
+  if (!workspace) return null;
+  const approved = workspace.checks.filter(c => c.approved).length;
+  return <div className="check-this-result">
+    <p className="secondary">{workspace.checks.length === 0
+      ? t('Pygg found no check in this project. Add a command that tests it, or Detect after adding a test script.')
+      : t('Approve a check, then check this result as it is: the agent does not run again. A pass says only what the check covers.')}</p>
+    <WorkspaceChecks workspace={workspace} onChanged={workspaces.reload}/>
+    <div className="form-actions">
+      <button type="button" className="button prominent" disabled={busy || approved === 0} onClick={onCheck}>
+        <Check size={13} aria-hidden/>{t('Check This Result')}</button>
+    </div>
+  </div>;
 }
 
 /** The task as a brief for another agent (goal, base, attempts and why they stopped, checks, where it stands), shown

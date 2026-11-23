@@ -20,7 +20,7 @@ Pygg's task features are experimental. They need the Pygg app open (on macOS and
 ## Things that wait for the user
 
 - **A paid step waits for approval in the Pygg app.** No tool approves it. When `pygg_task_status` says a step waits for approval, tell the user to approve or decline it in Pygg.
-- A task that changed a file defining a check (`package.json`, `Cargo.toml`), or one in a workspace with no approved checks, ends as `needs_review` and `pygg_task_status` says NOT READY: `pygg_keep_result` refuses it unless `accept_unchecked` is true. Read the whole diff first, and tell the user it is kept unchecked.
+- A task that changed a file defining a check (`package.json`, `Cargo.toml`), or one in a workspace with no approved checks, ends as `needs_review` and `pygg_task_status` says NOT READY: `pygg_keep_result` refuses it unless `accept_unchecked` is true. Read the whole diff first, and tell the user it is kept unchecked. Better: ask the user to approve a check in the Pygg app (it suggests some, each with what it covers), then `pygg_check_result` checks the result as it is.
 
 ## Other tools
 

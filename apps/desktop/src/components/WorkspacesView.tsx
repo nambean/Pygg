@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { FolderGit2, FolderOpen, Plus, RefreshCw, ShieldAlert, Trash2, X } from 'lucide-react';
 import { call, errorText, gatewayChanged } from '../lib/api';
 import { t } from '../lib/i18n';
+import { engineText } from '../lib/engineText';
 import { runningInDesktop } from '../lib/native';
 import type { WorkspaceView } from '../lib/tasks';
 import { useGateway } from '../hooks/useGateway';
@@ -132,6 +133,7 @@ export function WorkspaceChecks({workspace, onChanged}: {workspace: WorkspaceVie
           <input type="checkbox" checked={c.approved} onChange={e => act(c.command, e.target.checked ? 'approve' : 'unapprove')}/>
           <span className="mono">{c.command}</span>
           <small className="secondary">{c.source === 'user' ? t('added by you') : t('found in {file}', {file: c.source})}</small>
+          {c.covers && <small className="check-covers secondary">{engineText(c.covers)}</small>}
         </label>
         {c.source === 'user' && <button type="button" className="button small icon-only" aria-label={t('Remove')} title={t('Remove')}
           onClick={() => act(c.command, 'remove')}><X size={13}/></button>}

@@ -14,7 +14,7 @@ worktree, is checked by the commands you approved for the repository, and become
 
 - **MCP server `pygg`**: tools to run a task, follow its status, read its diff and brief, and keep or discard its
   result (`pygg_run_task`, `pygg_task_status`, `pygg_task_diff`, `pygg_task_brief`, `pygg_keep_result`,
-  `pygg_discard_result`, `pygg_stop_task`, `pygg_list_tasks`, `pygg_agents`); to plan a project into tasks
+  `pygg_check_result`, `pygg_discard_result`, `pygg_stop_task`, `pygg_list_tasks`, `pygg_agents`); to plan a project into tasks
   (`pygg_brainstorm`, `pygg_board`, `pygg_board_move`); and to read what Pygg knows of a model (`pygg_model_facts`).
 - **Skill `delegate-tasks`**: when and how to hand a subtask to Pygg, and how to review what comes back.
 - **Skill `route-through-pygg`**: how to point Claude Code, Codex or OpenCode at Pygg's gateway.

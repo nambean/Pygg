@@ -87,6 +87,8 @@ fn tools() -> Value {
          "inputSchema": {"type": "object", "required": ["task_id"], "properties": {"task_id": id.clone(),
             "title": {"type": "string", "description": "Commit message and branch title. Default: the task's title."},
             "accept_unchecked": {"type": "boolean", "description": "Keep a NOT READY result anyway: only after you read its whole diff with pygg_task_diff and judged it yourself, since no check confirmed it. Say so to the user."}}}},
+        {"name": "pygg_check_result", "description": "Run the workspace's approved checks on a result that is NOT READY because no check ran (after the user approved one in the Pygg app), without running the agent again. Returns the task's new state.",
+         "inputSchema": {"type": "object", "required": ["task_id"], "properties": {"task_id": id.clone()}}},
         {"name": "pygg_discard_result", "description": "Discard a finished task's result.",
          "inputSchema": {"type": "object", "required": ["task_id"], "properties": {"task_id": id.clone()}}},
         {"name": "pygg_stop_task", "description": "Stop a running or waiting task.",
@@ -153,10 +155,12 @@ pub(crate) fn describe(task: &Value) -> String {
         "waiting_approval" => "Waiting for the user to approve a paid step in the Pygg app. Tell the user; check again later.".into(),
         "checks_passed" if task["result"].is_null() =>
             "The approved checks passed. Review the changes with pygg_task_diff, then pygg_keep_result (a new branch) or pygg_discard_result.".into(),
+        "needs_review" if task["result"].is_null() && task["checked"] == "failed" =>
+            "NOT READY: a check failed on this result (above). Discard it with pygg_discard_result, or keep it only as unchecked work (pygg_keep_result with accept_unchecked) if the user says so.".into(),
         "needs_review" if task["result"].is_null() && task["checked"] == "definitions_changed" =>
             "NOT READY: the checks passed, but this result changed a file that defines them, so they do not vouch for it. Read the whole diff with pygg_task_diff; keep it only if you judge it correct yourself (pygg_keep_result with accept_unchecked, and tell the user it is unchecked), or pygg_discard_result.".into(),
         "needs_review" if task["result"].is_null() =>
-            "NOT READY: no check ran on this result, so nothing confirmed it. Read the whole diff with pygg_task_diff; keep it only if you judge it correct yourself (pygg_keep_result with accept_unchecked, and tell the user it is unchecked), or pygg_discard_result. The user can approve checks for this workspace in the Pygg app.".into(),
+            "NOT READY: no check ran on this result, so nothing confirmed it. Read the whole diff with pygg_task_diff; keep it only if you judge it correct yourself (pygg_keep_result with accept_unchecked, and tell the user it is unchecked), or pygg_discard_result. Better: ask the user to approve a check for this workspace in the Pygg app (Detect suggests some), then run pygg_check_result.".into(),
         "checks_passed" | "manually_accepted" | "needs_review" | "canceled" if !task["resultBranch"].is_null() =>
             format!("Kept as branch {}.", s(&task["resultBranch"])),
         "answered" => format!(
@@ -243,6 +247,10 @@ async fn call_tool(gateway: &Gateway, name: &str, args: &Value) -> Result<String
                 "Kept as branch {}. Your checkout was not changed; merge or check out the branch to use it.",
                 kept["branch"].as_str().unwrap_or("")
             ))
+        }
+        "pygg_check_result" => {
+            let task = gateway.call(Method::POST, &format!("/pygg/v1/tasks/{}/check", task_id(args)?), None).await?;
+            Ok(describe(&task))
         }
         "pygg_discard_result" => {
             gateway.call(Method::POST, &format!("/pygg/v1/tasks/{}/discard", task_id(args)?), None).await?;

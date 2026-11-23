@@ -766,6 +766,7 @@ button.runtime-status:hover { background: var(--hover); color: var(--label); }
 .step-actions { display: flex; gap: 2px; margin-left: auto; }
 .check-line { flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
 .check-line .mono { font-size: 12px; }
+.check-line .check-covers { flex-basis: 100%; padding-left: 22px; font-size: 12px; }
 .new-task .group-row .text-input { flex: 1; min-width: 0; }
 .task-actions { display: grid; gap: 8px; }
 .task-actions .form-actions { margin-top: 0; }

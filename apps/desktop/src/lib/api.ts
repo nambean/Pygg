@@ -597,6 +597,8 @@ export interface GatewayApi {
   taskDiff(id: string): Promise<string>;
   taskActivity(attemptId: string, after: number): Promise<Activity>;
   /** Keeps the result as a branch (returned) or discards it. */
+  /** Runs the workspace's approved checks on a result waiting for review, without running the agent again. */
+  checkResult(id: string): Promise<TaskDetail>;
   /** `unchecked`: keep a result no check vouches for (not ready); refused without it. */
   finishTask(id: string, keep: boolean, title: string | null, unchecked?: boolean): Promise<string | null>;
   /** pygg/brain (ADR-041): brainstorms started from a coding agent, picked, edited and approved here. */
@@ -789,6 +791,7 @@ const native: GatewayApi = {
   retryTask: id => invoke('task_retry', {id}),
   taskDiff: id => invoke('task_diff', {id}),
   taskActivity: (attemptId, after) => invoke('task_activity', {attemptId, after}),
+  checkResult: id => invoke('task_check_result', {id}),
   finishTask: (id, keep, title, unchecked) => invoke('task_finish', {id, keep, title, unchecked: unchecked ?? false}),
   mcpSetup: () => invoke('mcp_setup'),
   integrations: () => invoke('integrations_list'),

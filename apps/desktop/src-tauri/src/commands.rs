@@ -1580,6 +1580,12 @@ pub fn task_activity(attempt_id: String, after: u64) -> crate::live::Activity {
     crate::live::since(&attempt_id, after)
 }
 
+/// Runs the workspace's approved checks on a result waiting for review (`tasks::check_result`).
+#[tauri::command]
+pub async fn task_check_result(state: State<'_, AppState>, id: String) -> Res<tasks::TaskDetail> {
+    tasks::check_result(&state.shared.db, &id).await
+}
+
 /// Keeps the task's result as a branch (`title` names it) or discards it. Returns the branch when kept.
 #[tauri::command]
 pub async fn task_finish(

@@ -69,7 +69,8 @@ export type TaskSummary = {
 export type Workspace = { id: string; name: string; path: string };
 
 /** A check command; only approved ones run. Detected ones arrive as suggestions. */
-export type WorkspaceCheck = { command: string; source: string; approved: boolean };
+/** `covers`: what passing it means and what it leaves unchecked (checks.rs `covers`). */
+export type WorkspaceCheck = { command: string; source: string; approved: boolean; covers?: string };
 export type WorkspaceView = Workspace & {
   checks: WorkspaceCheck[]; tasks: number;
   /** This workspace's own daily limit for paid steps, on top of the overall one. */

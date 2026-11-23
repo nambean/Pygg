@@ -388,6 +388,7 @@ pub fn run() {
             commands::brainstorm_start,
             commands::brainstorm_refine,
             commands::task_finish,
+            commands::task_check_result,
             commands::mcp_setup,
             commands::integrations_list,
             commands::integration_plan,
