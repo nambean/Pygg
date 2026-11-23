@@ -239,6 +239,7 @@ function ApprovalPanel({approval: a, busy, onDecide}: {approval: ApprovalView; b
   const [cap, setCap] = useState(a.suggestedCapUsd.toFixed(2));
   const amount = Number(cap.replace(',', '.'));
   const valid = Number.isFinite(amount) && amount > 0;
+  const capHolds = a.enforcedByGateway || a.enforcedByAgent;
   const e = a.estimate;
   const money = (micro: number) => `$${(micro / 1e6).toFixed(2)}`;
   if (!a.paid) return <div className="group-box approval-panel">
@@ -261,15 +262,16 @@ function ApprovalPanel({approval: a, busy, onDecide}: {approval: ApprovalView; b
         ? t('Its last {n} runs cost {amount} each, by the agent’s own list-price estimate.', {n: e.runs, amount: money(e.highMicroUsd)})
         : t('Its last {n} runs cost {low} to {high}, by the agent’s own list-price estimate.', {n: e.runs, low: money(e.lowMicroUsd), high: money(e.highMicroUsd)})}
       {a.remainingUsd !== null && ` ${t('Left of today’s budget for paid steps: {amount}.', {amount: `$${a.remainingUsd.toFixed(2)}`})}`}</p>
-    <FormRow label={a.enforcedByAgent ? t('Spending cap') : t('Stop further steps above')} htmlFor="approval-cap"
-      hint={a.enforcedByAgent ? t('The agent stops at this amount itself.')
+    <FormRow label={capHolds ? t('Spending cap') : t('Stop further steps above')} htmlFor="approval-cap"
+      hint={a.enforcedByGateway ? t('Pygg refuses any request of this step that could take its spend past this amount.')
+        : a.enforcedByAgent ? t('The agent stops at this amount itself.')
         : t('This agent cannot stop at a cap. If the cost it reports afterwards is over it, Pygg tries no further step.')}>
       <span className={valid ? 'money-input' : 'money-input invalid'}><span aria-hidden>$</span>
         <input id="approval-cap" inputMode="decimal" value={cap} onChange={ev => setCap(ev.target.value)} disabled={busy}/></span>
     </FormRow>
     <div className="form-actions">
       <button type="button" className="button prominent" disabled={busy || !valid} onClick={() => onDecide(true, amount)}>
-        <Check size={13} aria-hidden/>{a.enforcedByAgent
+        <Check size={13} aria-hidden/>{capHolds
           ? t('Approve up to {amount}', {amount: valid ? `$${amount.toFixed(2)}` : '—'})
           : t('Approve Step')}</button>
       <button type="button" className="button" disabled={busy} onClick={() => onDecide(false, null)}>

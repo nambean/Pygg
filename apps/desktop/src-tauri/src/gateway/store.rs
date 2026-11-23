@@ -1385,15 +1385,18 @@ pub enum LimitScope {
     Session,
     Day,
     Month,
+    /// The cap the user approved for a smart task's step, over every key that names the step's session.
+    Step,
 }
 
 impl LimitScope {
-    /// As it reads in a message: "the session limit", "the daily limit", "the monthly limit".
+    /// As it reads in a message: "the session limit", "the daily limit", "the monthly limit", "the step limit".
     pub fn label(self) -> &'static str {
         match self {
             LimitScope::Session => "session",
             LimitScope::Day => "daily",
             LimitScope::Month => "monthly",
+            LimitScope::Step => "step",
         }
     }
 }
@@ -1432,6 +1435,9 @@ impl LimitScope {
             LimitScope::Session => ("Start a new session, or raise or remove the limit", "--session-usd"),
             LimitScope::Day => ("It resets at 00:00 UTC; or raise or remove the limit", "--day-usd"),
             LimitScope::Month => ("Raise or remove the limit", "--monthly-usd"),
+            LimitScope::Step => {
+                return "The task ends this step; a further step asks for its own approval and cap.".to_string();
+            }
         };
         format!(
             "{then} in Pygg → Endpoint → API Keys → Limits…, or with `pygg gateway client --name \"{client}\" {flag} N` \
@@ -1447,6 +1453,14 @@ impl LimitHit {
             LimitScope::Session => "this session has used",
             LimitScope::Day => "today (UTC) this key has used",
             LimitScope::Month => "this month this key has used",
+            LimitScope::Step => {
+                return format!(
+                    "This task step has reached the cap approved for it ({}): it has used {}. Nothing was sent. {}",
+                    usd(self.limit),
+                    usd(self.counted),
+                    self.scope.remedy(client),
+                );
+            }
         };
         format!(
             "API key \"{client}\" has reached its {} limit ({}): {counted} {}. Nothing was sent. {}",
@@ -1463,6 +1477,7 @@ fn counted_in(
     conn: &Connection, client_id: &str, scope: LimitScope, session: Option<&str>, now: i64,
 ) -> rusqlite::Result<u64> {
     let spent: i64 = match scope {
+        LimitScope::Step => return Ok(step_spend(conn, session.unwrap_or_default())?.0),
         LimitScope::Session => conn.query_row(
             &format!("SELECT {COUNTED_SPEND} FROM usage_events WHERE client_id = ?1 AND session_key = ?2 AND created_at >= 0"),
             params![client_id, session.unwrap_or_default()],
@@ -1477,33 +1492,55 @@ fn counted_in(
     Ok(spent.max(0) as u64)
 }
 
+/// The cap the user approved for a smart task's step (ROADMAP focus item 1). The step's agent names the attempt's id as
+/// its session, so the cap is a limit on that session over every key that names it: a second key cannot get round it.
+/// Unlike a key's own session limit it is always strict: each request holds the most it could cost, and the gateway
+/// lowers the request's output limit until that fits what is left (`step_room`).
+pub fn step_cap(conn: &Connection, session: &str) -> rusqlite::Result<Option<u64>> {
+    let cap: Option<i64> = conn
+        .query_row(
+            "SELECT cap_micro_usd FROM approvals WHERE attempt_id = ?1 AND state = 'approved' AND cap_micro_usd > 0 \
+             ORDER BY rowid DESC LIMIT 1",
+            [session],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(cap.map(|c| c.max(0) as u64))
+}
+
+/// What a step's session has used (settled spend plus spend at risk) and what its requests in flight hold, over every
+/// key.
+fn step_spend(conn: &Connection, session: &str) -> rusqlite::Result<(u64, u64)> {
+    let counted: i64 = conn.query_row(
+        &format!("SELECT {COUNTED_SPEND} FROM usage_events WHERE session_key = ?1 AND created_at >= 0"),
+        [session],
+        |r| r.get(0),
+    )?;
+    let held: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(reserved_micro), 0) FROM budget_reservations WHERE session_key = ?1",
+        [session],
+        |r| r.get(0),
+    )?;
+    Ok((counted.max(0) as u64, held.max(0) as u64))
+}
+
+/// What a capped step has left for one more request: its cap less what it used and what its requests in flight hold.
+/// `None` when the session is not a capped step. Read outside the transaction that holds the request, which checks
+/// again, so a figure that changed in between refuses rather than passes the cap.
+pub fn step_room(conn: &Connection, session: &str) -> Result<Option<u64>> {
+    let Some(cap) = step_cap(conn, session).map_err(err)? else { return Ok(None) };
+    let (counted, held) = step_spend(conn, session).map_err(err)?;
+    Ok(Some(cap.saturating_sub(counted + held)))
+}
+
 /// The client's session and day limits that apply to a request, as `(scope, limit)`, session first. The session limit
 /// applies only to a request that names a session.
-///
-/// A smart task's attempt names its own id as the session, and the cap the user approved for it is that session's
-/// limit too, the lower of the two applying: the next request is refused once the attempt's spend reaches its cap,
-/// instead of the cap being checked only when the agent has finished (the replay found steps 20 times over).
 fn short_limits(conn: &Connection, client_id: &str, session: Option<&str>) -> rusqlite::Result<Vec<(LimitScope, u64)>> {
     let (per_session, per_day): (Option<i64>, Option<i64>) = conn.query_row(
         "SELECT session_budget_micro_usd, day_budget_micro_usd FROM gateway_clients WHERE id = ?1",
         [client_id],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
-    let attempt_cap: Option<i64> = match session {
-        Some(session) => conn
-            .query_row(
-                "SELECT cap_micro_usd FROM approvals WHERE attempt_id = ?1 AND state = 'approved' AND cap_micro_usd > 0 \
-                 ORDER BY rowid DESC LIMIT 1",
-                [session],
-                |r| r.get(0),
-            )
-            .optional()?,
-        None => None,
-    };
-    let per_session = match (per_session, attempt_cap) {
-        (Some(key), Some(attempt)) => Some(key.min(attempt)),
-        (key, attempt) => key.or(attempt),
-    };
     let mut limits = Vec::new();
     if let (Some(limit), Some(_)) = (per_session, session) {
         limits.push((LimitScope::Session, limit.max(0) as u64));
@@ -1517,6 +1554,14 @@ fn short_limits(conn: &Connection, client_id: &str, session: Option<&str>) -> ru
 /// The first of a client's session and day limits that is already reached, checked before a request is routed (cost
 /// plan A3). Spend already counted only: what requests in flight hold is checked when each attempt is opened.
 pub fn reached_limit(conn: &Connection, client_id: &str, session: Option<&str>, now: i64) -> Result<Option<LimitHit>> {
+    if let Some(session) = session {
+        if let Some(cap) = step_cap(conn, session).map_err(err)? {
+            let (counted, _) = step_spend(conn, session).map_err(err)?;
+            if counted >= cap {
+                return Ok(Some(LimitHit { scope: LimitScope::Step, counted, limit: cap }));
+            }
+        }
+    }
     for (scope, limit) in short_limits(conn, client_id, session).map_err(err)? {
         let counted = counted_in(conn, client_id, scope, session, now).map_err(err)?;
         if counted >= limit {
@@ -1568,6 +1613,22 @@ pub fn session_limits(conn: &Connection, session: &str, now: i64) -> Result<Opti
     Ok((limits.session.is_some() || limits.day.is_some()).then_some(limits))
 }
 
+/// A capped step's spend as Pygg shows it: its cap, what was settled (spend at risk included), and what its requests
+/// in flight hold.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StepSpend {
+    pub cap_micro_usd: u64,
+    pub settled_micro_usd: u64,
+    pub held_micro_usd: u64,
+}
+
+pub fn step_spend_of(conn: &Connection, session: &str) -> Result<Option<StepSpend>> {
+    let Some(cap) = step_cap(conn, session).map_err(err)? else { return Ok(None) };
+    let (settled, held) = step_spend(conn, session).map_err(err)?;
+    Ok(Some(StepSpend { cap_micro_usd: cap, settled_micro_usd: settled, held_micro_usd: held }))
+}
+
 /// Runs `f` inside `BEGIN IMMEDIATE`: it commits when `f` returns `Ok(true)`, rolls back on `Ok(false)` or an
 /// error. Immediate, so a writer in another process (the CLI next to the app) waits instead of interleaving.
 fn immediate<T>(conn: &Connection, f: impl FnOnce() -> rusqlite::Result<(T, bool)>) -> Result<T> {
@@ -1614,8 +1675,21 @@ pub fn open_attempt(conn: &Connection, a: &AttemptStart) -> Result<std::result::
 /// request's output limit with all its input at the cache-write price: for a coding agent's turn (32,000–64,000
 /// output tokens, a long cached prompt) 15 to 20 times what it usually costs, so with a few subagents in flight a $5
 /// session limit would stop a session that had spent $0.50. A strict limit opted into that worst case.
+///
+/// A capped step (`step_cap`) is always strict: what its session used and holds, over every key, plus this hold must
+/// fit the cap, so settled spend cannot pass it while prices and output limits hold.
 fn open_attempt_at(conn: &Connection, a: &AttemptStart, now: i64) -> Result<std::result::Result<String, OverBudget>> {
     immediate(conn, || {
+        if let Some(session) = a.session_key.filter(|_| a.hold_micro > 0) {
+            if let Some(cap) = step_cap(conn, session)? {
+                let (spent, reserved) = step_spend(conn, session)?;
+                if spent >= cap || spent + reserved + a.hold_micro > cap {
+                    let over =
+                        OverBudget { scope: LimitScope::Step, spent, reserved, budget: cap, wanted: a.hold_micro };
+                    return Ok((Err(over), false));
+                }
+            }
+        }
         if a.hold_micro > 0 {
             let (monthly, strict): (Option<i64>, bool) = conn.query_row(
                 "SELECT monthly_budget_micro_usd, strict_budget FROM gateway_clients WHERE id = ?1",

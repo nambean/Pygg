@@ -92,7 +92,7 @@ A task is a ladder of agent steps fixed at creation, judged by the workspace's *
 - What the agent does shows live on the task's screen (`live.rs`): its output is read line by line as it runs, turned into readable lines and redacted, the last 500 lines of an attempt kept in memory.
 - A failed attempt is discarded and the next step gets a handoff (`tail` default, `none`, `evidence`, or `brief`: the portable brief; ADR-030).
 - Checks pass → **Keep as Branch**, **Export Patch** or **Discard**; no approved checks → needs review.
-- **Paid step waits for approval** with a spending cap (ADR-010). The cap is also the attempt's gateway session limit: once its spend reaches it, the agent's next request through Pygg gets 402; over the cap the ladder stops.
+- **Paid step waits for approval** with a spending cap (ADR-010). Through Pygg's gateway (a `pygg/...` model) the cap holds: each request of the step, from any key naming its session, holds the most it could cost inside what is left, its output limit lowered to fit; a request that cannot fit gets 402 once the cap is spent, or 429 while requests in flight hold the rest; an unpriced model is not used. Elsewhere the cap is checked after the step, and over it the ladder stops.
 - **Daily budgets** (UTC) for all tasks and per workspace.
 - **Sensitive** workspace asks before every step; detected checks are suggestions until approved.
 - Headless: `pygg agent --db STORE task --workspace DIR --prompt TEXT --steps "…" [--check CMD]`.

@@ -148,8 +148,11 @@ impl Cost {
     }
 }
 
+/// Rounded up to the micro-dollar, as a request's hold is: the ledger never counts less than the price says, so a
+/// capped step's counted spend cannot fall under what it really cost (the step-cap proof found a step billed 6
+/// micro-dollars more than the ledger had counted when each part was rounded to the nearest).
 fn per_mtok(tokens: u64, micro_per_mtok: u64) -> u64 {
-    ((tokens as u128 * micro_per_mtok as u128 + 500_000) / 1_000_000) as u64
+    (tokens as u128 * micro_per_mtok as u128).div_ceil(1_000_000) as u64
 }
 
 /// The cost of a successful response.

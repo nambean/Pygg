@@ -139,6 +139,8 @@ export type ApprovalView = {
   label: string; estimate: Estimate; suggestedCapUsd: number;
   /** The agent stops at the cap itself (Claude Code); otherwise it is checked against the cost it reports. */
   enforcedByAgent: boolean;
+  /** The step's model is one of Pygg's gateway: each request holds its most possible cost inside the cap, or is refused. */
+  enforcedByGateway: boolean;
   /** What today's budgets leave for paid steps here; null without a budget. The cap cannot be more. */
   remainingUsd: number | null;
 };

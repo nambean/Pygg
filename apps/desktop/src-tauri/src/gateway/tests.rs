@@ -25,6 +25,8 @@ struct Fake {
     keys: Mutex<Vec<String>>,
     /// The headers of the last Chat Completions request, for what is passed on to a provider.
     last_headers: Mutex<Option<HeaderMap>>,
+    /// What model `obeys` billed, in micro-USD, per step named in the request (the step-cap proof).
+    billed: Mutex<HashMap<String, u64>>,
 }
 
 impl Fake {
@@ -158,6 +160,40 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
     // A model that reports more than any estimate held for it: 1M prompt tokens.
     let usage = if model == "heavy" {
         json!({ "prompt_tokens": 1_000_000, "completion_tokens": 500 })
+    } else if model.starts_with("obeys") {
+        // Held to what it was sent: a prompt of a quarter of its body's characters, and as much output as the request's
+        // limit allows, up to 3,000 tokens (the step-cap tests). It answers after 30 ms, so requests overlap. What it
+        // bills, at `price()`, is kept per step (named `step:<id>` in the last message), whether or not the client
+        // waits for the answer.
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        let limit = ["max_tokens", "max_completion_tokens"].iter().find_map(|k| body[*k].as_u64()).unwrap_or(u64::MAX);
+        let (prompt, completion) = (body.to_string().len() as u64 / 4, limit.min(3_000));
+        let last = body["messages"].as_array().and_then(|m| m.last()).and_then(|m| m["content"].as_str()).unwrap_or("");
+        if let Some(step) = last.strip_prefix("step:").and_then(|s| s.split_whitespace().next()) {
+            let bill = (prompt * 100_000).div_ceil(1_000_000) + (completion * 400_000).div_ceil(1_000_000);
+            *fake.billed.lock().unwrap().entry(step.to_string()).or_default() += bill;
+        }
+        let usage = json!({ "prompt_tokens": prompt, "completion_tokens": completion });
+        // Streamed slowly, over about 600 ms, its usage last: a client may leave before it ends.
+        if model == "obeys-drip" && body["stream"] == true {
+            let chunks = futures_util::stream::unfold(0u32, move |i| {
+                let usage = usage.clone();
+                async move {
+                    if i > 12 {
+                        return None;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    let data = if i == 12 {
+                        format!("data: {}\n\ndata: [DONE]\n\n", json!({ "choices": [], "usage": usage }))
+                    } else {
+                        format!("data: {}\n\n", json!({ "choices": [{ "delta": { "content": "x" } }] }))
+                    };
+                    Some((Ok::<_, std::io::Error>(Bytes::from(data)), i + 1))
+                }
+            });
+            return ([(header::CONTENT_TYPE, "text/event-stream")], Body::from_stream(chunks)).into_response();
+        }
+        usage
     } else {
         json!({ "prompt_tokens": 1000, "completion_tokens": 500 })
     };
@@ -3566,6 +3602,188 @@ fn a_task_attempts_approved_cap_refuses_its_next_request_once_reached() {
     });
 }
 
+/// Approves a cap for attempt `attempt` (its session), as the task engine does.
+fn approve_step(rig: &Rig, attempt: &str, cap: u64) {
+    rig.shared
+        .with_db(|db| {
+            db.execute_batch("PRAGMA foreign_keys = OFF")?;
+            db.execute(
+                "INSERT INTO approvals (id, attempt_id, cap_micro_usd, policy_version, state, created_at) \
+                 VALUES (?1, ?2, ?3, 'test', 'approved', 0)",
+                rusqlite::params![format!("ap-{attempt}"), attempt, cap as i64],
+            )?;
+            db.execute_batch("PRAGMA foreign_keys = ON")
+        })
+        .unwrap();
+}
+
+/// What the ledger counted for a session, over every key.
+fn session_spend(rig: &Rig, session: &str) -> u64 {
+    rig.shared.with_db(|db| store::step_spend_of(db, session)).unwrap().map(|s| s.settled_micro_usd).unwrap_or(0)
+}
+
+#[test]
+fn a_capped_step_lowers_the_output_limit_to_fit_and_never_passes_its_cap() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.priced("main", "obeys");
+        // $0.002; an answer of up to 3,000 tokens costs up to $0.0012 (ROADMAP focus item 1).
+        approve_step(&rig, "att-c", 2_000);
+        let ask = || json!({ "model": "main/obeys", "max_tokens": 64_000, "messages": [{ "role": "user", "content": "go" }] });
+        let mut statuses = Vec::new();
+        let mut sent_limits = Vec::new();
+        for _ in 0..6 {
+            let status = rig.post_session("/v1/chat/completions", "att-c", ask()).await.status().as_u16();
+            if status == 200 {
+                sent_limits.push(rig.fake.last_body.lock().unwrap().as_ref().unwrap()["max_tokens"].as_u64().unwrap());
+            }
+            statuses.push(status);
+        }
+        // Asked for 64,000 tokens, which the cap could never hold: each was sent with what was left, then refused.
+        assert_eq!(statuses[..2], [200, 200], "{statuses:?}");
+        assert!(statuses[2..].iter().all(|s| *s == 402), "{statuses:?}");
+        assert!(sent_limits.iter().all(|l| *l < 64_000 && *l >= 1_024), "{sent_limits:?}");
+        let spent = session_spend(&rig, "att-c");
+        assert!(spent <= 2_000 && spent > 1_500, "spent {spent}");
+        assert_eq!(rig.journal_len(), 0);
+    });
+}
+
+#[test]
+fn a_capped_step_refuses_an_unknown_price_and_counts_every_key() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.priced("main", "obeys");
+        approve_step(&rig, "att-k", 1_000_000);
+        // No price: what it costs cannot be held inside the cap, so it is not sent, whatever the key allows.
+        rig.shared.with_db(|db| store::set_client_policy(db, &rig.client_id, None, Some("allow"))).unwrap();
+        let unpriced = rig.post_session("/v1/chat/completions", "att-k", chat("main/steady")).await;
+        assert_ne!(unpriced.status(), 200);
+        assert!(unpriced.text().await.unwrap().contains("this task step has a spending cap"));
+        assert_eq!(rig.fake.count("steady"), 0);
+        // A second key naming the same step is held to the same cap.
+        approve_step(&rig, "att-two", 1_500);
+        let (_, other) = rig.shared.with_db(|db| store::create_client(db, "Second", None)).unwrap();
+        let body =
+            json!({ "model": "main/obeys", "max_tokens": 3_000, "messages": [{ "role": "user", "content": "go" }] });
+        assert_eq!(rig.post_session("/v1/chat/completions", "att-two", body.clone()).await.status(), 200);
+        let second = rig
+            .http
+            .post(format!("{}/v1/chat/completions", rig.base))
+            .bearer_auth(&other)
+            .header(SESSION_HEADER, "att-two")
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(second.status(), 402, "the first key's spend left too little for the second");
+        assert!(session_spend(&rig, "att-two") <= 1_500);
+    });
+}
+
+#[test]
+fn concurrent_requests_from_two_keys_never_take_a_step_past_its_cap() {
+    rt().block_on(async {
+        let rig = rig().await;
+        rig.priced("main", "obeys");
+        approve_step(&rig, "att-p", 20_000);
+        let (second, other) = rig.shared.with_db(|db| store::create_client(db, "Second", None)).unwrap();
+        // Both keys take all 60 at once, so only the cap refuses.
+        for id in [&rig.client_id, &second.id] {
+            rig.shared.with_db(|db| store::set_client_policy(db, id, Some(64), None)).unwrap();
+        }
+        let mut running = Vec::new();
+        for i in 0..60 {
+            let token = if i % 2 == 0 { rig.token.clone() } else { other.clone() };
+            let (http, url) = (rig.http.clone(), format!("{}/v1/chat/completions", rig.base));
+            running.push(tokio::spawn(async move {
+                http.post(url)
+                    .bearer_auth(token)
+                    .header(SESSION_HEADER, "att-p")
+                    .json(&json!({ "model": "main/obeys", "max_tokens": 4_000, "messages": [{ "role": "user", "content": "go" }] }))
+                    .send()
+                    .await
+                    .unwrap()
+                    .status()
+                    .as_u16()
+            }));
+        }
+        let mut statuses = Vec::new();
+        for r in running {
+            statuses.push(r.await.unwrap());
+        }
+        // Refused for good (402) once the cap is spent; told to wait (429) while requests in flight hold what is left.
+        assert!(statuses.iter().all(|s| [200, 402, 429].contains(s)), "{statuses:?}");
+        assert!(statuses.contains(&200) && statuses.iter().any(|s| *s != 200), "{statuses:?}");
+        let spent = session_spend(&rig, "att-p");
+        assert!(spent <= 20_000, "spent {spent}");
+        assert_eq!(rig.journal_len(), 0);
+    });
+}
+
+#[test]
+fn a_capped_request_gets_its_output_limit_in_the_field_its_format_reads() {
+    let mut chat = json!({ "max_completion_tokens": 32_000 });
+    set_output_limit(&mut chat, 2_000, false, false);
+    assert_eq!(chat, json!({ "max_completion_tokens": 2_000 }));
+    let mut bare = json!({});
+    set_output_limit(&mut bare, 2_000, false, false);
+    assert_eq!(bare["max_tokens"], 2_000);
+    let mut lower = json!({ "max_tokens": 500 });
+    set_output_limit(&mut lower, 2_000, false, false);
+    assert_eq!(lower["max_tokens"], 500, "a lower limit of the request's own stays");
+    let mut responses = json!({ "max_output_tokens": 64_000 });
+    set_output_limit(&mut responses, 2_000, false, true);
+    assert_eq!(responses["max_output_tokens"], 2_000);
+    // Anthropic: the thinking budget stays under the limit, or goes when its least (1,024) no longer fits.
+    let mut thinking = json!({ "max_tokens": 64_000, "thinking": { "type": "enabled", "budget_tokens": 16_000 } });
+    set_output_limit(&mut thinking, 4_000, true, false);
+    assert_eq!(
+        (thinking["max_tokens"].as_u64(), thinking["thinking"]["budget_tokens"].as_u64()),
+        (Some(4_000), Some(3_999))
+    );
+    set_output_limit(&mut thinking, 1_024, true, false);
+    assert!(thinking.get("thinking").is_none());
+    // What fits: the prompt first, then the output; less than 1,024 tokens of room is refused.
+    let body = json!({ "messages": [{ "role": "user", "content": "go" }] });
+    let room_for = |tokens: u64| estimate_micro_with(&body, &price(), 0) + tokens * 400_000 / 1_000_000;
+    assert_eq!(fit_output(&body, &price(), Some(64_000), room_for(5_000)), Some((5_000, Some(5_000))));
+    assert_eq!(fit_output(&body, &price(), Some(1_000), room_for(5_000)), Some((1_000, None)));
+    assert_eq!(fit_output(&body, &price(), None, room_for(1_000)), None);
+}
+
+#[test]
+fn a_capped_steps_interrupted_requests_count_at_what_they_held() {
+    let conn = crate::db::open_in_memory().unwrap();
+    let (client, _) = store::create_client(&conn, "Tests", None).unwrap();
+    conn.execute_batch("PRAGMA foreign_keys = OFF").unwrap();
+    conn.execute(
+        "INSERT INTO approvals (id, attempt_id, cap_micro_usd, policy_version, state, created_at) \
+         VALUES ('ap', 'att-r', 2000, 'test', 'approved', 0)",
+        [],
+    )
+    .unwrap();
+    let start = |hold| store::AttemptStart {
+        client_id: &client.id,
+        provider_id: "main",
+        model_id: "fast",
+        requested_model: "main/fast",
+        session_key: Some("att-r"),
+        route_mode: "native",
+        hold_micro: hold,
+        owner_generation: "g1",
+    };
+    store::open_attempt(&conn, &start(1_500)).unwrap().unwrap();
+    let over = store::open_attempt(&conn, &start(600)).unwrap().unwrap_err();
+    assert_eq!((over.scope, over.reserved, over.budget), (store::LimitScope::Step, 1_500, 2_000));
+    // The gateway stopped before the answer was settled: the next one counts what was held as spend at risk.
+    assert_eq!(store::settle_interrupted(&conn, store::Unsettled::NotOf("g2")).unwrap(), 1);
+    let spend = store::step_spend_of(&conn, "att-r").unwrap().unwrap();
+    assert_eq!((spend.settled_micro_usd, spend.held_micro_usd), (1_500, 0));
+    assert_eq!(store::open_attempt(&conn, &start(600)).unwrap().unwrap_err().scope, store::LimitScope::Step);
+    store::open_attempt(&conn, &start(500)).unwrap().unwrap();
+}
+
 #[test]
 fn an_estimated_session_limit_sends_while_spend_is_under_it() {
     rt().block_on(async {
@@ -3702,4 +3920,237 @@ fn a_strict_day_limit_holds_requests_in_flight_together() {
     store::set_client_budget(&conn, &client.id, Some(20_000)).unwrap();
     let over = store::open_attempt(&conn, &start("d", 4_000)).unwrap().unwrap_err();
     assert_eq!((over.scope, over.reserved), (store::LimitScope::Month, 17_000));
+}
+
+// ---------- ROADMAP focus item 1: the step-cap proof ----------
+
+/// A small deterministic generator (xorshift), so a proof run can be repeated request for request.
+struct Lcg(u64);
+
+impl Lcg {
+    fn below(&mut self, n: u64) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0 % n.max(1)
+    }
+}
+
+/// A proof request: a prompt of up to 40,000 characters naming its step, and an output limit that is absent, far too
+/// large for any cap, or ordinary, in either field Chat Completions has for it.
+fn proof_body(rng: &mut Lcg, step: &str, stream: bool) -> Value {
+    let filler = "x".repeat(rng.below(40_000) as usize);
+    let model = if stream { "main/obeys-drip" } else { "main/obeys" };
+    let mut body = json!({ "model": model, "stream": stream,
+        "messages": [{ "role": "user", "content": format!("step:{step} {filler}") }] });
+    match rng.below(4) {
+        0 => {}
+        1 => body["max_tokens"] = json!(64_000),
+        2 => body["max_completion_tokens"] = json!(200_000),
+        _ => body["max_tokens"] = json!(1 + rng.below(4_000)),
+    }
+    body
+}
+
+/// Sends one proof request and reads the answer whole: its status, or 0 when the client left first (`leave_after`).
+/// A 429 is sent again, as agents do, up to 50 times, 100 ms apart (the gateway asks for a second: shortened here).
+async fn proof_request(
+    http: reqwest::Client, base: String, token: String, step: String, body: Value, leave_after: Option<Duration>,
+) -> u16 {
+    let exchange = async move {
+        for _ in 0..50 {
+            let response = http
+                .post(format!("{base}/v1/chat/completions"))
+                .bearer_auth(&token)
+                .header(SESSION_HEADER, &step)
+                .json(&body)
+                .send()
+                .await
+                .ok()?;
+            let status = response.status().as_u16();
+            let _ = response.text().await;
+            if status != 429 {
+                return Some(status);
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        Some(429)
+    };
+    match leave_after {
+        Some(after) => tokio::time::timeout(after, exchange).await.ok().flatten().unwrap_or(0),
+        None => exchange.await.unwrap_or(0),
+    }
+}
+
+/// One scenario's line in the proof's table.
+#[derive(Default)]
+struct ProofRow {
+    steps: usize,
+    requests: usize,
+    /// 200, 402, the client left, any other status.
+    counts: [usize; 4],
+    violations: usize,
+    worst: f64,
+    used: Vec<f64>,
+}
+
+/// ROADMAP focus item 1's proof: 1,000 adversarial requests at task steps with approved caps, over HTTP through the
+/// gateway on a store file, to a fake provider that bills what it generates (`obeys`). Four kinds of step:
+/// `oversized` (one after another, output limits absent or far past any cap), `concurrent` (25 at once from two keys),
+/// `cancelled` (slow streams the client leaves at a random moment) and `restart` (the gateway stopped and started with
+/// streams running, and a crashed gateway's unsettled request left in the journal). No step's settled spend, nor what
+/// the provider billed it, may pass its cap.
+///
+///     cargo test --release --lib step_cap_proof -- --ignored --nocapture
+///
+/// `PYGG_PROOF_OUT` names a JSON-lines file for one row per step.
+#[test]
+#[ignore]
+fn step_cap_proof() {
+    rt().block_on(async {
+        let dir = tempfile::tempdir().unwrap();
+        let rig = rig_on_store(&dir.path().join("store.sqlite3")).await;
+        rig.priced("main", "obeys");
+        rig.priced("main", "obeys-drip");
+        let (second, other) = rig.shared.with_db(|db| store::create_client(db, "Second", None)).unwrap();
+        for id in [&rig.client_id, &second.id] {
+            rig.shared.with_db(|db| store::set_client_policy(db, id, Some(64), None)).unwrap();
+        }
+        let tokens = [rig.token.clone(), other];
+        let mut rng = Lcg(20_261_123);
+        let mut base = rig.base.clone();
+        let mut steps: Vec<(String, &str, u64, Vec<u16>)> = Vec::new();
+        let plan = [("oversized", 10, 10), ("concurrent", 20, 25), ("cancelled", 10, 20), ("restart", 10, 20)];
+        for (scenario, count, per) in plan {
+            for k in 0..count {
+                let step = format!("{scenario}-{k}");
+                let cap = 2_000 + rng.below(58_000);
+                approve_step(&rig, &step, cap);
+                let mut statuses = Vec::new();
+                let spawn = |rng: &mut Lcg, base: &str, i: usize, stream: bool, leave: Option<Duration>| {
+                    let body = proof_body(rng, &step, stream);
+                    let (http, token) = (rig.http.clone(), tokens[i % 2].clone());
+                    tokio::spawn(proof_request(http, base.to_string(), token, step.clone(), body, leave))
+                };
+                match scenario {
+                    "oversized" => {
+                        for i in 0..per {
+                            statuses.push(spawn(&mut rng, &base, i, false, None).await.unwrap());
+                        }
+                    }
+                    "concurrent" | "cancelled" => {
+                        let cancelled = scenario == "cancelled";
+                        let mut running = Vec::new();
+                        for i in 0..per {
+                            let leave = cancelled.then(|| Duration::from_millis(20 + rng.below(700)));
+                            running.push(spawn(&mut rng, &base, i, cancelled, leave));
+                        }
+                        for r in running {
+                            statuses.push(r.await.unwrap());
+                        }
+                    }
+                    _ => {
+                        let mut running = Vec::new();
+                        for i in 0..per / 2 {
+                            running.push(spawn(&mut rng, &base, i, true, None));
+                        }
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                        // A gateway that crashed with a request in flight left its hold in the journal.
+                        let room = rig.shared.with_db(|db| store::step_room(db, &step)).unwrap().unwrap_or(0);
+                        let orphan = store::AttemptStart {
+                            client_id: &rig.client_id,
+                            provider_id: "main",
+                            model_id: "obeys",
+                            requested_model: "main/obeys",
+                            session_key: Some(&step),
+                            route_mode: "native",
+                            hold_micro: room / 2,
+                            owner_generation: "crashed",
+                        };
+                        let _ = rig.shared.with_db(|db| store::open_attempt(db, &orphan));
+                        rig.stop_server(Duration::from_millis(50)).await;
+                        for r in running {
+                            statuses.push(r.await.unwrap());
+                        }
+                        rig.until_released().await;
+                        base = rig.start_server().await.unwrap();
+                        for i in 0..per / 2 {
+                            statuses.push(spawn(&mut rng, &base, i, false, None).await.unwrap());
+                        }
+                    }
+                }
+                steps.push((step, scenario, cap, statuses));
+            }
+        }
+        // Streams the clients left are settled by the gateway when they end.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while rig.journal_len() > 0 && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        let billed = rig.fake.billed.lock().unwrap().clone();
+        let mut out = String::new();
+        let mut table: Vec<(&str, ProofRow)> = Vec::new();
+        for (step, scenario, cap, statuses) in &steps {
+            let spend = rig.shared.with_db(|db| store::step_spend_of(db, step)).unwrap().unwrap();
+            let bill = billed.get(step).copied().unwrap_or(0);
+            let violated = spend.settled_micro_usd > *cap || bill > *cap || spend.held_micro_usd > 0;
+            let count = |s: u16| statuses.iter().filter(|x| **x == s).count();
+            let counts = [count(200), count(402), count(0), statuses.len() - count(200) - count(402) - count(0)];
+            out.push_str(&format!(
+                "{}\n",
+                json!({ "step": step, "scenario": scenario, "capMicroUsd": cap,
+                        "settledMicroUsd": spend.settled_micro_usd, "heldMicroUsd": spend.held_micro_usd,
+                        "providerBilledMicroUsd": bill, "requests": statuses.len(), "ok": counts[0],
+                        "refused402": counts[1], "clientLeft": counts[2], "other": counts[3], "violated": violated })
+            ));
+            if !table.iter().any(|(s, _)| s == scenario) {
+                table.push((scenario, ProofRow::default()));
+            }
+            let row = &mut table.iter_mut().find(|(s, _)| s == scenario).unwrap().1;
+            row.steps += 1;
+            row.requests += statuses.len();
+            for (a, b) in row.counts.iter_mut().zip(counts) {
+                *a += b;
+            }
+            row.violations += violated as usize;
+            row.worst = row.worst.max(spend.settled_micro_usd.max(bill) as f64 / *cap as f64);
+            row.used.push(spend.settled_micro_usd as f64 / *cap as f64);
+        }
+        if let Ok(path) = std::env::var("PYGG_PROOF_OUT") {
+            std::fs::write(path, &out).unwrap();
+        }
+        println!(
+            "{:12} {:>5} {:>8} {:>5} {:>5} {:>5} {:>5} {:>10} {:>13} {:>13}",
+            "scenario",
+            "steps",
+            "requests",
+            "200",
+            "402",
+            "left",
+            "other",
+            "violations",
+            "worst of cap",
+            "median of cap"
+        );
+        let mut violations = 0;
+        for (scenario, mut row) in table {
+            row.used.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "{scenario:12} {:>5} {:>8} {:>5} {:>5} {:>5} {:>5} {:>10} {:>12.1}% {:>12.1}%",
+                row.steps,
+                row.requests,
+                row.counts[0],
+                row.counts[1],
+                row.counts[2],
+                row.counts[3],
+                row.violations,
+                row.worst * 100.0,
+                row.used[row.used.len() / 2] * 100.0
+            );
+            violations += row.violations;
+        }
+        assert_eq!(steps.iter().map(|s| s.3.len()).sum::<usize>(), 1_000);
+        assert_eq!(violations, 0);
+    });
 }

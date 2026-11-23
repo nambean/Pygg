@@ -783,6 +783,62 @@ fn requested_output(body: &Value) -> Option<u64> {
     ["max_tokens", "max_completion_tokens", "max_output_tokens"].iter().find_map(|k| body[*k].as_u64())
 }
 
+/// The fewest output tokens a capped step's request may be given; with less room left it is refused (402).
+const MIN_CAPPED_OUTPUT: u64 = 1024;
+
+/// A capped step's request against the room its cap has left: the output tokens to hold, and the lower output limit
+/// to send when the request's own (or, without one, the model's) does not fit. The prompt is held at the higher of the
+/// input and cache-write prices and the output at its price, rounded up, so the hold covers what the request can cost.
+/// `None` when not even `MIN_CAPPED_OUTPUT` tokens fit.
+fn fit_output(body: &Value, price: &Price, stated: Option<u64>, room: u64) -> Option<(u64, Option<u64>)> {
+    let left = room.checked_sub(estimate_micro_with(body, price, 0))?;
+    let output_price = price.output_micro_per_mtok;
+    if output_price == 0 {
+        return Some((stated.unwrap_or(0), None));
+    }
+    let fits = (left as u128 * 1_000_000 / output_price as u128).min(u64::MAX as u128) as u64;
+    match stated {
+        Some(stated) if stated <= fits => Some((stated, None)),
+        _ if fits < MIN_CAPPED_OUTPUT => None,
+        _ => Some((fits, Some(fits))),
+    }
+}
+
+/// Lowers an upstream request's output limit to `limit` tokens, in the field its format reads: `max_tokens` for
+/// Anthropic Messages, `max_output_tokens` for Responses, and for Chat Completions every limit field it sets
+/// (`max_tokens` when none). An Anthropic thinking budget must stay under the limit, so it is lowered too, and thinking
+/// is left out when its least budget (1,024) no longer fits.
+fn set_output_limit(body: &mut Value, limit: u64, anthropic: bool, responses: bool) {
+    let lower = |body: &mut Value, field: &str| {
+        if body[field].as_u64().is_none_or(|current| current > limit) {
+            body[field] = json!(limit);
+        }
+    };
+    if anthropic {
+        lower(body, "max_tokens");
+        if let Some(budget) = body["thinking"]["budget_tokens"].as_u64() {
+            if budget >= limit {
+                if limit > 1024 {
+                    body["thinking"]["budget_tokens"] = json!(limit - 1);
+                } else if let Some(fields) = body.as_object_mut() {
+                    fields.remove("thinking");
+                }
+            }
+        }
+    } else if responses {
+        lower(body, "max_output_tokens");
+    } else {
+        let set: Vec<&str> =
+            ["max_tokens", "max_completion_tokens"].into_iter().filter(|f| !body[*f].is_null()).collect();
+        if set.is_empty() {
+            lower(body, "max_tokens");
+        }
+        for field in set {
+            lower(body, field);
+        }
+    }
+}
+
 fn estimate_micro_with(body: &Value, price: &Price, output_tokens: u64) -> u64 {
     let input_price = price.input_micro_per_mtok.max(price.cache_write_micro_per_mtok.unwrap_or(0));
     let per = |tokens: u64, micro: u64| ((tokens as u128 * micro as u128).div_ceil(1_000_000)) as u64;
@@ -986,9 +1042,25 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             no_credit = true;
         }
     };
-    let has_limit = client.has_money_limit();
+    // A smart task's step with an approved cap (ROADMAP focus item 1): strict, whatever the key's own limits.
+    let step_capped = match incoming.session {
+        Some(session) => shared
+            .with_db(|db| store::step_cap(db, session).map_err(|e| e.to_string()))
+            .map_err(|e| {
+                Refusal::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "api_error",
+                    format!("The step's cap cannot be read ({e}), so nothing was sent."),
+                )
+            })?
+            .is_some(),
+        None => false,
+    };
+    let has_limit = client.has_money_limit() || step_capped;
     // The first limit a hold did not fit (cost plan A3): a session or day limit refuses with 402, the month with 429.
     let mut over_scope: Option<store::LimitScope> = None;
+    // A capped step's room is held by its requests in flight: it comes back when they settle (429, not 402).
+    let mut step_in_flight = false;
     // Further targets this client allows after a failure the provider may have processed (reviews FR-02, PR-02).
     let mut paid_retries_left = client.paid_retries;
     let mut accounting_held = false;
@@ -1080,10 +1152,48 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         let billing = if web && billing != "free" { "subscription".to_string() } else { billing };
         // A subscription (a token plan) uses a quota, not money per request: it holds nothing against a money
         // limit, as auto ranks it and as its ledger entry says. Its price, if one was entered, is not what it costs.
+        // A capped step's request may write only what the cap has room for: its output limit is lowered to fit.
+        let mut output_limit: Option<u64> = None;
         let hold = if is_free(&billing) || billing == "subscription" || !has_limit {
             0
         } else if let Some(price) = price.as_ref() {
-            if client.strict_budget {
+            let spend = match incoming.session.filter(|_| step_capped) {
+                Some(session) => match shared.with_db(|db| store::step_spend_of(db, session)) {
+                    Ok(spend) => spend,
+                    Err(e) => {
+                        skipped.push(format!("{name}: the step's cap cannot be read ({e})"));
+                        continue;
+                    }
+                },
+                None => None,
+            };
+            if let Some(spend) = spend {
+                let room = spend.cap_micro_usd.saturating_sub(spend.settled_micro_usd + spend.held_micro_usd);
+                let stated = requested_output(incoming.body).or_else(|| {
+                    shared.with_db(|db| store::max_output_tokens(db, &provider.id, &model_id)).ok().flatten()
+                });
+                let Some((most, lowered)) = fit_output(incoming.body, price, stated, room) else {
+                    // What requests in flight hold comes back when they settle: the agent waits for it (429 with
+                    // Retry-After) instead of ending the step (402), which only a cap actually spent does.
+                    let later = spend.cap_micro_usd.saturating_sub(spend.settled_micro_usd);
+                    if spend.held_micro_usd > 0 && fit_output(incoming.body, price, stated, later).is_some() {
+                        skipped.push(format!(
+                            "{name}: the step's requests in flight hold {} of what is left of its cap",
+                            store::usd(spend.held_micro_usd)
+                        ));
+                        step_in_flight = true;
+                        continue;
+                    }
+                    skipped.push(format!(
+                        "{name}: the step's cap has {} left, too little for this request",
+                        store::usd(room)
+                    ));
+                    over_scope.get_or_insert(store::LimitScope::Step);
+                    continue;
+                };
+                output_limit = lowered;
+                estimate_micro_with(incoming.body, price, most)
+            } else if client.strict_budget {
                 // The most this request could cost: its own output limit, or all the model can write.
                 let most = requested_output(incoming.body).or_else(|| {
                     shared.with_db(|db| store::max_output_tokens(db, &provider.id, &model_id)).ok().flatten()
@@ -1096,6 +1206,10 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
             } else {
                 estimate_micro(incoming.body, price)
             }
+        } else if step_capped {
+            // Unknown price: what it costs cannot be held inside the cap, so it is not sent (fails closed).
+            skipped.push(format!("{name}: its price is unknown, and this task step has a spending cap"));
+            continue;
         } else if client.unknown_cost_policy == "block" || client.strict_budget {
             skipped.push(format!("{name}: its price is unknown, and this client has a spending limit"));
             continue;
@@ -1147,7 +1261,13 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                     store::usd(over.reserved),
                     store::usd(over.budget)
                 ));
-                over_scope.get_or_insert(over.scope);
+                // A capped step whose room only requests in flight hold: wait for them, as above.
+                if over.scope == store::LimitScope::Step && over.reserved > 0 && over.spent + over.wanted <= over.budget
+                {
+                    step_in_flight = true;
+                } else {
+                    over_scope.get_or_insert(over.scope);
+                }
                 continue;
             }
             Err(e) => {
@@ -1322,6 +1442,10 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
                 shared.restore_signatures(&body);
             }
             shared.signatures.lock().unwrap_or_else(|p| p.into_inner()).apply(&mut body, provider.kind == "gemini");
+        }
+        if let Some(limit) = output_limit {
+            let responses = mode == Mode::Native && incoming.surface == Surface::Responses;
+            set_output_limit(&mut body, limit, provider.wire == "anthropic", responses);
         }
         let session_header = incoming.session.and_then(|s| pass_session(&provider.kind, &client.id, s, &mut body));
         let mut request = shared.http.post(url).json(&body);
@@ -1513,15 +1637,19 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
         return Err(refusal);
     }
     let wait = retry_at.map(|at| ((at - db_now()).max(1000) as u64).div_ceil(1000));
+    let wait = if step_in_flight && over_scope.is_none() { Some(wait.unwrap_or(1).min(1)) } else { wait };
     let over_budget = over_scope.is_some() || skipped.iter().any(|s| s.contains("spending limit"));
     let tools_only = tools_refused && skipped.iter().all(|s| s.ends_with(crate::websession::NO_TOOLS));
     let (status, kind) = if accounting_held {
         (StatusCode::SERVICE_UNAVAILABLE, "api_error")
     } else if tools_only {
         (StatusCode::BAD_REQUEST, "invalid_request_error")
-    } else if matches!(over_scope, Some(store::LimitScope::Session | store::LimitScope::Day)) {
+    } else if matches!(over_scope, Some(store::LimitScope::Session | store::LimitScope::Day | store::LimitScope::Step))
+    {
         // Not 429: agents retry a 429, and waiting does not lift a session limit (cost plan A3).
         (StatusCode::PAYMENT_REQUIRED, "budget_exceeded")
+    } else if step_in_flight {
+        (StatusCode::TOO_MANY_REQUESTS, "rate_limit_error")
     } else if over_budget {
         (StatusCode::TOO_MANY_REQUESTS, "budget_exceeded")
     } else if wait.is_some() {
@@ -1535,7 +1663,7 @@ pub async fn forward(shared: &Shared, client: &Client, incoming: &Incoming<'_>) 
     };
     let mut message = format!("No target could take \"{requested}\": {}.", skipped.join("; "));
     // A session or day limit stopped it: say what to change, as a limit already reached does (cost plan A3).
-    if let Some(scope @ (store::LimitScope::Session | store::LimitScope::Day)) = over_scope {
+    if let Some(scope @ (store::LimitScope::Session | store::LimitScope::Day | store::LimitScope::Step)) = over_scope {
         message = format!("{message} Nothing was sent. {}", scope.remedy(&client.name));
     }
     crate::applog::warn(&format!("request {request_id}: {message}"));

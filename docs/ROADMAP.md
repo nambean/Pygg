@@ -16,7 +16,7 @@ Thresholds are decision targets, not claims.
 
 | # | Item | Proof | Status |
 | --- | --- | --- | --- |
-| 1 | **Caps that hold:** each paid attempt in its own strict gateway session; bypass and unknown-price paths blocked or marked unenforced | 0 cap violations in 1,000 adversarial requests, with concurrency, cancel and restart; reserved and settled spend shown | started: the approved cap is the attempt's session limit (402) |
+| 1 | **Caps that hold:** each paid attempt in its own strict gateway session; bypass and unknown-price paths blocked or marked unenforced | 0 cap violations in 1,000 adversarial requests, with concurrency, cancel and restart; reserved and settled spend shown | done 2026-11-23: 0 violations in 10 × 1,000 requests ([report](../benchmark/reports/2026-11-23-step-cap.md)) |
 | 2 | **Checks gate readiness:** no check, failed check and passed check told apart; no check ran means not ready | 50 tasks with no check run: 100% stay not ready, 100% show the exact command and result | next; the evidence proof saw "no check ran" waved through 6+ times in 10 |
 | 3 | **Help fill check gaps:** propose a check command or a task smoke test for approval; a smoke test passing is called that, never "correct" | 20 real thin-test tasks: a proposed check accepted on 12+, its limits named on 18+ | next |
 | 4 | **Continuity when limits hit:** quota exhaustion, fallback, the same session kept, the chosen model and spend shown; no OAuth bridging | 19+ of 20 staged limit events resume without losing the working context | next |

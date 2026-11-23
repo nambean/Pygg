@@ -551,6 +551,9 @@ pub struct ApprovalView {
     pub suggested_cap_usd: f64,
     /// The agent stops at the cap itself (Claude Code); otherwise it is checked against the cost reported afterwards.
     pub enforced_by_agent: bool,
+    /// The step's model is one of Pygg's gateway (`pygg/...`): each of its requests holds the most it could cost inside
+    /// the cap and is refused (402) when that does not fit, so its spend through Pygg cannot pass the cap.
+    pub enforced_by_gateway: bool,
     /// What today's budgets leave for paid steps in this workspace; `None` without a budget. The cap cannot be more.
     pub remaining_usd: Option<f64>,
 }
@@ -790,6 +793,7 @@ fn approval_of(conn: &Connection, id: &str, row: &TaskRow, attempts: &[AttemptVi
         label: waiting.label.clone(),
         suggested_cap_usd: usd(suggested),
         enforced_by_agent: agents::enforces_budget(&step.agent),
+        enforced_by_gateway: step.model.as_deref().is_some_and(|m| m.starts_with("pygg/")),
         remaining_usd: left.map(usd),
         estimate,
     }))
@@ -1828,8 +1832,8 @@ impl Runner {
             })?;
             // A paid step's cap, checked against what the run cost. Requests the agent sent through Pygg are priced by
             // Pygg's ledger, whatever the agent estimates; otherwise the agent's own estimate is all there is. Through
-            // Pygg the gateway refuses the attempt's next request once its spend reaches the cap (its session limit), so
-            // it can pass the cap by the requests already running; Claude Code also stops at it itself.
+            // Pygg the cap holds at the gateway (`store::step_cap`): each request holds the most it could cost inside
+            // what is left, or is refused. Claude Code also stops at it itself.
             let (reported, whose) = match through_pygg {
                 Some((known, 0)) => (Some(known), m::PYGG_LEDGER.to_string()),
                 Some(_) => (None, String::new()),
