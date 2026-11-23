@@ -13,7 +13,7 @@
 | People | 10 or more developers who use a coding agent (Claude Code, Codex, OpenCode) on their own repositories |
 | Machine | Windows with Pygg installed (desktop app or `@pygg/cli`); macOS or Linux with the CLI |
 | Time | About 3 hours each: 6 tasks, a short review, sending the export |
-| Compensation | The owner decides |
+| Compensation | None in money (Pygg is MIT and free). Each person who finishes is credited in the README's Sponsors section, by name and a link of their choice, if they want |
 
 ## Arms
 

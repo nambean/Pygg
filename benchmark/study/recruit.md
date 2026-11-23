@@ -1,6 +1,6 @@
 # Invitation
 
-> **Status:** Draft · for the owner to send · compensation to be filled in
+> **Status:** Current · for the owner to send
 
 **Subject:** Try Pygg on 6 of your own coding tasks (about 3 hours)
 
@@ -12,7 +12,7 @@ We want to know whether it holds up on real work, so we are asking about 10 deve
 
 - **You need:** a coding agent you already use (Claude Code, Codex or OpenCode), Windows (or macOS/Linux with the command line), and about 3 hours over a week.
 - **You keep:** your code. Nothing leaves your machine except a short log, a review sheet and a figures file you read before sending (costs, times, checks; no code, prompts, file names or paths).
-- **You get:** [compensation], early access to what we change from your feedback, and credit in the report if you want it.
+- **You get:** no money (Pygg is MIT and free), but your name and a link of your choice in the Sponsors section of Pygg's README, early access to what we change from your feedback, and credit in the report if you want it.
 
 Reply with the agent and plan you use, and a rough idea of your stack. We will send the steps (one page) and a short call to set up.
 
