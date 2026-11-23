@@ -6,7 +6,7 @@ import { isMac } from '../../lib/platform';
 import { costText, microUsd, sourceText, tokens } from '../../lib/money';
 import { ago } from '../../lib/format';
 import { useGateway } from '../../hooks/useGateway';
-import { Badge, CodeBlock, CopyButton, ErrorNote, FormRow, Segmented, Sheet, Spinner, Switch } from '../ui';
+import { Badge, CodeBlock, ConfirmSheet, CopyButton, ErrorNote, FormRow, Segmented, Sheet, Spinner, Switch } from '../ui';
 import { OutcomeBadge } from './Usage';
 import { Savings, useSavings } from './Savings';
 import { UsageAlerts } from './UsageAlerts';
@@ -37,6 +37,23 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
   // Claude Code's requests are Anthropic-format with thinking: a setup that serves only them is ready too.
   const claudePlan = useGateway(api => api.autoSimulate(null, 'auto', CLAUDE_CODE_NEEDS));
   const [configuring, setConfiguring] = useState(false);
+  const [lowering, setLowering] = useState(false);
+  // Why auto has nothing for a coding agent, and whether the key's minimum tier is what keeps the models out (ROADMAP
+  // focus item 6: a newcomer with only local models, which are T0, met that with no way forward on this screen).
+  const firstReason = codingPlan.data?.excluded[0];
+  const belowTier = (codingPlan.data?.excluded ?? []).some(e => e.reason.includes('below this client\u2019s minimum')
+    || e.reason.includes("below this client's minimum"));
+  const lowerTiers = async () => {
+    const defaults = await call(api => api.clientDefaults());
+    await call(api => api.setClientDefaults({...defaults, autoMinTier: 'T0'}));
+    // The keys already made for tools take it too, so the tool set up a minute ago works now.
+    for (const c of activeClients.filter(c => c.autoMinTier !== 'T0' && c.name !== 'Pygg (model tests)')) {
+      await call(api => api.setClientPolicy(c.id, {autoMinTier: 'T0'}));
+    }
+    codingPlan.reload();
+    claudePlan.reload();
+    clients.reload();
+  };
 
   const activeClients = clients.data?.filter(c => !c.revokedAt) ?? [];
   // A connection counts once it can serve: on, with its key, and with models listed.
@@ -54,9 +71,15 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
       detail: (connections.data?.length ?? 0) > 0 && !usable
         ? t('A connection exists, but none is on with a key and models listed yet. Open Providers to check it.')
         : usable && eligible === 0
-        ? t('Connected, but auto has no model that qualifies for a coding agent (tools, tier T2 or higher, a price or free billing). See How auto chooses in Combos.')
+        ? <>{t('Connected, but auto has no model that qualifies for a coding agent (tools, tier T2 or higher, a price or free billing).')}
+            {firstReason && <> {t('For example {model}: {reason}.', {model: `${firstReason.providerId}/${firstReason.modelId}`, reason: firstReason.reason})}</>}
+            {' '}{belowTier ? t('Connect a stronger model, or let auto use lower tiers.') : t('See How auto chooses in Combos.')}</>
         : t('An API key or a local runtime such as Ollama. Keys stay in the Windows Credential Manager.'),
-      action: (primary: boolean) => <button type="button" className={primary ? 'button prominent' : 'button'} onClick={() => navigate('connections', 'connect')}>{t('Connect Provider…')}</button>},
+      action: (primary: boolean) => <>
+        {usable && eligible === 0 && belowTier && <button type="button" className={primary ? 'button prominent' : 'button'}
+          onClick={() => setLowering(true)}>{t('Let Auto Use Lower Tiers…')}</button>}
+        <button type="button" className={primary && !(usable && eligible === 0 && belowTier) ? 'button prominent' : 'button'}
+          onClick={() => navigate('connections', 'connect')}>{t('Connect Provider…')}</button></>},
     {done: toolSetUp, title: t('Set up your coding tool'),
       detail: t('Claude Code with the launcher, Codex and OpenCode in one click, editors and SDKs by hand. Use the model auto.'),
       action: (primary: boolean) => <button type="button" className={primary ? 'button prominent' : 'button'} onClick={() => navigate('tools')}>{t('Open CLI Tools')}</button>},
@@ -75,6 +98,9 @@ export function Overview({status, onStatus, navigate}: {status: GatewayStatus | 
       {t('The last usage entry couldn’t be written: {error}. The request stays in the journal and is recorded with an unknown cost when the gateway next starts. Requests are refused while nothing can be written.', {error: status.accountingError})}
     </ErrorNote>}
 
+    {lowering && <ConfirmSheet destructive={false} title={t('Let auto use models below T2?')} confirmLabel={t('Use Lower Tiers')}
+      message={<p>{t('New API keys, and the keys you already have, will let auto choose models below tier T2, such as local ones. Weaker models do worse on coding tasks; you can raise it again per key in Endpoint → API Keys → Limits.')}</p>}
+      onClose={() => setLowering(false)} onConfirm={async () => { await lowerTiers(); setLowering(false); }}/>}
     {!ready && <section className="group">
       <h2>{t('Get Started')}</h2>
       <ol className="group-box steps">

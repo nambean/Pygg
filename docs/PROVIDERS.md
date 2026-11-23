@@ -45,7 +45,7 @@ Presets: `apps/desktop/src-tauri/src/gateway/presets.rs`; any field can be chang
 
 | Preset | Endpoint | Live |
 | --- | --- | --- |
-| Ollama | `http://127.0.0.1:11434/v1` | yes; start with `OLLAMA_CONTEXT_LENGTH=32768` |
+| Ollama | `http://127.0.0.1:11434/v1` | yes; start with `OLLAMA_CONTEXT_LENGTH=32768`. Pygg reads each model's tools and served context from `/api/show` (a model's `num_ctx`, else 4,096: set the context with `pygg gateway model --model ollama/M --context 32768` after raising it); embedding models are not listed; local models are T0, so let auto use lower tiers |
 | LM Studio | `http://localhost:1234/v1` | no |
 | llama.cpp server | `http://127.0.0.1:9931/v1` | no |
 | vLLM | `http://localhost:8000/v1` | no |

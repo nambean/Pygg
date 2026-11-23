@@ -98,7 +98,7 @@ pygg doctor
 | --- | --- |
 | Connection refused | Start the app; `pygg status` |
 | HTTP 401 | Wrong or revoked key; create a new one in Endpoint → API Keys |
-| HTTP 422 "No connected model is eligible for auto" | Do what the message says: a model under the key's minimum tier (local models are T0) → `pygg gateway client --name NAME --auto-min-tier T0`; a missing fact → `pygg gateway lookup` or Providers → Auto…; or name a model |
+| HTTP 422 "No connected model is eligible for auto" | Do what the message says: a model under the key's minimum tier (local models are T0) → Home → **Let Auto Use Lower Tiers…**, or `pygg gateway client --name NAME --auto-min-tier T0`; a missing fact → `pygg gateway lookup` or Providers → Auto…; or name a model |
 | HTTP 429 "cooling down" | Provider limit; `auto` moves on |
 | Cost unknown | Set a price in Providers |
 

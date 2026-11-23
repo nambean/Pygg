@@ -352,6 +352,16 @@ export function demoApi(): GatewayApi {
     events.length = 0;
   }
 
+  // `?local` is a newcomer with only Ollama: its models are T0, under a new key's minimum T2 (ROADMAP focus item 6).
+  if (new URLSearchParams(location.search).has('local')) {
+    connections.splice(0, connections.length, ...connections.filter(c => c.kind === 'ollama'));
+    // As Ollama's /api/show gives them: tools, and the 4,096-token context it serves by default.
+    models.splice(0, models.length, ...models.filter(m => m.providerId === 'ollama').map(m => ({...m,
+      capabilities: {...m.capabilities, tier: 'T0' as Tier, supportsTools: true, contextTokens: 4096, maxOutputTokens: 4096}})));
+    combos.length = 0;
+    events.length = 0;
+  }
+
   // Key rings (ADR-038), by connection: filled for `?stress` below; their functions are with the connections.
   const rings = new Map<string, ConnectionKey[]>();
   const keyStrategies = new Map<string, KeyStrategy>();
@@ -556,7 +566,7 @@ export function demoApi(): GatewayApi {
     // A role alias (auto/code, …) ranks by the model facts feed in the app; the demo keeps no feed, so every model
     // ranks by its tier, the higher first, and says so, as auto.rs does with no feed.
     const role: AutoRole | null = alias === 'auto' || cheap ? null : alias.slice('auto/'.length) as AutoRole;
-    const minTier: Tier | null = cheap ? null : client?.autoMinTier ?? 'T2';
+    const minTier: Tier | null = cheap ? null : client?.autoMinTier ?? clientDefaults.autoMinTier ?? 'T2';
     const rank = (t: Tier) => TIERS.indexOf(t);
     const billingRank = (b: Billing) => ({local: 0, free: 1, subscription: 2} as Record<string, number>)[b] ?? 3;
     const output = needs.maxTokens ?? 4096;
@@ -1251,7 +1261,7 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
   // and long ids), and one whose planner failed. Models and reasons are shaped like the gateway's.
   const stress = new URLSearchParams(location.search).has('stress');
   const card = (id: string, title: string, role: BrainRole, done: string, dependsOn: string[], model: string | null, reason: string | null, wave: number, dropped = false): BrainCard =>
-    ({id, title, role, done, dependsOn, model, reason, estimateMicroUsd: model === 'anthropic/claude-opus-5-5' ? null : model === 'ollama/qwen3:8b' || model?.endsWith(':free') ? 0 : role === 'plan' ? 85_400 : 46_000, fallbacks: model && role !== 'plan' ? [{model: 'google-gemini/gemini-3.1-flash', reason: "no fact for code; tier T2 from Pygg's table; paid; about $0.0090 at the provider's list price"}, {model: 'siliconflow/zai-org/GLM-5', reason: 'SWE-bench Verified #16 of 110 (72.8%) dated 2026-02-17, run with mini-SWE-agent at high for code; free; free (as set)'}] : [], runner: 'engine', class: 'standard', dropped, wave});
+    ({id, title, role, done, dependsOn, model, reason, estimateMicroUsd: model === 'anthropic/claude-opus-5-5' ? null : model === 'ollama/qwen3:8b' || model?.endsWith(':free') ? 0 : role === 'plan' ? 85_400 : 46_000, fallbacks: model && role !== 'plan' ? [{model: 'google-gemini/gemini-3.1-flash', reason: "no fact for code; tier T2 from Pygg's table; paid; about $0.0090 at the provider's list price"}, {model: 'siliconflow/zai-org/GLM-5', reason: 'SWE-bench Verified #16 of 110 (72.8%) dated 2026-02-17, run with mini-SWE-agent at high for code; free; free (as set)'}] : [], runner: 'engine', class: 'standard', dropped, wave, check: role === 'code' || role === 'test' ? 'pnpm test' : null});
   const sonnet = 'openrouter/anthropic/claude-sonnet-5';
   const codeReason = "Terminal-Bench 4.x #3 of 71 (64.85% +/-3.11) dated 2026-09-22, run with claude-code at max for code; paid; about $0.0460 at the provider's list price";
   const proposedCards = (): BrainCard[] => {
@@ -1281,7 +1291,7 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
     {id: 'bs-proposed', clientId: 'k-1', session: '9b1c', workspaceId: workspaces[0]?.id ?? null, state: 'proposed', requirement: 'Add CSV export to the orders report', planner: sonnet, promptVersion: 'brain-v1', revision: 2,
       proposal: {questions: brainQuestions(stress ? 12 : 4), cards: proposedCards(), droppedCards: stress ? 2 : 0}, rawReply: null,
       note: stress ? '2 card(s) the planner wrote did not fit the schema and were left out' : null, error: null, createdAt: Date.now() - 600_000, updatedAt: Date.now() - 60_000},
-    {id: 'bs-running', clientId: 'k-app', session: 'app-5d1e', workspaceId: workspaces[0]?.id ?? null, state: 'approved', requirement: 'Product catalogue and checkout for the shop', planner: sonnet, promptVersion: 'brain-v3', revision: 1,
+    {id: 'bs-running', clientId: 'k-app', session: 'app-5d1e', workspaceId: workspaces[0]?.id ?? null, state: 'approved', requirement: 'Product catalogue and checkout for the shop', planner: sonnet, promptVersion: 'brain-v4', revision: 1,
       proposal: {questions: brainQuestions(2).map(q => ({...q, answered: true})), cards: proposedCards(), droppedCards: 0}, rawReply: null, note: null, error: null,
       createdAt: Date.now() - 7_300_000, updatedAt: Date.now() - 60_000, branch: 'str/brain-product-catalogue-and-checkout-bs5d1e00'},
     {id: 'bs-failed', clientId: 'k-1', session: '77aa', workspaceId: null, state: 'failed', requirement: 'Migrate the reports to the new schema', planner: 'ollama/qwen3:8b', promptVersion: 'brain-v1', revision: 0,
@@ -1426,7 +1436,7 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
     brainstormStart: async (workspaceId, requirement) => {
       if (!requirement.trim()) throw 'Describe what to build';
       const b: Brainstorm = {id: `bs-${Date.now()}`, clientId: 'k-app', session: `app-${Date.now()}`, workspaceId, state: 'thinking', requirement: requirement.trim(),
-        planner: sonnet, promptVersion: 'brain-v3', revision: 0, proposal: {questions: [], cards: [], droppedCards: 0}, rawReply: null, note: null, error: null,
+        planner: sonnet, promptVersion: 'brain-v4', revision: 0, proposal: {questions: [], cards: [], droppedCards: 0}, rawReply: null, note: null, error: null,
         createdAt: Date.now(), updatedAt: Date.now()};
       brainstorms.unshift(b);
       void planned(b);
@@ -1451,6 +1461,10 @@ function demoTasks(touch: <T>(value: T) => Promise<T>): Pick<GatewayApi, 'boards
       if (change.runner) c.runner = change.runner;
       if (change.class) c.class = change.class;
       if (change.fallbacks) c.fallbacks = change.fallbacks.filter(m => m !== c.model).map(m => ({model: m, reason: c.fallbacks.find(f => f.model === m)?.reason ?? 'your pick'}));
+      if (change.check != null) {
+        if (change.check.includes('\n') || change.check.length > 500) throw 'A check is one command on one line, at most 500 characters';
+        c.check = change.check.trim() || null;
+      }
       return touch(b);
     },
     brainstormDecline: async id => { const b = brainstorm(id); b.state = 'declined'; return touch(b); },
