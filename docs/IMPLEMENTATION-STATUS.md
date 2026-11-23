@@ -136,7 +136,7 @@ All built and fake-provider tested; none release-ready: see the [release gates](
 | Diagnostics | One redacted zip ([SECURITY](SECURITY.md)) | Unit |
 | Look and name | Green accent, light and dark; traffic-light controls (ADR-012) | Preview; snap layouts at 100% only |
 | Language | English; Vietnamese incomplete | Rust template test |
-| Installer | NSIS and MSI; prereleases `v0.1.0-dev.1` to `v0.1.0-dev.3` (2026-11-20) | Dev PC only; unsigned |
+| Installer | NSIS and MSI; prereleases `v0.1.0-dev.1` to `v0.1.0-dev.3` (2026-11-20), `v0.1.0-dev.9` (2026-11-23) | Dev PC only; unsigned |
 
 ## Smart tasks (experimental)
 

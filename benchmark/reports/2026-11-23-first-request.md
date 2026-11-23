@@ -23,6 +23,7 @@ python -I scripts/proof-first-request.py OUT.jsonl [--exe pygg-cli.exe]   (--exe
 | --- | --- | --- |
 | npm `@pygg/cli@0.1.0-dev.8` | **never** | 422 "Set tiers … in Pygg → Providers" (the app's screen, not the CLI's); `refresh-models` and `lookup` changed nothing; 422 three times |
 | This commit, local build | **4.7 s** (≈ 9 s with the npm install) | The key's hint lowered its minimum tier; the first request was answered by `ollama/qwen2.5-coder:7b` |
+| npm `@pygg/cli@0.1.0-dev.9`, as published | **17.4 s**, from `npm install` (Ollama loading the model took about 10 s) | The same path on the release |
 
 The four things that stood in the way, in the order they were met:
 

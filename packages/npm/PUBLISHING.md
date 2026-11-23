@@ -46,6 +46,7 @@ A Windows-only package can still be made locally after a release build: `node sc
 
 | Version | Date |
 | --- | --- |
+| `0.1.0-dev.9` | 2026-11-23 |
 | `0.1.0-dev.8` | 2026-11-20 |
 | `0.1.0-dev.7` | 2026-11-19 |
 | `0.1.0-dev.6` | 2026-11-18 |

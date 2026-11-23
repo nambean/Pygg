@@ -12,7 +12,7 @@ The in-app **Guide** has the same steps with copyable commands; status in [IMPLE
 
 ## 1. Install
 
-**Desktop app:** `Pygg_0.1.0_x64-setup.exe` or the MSI from the [`v0.1.0-dev.3` prerelease](https://github.com/nambean/Pygg/releases/tag/v0.1.0-dev.3); compare with `SHA256SUMS.txt`.
+**Desktop app:** `Pygg_0.1.0_x64-setup.exe` or the MSI from the [`v0.1.0-dev.9` prerelease](https://github.com/nambean/Pygg/releases/tag/v0.1.0-dev.9); compare with `SHA256SUMS.txt`.
 
 ```powershell
 Get-FileHash .\Pygg_0.1.0_x64-setup.exe -Algorithm SHA256
