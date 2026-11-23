@@ -30,13 +30,13 @@ function locate(env = process.env) {
     const script = shim && join(dirname(shim), 'node_modules', '@pygg', 'cli', 'bin', 'pygg.js');
     if (script && existsSync(script)) return { command: process.execPath, args: [script, 'mcp'] };
     const npx = join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npx-cli.js');
-    if (existsSync(npx)) return { command: process.execPath, args: [npx, '-y', '@pygg/cli@0.1.0-dev.8', 'mcp'] };
+    if (existsSync(npx)) return { command: process.execPath, args: [npx, '-y', '@pygg/cli@0.1.0-dev.9', 'mcp'] };
     return null;
   }
   const pygg = onPath('pygg');
   if (pygg) return { command: pygg, args: ['mcp'] };
   const npx = onPath('npx');
-  if (npx) return { command: npx, args: ['-y', '@pygg/cli@0.1.0-dev.8', 'mcp'] };
+  if (npx) return { command: npx, args: ['-y', '@pygg/cli@0.1.0-dev.9', 'mcp'] };
   return null;
 }
 

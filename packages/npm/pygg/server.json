@@ -3,7 +3,7 @@
   "name": "io.github.nambean/pygg",
   "title": "Pygg",
   "description": "Hand coding subtasks to cheaper agents in Git worktrees, checked before you keep them.",
-  "version": "0.1.0-dev.8",
+  "version": "0.1.0-dev.9",
   "websiteUrl": "https://github.com/nambean/Pygg#readme",
   "repository": {
     "url": "https://github.com/nambean/Pygg",
@@ -21,7 +21,7 @@
     {
       "registryType": "npm",
       "identifier": "@pygg/cli",
-      "version": "0.1.0-dev.8",
+      "version": "0.1.0-dev.9",
       "transport": { "type": "stdio" },
       "packageArguments": [{ "type": "positional", "value": "mcp" }],
       "environmentVariables": [
