@@ -1,7 +1,7 @@
 {
   "name": "@pygg/cli",
   "version": "0.1.0-dev.9",
-  "description": "Route Claude Code, Codex and OpenCode through Pygg, a local AI gateway: set them up, start them through it, and see providers, models, requests and cost. Windows, macOS and Linux. Developer preview, unsigned.",
+  "description": "Keep Claude Code, Codex and OpenCode moving when your plan hits its limit: Pygg, a local AI gateway, routes them to the models you connected, with fallback, a cost ledger and checked delegation. Windows, macOS and Linux. Developer preview, unsigned.",
   "license": "MIT",
   "mcpName": "io.github.nambean/pygg",
   "repository": {
