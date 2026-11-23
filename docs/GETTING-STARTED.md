@@ -108,4 +108,4 @@ Help: attach `pygg diagnostics --out pygg-diagnostics.zip` (redacted). Security 
 
 - Pygg provides no models; the gateway listens on `127.0.0.1` only.
 - `pygg run claude` uses your providers, not your Claude plan.
-- No chat app (ADR-028); Smart Tasks on hold ([AGENTS.md](AGENTS.md)).
+- No chat app (ADR-028). Smart Tasks, checked delegation from your agent, are experimental: [AGENTS.md](AGENTS.md).

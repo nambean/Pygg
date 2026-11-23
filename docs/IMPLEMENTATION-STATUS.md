@@ -118,7 +118,7 @@ All built and fake-provider tested; none release-ready: see the [release gates](
 | Part | Built | Verified |
 | --- | --- | --- |
 | `pygg-cli` | One console program ([CLI](design/CLI.md)); store read-only; Linux and macOS builds | Unit; installed store |
-| npm (ADR-037) | `npm install -g @pygg/cli@dev`; newest `0.1.0-dev.8` (2026-11-20), in the MCP Registry as `io.github.nambean/pygg` | Windows, Linux installed; macOS CI only |
+| npm (ADR-037) | `npm install -g @pygg/cli@dev`; newest `0.1.0-dev.9` (2026-11-23), in the MCP Registry as `io.github.nambean/pygg` | Windows, Linux installed; macOS CI only |
 | One-click set-up (ADR-022) | Codex, OpenCode, Claude Code launcher, MCP for three agents ([AGENTS](AGENTS.md)) | Live on scratch configs |
 | Launch sessions | `pygg run claude\|codex\|opencode`: a fresh session per launch | Live up to the gateway |
 | Session receipt and status line | Cost, cache, models, Git changes on exit; `pygg statusline`, `pygg launches --by-repo` | Unit; not live |
