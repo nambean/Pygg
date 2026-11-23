@@ -1,0 +1,3 @@
+person,pair,task,arm,started_at,finished_at,agent,model_or_plan,cost_usd,outcome,fallbacks_seen,defects_after_a_week,notes
+P01,1,a,U,2026-12-01 09:00,2026-12-01 09:40,Claude Code,Max plan,,merged,0,0,
+P01,1,b,P,2026-12-01 10:00,2026-12-01 10:35,Claude Code via Pygg,auto/code,,merged_after_fix,1,0,
