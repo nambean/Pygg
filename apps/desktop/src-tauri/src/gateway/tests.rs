@@ -27,6 +27,55 @@ struct Fake {
     last_headers: Mutex<Option<HeaderMap>>,
     /// What model `obeys` billed, in micro-USD, per step named in the request (the step-cap proof).
     billed: Mutex<HashMap<String, u64>>,
+    /// `drain-<kind>-…` models whose quota has run out: each answers normally until it is named here, then with its
+    /// kind of limit (the continuity proof).
+    drained: Mutex<std::collections::HashSet<String>>,
+}
+
+/// A drained model's answer, as each provider gives it (`Fake::drained`).
+fn drained_answer(model: &str, anthropic: bool) -> Option<Response> {
+    let kind = model.strip_prefix("drain-")?.split('-').next()?;
+    let error = |status: StatusCode, retry: Option<&str>, body: Value| {
+        let mut response = (status, Json(body)).into_response();
+        if let Some(retry) = retry {
+            response.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from_str(retry).unwrap());
+        }
+        response
+    };
+    Some(match (anthropic, kind) {
+        (true, "429") => error(
+            StatusCode::TOO_MANY_REQUESTS,
+            Some("60"),
+            json!({ "type": "error", "error": { "type": "rate_limit_error", "message": "Number of request tokens has exceeded your per-minute rate limit" } }),
+        ),
+        (true, "spend") => error(
+            StatusCode::BAD_REQUEST,
+            None,
+            json!({ "type": "error", "error": { "type": "invalid_request_error",
+                "message": "You have reached your specified API usage limits. You will regain access on 2099-01-01 at 00:00 UTC." } }),
+        ),
+        (true, _) => error(
+            StatusCode::from_u16(529).unwrap(),
+            None,
+            json!({ "type": "error", "error": { "type": "overloaded_error", "message": "Overloaded" } }),
+        ),
+        (false, "429") => {
+            error(StatusCode::TOO_MANY_REQUESTS, Some("120"), json!({ "error": { "message": "Rate limit reached" } }))
+        }
+        (false, "quota") => error(
+            StatusCode::TOO_MANY_REQUESTS,
+            None,
+            json!({ "error": { "message": "You exceeded your current quota", "type": "insufficient_quota", "code": "insufficient_quota" } }),
+        ),
+        (false, "credit") => error(
+            StatusCode::PAYMENT_REQUIRED,
+            None,
+            json!({ "error": { "message": "Insufficient credits", "code": 402 } }),
+        ),
+        (false, _) => {
+            error(StatusCode::TOO_MANY_REQUESTS, Some("86400"), json!({ "error": { "message": "daily quota" } }))
+        }
+    })
 }
 
 impl Fake {
@@ -41,6 +90,11 @@ async fn fake_openai(State(fake): State<Arc<Fake>>, headers: HeaderMap, JsonBody
     *fake.calls.lock().unwrap().entry(model.clone()).or_default() += 1;
     *fake.last_body.lock().unwrap() = Some(body.clone());
     *fake.last_headers.lock().unwrap() = Some(headers.clone());
+    if fake.drained.lock().unwrap().contains(&model) {
+        if let Some(answer) = drained_answer(&model, false) {
+            return answer;
+        }
+    }
     if model == "badkey" {
         return (StatusCode::UNAUTHORIZED, Json(json!({ "error": { "message": "invalid api key" } }))).into_response();
     }
@@ -279,6 +333,11 @@ async fn fake_anthropic(
     let model = body["model"].as_str().unwrap_or("").to_string();
     *fake.calls.lock().unwrap().entry(model.clone()).or_default() += 1;
     *fake.last_body.lock().unwrap() = Some(body.clone());
+    if fake.drained.lock().unwrap().contains(&model) {
+        if let Some(answer) = drained_answer(&model, true) {
+            return answer;
+        }
+    }
     if headers.get("x-api-key").and_then(|v| v.to_str().ok()) != Some("key-1")
         || headers.get("anthropic-version").is_none()
     {
@@ -4152,5 +4211,152 @@ fn step_cap_proof() {
         }
         assert_eq!(steps.iter().map(|s| s.3.len()).sum::<usize>(), 1_000);
         assert_eq!(violations, 0);
+    });
+}
+
+// ---------- ROADMAP focus item 4: continuity when a limit is hit ----------
+
+/// The conversation an agent has sent by turn `turns`, in the format of `surface`: a system prompt, then per turn a user
+/// message, a tool call and its result, ending with the newest user message. Every part carries a marker
+/// (`SYSTEM-MARK`, `turn-N`, `call_N`, `result-N`) the continuity proof looks for in what the fallback received.
+fn conversation(surface: &str, model: &str, turns: usize) -> Value {
+    let mut parts: Vec<Value> = Vec::new();
+    for n in 1..turns {
+        let (user, id, result) = (format!("turn-{n}: read the file"), format!("call_{n}"), format!("result-{n}"));
+        match surface {
+            "anthropic" => {
+                parts.push(json!({ "role": "user", "content": user }));
+                parts.push(json!({ "role": "assistant", "content": [{ "type": "tool_use", "id": id, "name": "read_file", "input": { "path": "a.txt" } }] }));
+                parts.push(json!({ "role": "user", "content": [{ "type": "tool_result", "tool_use_id": id, "content": result }] }));
+            }
+            "responses" => {
+                parts.push(json!({ "type": "message", "role": "user", "content": user }));
+                parts.push(json!({ "type": "function_call", "call_id": id, "name": "read_file", "arguments": "{\"path\":\"a.txt\"}" }));
+                parts.push(json!({ "type": "function_call_output", "call_id": id, "output": result }));
+            }
+            _ => {
+                parts.push(json!({ "role": "user", "content": user }));
+                parts
+                    .push(json!({ "role": "assistant", "content": null, "tool_calls": [{ "id": id, "type": "function",
+                    "function": { "name": "read_file", "arguments": "{\"path\":\"a.txt\"}" } }] }));
+                parts.push(json!({ "role": "tool", "tool_call_id": id, "content": result }));
+            }
+        }
+    }
+    let last = format!("turn-{turns}: go on");
+    match surface {
+        "anthropic" => {
+            parts.push(json!({ "role": "user", "content": last }));
+            json!({ "model": model, "max_tokens": 1024, "system": "SYSTEM-MARK you are a coding agent", "messages": parts,
+                "tools": [{ "name": "read_file", "description": "Reads a file", "input_schema": { "type": "object", "properties": { "path": { "type": "string" } } } }] })
+        }
+        "responses" => {
+            parts.push(json!({ "type": "message", "role": "user", "content": last }));
+            json!({ "model": model, "instructions": "SYSTEM-MARK you are a coding agent", "input": parts,
+                "tools": [{ "type": "function", "name": "read_file", "description": "Reads a file", "parameters": { "type": "object", "properties": { "path": { "type": "string" } } } }] })
+        }
+        _ => {
+            parts.insert(0, json!({ "role": "system", "content": "SYSTEM-MARK you are a coding agent" }));
+            parts.push(json!({ "role": "user", "content": last }));
+            json!({ "model": model, "messages": parts,
+                "tools": [{ "type": "function", "function": { "name": "read_file", "description": "Reads a file", "parameters": { "type": "object", "properties": { "path": { "type": "string" } } } } }] })
+        }
+    }
+}
+
+/// What a request body lost of the conversation's markers by turn `turns`: none means the whole working context arrived.
+fn context_lost(body: &Value, turns: usize) -> Vec<String> {
+    let text = body.to_string();
+    let mut wanted = vec!["SYSTEM-MARK".to_string(), format!("turn-{turns}")];
+    for n in 1..turns {
+        wanted.extend([format!("turn-{n}"), format!("call_{n}"), format!("result-{n}")]);
+    }
+    wanted.into_iter().filter(|m| !text.contains(m.as_str())).collect()
+}
+
+/// ROADMAP focus item 4's proof: 20 staged limit events. In each, an agent's session works on a model for some turns,
+/// that model's quota runs out (a rate limit, an exhausted quota, no credit, a daily limit, Anthropic's spend limit or
+/// an overload), and the agent sends its next turns. The event resumes when the next turn is answered by the fallback
+/// with every earlier message, tool call and tool result of the conversation in what the fallback received, the turn
+/// after stays on the fallback, and the client is told which model answered (`x-pygg-route`).
+///
+///     cargo test --release --lib continuity_proof -- --ignored --nocapture
+///
+/// `PYGG_PROOF_OUT` names a JSON-lines file for one row per event.
+#[test]
+#[ignore]
+fn continuity_proof() {
+    rt().block_on(async {
+        let rig = rig().await;
+        // (surface, the primary's provider, its limit, the fallback, the turn the limit comes at)
+        let mut events: Vec<(&str, &str, &str, (&str, &str), usize)> = Vec::new();
+        for turn in [3, 8] {
+            for kind in ["429", "quota", "credit", "daily"] {
+                events.push(("openai", "main", kind, ("backup", "steady"), turn));
+            }
+            for kind in ["429", "spend", "overloaded"] {
+                events.push(("anthropic", "claude", kind, ("main", "fast"), turn));
+            }
+            for kind in ["429", "quota", "credit"] {
+                events.push(("responses", "main", kind, ("backup", "steady"), turn));
+            }
+        }
+        let mut rows = String::new();
+        let mut resumed = 0;
+        for (i, (surface, primary, kind, (fb_provider, fb_model), limit_at)) in events.iter().enumerate() {
+            // Each event starts clean: no cooldown left by the one before.
+            rig.shared
+                .with_db(|db| db.execute_batch("DELETE FROM connection_health; DELETE FROM key_health;"))
+                .unwrap();
+            let model = format!("drain-{kind}-e{i}");
+            rig.priced(primary, &model);
+            let combo = format!("continuity-{i}");
+            rig.combo(&combo, &[(primary, &model), (fb_provider, fb_model)]);
+            let path = match *surface {
+                "anthropic" => "/v1/messages",
+                "responses" => "/v1/responses",
+                _ => "/v1/chat/completions",
+            };
+            let session = format!("cont-{i}");
+            let route = |r: &reqwest::Response| {
+                r.headers().get("x-pygg-route").and_then(|v| v.to_str().ok()).unwrap_or("").to_string()
+            };
+            let primary_route = format!("{primary}/{model}");
+            let fallback_route = format!("{fb_provider}/{fb_model}");
+            let mut before_ok = true;
+            for turn in 1..=*limit_at {
+                let r = rig.post_session(path, &session, conversation(surface, &combo, turn)).await;
+                before_ok &= r.status() == 200 && route(&r) == primary_route;
+            }
+            rig.fake.drained.lock().unwrap().insert(model.clone());
+            let at_limit = rig.post_session(path, &session, conversation(surface, &combo, limit_at + 1)).await;
+            let (limit_status, limit_route) = (at_limit.status().as_u16(), route(&at_limit));
+            let received = rig.fake.last_body.lock().unwrap().clone().unwrap_or_default();
+            let lost = context_lost(&received, limit_at + 1);
+            let after = rig.post_session(path, &session, conversation(surface, &combo, limit_at + 2)).await;
+            let (after_status, after_route) = (after.status().as_u16(), route(&after));
+            let after_session =
+                after.headers().get("x-pygg-session").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+            let ok = before_ok
+                && limit_status == 200
+                && limit_route == fallback_route
+                && lost.is_empty()
+                && after_status == 200
+                && after_route == fallback_route;
+            resumed += ok as usize;
+            rows.push_str(&format!(
+                "{}\n",
+                json!({ "event": i, "surface": surface, "limit": kind, "turnOfLimit": limit_at + 1,
+                    "primary": primary_route, "fallback": fallback_route, "beforeOk": before_ok,
+                    "limitStatus": limit_status, "limitRoute": limit_route, "contextLost": lost,
+                    "nextStatus": after_status, "nextRoute": after_route, "nextSession": after_session, "resumed": ok })
+            ));
+        }
+        if let Ok(path) = std::env::var("PYGG_PROOF_OUT") {
+            std::fs::write(path, &rows).unwrap();
+        }
+        println!("{resumed} of {} limit events resumed with the whole context", events.len());
+        print!("{rows}");
+        assert!(resumed >= 19, "{rows}");
     });
 }

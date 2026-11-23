@@ -248,6 +248,8 @@ pub struct SessionCost {
     pub output_tokens: u64,
     /// Models that answered, most requests first.
     pub models: Vec<(String, u64)>,
+    /// The model that answered the latest request: after a fallback, the one the session is on now.
+    pub latest: Option<String>,
     /// Average known cost of the first and last requests with a known, non-zero cost, when there are enough of them:
     /// every turn sends the conversation again, so a long session's later requests cost more.
     pub depth: Option<(u64, u64)>,
@@ -295,6 +297,7 @@ pub fn session_cost(conn: &Connection, session: &str) -> rusqlite::Result<Sessio
         out.output_tokens += n(output);
         out.cached_tokens += n(cached);
         out.written_tokens += n(written);
+        out.latest = Some(model.clone());
         match out.models.iter_mut().find(|(m, _)| *m == model) {
             Some((_, count)) => *count += 1,
             None => out.models.push((model, 1)),
@@ -505,8 +508,18 @@ pub fn status_line(cost: &SessionCost, agents: u64, limits: Option<&SessionLimit
     if let Some(pct) = cache_percent(cost) {
         parts.push(format!("{pct}% cache"));
     }
-    if let Some((m, _)) = cost.models.first() {
-        parts.push(if cost.models.len() > 1 { format!("{m} +{}", cost.models.len() - 1) } else { m.clone() });
+    // After a limit moved the session (ROADMAP focus item 4), the model it is on now comes first, so the user sees
+    // which model answers them.
+    match (cost.latest.as_ref(), cost.models.first()) {
+        (Some(now), Some((most, _))) if now != most => parts.push(if cost.models.len() > 2 {
+            format!("now {now} (was {most} +{})", cost.models.len() - 2)
+        } else {
+            format!("now {now} (was {most})")
+        }),
+        (_, Some((m, _))) => {
+            parts.push(if cost.models.len() > 1 { format!("{m} +{}", cost.models.len() - 1) } else { m.clone() })
+        }
+        _ => {}
     }
     if agents > 0 {
         parts.push(format!("{agents} subagent{}", plural(agents)));
@@ -583,7 +596,12 @@ mod tests {
         assert_eq!(cost.depth, Some((145, 245)));
         assert_eq!(cache_percent(&cost), Some(80));
         let line = status_line(&cost, 2, None);
-        assert!(line.starts_with("Pygg $0.0039 · 80% cache · haiku +1 · 2 subagents · 1 fallback"), "{line}");
+        // The session ended on glm after haiku's fallback: the line says so.
+        assert_eq!(cost.latest.as_deref(), Some("glm"));
+        assert!(
+            line.starts_with("Pygg $0.0039 · 80% cache · now glm (was haiku) · 2 subagents · 1 fallback"),
+            "{line}"
+        );
     }
 
     #[test]

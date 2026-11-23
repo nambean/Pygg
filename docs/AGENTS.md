@@ -33,7 +33,7 @@ Printed when a tool started by `pygg run` exits: cost (unknown and subscription 
 
 - Kept in `launches`: counts and commit ids, never file names or code.
 - `pygg launches --by-repo` sums cost and commits per repository and week; observations only (ADR-036).
-- `pygg run --statusline claude` shows spend, cache and limit in Claude Code's status line.
+- `pygg run --statusline claude` shows spend, cache, limit and the model answering in Claude Code's status line: after a limit moved the session, `now <model> (was <model>)`.
 - Session and day limits (`pygg gateway client --session-usd N --day-usd N`) return 402 once reached; a running request is never cut.
 - Claude Code's request-class hint headers are recorded, never forwarded to the provider.
 - Status: unit tests; not run live.

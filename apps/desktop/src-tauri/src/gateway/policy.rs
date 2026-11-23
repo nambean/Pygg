@@ -203,6 +203,10 @@ pub fn decide(failure: &Failure) -> Decision {
                 // depends on the request's own state, and gateway timeouts in front of the provider (504,
                 // Cloudflare's 524): the request may have run. Stop, and the cost is unknown.
                 408 | 409 | 504 | 524 => decision(Next::Stop, None, !matches!(e.status, 409)),
+                // Anthropic's overload (529 `overloaded_error`) refuses the request before it runs, and is not billed:
+                // another target may take it at once, even for a client that allows no paid retry (ROADMAP focus
+                // item 4: Claude Code stopped here instead of going on). It lifts by itself.
+                529 => decision(Next::Any, mark(true, "server_error", wait(Duration::from_secs(30))), false),
                 // Overloaded or failing before it answered: another provider may help. The attempt's cost stays
                 // unknown (a provider could bill a failed generation); it is counted against a client's limit at
                 // the amount held for it.
@@ -359,6 +363,9 @@ mod tests {
         }
         assert_eq!(decide(&http(409)).next, Next::Stop);
         assert_eq!(decide(&http(425)).next, Next::Any, "RFC 8470: not processed");
+        // Anthropic's overload is refused before it runs: try the next target, nothing billed.
+        let overloaded = decide(&http(529));
+        assert_eq!((overloaded.next, overloaded.maybe_billed), (Next::Any, false));
     }
 
     #[test]
