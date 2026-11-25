@@ -4,7 +4,7 @@ import { BookMarked, BookOpen, Bot, ChartColumn, ChevronLeft, FolderGit2, House,
   SlidersHorizontal, TerminalSquare } from 'lucide-react';
 import './styles.css';
 import brandMark from './assets/brand-mark.svg';
-import { applyLanguage, LanguageContext, loadLanguage, resolve, t, type Language, type LanguageChoice } from './lib/i18n';
+import { applyLanguage, LanguageContext, loadLanguage, resolve, t, useLanguage, type Language, type LanguageChoice } from './lib/i18n';
 import { runningInDesktop, savedLanguage, saveLanguage } from './lib/native';
 import { isMac, MOD } from './lib/platform';
 import { FILTERS, matchesFilter, needsAttention, type Brainstorm, type TaskFilter, type TaskSummary, brainstormNeedsAttention } from './lib/tasks';
@@ -26,7 +26,7 @@ import { ProjectView, type ProjectTab } from './components/ProjectView';
 import { WorkList } from './components/WorkList';
 import { needsChecks, WorkspacesView } from './components/WorkspacesView';
 import { WindowControls } from './components/WindowControls';
-import { ErrorNote, Spinner, useRowHints } from './components/ui';
+import { ErrorNote, Segmented, Spinner, useRowHints } from './components/ui';
 import { CliTools } from './components/gateway/CliTools';
 import { Combos } from './components/gateway/Combos';
 import { Endpoint } from './components/gateway/Endpoint';
@@ -98,6 +98,7 @@ function startView(): View {
 }
 
 function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (choice: LanguageChoice) => void}) {
+  const shownLanguage = useLanguage();
   const [view, setView] = useState<View>(startView);
   const [intent, setIntent] = useState<Intent | undefined>();
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -296,6 +297,11 @@ function App({language, onLanguage}: {language: LanguageChoice; onLanguage: (cho
             <BudgetSubtitle running={counts.running} waiting={counts.approval} budget={budget.data ?? undefined}/>}
         </div>
         <span className="spacer" data-tauri-drag-region/>
+        {/* The interface language for the whole app, the same choice as Settings → Language. */}
+        <div className="language-switch" title={t('Language')}>
+          <Segmented<Language> value={shownLanguage} label={t('Language')} onChange={onLanguage}
+            options={[{value: 'vi', label: 'VI'}, {value: 'en', label: 'EN'}]}/>
+        </div>
         <button className="toolbar-button" type="button" onClick={() => setPalette(true)} aria-label={t('Command palette')}
           title={`${t('Command palette')} (${MOD}K)`}><Search size={16} strokeWidth={1.75}/></button>
         {primary && <button type="button" className="button prominent" onClick={() => setIntent(primary.intent)}>

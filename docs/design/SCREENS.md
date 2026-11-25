@@ -109,7 +109,7 @@ Code: `apps/desktop/src/main.tsx` (shell), `src/components` and `components/gate
 
 ### 2.3 Toolbar
 
-- Sidebar toggle, title, palette button, the screen's primary action (**Connect Provider…**, **Create API Key…**, **New Combo…**, **New Skill…**, **New Task**).
+- Sidebar toggle, title, the language switch (**VI | EN**, the same choice as Settings → Language; picking one replaces *System*), palette button, the screen's primary action (**Connect Provider…**, **Create API Key…**, **New Combo…**, **New Skill…**, **New Task**).
 - On Tasks, the budget subtitle (`BudgetSubtitle.tsx`): running, waiting, today's paid-step spend against the daily limit; click for the breakdown; resets 00:00 UTC.
 
 ### 2.5 Tray and notifications
@@ -236,7 +236,7 @@ Code: `apps/desktop/src/main.tsx` (shell), `src/components` and `components/gate
 
 ### 5.8 Settings
 
-`SettingsView.tsx`: General (language), Task budgets, Background (§2.5), Gateway (link to Endpoint), Appearance, Diagnostics (**Save Diagnostics…**, a redacted zip), Usage History (retention), About.
+`SettingsView.tsx`: General (language: System, English or Tiếng Việt; the toolbar's switch sets the same choice), Task budgets, Background (§2.5), Gateway (link to Endpoint), Appearance, Diagnostics (**Save Diagnostics…**, a redacted zip), Usage History (retention), About.
 
 ## 6. Sheets
 
