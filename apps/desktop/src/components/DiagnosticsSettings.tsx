@@ -35,7 +35,7 @@ export function DiagnosticsSettings() {
         <li>{t('Each client’s name and limits. Not its token.')}</li>
         <li>{t('How many rows each table holds, and the latest 200 requests: models, outcome, tokens and cost. Not the provider’s error text.')}</li>
         <li>{t('Each task’s state and its steps’ states. Not its title, prompt or reasons.')}</li>
-        <li>{t('The last 200 lines of Pygg’s log (logs\pygg.log), already redacted when written.')}</li>
+        <li>{t('The last 200 lines of Pygg’s log (logs\\pygg.log), already redacted when written.')}</li>
       </ul>
       {t('Every text is cut to 200 characters and passed through the same redaction as task logs. The terminal can save the same zip with pygg-cli diagnostics --out PATH.')}
     </details>
