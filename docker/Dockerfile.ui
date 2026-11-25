@@ -1,0 +1,23 @@
+# Pygg's interface (apps/desktop/src) built for a plain browser. Outside the Tauri window it runs on the
+# in-memory demo (lib/demo.ts) with a "demo data" banner: it cannot reach the gateway's data. A setup tour
+# (docker/ui-tour/tour.js, on Driver.js) walks through the settings step by step: "? Hướng dẫn cấu hình".
+FROM node:22-bookworm-slim AS build
+RUN corepack enable
+WORKDIR /src
+COPY . .
+RUN pnpm install --frozen-lockfile && pnpm --filter @pygg/desktop build
+# Driver.js (MIT, https://driverjs.com) for the setup tour; pinned, integrity-checked by npm.
+RUN cd /tmp && npm pack driver.js@1.14.0 >/dev/null && tar xzf driver.js-1.14.0.tgz
+
+FROM nginx:1-alpine
+COPY --from=build /src/apps/desktop/dist /usr/share/nginx/html
+# The setup tour (docker/ui-tour): step by step through the settings, one spotlighted at a time.
+COPY --from=build /tmp/package/dist/driver.js.iife.js /usr/share/nginx/html/tour/driver.js
+COPY --from=build /tmp/package/dist/driver.css /usr/share/nginx/html/tour/driver.css
+COPY --from=build /tmp/package/license /usr/share/nginx/html/tour/DRIVER-LICENSE.txt
+COPY docker/ui-tour/tour.js /usr/share/nginx/html/tour/tour.js
+RUN sed -i 's#</head>#<link rel="stylesheet" href="/tour/driver.css"></head>#; s#</body>#<script src="/tour/driver.js" defer></script><script src="/tour/tour.js" defer></script></body>#' /usr/share/nginx/html/index.html \
+ && grep -q 'tour.js' /usr/share/nginx/html/index.html \
+ && sed -i 's#location / {#location / {\n        add_header Cache-Control "no-cache";#' /etc/nginx/conf.d/default.conf \
+ && grep -q 'no-cache' /etc/nginx/conf.d/default.conf
+EXPOSE 80
