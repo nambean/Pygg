@@ -19,7 +19,7 @@
 <img src="https://img.shields.io/badge/status-developer%20preview-orange" alt="Status: developer preview"> <a href="https://mcpservers.org/servers/nambean/pygg"><img src="https://mcpservers.org/badge.svg" alt="Listed on mcpservers.org"></a> <a href="https://mcprush.com/to/pygg-mcp?ref=badge"><img src="https://mcprush.com/badge/pygg-mcp/card.svg" alt="Pygg MCP server" height="20"></a>
 </p>
 
-https://github.com/user-attachments/assets/85708783-8be3-4292-955c-783cc066bbd1
+https://github.com/user-attachments/assets/e8a452e3-4af7-43b0-bc7b-839bad1d9b6c
 
 <p align="center">
 <picture>
